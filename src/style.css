@@ -1,11 +1,41 @@
+
+/* 注意：`shadcn-vue add` 每次都会往这里插一行 Google Fonts 远程引入，装完组件记得删。
+   Tauri 离线可用性 + 国内可达性都不允许引远程字体，字体栈统一走下面 @theme 里的系统栈。 */
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn-vue/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
 
+/* WebNote 自有 token。与 shadcn 基础变量并存：
+   只补原型用到、而 shadcn neutral 主题里没有的那几个（画布底、选中蓝、脏标记、浮块圆角与阴影）。
+   这里用普通 @theme 而非 @theme inline —— 这些是直接定义的常量，不需要引用 :root 变量。 */
+@theme {
+    --color-canvas: oklch(0.963 0 0);
+    --color-line: oklch(0.9 0 0);
+    --color-muted-strong: oklch(0.93 0 0);
+    --color-selection: oklch(0.955 0.022 255);
+    --color-selection-foreground: oklch(0.44 0.13 255);
+    --color-selection-strong: oklch(0.93 0.035 255);
+    /* 行内高亮的底色。取淡黄而不是复用 selection 蓝：选中态是瞬时、高亮是持久，
+       两者在界面上会同时出现，同色系会分不清哪段是高亮、哪段正被选中。 */
+    --color-highlight: oklch(0.96 0.085 100);
+    --color-dirty: oklch(0.7 0.15 65);
+    --color-dirty-soft: oklch(0.96 0.035 75);
+
+    --radius-block: 18px;
+    --radius-island: 14px;
+
+    --shadow-block: 0 1px 2px oklch(0 0 0 / 4%), 0 6px 18px oklch(0 0 0 / 6%);
+    --shadow-island: 0 1px 2px oklch(0 0 0 / 5%), 0 3px 10px oklch(0 0 0 / 7%);
+    --shadow-pop: 0 1px 2px oklch(0 0 0 / 5%), 0 3px 10px oklch(0 0 0 / 7%), 0 12px 32px oklch(0 0 0 / 10%);
+
+    /* 系统字体栈。不引远程字体：Tauri 离线可用，且不依赖 Google Fonts 可达性。 */
+    --font-sans: -apple-system, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
 @theme inline {
-    --font-sans: 'Geist Variable', sans-serif;
     --font-heading: var(--font-sans);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
@@ -80,6 +110,7 @@
 }
 
 .dark {
+    --color-highlight: oklch(0.44 0.08 95);
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);
     --card: oklch(0.205 0 0);
@@ -120,5 +151,11 @@
   body {
     @apply bg-background text-foreground;
     @apply font-sans;
+    }
+  /* 行内高亮。浏览器对 mark 的默认样式是「黄底 + 黑字」，写死黑字会让它在
+     引用块 / 代码块这类自带字色的正文里跳出来。底色跟随主题，字色继承所处块。 */
+  mark {
+    background-color: var(--color-highlight);
+    color: inherit;
     }
 }

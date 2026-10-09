@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>解析自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; }
+  .fail { color: #b42318; }
+  .sum { margin-top: 12px; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>静态 HTML → 块模型，自检</h1>
+<pre id="out">running…</pre>
+
+<script type="module">
+import { parseHtml } from "../src/lib/html/parse.ts"
+import { blocksToHtml, serializeHtml } from "../src/lib/html/serialize.ts"
+import { orderedIndexes } from "../src/lib/blocks.ts"
+
+const SOURCES = import.meta.glob("../src/data/notes/**/*.html", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+})
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) {
+    passed += 1
+    lines.push(`OK   ${name}`)
+  } else {
+    failed += 1
+    lines.push(`FAIL ${name} —— ${detail}`)
+  }
+}
+
+/** 比对块时去掉 id：解析每次都重新生成 id，它不参与等价判断。 */
+function strip(blocks) {
+  return blocks.map((block) => {
+    const copy = { ...block }
+    delete copy.id
+    return copy
+  })
+}
+
+function same(a, b) {
+  return JSON.stringify(strip(a)) === JSON.stringify(strip(b))
+}
+
+function types(blocks) {
+  return blocks.map((block) => block.type).join(",")
+}
+
+function texts(blocks) {
+  return blocks
+    .map((block) => {
+      if (block.type === "image") return `[img:${block.alt}]`
+      if (block.type === "table") return `[table:${block.rows.length}x${block.rows[0] ? block.rows[0].length : 0}]`
+      return block.runs.map((run) => run.text).join("")
+    })
+    .join(" | ")
+}
+
+// ---------- 一、往返一致性 ----------
+
+const paths = Object.keys(SOURCES).sort()
+
+/**
+ * 内置样本。
+ *
+ * `src/data/notes/**` 是私人笔记，已被 .gitignore 挡在仓库外 —— 新克隆的人没有样本目录，
+ * 这一节不能因此空转甚至崩掉（下面 `sample` 会取第一个样本）。所以覆盖分两半：
+ * 本地样本（有就跑）+ 内置样本（永远跑）。
+ */
+const BUILTIN = [
+  [
+    "内置：标题 / 段落 / 行内标记",
+    '<h1>标题</h1><h2>小标题</h2><p>普通<strong>加粗</strong><mark>高亮</mark>' +
+      '<em>斜体</em><u>下划线</u><s>删除线</s><code>行内码</code><a href="/x">链接</a></p>',
+  ],
+  [
+    "内置：列表与嵌套",
+    "<ol><li>一</li><li>二<ol><li>二点一<ul><li>二点一之一</li></ul></li></ol></li><li>三</li></ol>" +
+      '<ul><li><input type="checkbox" checked> 已完成</li><li><input type="checkbox"> 未完成</li></ul>',
+  ],
+  [
+    "内置：表格 / 图片 / 代码 / 引用 / 分割线",
+    '<table><thead><tr><th>列一</th><th>列二</th></tr></thead><tbody><tr><td>a</td><td>b</td></tr></tbody></table>' +
+      '<figure><img src="x.png" alt="图" title="标题"><figcaption>说明</figcaption></figure>' +
+      '<pre><code class="language-ts">const a = 1;</code></pre><blockquote>引用</blockquote><aside>标注</aside><hr>',
+  ],
+]
+
+for (const [name, html] of BUILTIN) {
+  let ok = false
+  let detail = ""
+  try {
+    const parsed = parseHtml(html)
+    const again = parseHtml(blocksToHtml(parsed))
+    ok = same(parsed, again) && parsed.length > 0
+    if (!ok) detail = `\n  一次 ${texts(parsed)}\n  二次 ${texts(again)}`
+  } catch (error) {
+    detail = String(error)
+  }
+  check(`往返精确：${name}`, ok, detail)
+}
+
+check(
+  "往返覆盖非空（本地样本 + 内置样本）",
+  paths.length + BUILTIN.length >= 3,
+  `本地 ${paths.length} 篇，内置 ${BUILTIN.length} 篇`,
+)
+
+for (const path of paths) {
+  const parsed = parseHtml(SOURCES[path])
+  const again = parseHtml(blocksToHtml(parsed))
+  const name = path.replace("../src/data/notes/", "")
+  check(
+    `往返精确：${name}`,
+    same(parsed, again),
+    `\n  一次 ${texts(parsed)}\n  二次 ${texts(again)}`,
+  )
+  check(`样本非空：${name}`, parsed.length > 0, "解析出 0 个块")
+}
+
+// ---------- 二、宽松解析 ----------
+
+const loose = [
+  ["裸文本成块", "<body>hello</body>", (b) => types(b) === "text" && texts(b) === "hello"],
+  [
+    "容器穿透：div + span 合成一个块",
+    "<div><span>a</span><span>b</span></div>",
+    (b) => b.length === 1 && texts(b) === "ab",
+  ],
+  [
+    "噪声剔除：script / style 不进正文",
+    // 注意 `<\/script>`：在 inline script 里出现未转义的闭合标签会直接截断这个 script 元素。
+    '<p>正文</p><script>var x=1<\/script><style>.a{color:red}<\/style>',
+    (b) => types(b) === "text" && texts(b) === "正文",
+  ],
+  ["h4 降级为 h3", "<h4>标题</h4>", (b) => types(b) === "h3"],
+  ["h2 原样保留", "<h2>标题</h2>", (b) => types(b) === "h2"],
+  ["br 变成换行符", "<p>a<br>b</p>", (b) => texts(b) === "a\nb"],
+  ["源码缩进被折叠", "<p>\n   a    b\n</p>", (b) => texts(b) === "a b"],
+  [
+    "行内标记：strong / em / code / a",
+    '<p><strong>b</strong><em>i</em><code>c</code><a href="/x">l</a></p>',
+    (b) => {
+      const runs = b[0]?.runs ?? []
+      return (
+        runs.length === 4 &&
+        runs[0].marks.join() === "bold" &&
+        runs[1].marks.join() === "italic" &&
+        runs[2].marks.join() === "code" &&
+        runs[3].href === "/x"
+      )
+    },
+  ],
+  [
+    "行内标记：mark → highlight",
+    "<p><mark>h</mark></p>",
+    (b) => (b[0]?.runs ?? [])[0]?.marks.join() === "highlight",
+  ],
+  [
+    "行内标记：highlight 与 bold 各归各位",
+    "<p><strong>b</strong><mark>h</mark></p>",
+    (b) => {
+      const runs = b[0]?.runs ?? []
+      return runs.length === 2 && runs[0].marks.join() === "bold" && runs[1].marks.join() === "highlight"
+    },
+  ],
+  [
+    "行内标记：highlight 序列化回 mark",
+    "<p><mark>h</mark></p>",
+    (b) => blocksToHtml(b) === "<p><mark>h</mark></p>",
+  ],
+  [
+    "嵌套列表 → depth",
+    "<ul><li>a<ul><li>b</li></ul></li></ul>",
+    (b) => b.length === 2 && b[0].depth === 0 && b[1].depth === 1 && texts(b) === "a | b",
+  ],
+  [
+    "无序列表里的 ol 不越级",
+    "<ul><li>a<ul><li>b<ol><li>c</li></ol></li></ul></li></ul>",
+    (b) => b.length === 3 && b[2].depth === 2 && b[2].type === "ol",
+  ],
+  [
+    "待办：复选框 → todo + checked",
+    '<ul><li><input type="checkbox" checked> x</li><li><input type="checkbox"> y</li></ul>',
+    (b) => types(b) === "todo,todo" && b[0].checked === true && b[1].checked === false,
+  ],
+  [
+    "待办：label 包着复选框也认",
+    '<ul><li><label><input type="checkbox" checked></label>z</li></ul>',
+    (b) => types(b) === "todo" && b[0].checked === true && texts(b) === "z",
+  ],
+  ["有序列表 → ol", "<ol><li>a</li><li>b</li></ol>", (b) => types(b) === "ol,ol"],
+  [
+    "列表项里的多个 p 用换行分隔",
+    "<ul><li><p>a</p><p>b</p></li></ul>",
+    (b) => b.length === 1 && texts(b) === "a\nb",
+  ],
+  [
+    "代码块：语言与原文",
+    '<pre><code class="language-ts">let a = 1;\n  let b = 2;</code></pre>',
+    (b) => b[0].type === "code" && b[0].lang === "ts" && texts(b) === "let a = 1;\n  let b = 2;",
+  ],
+  ["blockquote → quote", "<blockquote>q</blockquote>", (b) => types(b) === "quote"],
+  ["aside → callout", "<aside>c</aside>", (b) => types(b) === "callout"],
+  ["hr → divider", "<hr>", (b) => types(b) === "divider"],
+  [
+    "段落里的图片独立成块",
+    '<p>前</p><p><img src="x.png" alt="A" title="T"></p>',
+    (b) => types(b) === "text,image" && b[1].alt === "A" && b[1].title === "T",
+  ],
+  [
+    "figure + figcaption → 图片块 + 说明块",
+    "<figure><img src='a.png' alt='A'><figcaption>说明</figcaption></figure>",
+    (b) => types(b) === "image,text" && texts(b) === "[img:A] | 说明",
+  ],
+  [
+    "table → 表头 + 单元格",
+    "<table><thead><tr><th>H</th></tr></thead><tbody><tr><td>D</td></tr></tbody></table>",
+    (b) =>
+      types(b) === "table" &&
+      b[0].rows.length === 2 &&
+      b[0].rows[0][0].header === true &&
+      b[0].rows[1][0].header === false &&
+      b[0].rows[1][0].runs[0].text === "D",
+  ],
+  ["dl / dt / dd → 文本块", "<dl><dt>词</dt><dd>释</dd></dl>", (b) => types(b) === "text,text" && texts(b) === "词 | 释"],
+  ["空输入 → 零块", "", (b) => b.length === 0],
+  ["纯空白 → 零块", "   \n  ", (b) => b.length === 0],
+  [
+    "空壳文档回退到 title",
+    "<html><head><title>只有标题</title></head><body></body></html>",
+    (b) => types(b) === "h1" && texts(b) === "只有标题",
+  ],
+  ["空段落保留成空块", "<p></p>", (b) => b.length === 1 && b[0].runs.length === 0],
+  ["空列表项保留成空块", "<ul><li></li></ul>", (b) => types(b) === "ul" && b[0].runs.length === 0],
+  [
+    "div 里混排裸文本与块级子元素",
+    "<div>裸文本<p>段落</p>尾巴</div>",
+    (b) => types(b) === "text,text,text" && texts(b) === "裸文本 | 段落 | 尾巴",
+  ],
+]
+
+for (const [name, html, verify] of loose) {
+  let ok = false
+  let detail = ""
+  try {
+    const blocks = parseHtml(html)
+    ok = verify(blocks)
+    if (!ok) detail = `得到 ${types(blocks)} / ${texts(blocks)} / ${JSON.stringify(strip(blocks))}`
+  } catch (error) {
+    detail = String(error)
+  }
+  check(name, ok, detail)
+}
+
+// ---------- 三、序列化 ----------
+
+const sample = parseHtml(paths.length > 0 ? SOURCES[paths[0]] : BUILTIN[0][1])
+const html = serializeHtml(sample, { title: "样本" })
+check("完整文档带 DOCTYPE 与 charset", html.startsWith("<!DOCTYPE html>") && html.includes('charset="utf-8"'))
+check("完整文档带 <title>", html.includes("<title>样本</title>"))
+check("完整文档能被重新解析", same(sample, parseHtml(html)))
+
+const looseSample = parseHtml(
+  '<div><h4>标题</h4><p><strong>加粗</strong>与<a href="/a">链接</a></p><ul><li>x<ul><li>y</li></ul></li></ul><table><tr><th>H</th></tr><tr><td>D</td></tr></table></div>',
+)
+check("脏 HTML 规范化后往返精确", same(looseSample, parseHtml(blocksToHtml(looseSample))))
+check(
+  "脏 HTML 连续往返稳定",
+  same(parseHtml(blocksToHtml(looseSample)), parseHtml(blocksToHtml(parseHtml(blocksToHtml(looseSample))))),
+)
+
+const emptyDoc = parseHtml("<p></p><ul><li></li></ul><hr>")
+check("空块 / 空列表项 / 分割线往返不丢", same(emptyDoc, parseHtml(blocksToHtml(emptyDoc))) && emptyDoc.length === 3)
+
+// ---------- 四、有序列表编号 ----------
+
+/**
+ * 编辑器里 ol 块显示的序号，按文档顺序。
+ *
+ * 与 `design/tab-check.html` 那套不同，这里不挂组件 —— 序号规则本身是模型层的纯函数。
+ */
+function editorNumbers(blocks, map) {
+  return blocks.filter((block) => block.type === "ol").map((block) => map.get(block.id))
+}
+
+function blockTextOf(block) {
+  if (block.type === "image") return `[img:${block.alt}]`
+  if (block.type === "table") return "[table]"
+  return block.runs.map((run) => run.text).join("")
+}
+
+/** 条目的自身文本：先摘掉嵌套列表，否则父条目会把子条目的文字一起吞进来。 */
+function ownText(li) {
+  const clone = li.cloneNode(true)
+  for (const nested of clone.querySelectorAll("ol, ul")) nested.remove()
+  return clone.textContent.trim()
+}
+
+/**
+ * 导出 HTML 里**浏览器实际会渲染**的编号：逐个 `<ol>` 数它自己的 `<li>`。
+ *
+ * 这是不变式的另一半 —— 编辑器算出来的序号必须与它逐项相等，否则用户在编辑器里
+ * 看到的数字与双击打开导出文件看到的数字就是两套。
+ */
+function htmlNumbers(blocks) {
+  const doc = new DOMParser().parseFromString(`<body>${blocksToHtml(blocks)}</body>`, "text/html")
+  const map = new Map()
+  for (const ol of doc.querySelectorAll("ol")) {
+    let n = 0
+    for (const li of ol.children) {
+      if (li.tagName !== "LI") continue
+      n += 1
+      map.set(ownText(li), n)
+    }
+  }
+  return map
+}
+
+const numberCases = [
+  ["相邻 ol 连续计数", "<ol><li>a</li><li>b</li><li>c</li></ol>", [1, 2, 3]],
+  ["被段落隔开 → 各自从 1 起", "<ol><li>a</li><li>b</li></ol><p>断</p><ol><li>c</li></ol>", [1, 2, 1]],
+  [
+    "被标题隔开 → 各自从 1 起",
+    "<h2>T</h2><ol><li>a</li></ol><h3>U</h3><ol><li>b</li><li>c</li></ol>",
+    [1, 1, 2],
+  ],
+  ["同层类型切换 → 重置", "<ol><li>a</li></ol><ul><li>x</li></ul><ol><li>b</li></ol>", [1, 1]],
+  [
+    "todo 也算列表族，同样打断 ol",
+    '<ol><li>a</li></ol><ul><li><input type="checkbox"> t</li></ul><ol><li>b</li></ol>',
+    [1, 1],
+  ],
+  ["ul 不参与 ol 计数", "<ul><li>x</li><li>y</li></ul><ol><li>a</li></ol>", [1]],
+  [
+    "嵌套 ol 按层计数，回到外层接着数",
+    "<ol><li>a<ol><li>a1</li><li>a2</li></ol></li><li>b</li></ol>",
+    [1, 1, 2, 2],
+  ],
+  [
+    "三段互不相邻的 ol 各自从 1 起",
+    "<ol><li>a</li></ol><p>p</p><ol><li>b<ol><li>b1</li></ol></li></ol><hr><ol><li>c</li></ol>",
+    [1, 1, 1, 1],
+  ],
+]
+
+for (const [name, source, expected] of numberCases) {
+  const blocks = parseHtml(source)
+  const map = orderedIndexes(blocks)
+  const olBlocks = blocks.filter((block) => block.type === "ol")
+  const got = editorNumbers(blocks, map)
+
+  check(
+    `编号：${name}`,
+    JSON.stringify(got) === JSON.stringify(expected),
+    `期望 ${JSON.stringify(expected)}，得到 ${JSON.stringify(got)}（块 ${types(blocks)}）`,
+  )
+
+  const rendered = htmlNumbers(blocks)
+  const mismatched = olBlocks.filter((block) => rendered.get(blockTextOf(block)) !== map.get(block.id))
+  check(
+    `编号与导出 HTML 一致：${name}`,
+    mismatched.length === 0,
+    `对不上的条目 ${mismatched.map(blockTextOf).join(" / ")}`,
+  )
+}
+
+// 样本文件同样要过这条不变式（可能没有 ol，那就退化成空集相等）。
+for (const path of paths) {
+  const blocks = parseHtml(SOURCES[path])
+  const rendered = htmlNumbers(blocks)
+  const map = orderedIndexes(blocks)
+  const bad = blocks
+    .filter((block) => block.type === "ol")
+    .filter((block) => rendered.get(blockTextOf(block)) !== map.get(block.id))
+  check(`编号与导出 HTML 一致：${path.replace("../src/data/notes/", "")}`, bad.length === 0, `对不上 ${bad.length} 条`)
+}
+
+// ---------- 输出 ----------
+
+const summary = `自检 ${passed}/${passed + failed} 通过`
+document.getElementById("out").textContent = lines.join("\n") + `\n\n${summary}`
+document.title = summary
+
+const box = document.getElementById("out")
+box.insertAdjacentHTML(
+  "beforeend",
+  `<span class="sum ${failed > 0 ? "fail" : "ok"}">${summary}</span>`,
+)
+</script>
+</body>
+</html>

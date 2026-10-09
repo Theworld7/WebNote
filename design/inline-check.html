@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>行内格式自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  #editor { margin: 12px 0; border: 1px solid #d0d0d4; border-radius: 6px; padding: 8px; }
+</style>
+</head>
+<body>
+<h1>行内格式：偏移换算 / 标记切换 / 画回自检</h1>
+<div id="editor" contenteditable="true"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { runsToHtml } from "../src/lib/inline.ts"
+import { marksAt, offsetRangeIn, paintRuns, rangeForOffsets, shortcutMark, toggleMarkAt } from "../src/lib/marks.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+
+function same(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+const editor = document.getElementById("editor")
+
+/** 在 editor 里选中 [start, end) 这段字符，等价于用户拖选。 */
+function select(start, end) {
+  editor.focus()
+  const range = rangeForOffsets(editor, { start, end })
+  if (range === null) return false
+  const selection = window.getSelection()
+  selection.removeAllRanges()
+  selection.addRange(range)
+  return true
+}
+
+function plain(text) {
+  return [{ text, marks: [] }]
+}
+
+// ---- 渲染 ----
+editor.innerHTML = runsToHtml([{ text: "b", marks: ["bold"] }, { text: "h", marks: ["highlight"] }])
+check("渲染：bold → strong、highlight → mark", editor.innerHTML === "<strong>b</strong><mark>h</mark>", editor.innerHTML)
+
+// ---- 选区 ↔ 偏移 ----
+editor.innerHTML = runsToHtml(plain("abcdef"))
+check("选区建立", select(1, 3))
+check("focus 后 activeElement 就是编辑体（浮动条靠它过滤）", document.activeElement === editor)
+check("选区 → 偏移", same(offsetRangeIn(editor), { start: 1, end: 3 }), JSON.stringify(offsetRangeIn(editor)))
+
+// ---- 部分选中加粗 ----
+const runs = plain("abcdef")
+const bolded = toggleMarkAt(runs, { start: 1, end: 3 }, "bold")
+check(
+  "部分选中：只切中间那段",
+  same(bolded, [{ text: "a", marks: [] }, { text: "bc", marks: ["bold"] }, { text: "def", marks: [] }]),
+  JSON.stringify(bolded),
+)
+
+// ---- 画回 DOM + 选区复原 ----
+paintRuns(editor, bolded, { start: 1, end: 3 })
+check("画回：重新渲染出 strong", editor.innerHTML === "a<strong>bc</strong>def", editor.innerHTML)
+check("画回：选区落在同一段文字上", same(offsetRangeIn(editor), { start: 1, end: 3 }), JSON.stringify(offsetRangeIn(editor)))
+
+// ---- 再次切换 = 取消 ----
+const unbolded = toggleMarkAt(bolded, { start: 1, end: 3 }, "bold")
+check("整段已带该标记 → 移除", same(unbolded, plain("abcdef")), JSON.stringify(unbolded))
+
+// ---- 跨 run 选中 ----
+const mixed = [{ text: "abc", marks: ["bold"] }, { text: "def", marks: [] }]
+const crossed = toggleMarkAt(mixed, { start: 1, end: 4 }, "highlight")
+check(
+  "跨 run：一侧切一半、另一侧切一半",
+  same(crossed, [
+    { text: "a", marks: ["bold"] },
+    { text: "bc", marks: ["bold", "highlight"] },
+    { text: "d", marks: ["highlight"] },
+    { text: "ef", marks: [] },
+  ]),
+  JSON.stringify(crossed),
+)
+
+// ---- 部分带、部分不带 → 收敛到都带上 ----
+const partial = [{ text: "ab", marks: ["highlight"] }, { text: "cd", marks: [] }]
+const converged = toggleMarkAt(partial, { start: 0, end: 4 }, "highlight")
+check(
+  "选区内格式不齐 → 收敛为都带上",
+  same(converged, [{ text: "abcd", marks: ["highlight"] }]),
+  JSON.stringify(converged),
+)
+
+// ---- href 跟着切分走 ----
+const linked = [{ text: "abcdef", marks: [], href: "/x" }]
+const linkedCut = toggleMarkAt(linked, { start: 2, end: 4 }, "bold")
+check(
+  "切分保留链接",
+  same(linkedCut, [
+    { text: "ab", marks: [], href: "/x" },
+    { text: "cd", marks: ["bold"], href: "/x" },
+    { text: "ef", marks: [], href: "/x" },
+  ]),
+  JSON.stringify(linkedCut),
+)
+
+// ---- 换行：`<br>` 占一个字符，偏移与 runs 对齐 ----
+editor.innerHTML = runsToHtml(plain("a\nb"))
+check("换行渲染成 br", editor.innerHTML === "a<br>b", editor.innerHTML)
+check("换行后的选区换算", select(2, 3) && same(offsetRangeIn(editor), { start: 2, end: 3 }), JSON.stringify(offsetRangeIn(editor)))
+const acrossBreak = toggleMarkAt(plain("a\nb"), { start: 1, end: 3 }, "bold")
+check("跨换行切换", same(acrossBreak, [{ text: "a", marks: [] }, { text: "\nb", marks: ["bold"] }]), JSON.stringify(acrossBreak))
+
+// ---- 选区只在编辑体内才认 ----
+editor.innerHTML = runsToHtml(plain("abc"))
+select(0, 3)
+check("整段选中 → 偏移 0..3", same(offsetRangeIn(editor), { start: 0, end: 3 }), JSON.stringify(offsetRangeIn(editor)))
+const outside = document.createElement("div")
+outside.textContent = "outside"
+document.body.append(outside)
+check("选区在别的元素里 → 不认", offsetRangeIn(outside) === null)
+
+// ---- 折叠选区不触发格式 ----
+const collapsed = document.createRange()
+collapsed.setStart(editor.firstChild, 1)
+collapsed.collapse(true)
+const selection = window.getSelection()
+selection.removeAllRanges()
+selection.addRange(collapsed)
+check("折叠选区 → null", offsetRangeIn(editor) === null)
+
+// ---- marksAt ----
+const spans = [{ text: "ab", marks: ["bold"] }, { text: "cd", marks: ["highlight"] }]
+check("marksAt 落在第一段", same(marksAt(spans, 1), ["bold"]))
+check("marksAt 落在第二段", same(marksAt(spans, 3), ["highlight"]))
+check("marksAt 越界回落到末段", same(marksAt(spans, 99), ["highlight"]))
+
+// ---- 快捷键映射 ----
+function key(init) {
+  return new KeyboardEvent("keydown", init)
+}
+check("Cmd+B → bold", shortcutMark(key({ key: "b", metaKey: true })) === "bold")
+check("Cmd+Shift+B → 不是格式键", shortcutMark(key({ key: "b", metaKey: true, shiftKey: true })) === null)
+check("Cmd+Shift+H → highlight", shortcutMark(key({ key: "h", metaKey: true, shiftKey: true })) === "highlight")
+check("Ctrl+H（无 shift）→ 不是格式键", shortcutMark(key({ key: "h", ctrlKey: true })) === null)
+check("单独按 B → 不是格式键", shortcutMark(key({ key: "b" })) === null)
+
+lines.push(`\n自检 ${passed}/${passed + failed} 通过`)
+document.getElementById("out").textContent = lines.join("\n")
+</script>
+</body>
+</html>

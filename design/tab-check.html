@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>标签栏自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>标签栏：保存按钮的显隐自检</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { createApp, defineComponent, h, nextTick } from "vue"
+// 必须引应用样式表：显隐断言查的是 Tailwind 工具类的计算样式，
+// 不引 style.css 的话 `hidden` / `inline-block` 都不存在，断言会假通过或假失败。
+import "../src/style.css"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import EditorTabBar from "../src/components/EditorTabBar.vue"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+
+/** 从真实的渲染结果里找保存按钮，不碰内部状态。 */
+function saveButton() {
+  return [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "保存")
+}
+
+/** 标签按钮本体。「未保存」文字与脏点都是常驻 DOM 靠 hidden 切换，所以要看计算样式。 */
+function tabButtons() {
+  return [...document.querySelectorAll('button[class*="group/tab"]')]
+}
+
+function visible(el) {
+  return el !== undefined && getComputedStyle(el).display !== "none"
+}
+
+function tagIn(button) {
+  return [...button.querySelectorAll("span")].find((s) => s.textContent.trim() === "未保存")
+}
+
+function dotIn(button) {
+  return [...button.querySelectorAll("span")].find((s) =>
+    (s.getAttribute("class") ?? "").includes("size-1.5"),
+  )
+}
+
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    return () => h(TooltipProvider, null, { default: () => h(EditorTabBar, { sidebarCollapsed: false }) })
+  },
+})
+
+createApp(Root).mount("#app")
+await nextTick()
+
+check("初始（无标签）不出现保存按钮", saveButton() === undefined)
+
+workspace.tabs.value = [{ path: "a.html", dirty: false }]
+workspace.activePath.value = "a.html"
+await nextTick()
+check("激活的标签干净 → 不出现", saveButton() === undefined)
+
+workspace.tabs.value[0].dirty = true
+await nextTick()
+const shown = saveButton()
+check("激活的标签变脏 → 出现", shown !== undefined)
+check("按钮文字为「保存」", shown !== undefined && shown.textContent.trim() === "保存")
+check("激活的脏标签显示「未保存」文字", visible(tagIn(tabButtons()[0])))
+check("激活的脏标签不显示圆点", !visible(dotIn(tabButtons()[0])))
+
+workspace.tabs.value.push({ path: "b.html", dirty: false })
+workspace.activePath.value = "b.html"
+await nextTick()
+check("切到干净标签 → 隐藏", saveButton() === undefined)
+check("此时仍存在未保存标签（脏态没被清掉）", workspace.hasDirty.value === true)
+check("非激活的脏标签只显示圆点，不显示文字", !visible(tagIn(tabButtons()[0])) && visible(dotIn(tabButtons()[0])))
+check("干净的激活标签两种脏标记都没有", !visible(tagIn(tabButtons()[1])) && !visible(dotIn(tabButtons()[1])))
+
+workspace.activePath.value = "a.html"
+await nextTick()
+check("切回脏标签 → 重现", saveButton() !== undefined)
+
+workspace.tabs.value[1].dirty = true
+await nextTick()
+check("两个标签都脏、激活项也脏 → 仍只有一个按钮", document.querySelectorAll("button").length > 0 && saveButton() !== undefined)
+
+workspace.tabs.value = workspace.tabs.value.map((tab) => ({ ...tab, dirty: false }))
+await nextTick()
+check("全部保存后 → 隐藏", saveButton() === undefined)
+
+workspace.activePath.value = ""
+await nextTick()
+check("无激活标签 → 隐藏", saveButton() === undefined)
+
+lines.push(`自检 ${passed}/${passed + failed}`)
+document.getElementById("out").textContent = lines.join("\n")
+</script>
+</body>
+</html>

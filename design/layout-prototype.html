@@ -1,0 +1,763 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WebNote 布局原型</title>
+<style>
+  :root {
+    --app-bg: oklch(0.963 0 0);
+    --surface: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --muted: oklch(0.965 0 0);
+    --muted-strong: oklch(0.93 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --line: oklch(0.9 0 0);
+    --sel-bg: oklch(0.955 0.022 255);
+    --sel-fg: oklch(0.44 0.13 255);
+    --dirty: oklch(0.7 0.15 65);
+    --dirty-bg: oklch(0.96 0.035 75);
+    --danger: oklch(0.55 0.2 25);
+    --radius: 0.625rem;
+    --radius-block: 18px;
+    --radius-island: 14px;
+    --shadow-block: 0 1px 2px oklch(0 0 0 / 4%), 0 6px 18px oklch(0 0 0 / 6%);
+    --shadow-island: 0 1px 2px oklch(0 0 0 / 5%), 0 3px 10px oklch(0 0 0 / 7%);
+    --font-sans: -apple-system, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+
+  body {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    color: var(--foreground);
+    background: var(--app-bg);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button, input { font: inherit; color: inherit; }
+  button { background: none; border: 0; padding: 0; cursor: pointer; }
+  svg { display: block; }
+
+  .app { display: flex; height: 100vh; padding: 10px; }
+
+  .icon-btn {
+    width: 22px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 6px;
+    color: var(--muted-foreground);
+  }
+  .icon-btn:hover { background: var(--muted); color: var(--foreground); }
+
+  .sidebar {
+    width: 232px; flex: none;
+    display: flex; flex-direction: column;
+    background: var(--surface);
+    border-radius: var(--radius-block);
+    box-shadow: var(--shadow-block);
+    overflow: hidden;
+  }
+  .sidebar.collapsed { display: none; }
+
+  .side-head {
+    height: 42px; flex: none;
+    display: flex; align-items: center; gap: 4px;
+    padding: 0 8px 0 16px;
+  }
+  .brand { font-size: 13px; font-weight: 500; letter-spacing: .01em; }
+  .side-head .spacer { flex: 1; }
+
+  .side-search { flex: none; padding: 4px 10px 8px; }
+  .search-box {
+    display: flex; align-items: center; gap: 6px;
+    height: 30px; padding: 0 10px;
+    border-radius: var(--radius);
+    background: var(--muted);
+    transition: background .12s ease;
+  }
+  .search-box:focus-within { background: var(--muted-strong); }
+  .search-box input {
+    flex: 1; min-width: 0;
+    border: 0; outline: 0; background: none;
+    color: var(--foreground);
+  }
+  .search-box input::placeholder { color: var(--muted-foreground); }
+
+  .tree { flex: 1; overflow-y: auto; padding: 0 6px 8px; }
+  .tree .group { display: none; }
+  .node.folder.open + .group { display: block; }
+
+  .node {
+    display: flex; align-items: center; gap: 6px;
+    height: 28px; padding: 0 6px;
+    border-radius: 6px;
+    cursor: default;
+    user-select: none;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .node .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .node:hover { background: var(--muted); }
+  .node.folder { font-weight: 500; }
+  .node.folder .chev { color: var(--muted-foreground); transition: transform .12s ease; }
+  .node.folder.open .chev { transform: rotate(90deg); }
+  .node.file { color: oklch(0.32 0 0); }
+  .node.file.selected { background: var(--sel-bg); color: var(--sel-fg); font-weight: 500; }
+  .node.file.selected .ico { color: var(--sel-fg); }
+  .node .ico { color: var(--muted-foreground); flex: none; }
+  .group .node { padding-left: 22px; }
+
+  .side-foot {
+    flex: none; height: 38px;
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 14px;
+    color: var(--muted-foreground);
+  }
+  .side-foot button { display: flex; align-items: center; gap: 6px; }
+  .side-foot button:hover { color: var(--foreground); }
+
+  .resizer { width: 12px; flex: none; cursor: col-resize; position: relative; }
+  .resizer::after {
+    content: ""; position: absolute;
+    left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 3px; height: 30px;
+    border-radius: 999px;
+    background: var(--line);
+    opacity: 0;
+    transition: opacity .12s ease;
+  }
+  .resizer:hover::after, .resizer.dragging::after { opacity: 1; }
+  .sidebar.collapsed + .resizer { display: none; }
+
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+
+  .tabbar {
+    flex: none;
+    align-self: flex-start;
+    max-width: 100%;
+    display: flex; align-items: center; gap: 4px;
+    padding: 4px;
+    border-radius: var(--radius-island);
+    background: var(--surface);
+    box-shadow: var(--shadow-island);
+  }
+  .tabs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow: hidden; }
+  .tab {
+    display: flex; align-items: center; gap: 6px;
+    height: 28px; max-width: 230px;
+    padding: 0 8px 0 12px;
+    border-radius: 9px;
+    color: var(--muted-foreground);
+    transition: background .12s ease;
+  }
+  .tab .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tab:hover { background: var(--muted); }
+  .tab.active { background: var(--sel-bg); color: var(--sel-fg); font-weight: 500; }
+  .tab .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dirty); display: none; flex: none; }
+  .tab.dirty:not(.active) .dot { display: block; }
+  .tab .tag {
+    display: none; flex: none;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--dirty-bg);
+    color: var(--dirty);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.5;
+    white-space: nowrap;
+  }
+  .tab.dirty.active .tag { display: block; }
+  .tab .close { display: flex; opacity: 0; color: var(--muted-foreground); border-radius: 4px; }
+  .tab:hover .close { opacity: 1; }
+  .tab .close:hover { color: var(--foreground); }
+
+  .tabbar-actions { display: flex; align-items: center; gap: 2px; flex: none; margin-left: 4px; padding-left: 6px; }
+  .btn-save {
+    height: 26px; padding: 0 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--muted-foreground);
+    transition: background .12s ease, color .12s ease;
+  }
+  .btn-save:hover { background: var(--muted); color: var(--foreground); }
+  .btn-save.primary { background: var(--sel-bg); color: var(--sel-fg); font-weight: 500; }
+  .btn-save.primary:hover { background: oklch(0.93 0.035 255); }
+
+  .surface {
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column;
+    background: var(--surface);
+    border-radius: var(--radius-block);
+    box-shadow: var(--shadow-block);
+    overflow: hidden;
+  }
+
+  .crumbs {
+    display: flex; align-items: center; gap: 6px;
+    min-width: 0; overflow: hidden;
+    color: var(--muted-foreground);
+  }
+  .crumbs > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .crumbs .sep { color: oklch(0.78 0 0); flex: none; }
+  .crumbs .file { color: var(--foreground); }
+
+  .editor { flex: 1; min-height: 0; overflow-y: auto; }
+  .doc { max-width: 800px; margin: 0 auto; padding: 20px 40px 120px 96px; counter-reset: olist; }
+
+  .block { position: relative; padding: 3px 0; }
+  .body {
+    outline: 0;
+    min-height: 24px;
+    font-size: 14px;
+    line-height: 1.65;
+    color: oklch(0.2 0 0);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .body:empty::before { content: "输入内容，或按 / 唤起块类型"; color: var(--muted-foreground); }
+  .block[data-type="divider"] .body:empty::before { content: none; }
+
+  .tools {
+    position: absolute; left: -50px; top: 2px;
+    display: flex; gap: 2px;
+    opacity: 0;
+    transition: opacity .12s ease;
+  }
+  .block:hover .tools, .block.menu-open .tools { opacity: 1; }
+  .tool {
+    width: 24px; height: 24px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 5px;
+    color: var(--muted-foreground);
+  }
+  .tool:hover { background: var(--muted); color: var(--foreground); }
+
+  .block[data-type="h1"] { padding: 16px 0 2px; }
+  .block[data-type="h1"] .body { font-size: 24px; font-weight: 500; line-height: 1.35; letter-spacing: -.01em; }
+  .block[data-type="h1"] .tools { top: 18px; }
+  .block[data-type="h2"] { padding: 14px 0 2px; }
+  .block[data-type="h2"] .body { font-size: 18px; font-weight: 500; line-height: 1.4; }
+  .block[data-type="h2"] .tools { top: 16px; }
+  .block[data-type="h3"] .body { font-size: 15.5px; font-weight: 500; }
+
+  .block[data-type="quote"] .body {
+    background: var(--muted);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin: 4px 0;
+    color: oklch(0.42 0 0);
+  }
+
+  .block[data-type="code"] .body {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.7;
+    background: var(--muted-strong);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin: 4px 0;
+    color: oklch(0.3 0 0);
+  }
+
+  .block[data-type="callout"] .body {
+    background: var(--sel-bg);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin: 4px 0;
+    color: oklch(0.33 0.05 255);
+  }
+
+  .block[data-type="divider"] { padding: 10px 0; }
+  .block[data-type="divider"] .body { min-height: 0; height: 1px; background: var(--line); }
+
+  .marker, .cb { display: none; }
+  .block[data-type="ul"] .marker, .block[data-type="ol"] .marker, .block[data-type="todo"] .cb { display: block; }
+
+  .marker {
+    position: absolute; left: 2px; top: 6px;
+    width: 20px; text-align: center;
+    color: var(--muted-foreground);
+    font-size: 13px;
+    line-height: 1.65;
+    pointer-events: none;
+  }
+  .block[data-type="ul"] .marker::before { content: "•"; }
+  .block[data-type="ol"] { counter-increment: olist; }
+  .block[data-type="ol"] .marker::before { content: counter(olist) "."; font-size: 12.5px; }
+
+  .cb {
+    position: absolute; left: 2px; top: 5px;
+    width: 14px; height: 14px;
+    margin: 0;
+    accent-color: var(--sel-fg);
+    cursor: pointer;
+  }
+
+  .block[data-type="ul"] .body,
+  .block[data-type="ol"] .body,
+  .block[data-type="todo"] .body { padding-left: 24px; }
+
+  .block[data-type="todo"].done .body { color: var(--muted-foreground); text-decoration: line-through; }
+
+  .menu {
+    position: fixed;
+    display: none;
+    width: 244px;
+    max-height: 320px;
+    overflow-y: auto;
+    padding: 5px;
+    z-index: 30;
+    background: var(--surface);
+    border-radius: var(--radius-island);
+    box-shadow: var(--shadow-island), 0 12px 32px oklch(0 0 0 / 10%);
+  }
+  .menu.open { display: block; }
+  .menu-title {
+    padding: 6px 8px 4px;
+    font-size: 11px;
+    color: var(--muted-foreground);
+  }
+  .menu-item {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%;
+    height: 30px;
+    padding: 0 8px;
+    border-radius: 7px;
+    text-align: left;
+    font-size: 13px;
+  }
+  .menu-item:hover { background: var(--muted); }
+  .menu-item .mi {
+    width: 22px; flex: none;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--muted-foreground);
+  }
+  .menu-item .ml { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .menu-sep { height: 1px; margin: 5px 8px; background: var(--line); }
+  .menu-item.danger .ml, .menu-item.danger .mi { color: var(--danger); }
+
+  .statusbar {
+    flex: none; height: 32px;
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 22px;
+    color: var(--muted-foreground);
+    font-size: 11px;
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="side-head">
+      <span class="brand">WebNote</span>
+      <span class="spacer"></span>
+      <button class="icon-btn" title="新建文件夹">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5h5"/></svg>
+      </button>
+      <button class="icon-btn" title="新建笔记">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
+
+    <div class="side-search">
+      <div class="search-box">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
+        <input placeholder="搜索笔记…" />
+      </div>
+    </div>
+
+    <nav class="tree" id="tree">
+      <div class="node folder open" data-folder>
+        <span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span>
+        <span class="ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+        <span class="label">日记</span>
+      </div>
+      <div class="group">
+        <div class="node file selected" data-path="日记 / 2026-10-08.html">
+          <span class="ico"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg></span>
+          <span class="label">2026-10-08.html</span>
+        </div>
+        <div class="node file" data-path="日记 / 2026-10-07.html">
+          <span class="ico"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg></span>
+          <span class="label">2026-10-07.html</span>
+        </div>
+        <div class="node file" data-path="日记 / 2026-10-06.html">
+          <span class="ico"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg></span>
+          <span class="label">2026-10-06.html</span>
+        </div>
+      </div>
+
+      <div class="node folder open" data-folder>
+        <span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span>
+        <span class="ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+        <span class="label">项目</span>
+      </div>
+      <div class="group">
+        <div class="node file" data-path="项目 / WebNote 规划.html">
+          <span class="ico"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg></span>
+          <span class="label">WebNote 规划.html</span>
+        </div>
+        <div class="node file" data-path="项目 / ADR-0001 本地文件读写.html">
+          <span class="ico"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg></span>
+          <span class="label">ADR-0001 本地文件读写.html</span>
+        </div>
+        <div class="node file" data-path="项目 / 布局草图.html">
+          <span class="ico"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg></span>
+          <span class="label">布局草图.html</span>
+        </div>
+      </div>
+
+      <div class="node folder" data-folder>
+        <span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span>
+        <span class="ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+        <span class="label">剪藏</span>
+      </div>
+      <div class="group">
+        <div class="node file" data-path="剪藏 / 网格布局实践.html">
+          <span class="ico"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg></span>
+          <span class="label">网格布局实践.html</span>
+        </div>
+      </div>
+
+      <div class="node file" data-path="待整理.html">
+        <span class="ico"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg></span>
+        <span class="label">待整理.html</span>
+      </div>
+    </nav>
+
+    <div class="side-foot">
+      <button>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>
+        <span>设置</span>
+      </button>
+    </div>
+  </aside>
+
+  <div class="resizer" id="resizer"></div>
+
+  <section class="main">
+    <div class="tabbar">
+      <div class="tabs" id="tabs">
+        <div class="tab active dirty" data-path="日记 / 2026-10-08.html">
+          <span class="name">2026-10-08.html</span>
+          <span class="tag">未保存</span>
+          <span class="dot"></span>
+          <span class="close"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
+        </div>
+        <div class="tab" data-path="项目 / WebNote 规划.html">
+          <span class="name">WebNote 规划.html</span>
+          <span class="dot"></span>
+          <span class="close"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
+        </div>
+      </div>
+      <div class="tabbar-actions">
+        <button class="btn-save primary" id="saveBtn">保存</button>
+        <button class="icon-btn" title="在目录中定位">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+        </button>
+        <button class="icon-btn" title="更多">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+        </button>
+        <button class="icon-btn" id="sidebarToggle" title="折叠侧栏">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9.5 4v16"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="surface">
+      <div class="editor">
+        <div class="doc" id="doc">
+          <div class="block" data-type="h1"><div class="body" contenteditable="true" spellcheck="false">今日笔记</div></div>
+          <div class="block" data-type="text"><div class="body" contenteditable="true" spellcheck="false">布局定了：左侧文件目录导航，右侧编辑区。编辑区走块模型，不出现顶部富文本工具栏。</div></div>
+          <div class="block" data-type="callout"><div class="body" contenteditable="true" spellcheck="false">把鼠标移到任意块上，左侧会出现 + 与 ⋮⋮；在空行输入 / 可以唤起块类型菜单。</div></div>
+          <div class="block" data-type="h2"><div class="body" contenteditable="true" spellcheck="false">待办</div></div>
+          <div class="block done" data-type="todo"><div class="body" contenteditable="true" spellcheck="false">移除顶部富文本工具栏</div></div>
+          <div class="block" data-type="todo"><div class="body" contenteditable="true" spellcheck="false">块左侧手柄与块菜单</div></div>
+          <div class="block" data-type="todo"><div class="body" contenteditable="true" spellcheck="false">/ 唤起插入菜单</div></div>
+          <div class="block" data-type="h3"><div class="body" contenteditable="true" spellcheck="false">其他</div></div>
+          <div class="block" data-type="ul"><div class="body" contenteditable="true" spellcheck="false">目录树的折叠与拖拽排序</div></div>
+          <div class="block" data-type="ul"><div class="body" contenteditable="true" spellcheck="false">多标签 + 未保存标记</div></div>
+          <div class="block" data-type="ol"><div class="body" contenteditable="true" spellcheck="false">搜索框支持全文检索</div></div>
+          <div class="block" data-type="quote"><div class="body" contenteditable="true" spellcheck="false">目录树要能折叠；选中态一眼看得出来；侧栏宽度能拖。</div></div>
+          <div class="block" data-type="code"><div class="body" contenteditable="true" spellcheck="false">文件后缀统一用 .html，方便本地直接双击预览。</div></div>
+          <div class="block" data-type="divider"><div class="body"></div></div>
+          <div class="block" data-type="text"><div class="body" contenteditable="true" spellcheck="false">参考：shadcn-vue 组件库</div></div>
+        </div>
+      </div>
+
+      <div class="statusbar">
+        <span class="crumbs" id="crumbs">
+          <span class="folder">日记</span>
+          <span class="sep">/</span>
+          <span class="file">2026-10-08.html</span>
+        </span>
+        <span id="wordCount">128 字</span>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="menu" id="menu"></div>
+
+<script>
+  const sidebar = document.getElementById('sidebar');
+  const tree = document.getElementById('tree');
+  const tabs = document.getElementById('tabs');
+  const crumbs = document.getElementById('crumbs');
+  const doc = document.getElementById('doc');
+  const menu = document.getElementById('menu');
+  const saveBtn = document.getElementById('saveBtn');
+  const wordCount = document.getElementById('wordCount');
+
+  const TOOLS = '<div class="tools">'
+    + '<button class="tool" data-act="add" title="添加块"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>'
+    + '<button class="tool" data-act="handle" title="拖拽 / 块菜单"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></button>'
+    + '</div>';
+
+  const TYPES = [
+    ['text', '\u00b6', '文本'],
+    ['h1', 'H1', '标题 1'],
+    ['h2', 'H2', '标题 2'],
+    ['h3', 'H3', '标题 3'],
+    ['todo', '[ ]', '待办列表'],
+    ['ul', '\u2022', '无序列表'],
+    ['ol', '1.', '有序列表'],
+    ['quote', '"', '引用'],
+    ['code', '</>', '代码块'],
+    ['divider', '\u2014', '分割线']
+  ];
+
+  let menuBlock = null;
+  let menuMode = '';
+
+  function decorate(block) {
+    block.insertAdjacentHTML('afterbegin', TOOLS);
+    const type = block.dataset.type;
+    if (type === 'ul' || type === 'ol') block.insertAdjacentHTML('beforeend', '<span class="marker"></span>');
+    if (type === 'todo') block.insertAdjacentHTML('beforeend', '<input class="cb" type="checkbox" />');
+  }
+
+  doc.querySelectorAll('.block').forEach(block => {
+    decorate(block);
+    const cb = block.querySelector('.cb');
+    if (cb) cb.checked = block.classList.contains('done');
+  });
+
+  function bodyOf(block) { return block.querySelector('.body'); }
+
+  function makeBlock(type) {
+    const block = document.createElement('div');
+    block.className = 'block';
+    block.dataset.type = type;
+    block.innerHTML = '<div class="body" contenteditable="true" spellcheck="false"></div>';
+    decorate(block);
+    return block;
+  }
+
+  function placeMenu(anchor) {
+    const rect = anchor.getBoundingClientRect();
+    menu.style.left = Math.min(rect.left, window.innerWidth - 268) + 'px';
+    menu.style.top = Math.min(rect.bottom + 6, window.innerHeight - menu.offsetHeight - 12) + 'px';
+  }
+
+  function openMenu(block, mode, anchor) {
+    menuBlock = block;
+    menuMode = mode;
+    doc.querySelectorAll('.block.menu-open').forEach(b => b.classList.remove('menu-open'));
+    block.classList.add('menu-open');
+
+    if (mode === 'block') {
+      menu.innerHTML = '<button class="menu-item" data-act="duplicate"><span class="mi">\u29c9</span><span class="ml">复制块</span></button>'
+        + '<button class="menu-item" data-act="turn"><span class="mi">\u21bb</span><span class="ml">转为\u2026</span></button>'
+        + '<div class="menu-sep"></div>'
+        + '<button class="menu-item danger" data-act="delete"><span class="mi">\u2715</span><span class="ml">删除块</span></button>';
+    } else {
+      menu.innerHTML = '<div class="menu-title">' + (mode === 'insert' ? '在当前块下方插入' : '转换为') + '</div>'
+        + TYPES.map(t => '<button class="menu-item" data-type="' + t[0] + '"><span class="mi">' + t[1] + '</span><span class="ml">' + t[2] + '</span></button>').join('');
+    }
+
+    menu.classList.add('open');
+    placeMenu(anchor);
+  }
+
+  function closeMenu() {
+    menu.classList.remove('open');
+    menu.innerHTML = '';
+    doc.querySelectorAll('.block.menu-open').forEach(b => b.classList.remove('menu-open'));
+    menuBlock = null;
+    menuMode = '';
+  }
+
+  function setDirty(on) {
+    const tab = tabs.querySelector('.tab.active');
+    if (tab) tab.classList.toggle('dirty', on);
+    saveBtn.classList.toggle('primary', on);
+  }
+
+  function countWords() {
+    wordCount.textContent = doc.innerText.replace(/\s/g, '').length + ' 字';
+  }
+
+  function activateTab(tab) {
+    tabs.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tab));
+    setDirty(tab.classList.contains('dirty'));
+  }
+
+  function setCrumbs(path) {
+    const parts = path.split(' / ');
+    crumbs.innerHTML = parts
+      .map((p, i) => i === parts.length - 1
+        ? '<span class="file">' + p + '</span>'
+        : '<span class="folder">' + p + '</span><span class="sep">/</span>')
+      .join('');
+  }
+
+  doc.addEventListener('click', e => {
+    const tool = e.target.closest('.tool');
+    if (tool) {
+      e.preventDefault();
+      const block = tool.closest('.block');
+      if (tool.dataset.act === 'add') openMenu(block, 'insert', tool);
+      else openMenu(block, 'block', tool);
+      return;
+    }
+    if (e.target.closest('.cb')) {
+      const block = e.target.closest('.block');
+      block.classList.toggle('done', block.querySelector('.cb').checked);
+      setDirty(true);
+      return;
+    }
+    if (!e.target.closest('.menu')) closeMenu();
+  });
+
+  doc.addEventListener('input', e => {
+    setDirty(true);
+    const block = e.target.closest('.block');
+    if (block && menuMode === '' && e.target.textContent.trim() === '/') {
+      openMenu(block, 'convert', e.target);
+      return;
+    }
+    countWords();
+  });
+
+  doc.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeMenu();
+  });
+
+  menu.addEventListener('mousedown', e => {
+    const item = e.target.closest('.menu-item');
+    if (!item) return;
+    e.preventDefault();
+
+    if (item.dataset.type) {
+      const type = item.dataset.type;
+      if (menuMode === 'insert') {
+        const block = makeBlock(type);
+        menuBlock.after(block);
+        bodyOf(block).focus();
+      } else {
+        bodyOf(menuBlock).textContent = '';
+        menuBlock.dataset.type = type;
+        if (type === 'ul' || type === 'ol') {
+          if (!menuBlock.querySelector('.marker')) menuBlock.insertAdjacentHTML('beforeend', '<span class="marker"></span>');
+        } else {
+          const m = menuBlock.querySelector('.marker');
+          if (m) m.remove();
+        }
+        if (type === 'todo') {
+          if (!menuBlock.querySelector('.cb')) menuBlock.insertAdjacentHTML('beforeend', '<input class="cb" type="checkbox" />');
+        } else {
+          const c = menuBlock.querySelector('.cb');
+          if (c) c.remove();
+        }
+        bodyOf(menuBlock).focus();
+      }
+      closeMenu();
+      setDirty(true);
+      countWords();
+      return;
+    }
+
+    const act = item.dataset.act;
+    if (act === 'duplicate') {
+      const copy = menuBlock.cloneNode(true);
+      copy.classList.remove('menu-open');
+      menuBlock.after(copy);
+      setDirty(true);
+    } else if (act === 'delete') {
+      menuBlock.remove();
+      setDirty(true);
+      countWords();
+    } else if (act === 'turn') {
+      const anchor = menuBlock.querySelector('.tool[data-act="handle"]');
+      openMenu(menuBlock, 'convert', anchor);
+      return;
+    }
+    closeMenu();
+  });
+
+  tree.addEventListener('click', e => {
+    const folder = e.target.closest('[data-folder]');
+    if (folder) { folder.classList.toggle('open'); return; }
+    const file = e.target.closest('.node.file');
+    if (!file) return;
+    tree.querySelectorAll('.node.file').forEach(n => n.classList.toggle('selected', n === file));
+    setCrumbs(file.dataset.path);
+    const openTab = tabs.querySelector('.tab[data-path="' + file.dataset.path + '"]');
+    if (openTab) activateTab(openTab);
+  });
+
+  tabs.addEventListener('click', e => {
+    const tab = e.target.closest('.tab');
+    if (!tab) return;
+    if (e.target.closest('.close')) {
+      const wasActive = tab.classList.contains('active');
+      tab.remove();
+      if (wasActive) {
+        const next = tabs.querySelector('.tab');
+        if (next) activateTab(next);
+      }
+      return;
+    }
+    activateTab(tab);
+  });
+
+  saveBtn.addEventListener('click', () => setDirty(false));
+
+  document.addEventListener('mousedown', e => {
+    if (!e.target.closest('.menu') && !e.target.closest('.tool')) closeMenu();
+  });
+
+  document.getElementById('sidebarToggle').addEventListener('click', () => {
+    sidebar.classList.toggle('collapsed');
+  });
+
+  const resizer = document.getElementById('resizer');
+  resizer.addEventListener('mousedown', () => {
+    resizer.classList.add('dragging');
+    const move = e => {
+      sidebar.style.width = Math.min(Math.max(e.clientX, 180), 420) + 'px';
+    };
+    const up = () => {
+      resizer.classList.remove('dragging');
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  });
+
+  countWords();
+</script>
+
+</body>
+</html>
