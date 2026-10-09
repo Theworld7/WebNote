@@ -39,16 +39,16 @@ interface ParseState {
 }
 
 /**
- * 标题映射。h4~h6 模型里没有对应层级，统一降级成 h3 ——
- * 比整段丢掉好，也比硬塞进 h1/h2 更不容易误导。
+ * 标题映射。六级一一对应 —— 模型里有 h4~h6 之后不再降级，
+ * 否则「h4 → h3」会在往返里把层级压平，改一次笔记就丢一次结构。
  */
 const HEADING_TYPES = new Map<string, TextualBlockType>([
   ["H1", "h1"],
   ["H2", "h2"],
   ["H3", "h3"],
-  ["H4", "h3"],
-  ["H5", "h3"],
-  ["H6", "h3"],
+  ["H4", "h4"],
+  ["H5", "h5"],
+  ["H6", "h6"],
 ])
 
 const CODE_TAG = "CODE"

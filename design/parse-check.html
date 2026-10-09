@@ -145,7 +145,7 @@ const loose = [
     '<p>正文</p><script>var x=1<\/script><style>.a{color:red}<\/style>',
     (b) => types(b) === "text" && texts(b) === "正文",
   ],
-  ["h4 降级为 h3", "<h4>标题</h4>", (b) => types(b) === "h3"],
+  ["h1~h6 六级一一对应", "<h1>a</h1><h2>b</h2><h3>c</h3><h4>d</h4><h5>e</h5><h6>f</h6>", (b) => types(b) === "h1,h2,h3,h4,h5,h6"],
   ["h2 原样保留", "<h2>标题</h2>", (b) => types(b) === "h2"],
   ["br 变成换行符", "<p>a<br>b</p>", (b) => texts(b) === "a\nb"],
   ["源码缩进被折叠", "<p>\n   a    b\n</p>", (b) => texts(b) === "a b"],

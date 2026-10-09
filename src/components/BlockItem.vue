@@ -224,18 +224,100 @@ async function onMenuChange(value: BlockMenuKind) {
 
 const markerText = computed(() => (props.block.type === "ol" ? `${props.orderedIndex}.` : "•"))
 
+/**
+ * 块排版规格 —— 对齐 Naive UI Typography（数值逐条取自 naive-ui v2 源码）。
+ *
+ * - `src/_styles/common/_common.ts`：fontSize `14px`、lineHeight `1.6`、fontWeightStrong `500`
+ * - `src/typography/styles/_common.ts`：headerFontSize1~6 = `30/22/18/16/16/16px`；
+ *   headerMargin1~3 = `28px 0 20px 0`，headerMargin4~6 = `28px 0 18px 0`；pMargin = `16px 0`
+ * - `blockquote.cssr.ts` / `hr.cssr.ts`：margin 都是 `12px 0`
+ *
+ * ## 外边距为什么必须走 margin，不能走 padding
+ *
+ * naive 的「上 28 下 20」是不对称的，而相邻块之间的最终距离由浏览器**折叠**决定 ——
+ * 取两者的较大值。padding 是可加的（两块各 8px 恒得 16px），拼不出这种按邻居变化的节奏：
+ * 正文挨正文要 16，正文挨标题要 28，标题挨正文又要 20。
+ *
+ * 代价：块根节点不能再有任何垂直 padding，否则折叠被阻断 —— 所以下面 `blockClass`
+ * 一条 `py-*` 都没有。折叠后的实际距离：
+ *
+ * | 相邻            | 距离                        |
+ * |-----------------|-----------------------------|
+ * | 正文 ↔ 正文     | 16px                        |
+ * | 正文 → 标题     | 28px                        |
+ * | 标题 → 正文     | 20px（h4~h6 为 18px）       |
+ * | 引用 / 分割线 ↔ | 12px 与邻居取大（挨正文即 16）|
+ *
+ * 首块与末块的外边距归零，对应 naive 的 `:first-child` / `:last-child` 规则
+ * ——由模板上的 `first:mt-0 last:mb-0` 承担。
+ */
 const blockClass = computed(() => {
   switch (props.block.type) {
     case "h1":
-      return "pt-4 pb-0.5"
     case "h2":
-      return "pt-3.5 pb-0.5"
+    case "h3":
+      return "mt-7 mb-5"
+    case "h4":
+    case "h5":
+    case "h6":
+      return "mt-7 mb-[18px]"
+    case "quote":
     case "divider":
-      return "py-2.5"
+      return "my-3"
     default:
-      return "py-[3px]"
+      return "my-4"
   }
 })
+
+/** 手柄按钮尺寸，与 BlockToolbar 的 `TOOL` 类（`size-6`）对应。 */
+const HANDLE_SIZE = 24
+
+/**
+ * 块首行文字的中线相对块根节点上沿的位置（px）—— 手柄要靠它竖直居中。
+ *
+ * 块根节点没有垂直 padding（见上），所以中线就是「半个行盒」；卡片类块
+ * （code / callout）自带 `py-2.5`，得把 10px 上内边距补回来。
+ *
+ * 字号与行高在这里被复述了一遍，和下面 `bodyClass` 里的 `text-[Npx]` / `leading-*`
+ * 必须一致 —— `design/typography-check.html` 会量实际渲染值做断言，漂移会被抓住。
+ */
+function firstLineCenter(type: BlockType): number {
+  switch (type) {
+    case "h1":
+      return (30 * 1.6) / 2
+    case "h2":
+      return (22 * 1.6) / 2
+    case "h3":
+      return (18 * 1.6) / 2
+    case "h4":
+    case "h5":
+    case "h6":
+      return (16 * 1.6) / 2
+    case "code":
+      return 10 + (12.5 * 1.7) / 2
+    case "callout":
+      return 10 + (14 * 1.6) / 2
+    // 分割线只有 1px 高，手柄中心压在线上。
+    case "divider":
+      return 0.5
+    // 图片 / 表格没有文字行，手柄贴顶（留 2px 视觉余量）。
+    case "image":
+    case "table":
+      return HANDLE_SIZE / 2 + 2
+    default:
+      // text / todo / ul / ol / quote：正文 14px × 1.6。
+      return (14 * 1.6) / 2
+  }
+}
+
+/** 正文字的行盒高度。列表标记与复选框都靠它居中。 */
+const BODY_LINE_BOX = 14 * 1.6
+
+/** 列表标记 13px / 1.6 行高，竖直居中于正文首行。 */
+const MARKER_TOP = `${(BODY_LINE_BOX / 2 - (13 * 1.6) / 2).toFixed(1)}px`
+
+/** 复选框 14px 见方，同样居中于正文首行。 */
+const CHECKBOX_TOP = `${(BODY_LINE_BOX / 2 - 14 / 2).toFixed(1)}px`
 
 /**
  * 行内样式：手柄纵向偏移 + 列表缩进。
@@ -246,16 +328,17 @@ const blockClass = computed(() => {
  */
 const rowStyle = computed(() => {
   const block = textual.value
-  const type = props.block.type
-  const top = type === "h1" ? "18px" : type === "h2" ? "16px" : "2px"
   const depth = block === null ? 0 : Math.min(block.depth, 6)
   return {
-    "--tools-top": top,
+    "--tools-top": `${firstLineCenter(props.block.type) - HANDLE_SIZE / 2}px`,
     "margin-left": depth === 0 ? "0px" : `${depth * 22}px`,
   }
 })
 
 const BODY_BASE = "min-h-6 outline-none whitespace-pre-wrap break-words"
+
+/** 正文的字号行高与字色，对应 naive 的 pFontSize / pLineHeight / pTextColor。 */
+const BODY_TEXT = "text-sm leading-[1.6] text-foreground/90"
 
 /**
  * 落点指示线：2px 圆角短横线，压在块的上下沿上。
@@ -274,28 +357,39 @@ const bodyClass = computed(() => {
   if (block === null) return BODY_BASE
 
   const indent = bodyHasMarkerIndent(block.type) ? "pl-6" : ""
-  const text = "text-sm leading-[1.65] text-foreground/90"
   switch (block.type) {
+    // 六级标题：字号照 naive 的 headerFontSize，字重统一 500（headerFontWeight）。
+    // 不单独设行高 —— naive 的 header.cssr 也不设，继承全局 1.6。
     case "h1":
-      return cn(BODY_BASE, PLACEHOLDER, "text-2xl font-medium leading-[1.35] tracking-[-0.01em] text-foreground/90")
+      return cn(BODY_BASE, PLACEHOLDER, "text-[30px] font-medium leading-[1.6] text-foreground/90")
     case "h2":
-      return cn(BODY_BASE, PLACEHOLDER, "text-lg font-medium leading-[1.4] text-foreground/90")
+      return cn(BODY_BASE, PLACEHOLDER, "text-[22px] font-medium leading-[1.6] text-foreground/90")
     case "h3":
-      return cn(BODY_BASE, PLACEHOLDER, "text-[15.5px] font-medium text-foreground/90")
+      return cn(BODY_BASE, PLACEHOLDER, "text-[18px] font-medium leading-[1.6] text-foreground/90")
+    case "h4":
+    case "h5":
+    case "h6":
+      return cn(BODY_BASE, PLACEHOLDER, "text-[16px] font-medium leading-[1.6] text-foreground/90")
+    // 引用：左侧 4px 竖线 + 12px 左内边距，无底色无圆角（naive blockquote 的形态）。
     case "quote":
-      return cn(BODY_BASE, PLACEHOLDER, "my-1 rounded-lg bg-muted px-3.5 py-2.5 text-[oklch(0.42_0_0)]")
+      return cn(BODY_BASE, PLACEHOLDER, "border-l-4 border-line pl-3", BODY_TEXT)
     case "code":
       return cn(
         BODY_BASE,
         PLACEHOLDER,
-        "my-1 rounded-lg bg-muted-strong px-3.5 py-2.5 font-mono text-[12.5px] leading-[1.7] text-[oklch(0.3_0_0)]",
+        "rounded-lg bg-muted-strong px-3.5 py-2.5 font-mono text-[12.5px] leading-[1.7] text-[oklch(0.3_0_0)]",
       )
     case "callout":
-      return cn(BODY_BASE, PLACEHOLDER, "my-1 rounded-lg bg-selection px-3.5 py-2.5 text-[oklch(0.33_0.05_255)]")
+      return cn(
+        BODY_BASE,
+        PLACEHOLDER,
+        "rounded-lg bg-selection px-3.5 py-2.5 text-[oklch(0.33_0.05_255)]",
+        BODY_TEXT,
+      )
     case "todo":
-      return cn(BODY_BASE, PLACEHOLDER, text, indent, block.checked === true && "text-muted-foreground line-through")
+      return cn(BODY_BASE, PLACEHOLDER, BODY_TEXT, indent, block.checked === true && "text-muted-foreground line-through")
     default:
-      return cn(BODY_BASE, PLACEHOLDER, text, indent)
+      return cn(BODY_BASE, PLACEHOLDER, BODY_TEXT, indent)
   }
 })
 </script>
@@ -306,6 +400,8 @@ const bodyClass = computed(() => {
     :data-block-id="block.id"
     :class="[
       blockClass,
+      // naive 的 :first-child / :last-child 归零：首块不额外下压、末块不留尾。
+      'first:mt-0 last:mb-0',
       dragging && 'opacity-40',
       dropEdge === 'before' && DROP_BEFORE,
       dropEdge === 'after' && DROP_AFTER,
@@ -324,14 +420,16 @@ const bodyClass = computed(() => {
 
     <span
       v-if="isListType(block.type)"
-      class="pointer-events-none absolute left-0.5 top-1.5 w-5 text-center text-[13px] leading-[1.65] text-muted-foreground"
+      class="pointer-events-none absolute left-0.5 w-5 text-center text-[13px] leading-[1.6] text-muted-foreground"
+      :style="{ top: MARKER_TOP }"
     >
       {{ markerText }}
     </span>
 
     <Checkbox
       v-if="block.type === 'todo'"
-      class="absolute left-0.5 top-[5px] size-3.5 data-checked:border-selection-foreground data-checked:bg-selection-foreground"
+      class="absolute left-0.5 size-3.5 data-checked:border-selection-foreground data-checked:bg-selection-foreground"
+      :style="{ top: CHECKBOX_TOP }"
       :model-value="block.checked === true"
       @update:model-value="() => toggleBlockChecked(block.id)"
     />

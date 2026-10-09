@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>排版规格自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  body > h1 { font-size: 15px; margin: 0 0 12px; }
+  /* min-height 而不是固定高度：自检时想看整份文档的观感，块多了让它自己撑开。 */
+  #app { min-height: 300px; display: flex; flex-direction: column; }
+  #out { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>排版规格自检（挂真实 BlockEditor，量实际渲染的几何）</h1>
+<!-- 脚本里有顶层 await（要等真实读盘），--dump-dom 抓不到结果。
+     用配套的 CDP 驱动跑：node design/cdp-dump.mjs http://localhost:1420/design/typography-check.html -->
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function report(kind, detail) {
+  document.getElementById("out").textContent = [kind, "", detail, "", ...lines].join("\n")
+}
+window.addEventListener("unhandledrejection", (e) => report("REJECT", e.reason?.stack ?? String(e.reason)))
+window.addEventListener("error", (e) => report("ERROR", e.message))
+
+function step(name) {
+  document.getElementById("out").textContent = `running: ${name}`
+}
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+
+function near(actual, expected, tol = 0.5) {
+  return Math.abs(actual - expected) <= tol
+}
+
+function round(value) {
+  return Math.round(value * 100) / 100
+}
+
+/**
+ * 自检文档：每个相邻对都用来验证一条折叠规则。
+ *
+ * 下标：0 h1 / 1 h2 / 2 p / 3 p / 4 h3 / 5 h4 / 6 h5 / 7 h6 / 8 p /
+ *      9 引用 / 10 引用 / 11 分割线 / 12 分割线 / 13 p / 14 代码块 /
+ *      15 p / 16 ul / 17 ol / 18 todo / 19 p（含行内 code）
+ */
+const DOC = [
+  "<h1>一级标题</h1>",
+  "<h2>二级标题</h2>",
+  "<p>正文 A</p>",
+  "<p>正文 B</p>",
+  "<h3>三级标题</h3>",
+  "<h4>四级标题</h4>",
+  "<h5>五级标题</h5>",
+  "<h6>六级标题</h6>",
+  "<p>正文 C</p>",
+  "<blockquote>引用一</blockquote>",
+  "<blockquote>引用二</blockquote>",
+  "<hr>",
+  "<hr>",
+  "<p>正文 D</p>",
+  "<pre><code>const a = 1</code></pre>",
+  "<p>正文 E</p>",
+  "<ul><li>无序项</li></ul>",
+  "<ol><li>有序项</li></ol>",
+  '<ul><li><input type="checkbox"> 待办项</li></ul>',
+  "<p>正文 F 里有<code>行内代码</code>。</p>",
+].join("")
+
+step("opfs")
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("typography-probe", { create: true })
+const file = await dir.getFileHandle("a.html", { create: true })
+const writable = await file.createWritable()
+await writable.write(DOC)
+await writable.close()
+window.showDirectoryPicker = async () => dir
+
+step("mount")
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+
+step("bootstrap")
+await workspace.bootstrap()
+step("openRoot")
+await workspace.openRoot()
+await nextTick()
+
+const firstFile = (function find(nodes) {
+  for (const node of nodes) {
+    if (node.kind === "file") return node
+    const hit = node.children ? find(node.children) : null
+    if (hit) return hit
+  }
+  return null
+})(workspace.tree.value)
+
+if (firstFile) {
+  step("openFile")
+  workspace.openFile(firstFile.id)
+  for (let i = 0; i < 60 && workspace.activeDocument.value.length < 20; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  await nextTick()
+}
+
+step("measure")
+
+const rows = [...document.querySelectorAll("[data-block-id]")]
+const TYPES = ["h1", "h2", "text", "text", "h3", "h4", "h5", "h6", "text", "quote", "quote", "divider", "divider", "text", "code", "text", "ul", "ol", "todo", "text"]
+
+function editableAt(index) {
+  return rows[index]?.querySelector("[data-editable]") ?? null
+}
+
+/** 相邻两块之间折叠后的实际距离。块根节点不含垂直 margin，所以直接减就是间距。 */
+function gap(a, b) {
+  return round(rows[b].getBoundingClientRect().top - rows[a].getBoundingClientRect().bottom)
+}
+
+/** 单行块里首行文字的中线（视口坐标）。 */
+function textCenterAt(index) {
+  const editable = editableAt(index)
+  const range = document.createRange()
+  range.selectNodeContents(editable)
+  const rect = range.getBoundingClientRect()
+  return round(rect.top + rect.height / 2)
+}
+
+function centerOf(element) {
+  const rect = element.getBoundingClientRect()
+  return round(rect.top + rect.height / 2)
+}
+
+check("渲染出 20 个块", rows.length === 20, `实际 ${rows.length}`)
+
+if (rows.length === 20) {
+  const actualTypes = workspace.activeDocument.value.map((b) => b.type)
+  check(
+    "块类型与预置一致",
+    JSON.stringify(actualTypes) === JSON.stringify(TYPES),
+    `${JSON.stringify(actualTypes)}`,
+  )
+
+  // ---- 一、字号（Naive headerFontSize / fontSize）----
+  const SIZES = [
+    [0, 30], [1, 22], [2, 14], [4, 18], [5, 16], [6, 16], [7, 16],
+  ]
+  for (const [index, expected] of SIZES) {
+    const actual = parseFloat(getComputedStyle(editableAt(index)).fontSize)
+    check(`块 ${index}（${TYPES[index]}）字号 ${expected}px`, near(actual, expected, 0.1), `实际 ${actual}px`)
+  }
+
+  // ---- 二、行高（Naive lineHeight 1.6，标题不单独设所以也是 1.6）----
+  for (const index of [0, 2, 5]) {
+    const style = getComputedStyle(editableAt(index))
+    const size = parseFloat(style.fontSize)
+    const ratio = parseFloat(style.lineHeight) / size
+    check(`块 ${index}（${TYPES[index]}）行高倍率 1.6`, near(ratio, 1.6, 0.02), `实际 ${round(ratio)}`)
+  }
+
+  // ---- 三、字重：标题 500（headerFontWeight），正文 400 ----
+  check("h1 字重 500", getComputedStyle(editableAt(0)).fontWeight === "500", `实际 ${getComputedStyle(editableAt(0)).fontWeight}`)
+  check("正文字重 400", getComputedStyle(editableAt(2)).fontWeight === "400", `实际 ${getComputedStyle(editableAt(2)).fontWeight}`)
+
+  // ---- 四、块间距（折叠后）----
+  const GAPS = [
+    [0, 1, 28, "h1 → h2：标题下 20 与标题上 28 取大"],
+    [1, 2, 20, "h2 → 正文：标题下 20 大于正文上 16"],
+    [2, 3, 16, "正文 → 正文：pMargin 16px 0"],
+    [3, 4, 28, "正文 → h3：正文下 16 与标题上 28 取大"],
+    [4, 5, 28, "h3 → h4"],
+    [6, 7, 28, "h5 → h6"],
+    [7, 8, 18, "h6 → 正文：h4~h6 下边距收成 18"],
+    [8, 9, 16, "正文 → 引用：引用 12 小于正文 16"],
+    [9, 10, 12, "引用 → 引用：两边都是 12"],
+    [10, 11, 12, "引用 → 分割线"],
+    [11, 12, 12, "分割线 → 分割线"],
+    [12, 13, 16, "分割线 → 正文：分割线 12 小于正文 16"],
+    [13, 14, 16, "正文 → 代码块"],
+    [15, 16, 16, "正文 → 无序列表"],
+    [18, 19, 16, "待办 → 正文"],
+  ]
+  for (const [a, b, expected, label] of GAPS) {
+    const actual = gap(a, b)
+    check(`间距 ${expected}px：${label}`, near(actual, expected), `实际 ${actual}px`)
+  }
+
+  // ---- 五、首末块外边距归零（naive 的 :first-child / :last-child）----
+  check("首块上外边距为 0", getComputedStyle(rows[0]).marginTop === "0px", `实际 ${getComputedStyle(rows[0]).marginTop}`)
+  check("末块下外边距为 0", getComputedStyle(rows[19]).marginBottom === "0px", `实际 ${getComputedStyle(rows[19]).marginBottom}`)
+
+  // ---- 六、手柄纵向居中于首行文字 ----
+  for (const index of [0, 2, 5, 9]) {
+    const handle = rows[index].querySelector("button[data-drag-handle]")?.closest("div") ?? null
+    // 手柄容器是 .absolute 那层，取它整体（两个按钮并排）的中心。
+    const box = handle ?? rows[index].querySelector("[data-drag-handle]")
+    const delta = Math.abs(centerOf(box) - textCenterAt(index))
+    check(`块 ${index}（${TYPES[index]}）手柄居中于首行`, delta <= 1.5, `偏差 ${round(delta)}px`)
+  }
+
+  // ---- 七、列表标记与复选框居中于首行 ----
+  const ulMarker = rows[16].querySelector("span")
+  check("无序列表标记居中于首行", near(centerOf(ulMarker), textCenterAt(16), 1.5), `偏差 ${round(Math.abs(centerOf(ulMarker) - textCenterAt(16)))}px`)
+
+  const olMarker = rows[17].querySelector("span")
+  check("有序列表标记居中于首行", near(centerOf(olMarker), textCenterAt(17), 1.5), `偏差 ${round(Math.abs(centerOf(olMarker) - textCenterAt(17)))}px`)
+
+  const checkbox = rows[18].querySelector("[role=checkbox], input, button")
+  check("复选框居中于首行", checkbox !== null && near(centerOf(checkbox), textCenterAt(18), 1.5), `偏差 ${checkbox === null ? "无复选框元素" : round(Math.abs(centerOf(checkbox) - textCenterAt(18))) + "px"}`)
+
+  // ---- 八、引用形态：左侧 4px 竖线 + 12px 左内边距，无底色 ----
+  const quoteStyle = getComputedStyle(editableAt(9))
+  check("引用左边框 4px", quoteStyle.borderLeftWidth === "4px", `实际 ${quoteStyle.borderLeftWidth}`)
+  check("引用左内边距 12px", near(parseFloat(quoteStyle.paddingLeft), 12, 0.1), `实际 ${quoteStyle.paddingLeft}`)
+  check("引用无底色", quoteStyle.backgroundColor === "rgba(0, 0, 0, 0)", `实际 ${quoteStyle.backgroundColor}`)
+
+  // ---- 九、行内 code（naive text--code：0.9em / radius 2px / padding .05em .35em 0）----
+  const inlineCode = editableAt(19).querySelector("code")
+  check("行内 code 元素存在", inlineCode !== null)
+  if (inlineCode !== null) {
+    const codeStyle = getComputedStyle(inlineCode)
+    const parentSize = parseFloat(getComputedStyle(editableAt(19)).fontSize)
+    check("行内 code 字号 0.9em", near(parseFloat(codeStyle.fontSize), parentSize * 0.9, 0.1), `实际 ${codeStyle.fontSize}`)
+    check("行内 code 圆角 2px", codeStyle.borderRadius === "2px", `实际 ${codeStyle.borderRadius}`)
+    check("行内 code 左内边距 0.35em", near(parseFloat(codeStyle.paddingLeft), parentSize * 0.9 * 0.35, 0.1), `实际 ${codeStyle.paddingLeft}`)
+    check("行内 code 是 inline-block（否则底色溢到邻行）", codeStyle.display === "inline-block", `实际 ${codeStyle.display}`)
+  }
+
+  // ---- 十、导出文件（DOC_STYLE）与编辑器同一套规格 ----
+  // 两边不一致就会出现「编辑器里看着挺好、双击打开全变了」。
+  step("export")
+  const { serializeHtml } = await import("../src/lib/html/serialize.ts")
+  const frame = document.createElement("iframe")
+  frame.style.cssText = "position:absolute;left:-9999px;width:1000px;height:600px;"
+  document.body.appendChild(frame)
+  frame.srcdoc = serializeHtml(workspace.activeDocument.value, { title: "排版自检" })
+  await new Promise((resolve) => frame.addEventListener("load", resolve, { once: true }))
+
+  const win = frame.contentWindow
+  const edoc = frame.contentDocument
+  const styleOf = (element) => win.getComputedStyle(element)
+
+  const bodyStyle = styleOf(edoc.body)
+  check("导出：正文 14px", near(parseFloat(bodyStyle.fontSize), 14, 0.1), `实际 ${bodyStyle.fontSize}`)
+  check("导出：正文行高 1.6", near(parseFloat(bodyStyle.lineHeight) / parseFloat(bodyStyle.fontSize), 1.6, 0.02), `实际 ${bodyStyle.lineHeight}`)
+
+  const h2Style = styleOf(edoc.querySelector("h2"))
+  check("导出：h2 字号 22px", near(parseFloat(h2Style.fontSize), 22, 0.1), `实际 ${h2Style.fontSize}`)
+  check("导出：标题字重 500", h2Style.fontWeight === "500", `实际 ${h2Style.fontWeight}`)
+  check("导出：标题 margin 上 28 下 20", h2Style.marginTop === "28px" && h2Style.marginBottom === "20px", `实际 ${h2Style.marginTop} / ${h2Style.marginBottom}`)
+
+  const h4Style = styleOf(edoc.querySelector("h4"))
+  check("导出：h4 字号 16px 且下边距 18px", near(parseFloat(h4Style.fontSize), 16, 0.1) && h4Style.marginBottom === "18px", `实际 ${h4Style.fontSize} / ${h4Style.marginBottom}`)
+
+  const pStyle = styleOf(edoc.querySelector("p"))
+  check("导出：段落 margin 16px 0", pStyle.marginTop === "16px" && pStyle.marginBottom === "16px", `实际 ${pStyle.marginTop} / ${pStyle.marginBottom}`)
+
+  const bqStyle = styleOf(edoc.querySelector("blockquote"))
+  check("导出：引用左边框 4px", bqStyle.borderLeftWidth === "4px", `实际 ${bqStyle.borderLeftWidth}`)
+  check("导出：引用左内边距 12px", near(parseFloat(bqStyle.paddingLeft), 12, 0.1), `实际 ${bqStyle.paddingLeft}`)
+  check("导出：引用无底色", bqStyle.backgroundColor === "rgba(0, 0, 0, 0)", `实际 ${bqStyle.backgroundColor}`)
+
+  const hrStyle = styleOf(edoc.querySelector("hr"))
+  check("导出：分割线 margin 12px 0", hrStyle.marginTop === "12px" && hrStyle.marginBottom === "12px", `实际 ${hrStyle.marginTop} / ${hrStyle.marginBottom}`)
+
+  const firstStyle = styleOf(edoc.body.querySelector(":scope > *"))
+  check("导出：首元素上边距归零", firstStyle.marginTop === "0px", `实际 ${firstStyle.marginTop}`)
+
+  const exportedCode = edoc.querySelector("p code")
+  check("导出：行内 code 是 inline-block", exportedCode !== null && styleOf(exportedCode).display === "inline-block", `实际 ${exportedCode === null ? "没找到 <code>" : styleOf(exportedCode).display}`)
+}
+
+lines.push(`自检 ${passed}/${passed + failed} 通过`)
+document.getElementById("out").textContent = lines.join("\n")
+</script>
+</body>
+</html>

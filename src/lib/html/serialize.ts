@@ -20,6 +20,11 @@ import { escapeHtml, runsText, runsToHtml } from "@/lib/inline"
  * 笔记文件要能直接双击在浏览器里看，所以样式内联、不引外部 css ——
  * 引用同级 css 的话，文件被单独拷走就没样式了。
  *
+ * 字号 / 行高 / 外边距与编辑器（`BlockItem.vue` 的排版规格）**同一套**，都取自
+ * Naive UI Typography：正文 14px/1.6、标题 30/22/18/16px 且字重 500、标题 margin
+ * `28px 0 20px 0`（h4~h6 收成 18px）、正文 `16px 0`、引用与分割线 `12px 0`。
+ * 两边保持一致才能做到「编辑器里看到什么，双击打开就是什么」。
+ *
  * `color-scheme` 必须写在 `:root` 的声明块里：裸放在样式表顶层不是合法规则，
  * 解析器会把它和紧随的 `:root {}` 当成一条选择器去解析，两条一起丢掉 ——
  * 表现是浅色模式下所有变量都取不到值（引用块、表头全没底色）。
@@ -29,23 +34,26 @@ const DOC_STYLE = `    :root { color-scheme: light dark; --fg: #1c1c1e; --muted:
       :root { --fg: #e6e6e8; --muted: #9ca3af; --line: #33333a; --bg-soft: #1e1e22; --accent-bg: #232a45; --accent-fg: #c3ccff; --mark-bg: #4a4120; }
     }
     body { max-width: 46rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; background: Canvas; color: var(--fg);
-      font: 16px/1.7 -apple-system, "PingFang SC", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
-    h1, h2, h3 { margin: 1.7em 0 0.5em; line-height: 1.35; font-weight: 600; }
-    h1 { font-size: 1.7em; } h2 { font-size: 1.35em; } h3 { font-size: 1.12em; }
-    p { margin: 0.55em 0; }
-    ul, ol { margin: 0.55em 0; padding-left: 1.5em; }
-    li { margin: 0.2em 0; }
-    blockquote { margin: 1em 0; padding: 0.7em 1.1em; background: var(--bg-soft); border-radius: 0.6em; color: var(--muted); }
-    aside { margin: 1em 0; padding: 0.8em 1.1em; background: var(--accent-bg); border-radius: 0.6em; color: var(--accent-fg); }
-    pre { margin: 1em 0; padding: 0.9em 1.1em; background: var(--bg-soft); border-radius: 0.6em; overflow-x: auto; }
-    code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.9em; }
-    pre code { font-size: 0.86em; }
-    hr { height: 1px; margin: 1.7em 0; border: 0; background: var(--line); }
-    img { display: block; max-width: 100%; margin: 1.2em 0; border-radius: 0.6em; }
-    table { width: 100%; margin: 1.2em 0; border-collapse: collapse; }
+      font: 14px/1.6 -apple-system, "PingFang SC", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
+    h1, h2, h3, h4, h5, h6 { margin: 28px 0 20px; font-weight: 500; }
+    h1 { font-size: 30px; } h2 { font-size: 22px; } h3 { font-size: 18px; }
+    h4, h5, h6 { font-size: 16px; margin-bottom: 18px; }
+    p { margin: 16px 0; }
+    ul, ol { margin: 16px 0; padding-left: 2em; }
+    li { margin: 0.25em 0 0; }
+    blockquote { margin: 12px 0; padding-left: 12px; border-left: 4px solid var(--line); }
+    aside { margin: 16px 0; padding: 0.8em 1.1em; background: var(--accent-bg); border-radius: 0.6em; color: var(--accent-fg); }
+    pre { margin: 16px 0; padding: 0.9em 1.1em; background: var(--bg-soft); border-radius: 0.6em; overflow-x: auto; }
+    code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.9em; line-height: 1.4;
+      display: inline-block; padding: 0.05em 0.35em 0; border-radius: 2px; background: var(--bg-soft); }
+    pre code { font-size: 0.86em; display: inline; padding: 0; background: none; }
+    hr { height: 1px; margin: 12px 0; border: 0; background: var(--line); }
+    img { display: block; max-width: 100%; margin: 16px 0; border-radius: 0.6em; }
+    table { width: 100%; margin: 16px 0; border-collapse: collapse; }
     th, td { padding: 0.45em 0.7em; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
     th { font-weight: 600; background: var(--bg-soft); }
-    mark { background-color: var(--mark-bg); color: inherit; }`
+    mark { background-color: var(--mark-bg); color: inherit; }
+    body > :first-child { margin-top: 0; } body > :last-child { margin-bottom: 0; }`
 
 export interface DocumentMeta {
   /** 文档标题，写进 `<title>`。一般取文件名去扩展名。 */
@@ -116,6 +124,9 @@ function plainHtml(block: TextualBlock): string {
     case "h1":
     case "h2":
     case "h3":
+    case "h4":
+    case "h5":
+    case "h6":
       return wrap(block.type, runsToHtml(block.runs))
     case "quote":
       return wrap("blockquote", runsToHtml(block.runs))
