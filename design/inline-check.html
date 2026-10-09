@@ -52,6 +52,14 @@ function plain(text) {
 editor.innerHTML = runsToHtml([{ text: "b", marks: ["bold"] }, { text: "h", marks: ["highlight"] }])
 check("渲染：bold → strong、highlight → mark", editor.innerHTML === "<strong>b</strong><mark>h</mark>", editor.innerHTML)
 
+editor.innerHTML = runsToHtml([{ text: "c", marks: ["code"] }])
+check("渲染：code → <code>", editor.innerHTML === "<code>c</code>", editor.innerHTML)
+check(
+  "渲染：bold 裹 code（嵌套按 INLINE_MARK_ORDER，与 marks 数组顺序无关）",
+  runsToHtml([{ text: "x", marks: ["code", "bold"] }]) === "<strong><code>x</code></strong>",
+  runsToHtml([{ text: "x", marks: ["code", "bold"] }]),
+)
+
 // ---- 选区 ↔ 偏移 ----
 editor.innerHTML = runsToHtml(plain("abcdef"))
 check("选区建立", select(1, 3))
@@ -75,6 +83,16 @@ check("画回：选区落在同一段文字上", same(offsetRangeIn(editor), { s
 // ---- 再次切换 = 取消 ----
 const unbolded = toggleMarkAt(bolded, { start: 1, end: 3 }, "bold")
 check("整段已带该标记 → 移除", same(unbolded, plain("abcdef")), JSON.stringify(unbolded))
+
+// ---- 行内代码走同一条切换路径 ----
+const coded = toggleMarkAt(plain("abcdef"), { start: 1, end: 3 }, "code")
+check(
+  "部分选中加行内代码",
+  same(coded, [{ text: "a", marks: [] }, { text: "bc", marks: ["code"] }, { text: "def", marks: [] }]),
+  JSON.stringify(coded),
+)
+const uncoded = toggleMarkAt(coded, { start: 1, end: 3 }, "code")
+check("行内代码再次切换 → 移除", same(uncoded, plain("abcdef")), JSON.stringify(uncoded))
 
 // ---- 跨 run 选中 ----
 const mixed = [{ text: "abc", marks: ["bold"] }, { text: "def", marks: [] }]
@@ -149,6 +167,10 @@ function key(init) {
 }
 check("Cmd+B → bold", shortcutMark(key({ key: "b", metaKey: true })) === "bold")
 check("Cmd+Shift+B → 不是格式键", shortcutMark(key({ key: "b", metaKey: true, shiftKey: true })) === null)
+check("Cmd+E → code", shortcutMark(key({ key: "e", metaKey: true })) === "code")
+check("Ctrl+E → code", shortcutMark(key({ key: "e", ctrlKey: true })) === "code")
+check("Cmd+Shift+E → 不是格式键", shortcutMark(key({ key: "e", metaKey: true, shiftKey: true })) === null)
+check("单独按 E → 不是格式键", shortcutMark(key({ key: "e" })) === null)
 check("Cmd+Shift+H → highlight", shortcutMark(key({ key: "h", metaKey: true, shiftKey: true })) === "highlight")
 check("Ctrl+H（无 shift）→ 不是格式键", shortcutMark(key({ key: "h", ctrlKey: true })) === null)
 check("单独按 B → 不是格式键", shortcutMark(key({ key: "b" })) === null)

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>行内格式条自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>行内格式条：按钮集合 / 激活态 / 事件契约</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+// 不引 style.css 的话 `bg-accent` 这类工具类不存在，激活态断言会假通过。见 tab-check.html。
+import "../src/style.css"
+import { createApp, h, ref } from "vue"
+import InlineToolbar from "../src/components/InlineToolbar.vue"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+
+/** 等两帧，让 Vue 把 ref 的变化刷进 DOM。 */
+function settle() {
+  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+}
+
+const marks = ref([])
+const toggled = []
+const host = document.createElement("div")
+document.getElementById("app").append(host)
+
+createApp({
+  setup() {
+    return () => h(InlineToolbar, {
+      marks: marks.value,
+      anchor: { top: 0, left: 0 },
+      onToggle: (mark) => toggled.push(mark),
+    })
+  },
+}).mount(host)
+
+await settle()
+
+const buttons = [...host.querySelectorAll("button")]
+check("渲染出 3 个按钮", buttons.length === 3, `实际 ${buttons.length}`)
+
+const labels = buttons.map((button) => button.getAttribute("aria-label"))
+check(
+  "按钮依次为 加粗 / 高亮 / 行内代码",
+  JSON.stringify(labels) === JSON.stringify(["加粗", "高亮", "行内代码"]),
+  JSON.stringify(labels),
+)
+
+check(
+  "每个按钮都画出了图标 svg",
+  buttons.length === 3 && buttons.every((button) => button.querySelector("svg") !== null),
+  buttons.map((button) => button.querySelector("svg") !== null).join(","),
+)
+
+// ---- 激活态跟着 marks 走 ----
+marks.value = ["code"]
+await settle()
+const pressed = [...host.querySelectorAll("button")].map((button) => button.getAttribute("aria-pressed"))
+check(
+  "marks=[code] → 只有行内代码为激活态",
+  JSON.stringify(pressed) === JSON.stringify(["false", "false", "true"]),
+  JSON.stringify(pressed),
+)
+
+marks.value = ["bold", "highlight"]
+await settle()
+const pressedTwo = [...host.querySelectorAll("button")].map((button) => button.getAttribute("aria-pressed"))
+check(
+  "marks=[bold,highlight] → 前两个激活、行内代码不激活",
+  JSON.stringify(pressedTwo) === JSON.stringify(["true", "true", "false"]),
+  JSON.stringify(pressedTwo),
+)
+
+// ---- 事件契约：点第 3 个按钮 ----
+marks.value = []
+await settle()
+const codeButton = [...host.querySelectorAll("button")][2]
+codeButton.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }))
+codeButton.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+check("点行内代码按钮 → emit('toggle', 'code')", JSON.stringify(toggled) === JSON.stringify(["code"]), JSON.stringify(toggled))
+
+// mousedown 必须被吞掉，否则按钮抢焦点会清空页面选区、无从知道给哪段文字加格式。
+const keptSelection = codeButton.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }))
+check("mousedown 被 preventDefault（保住选区）", keptSelection === false, String(keptSelection))
+
+lines.push(`\n自检 ${passed}/${passed + failed} 通过`)
+document.getElementById("out").textContent = lines.join("\n")
+</script>
+</body>
+</html>

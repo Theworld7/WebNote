@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import type { Component } from "vue"
 import type { InlineMark } from "@/types/workspace"
-import { BoldIcon, HighlighterIcon } from "@lucide/vue"
+import { BoldIcon, CodeIcon, HighlighterIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 /**
  * 选中文本后浮在选区上方的行内格式条。
  *
- * 只放加粗与高亮两项：其余标记（斜体 / 下划线 / 删除线 / 行内代码）虽然模型与
+ * 只放加粗 / 高亮 / 行内代码三项：其余标记（斜体 / 下划线 / 删除线）虽然模型与
  * 解析都支持，但实际用不到，先不给按钮 —— 菜单里摆一排用不上的东西只会让人犹豫。
  */
 interface FormatItem {
@@ -20,6 +20,7 @@ interface FormatItem {
 const ITEMS: readonly FormatItem[] = [
   { mark: "bold", label: "加粗", icon: BoldIcon },
   { mark: "highlight", label: "高亮", icon: HighlighterIcon },
+  { mark: "code", label: "行内代码", icon: CodeIcon },
 ]
 
 const props = defineProps<{

@@ -232,12 +232,14 @@ export function paintRuns(element: HTMLElement, runs: readonly InlineRun[], rang
  * 键盘快捷键对应的行内标记，不是格式快捷键时返回 null。
  *
  * 映射只此一份：正文块与表格单元格共用，否则两处的键位迟早会漂。
+ * `Cmd+E` 给行内代码，与 Google Docs / Notion / 飞书 一致。
  * 高亮挂在 `Shift` 上是因为 `Cmd+H` 在 macOS 被系统占用（隐藏窗口）。
  */
 export function shortcutMark(event: KeyboardEvent): InlineMark | null {
   if (!event.metaKey && !event.ctrlKey) return null
   const key = event.key.toLowerCase()
   if (key === "b" && !event.shiftKey && !event.altKey) return "bold"
+  if (key === "e" && !event.shiftKey && !event.altKey) return "code"
   if (key === "h" && event.shiftKey && !event.altKey) return "highlight"
   return null
 }
