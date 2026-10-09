@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>块拖拽落点自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { height: 400px; display: flex; flex-direction: column; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>块拖拽落点自检（合成 DragEvent 走真实 handler）</h1>
+<!-- 脚本里有顶层 await（要等真实读盘），--dump-dom 抓不到结果。
+     用配套的 CDP 驱动跑：node design/cdp-dump.mjs http://localhost:1420/design/drag-check.html -->
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+// 顶层 await 抛出来只会静默挂住，先把异常贴到 #out 上（连同已跑的断言）。
+function report(kind, detail) {
+  document.getElementById("out").textContent = [kind, "", detail, "", ...lines].join("\n")
+}
+window.addEventListener("unhandledrejection", (e) => report("REJECT", e.reason?.stack ?? String(e.reason)))
+window.addEventListener("error", (e) => report("ERROR", e.message))
+
+// 卡住时也能看出走到哪一步了（cdp 驱动按 "running" 前缀判断未完成）。
+function step(name) {
+  document.getElementById("out").textContent = `running: ${name}`
+}
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+
+step("opfs")
+/** OPFS 当工作目录：预置一篇笔记，避开原生目录对话框。 */
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("drag-probe", { create: true })
+const file = await dir.getFileHandle("a.html", { create: true })
+const writable = await file.createWritable()
+await writable.write("<h1>标题一</h1><p>段落二</p><p>段落三</p><p>段落四</p>")
+await writable.close()
+window.showDirectoryPicker = async () => dir
+
+step("mount")
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+
+step("bootstrap")
+await workspace.bootstrap()
+step("openRoot")
+await workspace.openRoot()
+await nextTick()
+
+const firstFile = (function find(nodes) {
+  for (const node of nodes) {
+    if (node.kind === "file") return node
+    const hit = node.children ? find(node.children) : null
+    if (hit) return hit
+  }
+  return null
+})(workspace.tree.value)
+
+check("扫到了预置笔记", firstFile !== null, `tree=${JSON.stringify(workspace.tree.value.map((n) => n.name))}`)
+if (firstFile) {
+  step("openFile")
+  workspace.openFile(firstFile.id)
+  // 读盘是真 I/O，microtask 轮询等不到，得给它真实时间。
+  for (let i = 0; i < 60 && workspace.activeDocument.value.length < 4; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  await nextTick()
+}
+
+step("collect")
+const root = document.querySelector("[data-block-id]")?.parentElement ?? null
+function rows() { return [...document.querySelectorAll("[data-block-id]")] }
+function texts() { return workspace.activeDocument.value.map((b) => b.runs.map((r) => r.text).join("")) }
+function lined() { return rows().filter((r) => r.className.includes("before:absolute") || r.className.includes("after:absolute")).map((r) => r.dataset.blockId) }
+
+check("文档渲染出 4 个块", rows().length === 4, `实际 ${rows().length}：${JSON.stringify(texts())}`)
+
+// 块数不对就别往下跑：后面每条断言都会因为拿不到行而炸，掩盖掉真原因。
+if (rows().length === 4) await run()
+
+lines.push(`自检 ${passed}/${passed + failed}`)
+document.getElementById("out").textContent = lines.join("\n")
+
+async function run() {
+/** 合成一次拖拽。target 是真实手柄按钮，事件冒泡到 BlockEditor 的容器。 */
+function dragStart(rowIndex) {
+  const handle = rows()[rowIndex].querySelector("[data-drag-handle]")
+  const dt = new DataTransfer()
+  dt.setData("text/plain", rows()[rowIndex].dataset.blockId)
+  handle.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: dt }))
+  return dt
+}
+
+async function dragOver(dt, rowIndex, where) {
+  const rect = rows()[rowIndex].getBoundingClientRect()
+  const clientY = where === "top" ? rect.top + 1 : rect.bottom - 1
+  root.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt, clientX: rect.left + 20, clientY }))
+  await nextTick()
+}
+
+function drop(dt) {
+  root.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }))
+}
+
+// ---- 拖第 0 块，落到第 2 块上沿 ----
+let dt = dragStart(0)
+await dragOver(dt, 2, "top")
+check("落到第 2 块上沿 → 该块画线", lined().length === 1 && lined()[0] === rows()[2].dataset.blockId, `带线的块：${JSON.stringify(lined())}`)
+check("线的类名是 before 那一组", rows()[2].className.includes("before:pointer-events-none"))
+check("同一时刻只有一条线", lined().length === 1)
+
+// ---- 落到第 1 块下沿（等价于第 2 块上沿）----
+await dragOver(dt, 1, "bottom")
+check("落到第 1 块下沿 → 标在第 2 块上沿", lined().length === 1 && lined()[0] === rows()[2].dataset.blockId, `带线的块：${JSON.stringify(lined())}`)
+
+// ---- 落到末尾 ----
+await dragOver(dt, 3, "bottom")
+check("落到最后一块下沿 → 标在最后一块的 after", rows()[3].className.includes("after:pointer-events-none"), `实际 classed=${JSON.stringify(lined())}`)
+check("末尾落点不再有别的线", lined().length === 1)
+
+// ---- 拖回原处：不画线 ----
+await dragOver(dt, 0, "top")
+check("落点回到原位 → 不画线（免得松手白动）", lined().length === 0, `带线的块：${JSON.stringify(lined())}`)
+
+// ---- 真的提交一次 ----
+const before = texts()
+dt = dragStart(0)
+await dragOver(dt, 3, "bottom")
+drop(dt)
+await nextTick()
+check("落点线在松手后收起", lined().length === 0)
+check(
+  "松手后块真的挪到末尾",
+  JSON.stringify(texts()) !== JSON.stringify(before) && texts()[3] === before[0],
+  `${JSON.stringify(before)} → ${JSON.stringify(texts())}`,
+)
+
+// ---- 非块拖拽（选中文字）不放行 ----
+const plain = new DataTransfer()
+plain.setData("text/plain", "随便一段被选中的文字")
+root.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: plain, clientX: 0, clientY: rows()[1].getBoundingClientRect().top + 1 }))
+await nextTick()
+check("非块拖拽不画线", lined().length === 0)
+
+root.dispatchEvent(new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer: plain }))
+}
+</script>
+</body>
+</html>
