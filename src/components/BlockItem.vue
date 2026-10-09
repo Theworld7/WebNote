@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils"
 import BlockToolbar from "./BlockToolbar.vue"
 import ImageBlockView from "./ImageBlockView.vue"
 import InlineToolbar from "./InlineToolbar.vue"
+import MermaidBlockView from "./MermaidBlockView.vue"
 import TableBlockView from "./TableBlockView.vue"
 
 const props = defineProps<{
@@ -40,7 +41,7 @@ const toolbar = ref<{ marks: InlineMark[]; top: number; left: number } | null>(n
 const openMenu = ref<BlockMenuKind>("")
 const typeMenuMode = ref<"insert" | "convert">("insert")
 
-/** 只有正文块才有可编辑体；图片 / 表格当前是只读展示。 */
+/** 承载 runs 的正文块才走下面那套 contenteditable；图片 / 表格 / mermaid 各有自己的视图组件。 */
 const textual = computed(() => (isTextualBlock(props.block) ? props.block : null))
 
 /**
@@ -300,9 +301,10 @@ function firstLineCenter(type: BlockType): number {
     // 分割线只有 1px 高，手柄中心压在线上。
     case "divider":
       return 0.5
-    // 图片 / 表格没有文字行，手柄贴顶（留 2px 视觉余量）。
+    // 图片 / 表格 / mermaid 图没有文字行，手柄贴顶（留 2px 视觉余量）。
     case "image":
     case "table":
+    case "mermaid":
       return HANDLE_SIZE / 2 + 2
     default:
       // text / todo / ul / ol / quote：正文 14px × 1.6。
@@ -437,6 +439,8 @@ const bodyClass = computed(() => {
     <ImageBlockView v-if="block.type === 'image'" :block="block" />
 
     <TableBlockView v-else-if="block.type === 'table'" :block="block" />
+
+    <MermaidBlockView v-else-if="block.type === 'mermaid'" :block="block" />
 
     <div v-else-if="block.type === 'divider'" class="h-px bg-line" />
 

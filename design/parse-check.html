@@ -63,6 +63,7 @@ function texts(blocks) {
     .map((block) => {
       if (block.type === "image") return `[img:${block.alt}]`
       if (block.type === "table") return `[table:${block.rows.length}x${block.rows[0] ? block.rows[0].length : 0}]`
+      if (block.type === "mermaid") return `[mermaid:${block.source}]`
       return block.runs.map((run) => run.text).join("")
     })
     .join(" | ")
@@ -95,6 +96,12 @@ const BUILTIN = [
     '<table><thead><tr><th>列一</th><th>列二</th></tr></thead><tbody><tr><td>a</td><td>b</td></tr></tbody></table>' +
       '<figure><img src="x.png" alt="图" title="标题"><figcaption>说明</figcaption></figure>' +
       '<pre><code class="language-ts">const a = 1;</code></pre><blockquote>引用</blockquote><aside>标注</aside><hr>',
+  ],
+  [
+    // 源码里带 `&` `<` `>` `"`，专门压转义那一环：序列化时全部转成实体，
+    // 再解析回来必须逐字符还原，图源多一个 `&amp;` 都会让 mermaid 认不出语法。
+    "内置：mermaid 图（转义往返）",
+    '<pre><code class="language-mermaid">graph TD\n  A["a &amp; b"] --&gt; B{x &lt; 1}\n  B --&gt; C</code></pre>',
   ],
 ]
 
@@ -212,6 +219,43 @@ const loose = [
     '<pre><code class="language-ts">let a = 1;\n  let b = 2;</code></pre>',
     (b) => b[0].type === "code" && b[0].lang === "ts" && texts(b) === "let a = 1;\n  let b = 2;",
   ],
+  [
+    "mermaid：language-mermaid 升成图块",
+    '<pre><code class="language-mermaid">graph TD\n  A --> B</code></pre>',
+    (b) => types(b) === "mermaid" && b[0].source === "graph TD\n  A --> B",
+  ],
+  [
+    "mermaid：源码原样保留（缩进与换行都不动）",
+    '<pre><code class="language-mermaid">sequenceDiagram\n    A->>B: 你好\n    B-->>A: 你也好</code></pre>',
+    (b) => b[0].source === "sequenceDiagram\n    A->>B: 你好\n    B-->>A: 你也好",
+  ],
+  [
+    // 掐的是 HTML 排版惯用的首尾换行，不是内容。注意 `parsePre` 的两个正则不对称：
+    // 首部只吃一个 `\n`、尾部吃光 `\n+`（既有行为，代码块共用，这里只做记录不改它）。
+    "mermaid：首尾的排版换行被掐掉",
+    '<pre><code class="language-mermaid">\ngraph TD\n  A\n\n</code></pre>',
+    (b) => b[0].source === "graph TD\n  A",
+  ],
+  [
+    "mermaid：源码中间的连续空行原样保留",
+    '<pre><code class="language-mermaid">graph TD\n  A\n\n  B</code></pre>',
+    (b) => b[0].source === "graph TD\n  A\n\n  B",
+  ],
+  [
+    "mermaid：其它语言的代码块不受影响",
+    '<pre><code class="language-ts">a</code></pre><pre><code class="language-mermaid">graph TD\n  A</code></pre>',
+    (b) => types(b) === "code,mermaid" && b[0].lang === "ts",
+  ],
+  [
+    "mermaid：没有 language 的 pre 仍是代码块",
+    "<pre><code>plain</code></pre>",
+    (b) => types(b) === "code" && b[0].lang === undefined,
+  ],
+  [
+    "mermaid：序列化回 language-mermaid（`>` 转义成实体）",
+    '<pre><code class="language-mermaid">graph TD\n  A --> B</code></pre>',
+    (b) => blocksToHtml(b) === '<pre><code class="language-mermaid">graph TD\n  A --&gt; B</code></pre>',
+  ],
   ["blockquote → quote", "<blockquote>q</blockquote>", (b) => types(b) === "quote"],
   ["aside → callout", "<aside>c</aside>", (b) => types(b) === "callout"],
   ["hr → divider", "<hr>", (b) => types(b) === "divider"],
@@ -285,6 +329,16 @@ check(
 const emptyDoc = parseHtml("<p></p><ul><li></li></ul><hr>")
 check("空块 / 空列表项 / 分割线往返不丢", same(emptyDoc, parseHtml(blocksToHtml(emptyDoc))) && emptyDoc.length === 3)
 
+// mermaid 的导出形态是「源码包在 language-mermaid 里」，不是内联 SVG —— 后者会让
+// `blocksToHtml` 不再是纯函数（要等异步渲染），「解析 ⇄ 序列化精确可逆」这条就断了。
+const mermaidDoc = parseHtml('<pre><code class="language-mermaid">graph TD\n  A --> B</code></pre>')
+const mermaidDocHtml = serializeHtml(mermaidDoc, { title: "图" })
+check(
+  "导出文件里 mermaid 保持 language-mermaid 代码块",
+  mermaidDocHtml.includes('<pre><code class="language-mermaid">graph TD\n  A --&gt; B</code></pre>'),
+)
+check("导出文件里的 mermaid 能被重新解析", same(mermaidDoc, parseHtml(mermaidDocHtml)))
+
 // ---------- 四、有序列表编号 ----------
 
 /**
@@ -299,6 +353,7 @@ function editorNumbers(blocks, map) {
 function blockTextOf(block) {
   if (block.type === "image") return `[img:${block.alt}]`
   if (block.type === "table") return "[table]"
+  if (block.type === "mermaid") return "[mermaid]"
   return block.runs.map((run) => run.text).join("")
 }
 

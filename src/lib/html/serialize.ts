@@ -1,4 +1,4 @@
-import type { Block, ImageBlock, TableCell, TextualBlock } from "@/types/workspace"
+import type { Block, ImageBlock, MermaidBlock, TableCell, TextualBlock } from "@/types/workspace"
 import { isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
 import { escapeHtml, runsText, runsToHtml } from "@/lib/inline"
@@ -67,12 +67,18 @@ export function blocksToHtml(blocks: readonly Block[]): string {
   for (let index = 0; index < blocks.length; index += 1) {
     const block = blocks[index]
 
+    // 不承载 runs 的形态必须在这里逐个拦下 —— 漏一个就会掉进 `plainHtml()` 当正文块处理，
+    // 那里取 `block.runs` 拿到 undefined，序列化出来的是一段空白而不是报错。
     if (block.type === "image") {
       out.push(imageHtml(block))
       continue
     }
     if (block.type === "table") {
       out.push(tableHtml(block.rows))
+      continue
+    }
+    if (block.type === "mermaid") {
+      out.push(mermaidHtml(block))
       continue
     }
     if (isListBlock(block)) {
@@ -158,6 +164,21 @@ function codeHtml(block: TextualBlock): string {
 function imageHtml(block: ImageBlock): string {
   const title = block.title === "" ? "" : ` title="${escapeHtml(block.title)}"`
   return `<img src="${escapeHtml(block.src)}" alt="${escapeHtml(block.alt)}"${title}>`
+}
+
+/**
+ * Mermaid 图块 → `<pre><code class="language-mermaid">`。
+ *
+ * 与 markdown 生态（```mermaid 围栏）以及别的编辑器一致，GitHub / Obsidian / Typora
+ * 都认这个形态，导出物不会被锁死在本项目里。
+ *
+ * **代价写在明处**：导出的单文件用浏览器直接打开时看到的是一段源码，不是图。
+ * 换成内联渲染好的 SVG 能让它好看，但 `blocksToHtml` 就不再是纯函数（要等异步渲染
+ * 回来），「解析 ⇄ 序列化精确可逆」这条不变式也跟着断 —— 那两条是本项目的硬约定，
+ * 所以这里守住源码形态，可视化留在编辑器里。
+ */
+function mermaidHtml(block: MermaidBlock): string {
+  return `<pre><code class="language-mermaid">${escapeHtml(block.source)}</code></pre>`
 }
 
 /** 复选框后面留一个空格：纯为可读性，解析时会被 trimRuns 掐掉。 */

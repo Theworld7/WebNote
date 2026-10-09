@@ -4,6 +4,7 @@ import type {
   BlockTypeMeta,
   ImageBlock,
   InlineRun,
+  MermaidBlock,
   TableBlock,
   TableCell,
   TextualBlock,
@@ -30,6 +31,8 @@ export const BLOCK_TYPES = [
   { type: "ol", marker: "1.", label: "有序列表" },
   { type: "quote", marker: '"', label: "引用" },
   { type: "code", marker: "</>", label: "代码块" },
+  // 紧挨 code：mermaid 的心智来源就是「用代码块写图」，摆一起最容易找。
+  { type: "mermaid", marker: "◇", label: "Mermaid 图" },
   { type: "callout", marker: "!", label: "标注" },
   { type: "divider", marker: "—", label: "分割线" },
   { type: "image", marker: "▧", label: "图片" },
@@ -72,9 +75,12 @@ export function isListBlock(block: Block): block is TextualBlock & { type: ListB
  *
  * 用 `!==` 而不是判断 `"runs" in block`：前者能被编译器用来收窄联合类型，
  * 后者只是运行时成立，拿到手依然是 `Block`。
+ *
+ * **新增结构类块（不承载 runs 的形态）时，这里必须跟着补一条 `!==`** ——
+ * 漏了不会报错，只会把新块当成正文块，`runs` 处取到 `undefined` 然后静默崩在别处。
  */
 export function isTextualBlock(block: Block): block is TextualBlock {
-  return block.type !== "image" && block.type !== "table"
+  return block.type !== "image" && block.type !== "table" && block.type !== "mermaid"
 }
 
 /** 块是否自带左侧标记（列表符号 / 复选框）。 */
@@ -115,10 +121,15 @@ export function createTableBlock(rows: TableCell[][] = []): TableBlock {
   return { id: createBlockId(), type: "table", rows }
 }
 
+export function createMermaidBlock(source = ""): MermaidBlock {
+  return { id: createBlockId(), type: "mermaid", source }
+}
+
 /** 按类型造块。`text` 会被包成单个无标记 run —— 组件层新建块走这条，不必手搓 runs。 */
 export function createBlock(type: BlockType, text = ""): Block {
   if (type === "image") return createImageBlock()
   if (type === "table") return createTableBlock()
+  if (type === "mermaid") return createMermaidBlock()
   return createTextualBlock(type, textToRuns(text))
 }
 
@@ -129,7 +140,7 @@ export function createBlock(type: BlockType, text = ""): Block {
  * 数据若不同步清空，切走标签再切回来又会把旧内容渲染出来（`/` 触发转换时尤其明显）。
  */
 export function retypeBlock(block: Block, type: BlockType): Block {
-  if (type === "image" || type === "table") return createBlock(type)
+  if (type === "image" || type === "table" || type === "mermaid") return createBlock(type)
   if (!isTextualBlock(block)) return createTextualBlock(type)
   return createTextualBlock(type, [], { depth: block.depth, checked: block.checked })
 }
@@ -140,9 +151,11 @@ export function retypeBlock(block: Block, type: BlockType): Block {
  * 浅拷（`{ ...block }`）在旧模型下够用，现在不够 —— `runs` / `rows` 都是数组，
  * 浅拷会让两份块共享同一批 run 对象，改一处动两处。id 由调用方给：
  * 拷进工作区状态时沿用原 id，「复制块」时换成新的。
+ *
+ * `source` 是字符串，图片块那种平坦形态浅拷即可。
  */
 export function cloneBlock(block: Block, id: string): Block {
-  if (block.type === "image") return { ...block, id }
+  if (block.type === "image" || block.type === "mermaid") return { ...block, id }
   if (block.type === "table") {
     const rows = block.rows.map((row) => row.map((cell) => ({ header: cell.header, runs: cloneRuns(cell.runs) })))
     return { ...block, id, rows }
@@ -153,11 +166,12 @@ export function cloneBlock(block: Block, id: string): Block {
 /**
  * 块的纯文本投影。
  *
- * 图片取 alt、表格把单元格拼起来 —— 至少字数统计与检索不必对这两种块特殊处理。
- * 不要把它当数据源用：改文本要改 `runs`，投影只是只读视图。
+ * 图片取 alt、表格把单元格拼起来、mermaid 取图源码 —— 至少字数统计与检索不必对这
+ * 三种块特殊处理。不要把它当数据源用：改文本要改 `runs`，投影只是只读视图。
  */
 export function blockText(block: Block): string {
   if (block.type === "image") return block.alt
+  if (block.type === "mermaid") return block.source
   if (block.type === "table") {
     return block.rows.map((row) => row.map((cell) => runsText(cell.runs)).join(" ")).join("\n")
   }

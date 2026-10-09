@@ -1,5 +1,5 @@
-import type { Block, ImageBlock, InlineRun, TableBlock, TableCell, TextualBlock, TextualBlockType } from "@/types/workspace"
-import { createImageBlock, createTableBlock, createTextualBlock } from "@/lib/blocks"
+import type { Block, ImageBlock, InlineRun, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
+import { createImageBlock, createMermaidBlock, createTableBlock, createTextualBlock } from "@/lib/blocks"
 import { textToRuns, trimRuns } from "@/lib/inline"
 import { runsFromNodes } from "./runs-dom"
 import { BLOCK_TAGS, IMAGE_TAG, SKIPPED_TAGS } from "./tags"
@@ -219,12 +219,18 @@ function isCheckbox(element: Element): boolean {
 }
 
 /** 代码块：正文原样保留（不折叠空白），语言取 `<code class="language-x">`。 */
-function parsePre(element: Element): TextualBlock {
+function parsePre(element: Element): Block {
   const code = element.querySelector(CODE_TAG)
   const source = code ?? element
   // 去掉源码排版惯用的首尾换行；块正文里的换行由 Shift+Enter 产生，不受影响。
   const text = (source.textContent ?? "").replace(/^\n/, "").replace(/\n+$/, "")
-  return createTextualBlock("code", textToRuns(text), { lang: languageOf(code) ?? "" })
+  const lang = languageOf(code)
+
+  // `<pre><code class="language-mermaid">` 是 mermaid 在 markdown 围栏之外的通用写法，
+  // 别的编辑器和剪藏页面都这么存。认它，图才能被升成图块而不是摆成一段看不懂的代码。
+  if (lang === "mermaid") return createMermaidBlock(text)
+
+  return createTextualBlock("code", textToRuns(text), { lang: lang ?? "" })
 }
 
 function languageOf(code: Element | null): string | null {

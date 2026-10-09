@@ -380,6 +380,21 @@ function createWorkspace() {
     markDirty()
   }
 
+  // ---- Mermaid ----
+
+  /**
+   * 改图源码。
+   *
+   * 这里**不校验语法**：用户打到一半的源码是常态，此时拦下来等于不让人保存。
+   * 画不出来由渲染层显示错误态，源码照存。
+   */
+  function setMermaidSource(id: string, source: string) {
+    const block = activeBlock(id)
+    if (block === undefined || block.type !== "mermaid") return
+    block.source = source
+    markDirty()
+  }
+
   // ---- 表格 ----
 
   /**
@@ -511,6 +526,8 @@ function createWorkspace() {
     moveBlock,
     // image actions
     setImageSource,
+    // mermaid actions
+    setMermaidSource,
     // table actions
     defineTable,
     setTableCellRuns,

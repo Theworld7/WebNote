@@ -6,9 +6,9 @@
  * 1. **类型标识符只有一个真源**。菜单项、marker、`/` 转换菜单全部从 `BLOCK_TYPES`
  *    （见 `@/lib/blocks`）派生，避免原型阶段出现过的「类型定义 / CSS / 菜单三处标识符
  *    不一致」问题。
- * 2. **`Block` 是三形态可辨识联合**，`type` 同时充当判别式：`image` / `table` 各自独占
- *    自己的字段，其余十一种走 `TextualBlock`。判别式让编译器兜住穷尽性，因此全项目
- *    不需要一处类型断言。
+ * 2. **`Block` 是四形态可辨识联合**，`type` 同时充当判别式：`image` / `table` / `mermaid`
+ *    各自独占自己的字段，其余十三种走 `TextualBlock`。判别式让编译器兜住穷尽性，因此
+ *    全项目不需要一处类型断言。
  * 3. **正文是 `InlineRun[]` 而不是字符串**。解析静态 HTML 必须装得下行内标记
  *    （加粗 / 链接 / 行内代码），一旦只存纯文本，解析结果的信息量就被截断了。
  *    需要纯文本时用 `runsText()` / `blockText()` 投影，不要再另存一份字符串字段 ——
@@ -50,8 +50,8 @@ export type TextualBlockType =
   | "callout"
   | "divider"
 
-/** 全部块类型 = 正文类 + 两个结构类。派生而非常量列表，避免两处维护。 */
-export type BlockType = TextualBlockType | "image" | "table"
+/** 全部块类型 = 正文类 + 三个结构类。派生而非常量列表，避免两处维护。 */
+export type BlockType = TextualBlockType | "image" | "table" | "mermaid"
 
 /** 正文块。块之间是平铺列表；列表的嵌套层级用 `depth` 表达，不建树。 */
 export interface TextualBlock {
@@ -88,7 +88,21 @@ export interface TableBlock {
   rows: TableCell[][]
 }
 
-export type Block = TextualBlock | ImageBlock | TableBlock
+/**
+ * Mermaid 图块。
+ *
+ * 源码是**纯字符串**而不是 `InlineRun[]`。两个原因：`*` `_` `-` `#` 在 mermaid 里是
+ * 语法字符，走 runs 会被行内标记解析吃掉；而且图源码永远不需要加粗 / 链接这类富文本。
+ * 这也是它与 `code` 块的分别 —— 那边承载的是可被行内格式化的正文。
+ */
+export interface MermaidBlock {
+  id: string
+  type: "mermaid"
+  /** mermaid 源码，原样保存（含换行与缩进）。 */
+  source: string
+}
+
+export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock
 
 /** 块类型元数据：菜单标记 + 中文名。菜单渲染直接消费。 */
 export interface BlockTypeMeta {
