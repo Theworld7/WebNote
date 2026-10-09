@@ -25,7 +25,9 @@ const message = computed(() => {
 
 <template>
   <ScrollArea class="min-h-0 flex-1">
-    <div class="px-1.5 pb-2">
+    <!-- 左右内边距与上方「工作区行 / 搜索框」的 px-2.5 对齐：树行 hover 底色与搜索框同宽，
+         右缘也正好让开 ScrollArea 的 2.5 宽滚动条，避免行圆角被滑块压住。 -->
+    <div class="px-2.5 pb-2">
       <p v-if="message !== ''" class="px-2 py-3 text-[12px] leading-relaxed text-muted-foreground">
         {{ message }}
       </p>

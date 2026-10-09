@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>侧栏宽度自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #stage { margin: 0 0 16px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>侧栏：树行 hover 底色与搜索框等宽自检</h1>
+<div id="stage" style="display:flex; height:420px"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { createApp, defineComponent, h, nextTick } from "vue"
+// 必须引应用样式表：断言查的是 Tailwind 类的计算几何，不引 style.css 这些类根本不存在。
+import "../src/style.css"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import AppSidebar from "../src/components/AppSidebar.vue"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+
+const out = document.querySelector("#out")
+const lines = []
+let passed = 0
+let failed = 0
+let finished = false
+
+/** 顶层 await 抛错时把原因写到 #out，否则 CDP 只会看到停在最后一步。 */
+addEventListener("error", (event) => {
+  finished = true
+  out.textContent = `ERROR ${event.message}\n${lines.join("\n")}`
+})
+addEventListener("unhandledrejection", (event) => {
+  finished = true
+  const reason = event.reason
+  const text = reason instanceof Error ? reason.message : String(reason)
+  out.textContent = `REJECT ${text}\n${lines.join("\n")}`
+})
+
+/** 未跑完前给个 `running:` 前缀，让 CDP 继续等。 */
+function flush() {
+  const body = lines.join("\n")
+  out.textContent = finished ? body : `running: ${body}`
+}
+
+function step(text) {
+  flush()
+  out.textContent = `running: ${text}`
+}
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  flush()
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+/** 卡住时最有用的信息是「此刻树上到底有哪几行」。 */
+function rowNames() {
+  return [...document.querySelectorAll("div")]
+    .filter((d) => {
+      const cls = d.getAttribute("class") ?? ""
+      return cls.includes("hover:bg-muted") && cls.includes("h-7")
+    })
+    .map((d) => d.textContent.trim())
+}
+
+async function until(fn, label, timeout = 8000) {
+  const started = Date.now()
+  for (;;) {
+    const value = fn()
+    if (value) return value
+    if (Date.now() - started > timeout) {
+      throw new Error(`超时等待：${label}；当前行 = ${JSON.stringify(rowNames())}`)
+    }
+    await sleep(50)
+  }
+}
+
+// ---- 用 OPFS 造一棵真实的目录树，走真实的 FileSystemDirectoryHandle 读写 ----
+
+step("准备 OPFS 目录")
+const opfs = await navigator.storage.getDirectory()
+
+async function writeNote(parent, name, html) {
+  const handle = await parent.getFileHandle(name, { create: true })
+  const writable = await handle.createWritable()
+  await writable.write(html)
+  await writable.close()
+}
+
+const NOTE = "<h1>标题</h1><p>正文</p>"
+const diary = await opfs.getDirectoryHandle("日记", { create: true })
+await writeNote(diary, "2026-10-08.html", NOTE)
+const gallery = await diary.getDirectoryHandle("配图", { create: true })
+await writeNote(gallery, "说明.html", NOTE)
+await writeNote(opfs, "随笔.html", NOTE)
+await writeNote(opfs, "忽略我.txt", "不是笔记")
+
+/** 让「打开文件夹」落到上面这棵树，而不是弹原生对话框。 */
+window.showDirectoryPicker = async () => opfs
+
+// ---- 挂真实的侧栏 ----
+
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    return () =>
+      h(TooltipProvider, null, {
+        default: () =>
+          h("div", { style: "display:flex;height:100%" }, [h(AppSidebar, { width: 280 })]),
+      })
+  },
+})
+
+step("挂载 AppSidebar")
+createApp(Root).mount("#stage")
+await nextTick()
+await workspace.bootstrap()
+await nextTick()
+
+const rows = () =>
+  [...document.querySelectorAll("div")].filter((d) => {
+    const cls = d.getAttribute("class") ?? ""
+    return cls.includes("hover:bg-muted") && cls.includes("h-7")
+  })
+const rowOf = (name) => rows().find((d) => d.textContent.trim() === name)
+
+/** 工作区行那颗按钮（未选目录时是「打开文件夹」，选完是目录名）。 */
+const workspaceButton = () => document.querySelector("aside button")
+
+/** reka 的 tooltip 靠 focus 打开，内容挂在 body 上的 portal 里，关掉后卸载。 */
+async function workspaceTipText() {
+  const button = workspaceButton()
+  if (button === null) throw new Error("找不到工作区按钮")
+  button.focus()
+  const tip = await until(() => document.querySelector('[role="tooltip"]'), "tooltip 打开")
+  const text = tip.textContent.trim()
+  button.blur()
+  await sleep(150)
+  return text
+}
+
+step("未选目录时的 tooltip")
+const tipWithoutRoot = await workspaceTipText()
+check(
+  "未选目录：动作 + 平台能力两句都在",
+  tipWithoutRoot === `选择一个存放笔记的文件夹 · ${workspace.fsHint.value}`,
+  tipWithoutRoot,
+)
+
+step("点击「打开文件夹」")
+const openButton = [...document.querySelectorAll("button")].find((b) =>
+  b.textContent.includes("打开文件夹"),
+)
+if (openButton === undefined) throw new Error("找不到「打开文件夹」按钮")
+openButton.click()
+
+await until(() => rowOf("随笔.html"), "根层文件行")
+check("只收 .html：txt 不进树", rowOf("忽略我.txt") === undefined)
+
+step("已选目录时的 tooltip")
+const tipWithRoot = await workspaceTipText()
+check("已选目录：只留「点击更换目录」", tipWithRoot === "点击更换目录", tipWithRoot)
+check(
+  "已选目录：不再挂平台能力说明",
+  !tipWithRoot.includes(workspace.fsHint.value) && !tipWithRoot.includes("·"),
+  tipWithRoot,
+)
+
+// 根层文件夹默认展开（defaultExpanded），所以「日记」不用点；再点一下反而是收起。
+await until(() => rowOf("2026-10-08.html"), "二级文件行")
+step("展开「配图」")
+rowOf("配图").click()
+// 点完先让 Vue 重渲染再等 —— 否则 until 的首次同步检查会读到点击前的旧 DOM。
+await sleep(150)
+await until(() => rowOf("说明.html"), "三级文件行")
+await nextTick()
+
+// ---- 量几何 ----
+
+step("量几何")
+const input = document.querySelector('input[placeholder="搜索笔记…"]')
+if (input === null) throw new Error("找不到搜索输入框")
+/** 搜索框的可视外框：输入框的直接父节点就是那个 h-[30px] 圆角容器。 */
+const searchBox = input.parentElement
+const aside = document.querySelector("aside")
+
+const rect = (el) => {
+  const r = el.getBoundingClientRect()
+  return { left: +r.left.toFixed(2), right: +r.right.toFixed(2), width: +r.width.toFixed(2) }
+}
+
+const search = rect(searchBox)
+const asideRect = rect(aside)
+const samples = ["随笔.html", "日记", "2026-10-08.html", "配图", "说明.html"].map((name) => ({
+  name,
+  ...rect(rowOf(name)),
+}))
+
+lines.push(`aside      left=${asideRect.left} right=${asideRect.right} width=${asideRect.width}`)
+lines.push(`搜索框外框  left=${search.left} right=${search.right} width=${search.width}`)
+for (const s of samples) {
+  lines.push(`行 ${s.name.padEnd(14)} left=${s.left} right=${s.right} width=${s.width}`)
+}
+flush()
+
+// ---- 断言 ----
+
+const EPS = 0.5
+const lefts = samples.map((s) => s.left)
+const rights = samples.map((s) => s.right)
+const widths = samples.map((s) => s.width)
+
+check(
+  "每行与搜索框左缘对齐",
+  lefts.every((v) => Math.abs(v - search.left) < EPS),
+  `行 left ∈ [${Math.min(...lefts)}, ${Math.max(...lefts)}]，搜索框 ${search.left}`,
+)
+check(
+  "每行与搜索框右缘对齐",
+  rights.every((v) => Math.abs(v - search.right) < EPS),
+  `行 right ∈ [${Math.min(...rights)}, ${Math.max(...rights)}]，搜索框 ${search.right}`,
+)
+check(
+  "每行等宽（缩进不改变行盒）",
+  widths.every((v) => Math.abs(v - widths[0]) < EPS),
+  `行宽 ∈ [${Math.min(...widths)}, ${Math.max(...widths)}]`,
+)
+check(
+  "行宽 == 搜索框宽",
+  widths.every((v) => Math.abs(v - search.width) < EPS),
+  `行宽 ${widths[0]}，搜索框 ${search.width}`,
+)
+check(
+  "行右缘让开 ScrollArea 的 2.5 宽滚动条",
+  Math.abs(asideRect.right - Math.max(...rights) - 10) < EPS,
+  `aside.right - 行右缘 = ${(asideRect.right - Math.max(...rights)).toFixed(2)}，期望 10`,
+)
+
+/** 缩进量的是行内文字起点，不是行盒。 */
+function textLeft(name) {
+  const row = rowOf(name)
+  const span = [...row.querySelectorAll("span")].find((s) => s.textContent.trim() === name)
+  return +span.getBoundingClientRect().left.toFixed(2)
+}
+const indents = ["随笔.html", "2026-10-08.html", "说明.html"].map(textLeft)
+lines.push(`文字起点 ${indents.join(" → ")}`)
+flush()
+check(
+  "文字起点逐层右移 16px",
+  Math.abs(indents[1] - indents[0] - 16) < EPS && Math.abs(indents[2] - indents[1] - 16) < EPS,
+  `实际间隔 ${(indents[1] - indents[0]).toFixed(2)} / ${(indents[2] - indents[1]).toFixed(2)}`,
+)
+
+lines.push(`\n${passed} passed, ${failed} failed`)
+finished = true
+if (failed > 0) lines.unshift("FAIL")
+flush()
+</script>
+</body>
+</html>

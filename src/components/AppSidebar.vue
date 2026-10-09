@@ -11,9 +11,14 @@ defineProps<{ width: number }>()
 
 const { query, rootName, hasRoot, scanning, fsHint, openRoot } = useWorkspace()
 
-/** 悬停提示得同时说清「点了会发生什么」和「这个平台能记住多少」，缺一个都会让人猜。 */
-const workspaceTip = computed(
-  () => `${hasRoot.value ? "点击更换目录" : "选择一个存放笔记的文件夹"} · ${fsHint.value}`,
+/**
+ * 悬停提示。
+ *
+ * 未选目录时要同时说清「点了会发生什么」和「这个平台能记住多少」；已选目录时只剩一个动作，
+ * 再挂平台说明是多余信息 —— 那是每次都要重新选目录的人才需要知道的。
+ */
+const workspaceTip = computed(() =>
+  hasRoot.value ? "点击更换目录" : `选择一个存放笔记的文件夹 · ${fsHint.value}`,
 )
 
 /**

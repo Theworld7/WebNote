@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { EllipsisIcon, LocateFixedIcon, PanelLeftIcon } from "@lucide/vue"
+import { LocateFixedIcon, PanelLeftIcon } from "@lucide/vue"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -19,6 +19,7 @@ const emit = defineEmits<{ (event: "toggle-sidebar"): void }>()
 const {
   tabs,
   activePath,
+  activeTab,
   isDirty,
   activateTab,
   requestCloseTab,
@@ -40,9 +41,11 @@ const DIALOG_BTN = "h-7 px-3 text-[13px]"
 </script>
 
 <template>
-  <!-- 浮岛：只占内容宽度、不通栏，靠 self-start 收在左侧，右侧留空。 -->
-  <div class="flex flex-none items-center gap-1 self-start rounded-island bg-card p-1 shadow-island">
-    <div class="flex min-w-0 items-center gap-0.5 overflow-hidden">
+  <!-- 浮岛：只占内容宽度、不通栏，靠 self-start 收在左侧，右侧留空。
+       标签条与动作组之间的间隔只由外层 gap 一处承担（曾经叠了 `gap-1` + `ml-1` + `pl-1.5`，
+       无标签时那段空白会露出来）；空标签时标签条整个不渲染，否则零宽的空条仍会吃掉一份 gap。 -->
+  <div class="flex flex-none items-center gap-2 self-start rounded-island bg-card p-1 shadow-island">
+    <div v-if="tabs.length > 0" class="flex min-w-0 items-center gap-0.5 overflow-hidden">
       <EditorTab
         v-for="tab in tabs"
         :key="tab.path"
@@ -53,7 +56,7 @@ const DIALOG_BTN = "h-7 px-3 text-[13px]"
       />
     </div>
 
-    <div class="ml-1 flex flex-none items-center gap-0.5 pl-1.5">
+    <div class="flex flex-none items-center gap-0.5">
       <!-- 只在当前激活标签有未保存改动时出现。其余标签的脏态由标签自己那个圆点表达，
            全局常驻一个「保存」按钮会误导成「点了会保存所有标签」。 -->
       <Button
@@ -66,22 +69,14 @@ const DIALOG_BTN = "h-7 px-3 text-[13px]"
         保存
       </Button>
 
-      <Tooltip>
+      <!-- 「在目录中定位」定的是当前激活的那篇笔记，没有激活标签就无从定位，不给按钮。 -->
+      <Tooltip v-if="activeTab !== null">
         <TooltipTrigger as-child>
           <Button variant="ghost" :class="ACTION" aria-label="在目录中定位">
             <LocateFixedIcon class="size-[15px]" />
           </Button>
         </TooltipTrigger>
         <TooltipContent>在目录中定位</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger as-child>
-          <Button variant="ghost" :class="ACTION" aria-label="更多">
-            <EllipsisIcon class="size-[15px]" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>更多</TooltipContent>
       </Tooltip>
 
       <Tooltip>

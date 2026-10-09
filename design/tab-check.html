@@ -6,7 +6,9 @@
 <style>
   body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
   h1 { font-size: 15px; margin: 0 0 12px; }
-  #app { margin: 0 0 16px; }
+  /* 必须是 flex column：真实布局里标签栏靠 `self-start` 收缩成内容宽度（父级是 App.vue 的
+     `flex flex-col` section）。探针里给它一个块级父容器的话它会撑满整行，右缘几何就没法量。 */
+  #app { margin: 0 0 16px; display: flex; flex-direction: column; }
   pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
 </style>
 </head>
@@ -105,6 +107,107 @@ check("全部保存后 → 隐藏", saveButton() === undefined)
 workspace.activePath.value = ""
 await nextTick()
 check("无激活标签 → 隐藏", saveButton() === undefined)
+
+// ---- 动作组的按钮集合 ----
+//
+// 「在目录中定位」定的是激活标签那篇笔记，没打开文件时不该出现；「更多」按钮没有设计，已删。
+// 用 aria-label 的完整序列断言，集合一变就红。
+
+const EPS = 0.5
+const island = document.querySelector('[class*="rounded-island"]')
+/** 动作组是浮岛的最后一个子节点。不用「定位按钮的父级」定位它 —— 那个按钮现在会消失。 */
+const actions = island.lastElementChild
+const actionLabels = () =>
+  [...actions.querySelectorAll("button")].map((b) => b.getAttribute("aria-label") ?? b.textContent.trim())
+const hasLocate = () => document.querySelector('button[aria-label="在目录中定位"]') !== null
+
+const leftOf = (el) => el.getBoundingClientRect().left
+const rightOf = (el) => el.getBoundingClientRect().right
+/** 动作组的前一个兄弟就是标签条；空标签时它整个不渲染，于是为 null。 */
+const stripOf = () => actions.previousElementSibling
+
+workspace.tabs.value = []
+workspace.activePath.value = ""
+await nextTick()
+check(
+  "未打开文件时动作组只剩「折叠侧栏」",
+  JSON.stringify(actionLabels()) === JSON.stringify(["折叠侧栏"]),
+  JSON.stringify(actionLabels()),
+)
+check("未打开文件时不显示「在目录中定位」", !hasLocate())
+check("「更多」按钮已移除", document.querySelector('button[aria-label="更多"]') === null)
+
+workspace.tabs.value = [{ path: "a.html", dirty: false }]
+workspace.activePath.value = "a.html"
+await nextTick()
+check("打开文件后出现「在目录中定位」", hasLocate())
+check(
+  "动作组为「定位 + 折叠侧栏」",
+  JSON.stringify(actionLabels()) === JSON.stringify(["在目录中定位", "折叠侧栏"]),
+  JSON.stringify(actionLabels()),
+)
+
+// ---- 浮岛几何：间隔只由外层 gap 一处承担 ----
+//
+// 曾经是 gap-1 + ml-1 + pl-1.5 三个机制叠出 14px，无标签时左缘会空出 18px。
+// 这几条断言锁住「一个机制」与「空标签不留白」两个性质，防止双 padding 复发。
+
+const actionsClass = actions.getAttribute("class") ?? ""
+check(
+  "间隔不再由动作组自带 margin / padding 承担",
+  !/(^|\s)(ml-|pl-)/.test(actionsClass),
+  actionsClass,
+)
+
+workspace.tabs.value = []
+workspace.activePath.value = ""
+await nextTick()
+
+check("无标签时不渲染标签条（零宽空条会吃掉一份 gap）", stripOf() === null)
+check(
+  "无标签时首个动作按钮距浮岛左缘 4px（= 浮岛 p-1）",
+  Math.abs(leftOf(actions.firstElementChild) - leftOf(island) - 4) < EPS,
+  `实际 ${(leftOf(actions.firstElementChild) - leftOf(island)).toFixed(1)}`,
+)
+
+workspace.tabs.value = [
+  { path: "a.html", dirty: false },
+  { path: "b.html", dirty: false },
+]
+workspace.activePath.value = "b.html"
+await nextTick()
+
+const strip = stripOf()
+check(
+  "有标签时标签条存在且仍是收缩容器",
+  strip !== null && (strip.getAttribute("class") ?? "").includes("overflow-hidden"),
+)
+check(
+  "标签条左缘距浮岛左缘 4px",
+  strip !== null && Math.abs(leftOf(strip) - leftOf(island) - 4) < EPS,
+  strip === null ? "标签条缺失" : `实际 ${(leftOf(strip) - leftOf(island)).toFixed(1)}`,
+)
+
+/** 末个 tab 的右缘 —— 标签条的最后一个子节点。 */
+const lastTabRight = () => rightOf(strip.lastElementChild)
+/** 动作组的第一个按钮。间隔若靠动作组的 padding 顶出来，量动作组外框是看不出来的。 */
+const firstActionLeft = () => leftOf(actions.firstElementChild)
+const stripGap = () => firstActionLeft() - lastTabRight()
+check(
+  "标签条到首个动作按钮的间隔 8px（gap-2，不再是 8 + 6）",
+  Math.abs(stripGap() - 8) < EPS,
+  `实际 ${stripGap().toFixed(1)}`,
+)
+
+// 出现「保存」按钮时动作组变宽，但它左锚在标签条之后 —— 间隔不能跟着变。
+workspace.tabs.value[1].dirty = true
+await nextTick()
+check(
+  "出现保存按钮时间隔不变",
+  Math.abs(stripGap() - 8) < EPS,
+  `实际 ${stripGap().toFixed(1)}`,
+)
+check("此时右缘仍留 4px（= 浮岛 p-1）", Math.abs(rightOf(island) - rightOf(actions) - 4) < EPS)
 
 lines.push(`自检 ${passed}/${passed + failed}`)
 document.getElementById("out").textContent = lines.join("\n")
