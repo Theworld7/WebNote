@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>表格列对齐自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; }
+  .fail { color: #b42318; }
+</style>
+</head>
+<body>
+<h1>表格：列对齐、边框与圆角（模型 / 渲染 / 导出）自检</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { createApp, defineComponent, h, nextTick, reactive } from "vue"
+// 必须引应用样式表：对齐是靠 Tailwind 类（text-left / text-center / text-right）落地的，
+// 不引 style.css 这些类根本不存在，计算样式会退化成 UA 默认值 —— 断言全成假象。
+import "../src/style.css"
+import TableBlockView from "../src/components/TableBlockView.vue"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { cloneBlock, createTableBlock } from "../src/lib/blocks.ts"
+import { serializeHtml } from "../src/lib/html/serialize.ts"
+import * as table from "../src/lib/table.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+
+let step = "模型"
+function note(next) {
+  step = next
+  document.getElementById("out").textContent = `running: ${step}`
+}
+note(step)
+
+// ---------- 一、模型（`table.ts` 的纯函数） ----------
+
+const grid = table.createGrid(3, 2, true)
+check("新表每格都是未设置（左对齐不落存储）", grid.every((row) => row.every((cell) => cell.align === undefined)))
+check("columnAlign 缺省读成 left", table.columnAlign(grid, 1) === "left")
+
+const centered = table.setColumnAlign(grid, 1, "center")
+check("设某一列 → 整列一起写", centered.every((row) => row[1].align === "center"))
+check(
+  "设某一列 → 别的列不动",
+  centered.every((row) => row[0].align === undefined && row[2].align === undefined),
+)
+check("columnAlign 读回 center", table.columnAlign(centered, 1) === "center")
+check(
+  "设回左对齐 → 字段被清掉（不是留下 \"left\"）",
+  table.setColumnAlign(centered, 1, "left").every((row) => row[1].align === undefined),
+)
+check("列越界不炸也不改数据", table.setColumnAlign(grid, 9, "center").every((row) => row.every((c) => c.align === undefined)))
+check("入参不被改（纯函数）", grid.every((row) => row.every((cell) => cell.align === undefined)))
+
+// 对齐是列属性，行增删必须跟着列走 —— 否则往居中的表里插一行会插出半截对齐。
+const midRow = table.insertRow(centered, 1)
+check(
+  "中间插行 → 新行逐列继承同列对齐",
+  midRow[1].every((cell, column) => cell.align === centered[0][column].align),
+)
+const tailRow = table.insertRow(centered, centered.length)
+const lastRow = tailRow[tailRow.length - 1]
+check(
+  "末尾追加行 → 同样继承",
+  lastRow[1].align === "center" && lastRow[0].align === undefined && lastRow[2].align === undefined,
+)
+
+const midColumn = table.insertColumn(centered, 1)
+check("左插列 → 新格继承左邻", midColumn.every((row) => row[1].align === row[0].align))
+const headColumn = table.insertColumn(centered, 0)
+check("插到最左 → 继承原首格", headColumn.every((row) => row[0].align === row[1].align))
+const tailColumn = table.insertColumn(centered, 3)
+check("插到最右 → 继承末列", tailColumn.every((row) => row[3].align === row[2].align))
+check("删列后对齐跟着列走", table.columnAlign(table.removeColumn(centered, 0), 0) === "center")
+
+const source = centered[0][1]
+const copied = table.cloneCell(source)
+check(
+  "cloneCell 带上对齐且 runs 已深拷",
+  copied.align === "center" && copied.runs !== source.runs,
+)
+const blockCopy = cloneBlock(createTableBlock(centered), "copied")
+check(
+  "cloneBlock（复制块）带上列对齐",
+  blockCopy.type === "table" && blockCopy.rows[0][1].align === "center",
+)
+
+// ---------- 二、渲染（编辑器里的计算样式） ----------
+
+note("渲染")
+let rows = table.createGrid(3, 2, true)
+rows = table.setColumnAlign(rows, 1, "center")
+rows = table.setColumnAlign(rows, 2, "right")
+const block = reactive(createTableBlock(rows))
+
+const Root = defineComponent({
+  setup() {
+    provideWorkspace()
+    return () => h(TableBlockView, { block })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+
+/** 表格按行主序渲染，所以第 `r` 行第 `c` 列 = `r * 3 + c`。 */
+function cellAt(index) {
+  return document.querySelectorAll("#app th, #app td")[index] ?? null
+}
+
+function alignAt(index) {
+  const cell = cellAt(index)
+  return cell === null ? "（没渲染出来）" : getComputedStyle(cell).textAlign
+}
+
+check("渲染出 6 个格子", document.querySelectorAll("#app th, #app td").length === 6)
+check("表头默认左对齐（钉死 <th> 的 UA 居中）", alignAt(0) === "left", `实际 ${alignAt(0)}`)
+check("未设的列渲染成左对齐", alignAt(3) === "left", `实际 ${alignAt(3)}`)
+check("center 列两行都居中", alignAt(1) === "center" && alignAt(4) === "center", `实际 ${alignAt(1)} / ${alignAt(4)}`)
+check("right 列两行都靠右", alignAt(2) === "right" && alignAt(5) === "right", `实际 ${alignAt(2)} / ${alignAt(5)}`)
+check(
+  "表头行也跟随列对齐（表头不是特殊格）",
+  cellAt(1).tagName === "TH" && alignAt(1) === "center",
+  `实际 ${cellAt(1).tagName} / ${alignAt(1)}`,
+)
+
+block.rows = table.setColumnAlign(block.rows, 1, "left")
+await nextTick()
+check("改回左对齐 → 渲染跟着变", alignAt(1) === "left" && alignAt(4) === "left", `实际 ${alignAt(1)} / ${alignAt(4)}`)
+block.rows = table.setColumnAlign(block.rows, 1, "center")
+await nextTick()
+check("再设回居中 → 渲染跟回来", alignAt(1) === "center" && alignAt(4) === "center", `实际 ${alignAt(1)}`)
+
+// ---------- 三、菜单（下拉里能设、并标出当前档） ----------
+
+note("菜单")
+function menuItemByText(text) {
+  return [...document.querySelectorAll('[data-slot="dropdown-menu-sub-content"] [role="menuitem"]')].find(
+    (item) => item.textContent.trim().endsWith(text),
+  )
+}
+
+const trigger = document.querySelector('#app button[aria-label="表格菜单"]')
+check("表格菜单按钮存在", trigger !== null)
+
+/** 菜单里的锚点列 = 最后聚焦过的格子，所以先点格子再开菜单。 */
+function focusCellAt(index) {
+  const cell = cellAt(index)
+  if (cell !== null) cell.focus()
+}
+
+if (trigger !== null) {
+  focusCellAt(1)
+  await nextTick()
+
+  trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }))
+  trigger.click()
+  await nextTick()
+  await new Promise((resolve) => setTimeout(resolve, 50))
+
+  const sub = document.querySelector('[data-slot="dropdown-menu-sub-trigger"]')
+  check("菜单里有子菜单项", sub !== null)
+  check(
+    "子菜单标出作用的是第几列（锚点=第 2 列）",
+    sub !== null && sub.textContent.includes("第 2 列对齐"),
+    sub === null ? "" : sub.textContent.trim(),
+  )
+
+  // reka-ui 的子菜单靠指针移动开（`pointermove` + `pointerType: "mouse"`，另有 100ms 延迟）。
+  // headless 里没有真实指针，只能自己派事件，新 PointerEvent 不带 pointerType 会被它判掉。
+  if (sub !== null) {
+    sub.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType: "mouse" }))
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    await nextTick()
+  }
+
+  const labels = ["左对齐", "居中", "右对齐"]
+  const found = labels.map((label) => menuItemByText(label))
+  check(
+    "子菜单三档齐全",
+    found.every((item) => item !== undefined),
+    `缺 ${labels.filter((_, index) => found[index] === undefined).join(" / ") || "无"}`,
+  )
+
+  /** 打勾的那一档。 */
+  const ticked = () => found.findIndex((item) => item !== undefined && item.textContent.includes("✓"))
+  check(
+    "勾在锚点列的当前档上（居中）",
+    ticked() === 1,
+    found.map((item) => (item === undefined ? "?" : item.textContent.trim())).join(" | "),
+  )
+
+  focusCellAt(2)
+  await nextTick()
+  check(
+    "锚点换到第 3 列 → 子菜单跟着换（标注与勾）",
+    sub !== null && sub.textContent.includes("第 3 列对齐") && ticked() === 2,
+    sub === null ? "" : `${sub.textContent.trim()} | ${found.map((i) => (i === undefined ? "?" : i.textContent.trim())).join(" | ")}`,
+  )
+}
+
+// ---------- 四、导出（DOC_STYLE 与内联样式合力） ----------
+
+note("导出")
+const frame = document.createElement("iframe")
+frame.style.cssText = "position:absolute;left:-9999px;width:1000px;height:600px;"
+document.body.appendChild(frame)
+frame.srcdoc = serializeHtml([block], { title: "列对齐自检" })
+await new Promise((resolve) => frame.addEventListener("load", resolve, { once: true }))
+
+const win = frame.contentWindow
+const edoc = frame.contentDocument
+const exported = [...edoc.querySelectorAll("th, td")]
+const exportAlign = exported.map((cell) => win.getComputedStyle(cell).textAlign)
+
+check("导出：6 个格子", exported.length === 6, `实际 ${exported.length}`)
+check("导出：未设的列仍是左（DOC_STYLE 兜底）", exportAlign[0] === "left", `实际 ${exportAlign[0]}`)
+check("导出：表头列居中", exportAlign[1] === "center", `实际 ${exportAlign[1]}`)
+check("导出：右对齐列靠右", exportAlign[2] === "right", `实际 ${exportAlign[2]}`)
+check(
+  "导出：左对齐不写 style，非左才写",
+  exported[0].getAttribute("style") === null && exported[1].getAttribute("style") === "text-align:center",
+  `实际 ${exported[0].getAttribute("style")} / ${exported[1].getAttribute("style")}`,
+)
+
+// 不变式：编辑器里看到的对齐 == 双击导出文件看到的对齐。两边漂移就是「编辑时一个样、打开另一个样」。
+const editorAligns = [0, 1, 2, 3, 4, 5].map((index) => alignAt(index))
+check(
+  "编辑器与导出的每一格对齐一致",
+  JSON.stringify(editorAligns) === JSON.stringify(exportAlign),
+  `编辑器 ${JSON.stringify(editorAligns)} / 导出 ${JSON.stringify(exportAlign)}`,
+)
+
+// ---------- 五、边框与圆角（外框归表格、内线归格子） ----------
+
+note("边框与圆角")
+const SIDES = ["Top", "Right", "Bottom", "Left"]
+const CORNERS = ["TopLeft", "TopRight", "BottomLeft", "BottomRight"]
+
+function borderWidths(element, styleOf) {
+  return SIDES.map((side) => styleOf(element)[`border${side}Width`])
+}
+
+function cornerRadii(element, styleOf) {
+  return CORNERS.map((corner) => styleOf(element)[`border${corner}Radius`])
+}
+
+/** 四边都是 1px 实线 —— 「有没有边框」只看宽度会漏掉 `border-style: none`，两条一起查。 */
+function allSidesBordered(element, styleOf) {
+  const style = styleOf(element)
+  return SIDES.every((side) => style[`border${side}Width`] === "1px" && style[`border${side}Style`] === "solid")
+}
+
+const editorTable = document.querySelector("#app table")
+const editorTableStyle = getComputedStyle(editorTable)
+check(
+  "编辑器：表格 border-separate + spacing 0（外框归表格、相邻格之间不留缝）",
+  editorTableStyle.borderCollapse === "separate" && editorTableStyle.borderSpacing === "0px",
+  `实际 ${editorTableStyle.borderCollapse} / ${editorTableStyle.borderSpacing}`,
+)
+check("编辑器：表格外框四边 1px 实线", allSidesBordered(editorTable, getComputedStyle))
+check(
+  "编辑器：表格外框圆角 8px",
+  editorTableStyle.borderRadius === "8px",
+  `实际 ${editorTableStyle.borderRadius}`,
+)
+check(
+  "编辑器：格子只留右/下内线（上/左归外框，重了会叠成 2px）",
+  [0, 1].every((index) => {
+    const style = getComputedStyle(cellAt(index))
+    return style.borderTopWidth === "0px" && style.borderLeftWidth === "0px" &&
+      style.borderRightWidth === "1px" && style.borderBottomWidth === "1px"
+  }),
+)
+check(
+  "编辑器：末列右边框、末行下边框清掉",
+  getComputedStyle(cellAt(2)).borderRightWidth === "0px" &&
+    getComputedStyle(cellAt(3)).borderBottomWidth === "0px",
+  `末列右 ${getComputedStyle(cellAt(2)).borderRightWidth} / 末行下 ${getComputedStyle(cellAt(3)).borderBottomWidth}`,
+)
+check(
+  "编辑器：四角格子各带 7px 内弧（8px 外弧减 1px 边框）",
+  getComputedStyle(cellAt(0)).borderTopLeftRadius === "7px" &&
+    getComputedStyle(cellAt(2)).borderTopRightRadius === "7px" &&
+    getComputedStyle(cellAt(3)).borderBottomLeftRadius === "7px" &&
+    getComputedStyle(cellAt(5)).borderBottomRightRadius === "7px",
+  cornerRadii(cellAt(0), getComputedStyle).join(" / "),
+)
+check(
+  "编辑器：表头格就是左上角，底色跟着弧线走",
+  cellAt(0).tagName === "TH" && getComputedStyle(cellAt(0)).borderTopLeftRadius === "7px",
+  cellAt(0).tagName,
+)
+check(
+  "编辑器：非四角的格子没有内弧（弧线只该出现在四角）",
+  getComputedStyle(cellAt(1)).borderTopLeftRadius === "0px" &&
+    getComputedStyle(cellAt(1)).borderBottomRightRadius === "0px",
+)
+
+const exportedTable = edoc.querySelector("table")
+const exportedTableStyle = win.getComputedStyle(exportedTable)
+check(
+  "导出：表格 border-separate + spacing 0",
+  exportedTableStyle.borderCollapse === "separate" && exportedTableStyle.borderSpacing === "0px",
+  `实际 ${exportedTableStyle.borderCollapse} / ${exportedTableStyle.borderSpacing}`,
+)
+check("导出：表格外框四边 1px 实线", allSidesBordered(exportedTable, (el) => win.getComputedStyle(el)))
+check(
+  "导出：表格外框圆角 8px",
+  exportedTableStyle.borderRadius === "8px",
+  `实际 ${exportedTableStyle.borderRadius}`,
+)
+check(
+  "导出：格子只留右/下内线",
+  [0, 1].every((index) => {
+    const style = win.getComputedStyle(exported[index])
+    return style.borderTopWidth === "0px" && style.borderLeftWidth === "0px" &&
+      style.borderRightWidth === "1px" && style.borderBottomWidth === "1px"
+  }),
+)
+// 表头在 `<thead>` 里，`tr:last-child` 会命中它自己那一行 —— 用 `table > *` 限定到「整个表格的首/末行」。
+check(
+  "导出：末列右边框、末行下边框清掉（含 thead 那行不被误判成末行）",
+  win.getComputedStyle(exported[2]).borderRightWidth === "0px" &&
+    win.getComputedStyle(exported[0]).borderBottomWidth === "1px" &&
+    win.getComputedStyle(exported[5]).borderBottomWidth === "0px",
+  `末列右 ${win.getComputedStyle(exported[2]).borderRightWidth} / 表头行下 ${win.getComputedStyle(exported[0]).borderBottomWidth} / 末行下 ${win.getComputedStyle(exported[5]).borderBottomWidth}`,
+)
+check(
+  "导出：四角格子各带 7px 内弧",
+  win.getComputedStyle(exported[0]).borderTopLeftRadius === "7px" &&
+    win.getComputedStyle(exported[2]).borderTopRightRadius === "7px" &&
+    win.getComputedStyle(exported[3]).borderBottomLeftRadius === "7px" &&
+    win.getComputedStyle(exported[5]).borderBottomRightRadius === "7px",
+  cornerRadii(exported[0], (el) => win.getComputedStyle(el)).join(" / "),
+)
+
+// 边框与圆角口径也必须两侧一致：编辑器里画了网格、双击打开却是另一副样子，就是同一份文件两副样子。
+const editorWidths = [0, 1, 2, 3, 4, 5].map((index) => borderWidths(cellAt(index), getComputedStyle))
+const exportWidths = exported.map((cell) => borderWidths(cell, (el) => win.getComputedStyle(el)))
+check(
+  "编辑器与导出的每一格边框口径一致",
+  JSON.stringify(editorWidths) === JSON.stringify(exportWidths),
+  `编辑器 ${JSON.stringify(editorWidths)} / 导出 ${JSON.stringify(exportWidths)}`,
+)
+const editorRadii = [0, 1, 2, 3, 4, 5].map((index) => cornerRadii(cellAt(index), getComputedStyle))
+const exportRadii = exported.map((cell) => cornerRadii(cell, (el) => win.getComputedStyle(el)))
+check(
+  "编辑器与导出的每一格圆角一致",
+  JSON.stringify(editorRadii) === JSON.stringify(exportRadii),
+  `编辑器 ${JSON.stringify(editorRadii)} / 导出 ${JSON.stringify(exportRadii)}`,
+)
+check(
+  "编辑器与导出的外框圆角一致",
+  editorTableStyle.borderRadius === exportedTableStyle.borderRadius,
+  `编辑器 ${editorTableStyle.borderRadius} / 导出 ${exportedTableStyle.borderRadius}`,
+)
+
+const summary = `自检 ${passed}/${passed + failed} 通过`
+document.getElementById("out").textContent = lines.join("\n") + `\n\n${summary}`
+document.title = summary
+
+const box = document.getElementById("out")
+box.insertAdjacentHTML(
+  "beforeend",
+  `<span class="${failed > 0 ? "fail" : "ok"}">${summary}</span>`,
+)
+</script>
+</body>
+</html>

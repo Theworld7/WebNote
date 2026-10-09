@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { TableCell } from "@/types/workspace"
+import type { TableAlign, TableCell } from "@/types/workspace"
 import { computed, onMounted } from "vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { findTableCell } from "@/lib/dom"
@@ -28,10 +28,28 @@ const { setTableCellRuns } = useWorkspace()
 /** 单元格的 `data-editable` 记成 `块id/行/列`，加行加列后要按它把焦点送到新格子。 */
 const editableKey = computed(() => `${props.blockId}/${props.row}/${props.column}`)
 
+/**
+ * 单元格只画右侧与下侧的内线 —— 外框与四个圆角归 `<table>`（见 `TableBlockView`）。
+ * 四边都画的话，末行末列会与表格外框贴成 2px。
+ */
 const CELL =
-  "min-w-16 px-2.5 py-1.5 align-top text-sm leading-[1.6] border-b border-line outline-none whitespace-pre-wrap break-words"
+  "min-w-16 border-r border-b border-line px-2.5 py-1.5 align-top text-sm leading-[1.6] outline-none whitespace-pre-wrap break-words"
 
-const cellClass = computed(() => cn(CELL, props.cell.header && "bg-muted font-medium"))
+/**
+ * 对齐 → 工具类。字面量写全，Tailwind 的 JIT 才扫得到（拼字符串会漏编译）。
+ *
+ * `left` 必须显式写出来：`<th>` 的 UA 默认是居中，不给类的话表头在编辑器里居中、
+ * 在导出文件里靠左（`DOC_STYLE` 把 th/td 都定成左）—— 同一个文件两副样子。
+ */
+const ALIGN_CLASS: Record<TableAlign, string> = {
+  left: "text-left",
+  center: "text-center",
+  right: "text-right",
+}
+
+const cellClass = computed(() =>
+  cn(CELL, ALIGN_CLASS[props.cell.align ?? "left"], props.cell.header && "bg-muted font-medium"),
+)
 
 onMounted(() => {
   const el = findTableCell(props.blockId, props.row, props.column)

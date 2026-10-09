@@ -1,4 +1,4 @@
-import type { TableCell } from "@/types/workspace"
+import type { TableAlign, TableCell } from "@/types/workspace"
 import { cloneRuns } from "@/lib/inline"
 
 /**
@@ -11,7 +11,18 @@ import { cloneRuns } from "@/lib/inline"
  * 2. **不变式是「空表或矩形」**：`rows` 要么长度为 0（还没定尺寸，块显示网格选择器），
  *    要么非空且每行等宽。所有函数进出都过 `normalizeTable()`，所以手工构造的数据、
  *    带 `colspan` 的解析结果都不会把矩形破坏掉 —— 行列增删依赖「每行同宽」这个前提。
+ *
+ * 对齐存**在单元格上**（`TableCell.align`）而不是单开一份列数组：它与 HTML 的
+ * 单元格一一对应，序列化 / 解析天然可逆，`normalizeTable` 本来逐格重建、带上它零成本。
+ * 「每列」是使用口径 —— 设置整列一起写、插行时新格继承同列，列内因此永远齐平。
  */
+
+/** 三档对齐。解析时用它校验外来 HTML 里的值（`justify` / `start` 之类一律当没设置）。 */
+export const TABLE_ALIGNS: readonly TableAlign[] = ["left", "center", "right"]
+
+export function isTableAlign(value: string): value is TableAlign {
+  return TABLE_ALIGNS.some((align) => align === value)
+}
 
 /** 列数上限。选择器只给到 8 列，手工加列到此为止，避免误操作点出一张巨表。 */
 export const MAX_TABLE_COLUMNS = 12
@@ -27,8 +38,44 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(Math.trunc(value), min), max)
 }
 
-export function emptyCell(header = false): TableCell {
-  return { header, runs: [] }
+export function emptyCell(header = false, align?: TableAlign): TableCell {
+  const cell: TableCell = { header, runs: [] }
+  if (align !== undefined && align !== "left") cell.align = align
+  return cell
+}
+
+/**
+ * 深拷一个格子。
+ *
+ * 表格有两个模块要拷格子（`normalizeTable` 与 `cloneBlock`），口径收在这里一处：
+ * runs 深拷（否则两份块共享同一批 run 对象，改一处动两处）、`align` 只在非左时才写
+ * 字段（「左对齐不落存储」，见 `TableCell.align`）。
+ */
+export function cloneCell(cell: TableCell): TableCell {
+  const next: TableCell = { header: cell.header, runs: cloneRuns(cell.runs) }
+  if (cell.align !== undefined && cell.align !== "left") next.align = cell.align
+  return next
+}
+
+/** 某一列当前的对齐。取**首行**的值 —— 整列永远是被一起写掉的，首行即该列的代表。 */
+export function columnAlign(rows: readonly TableCell[][], column: number): TableAlign {
+  return rows[0]?.[column]?.align ?? "left"
+}
+
+/** 设置某一列的对齐：整列一起写。列越界则原样返回。 */
+export function setColumnAlign(
+  rows: readonly TableCell[][],
+  column: number,
+  align: TableAlign,
+): TableCell[][] {
+  const grid = normalizeTable(rows)
+  for (const row of grid) {
+    const cell = row[column]
+    if (cell === undefined) continue
+    if (align === "left") delete cell.align
+    else cell.align = align
+  }
+  return grid
 }
 
 /** 建一张 `columns` 列 `rows` 行的网格。`header` 为真时首行整行进表头。 */
@@ -69,7 +116,7 @@ export function normalizeTable(rows: readonly TableCell[][]): TableCell[][] {
     const cells: TableCell[] = []
     for (let column = 0; column < width; column += 1) {
       const cell = row[column]
-      cells.push(cell === undefined ? emptyCell() : { header: cell.header, runs: cloneRuns(cell.runs) })
+      cells.push(cell === undefined ? emptyCell() : cloneCell(cell))
     }
     return cells
   })
@@ -80,6 +127,9 @@ export function normalizeTable(rows: readonly TableCell[][]): TableCell[][] {
  *
  * 表头在本模型里就是「首行」。所以插到 0 号位时表头属性跟着位置走：新行成为表头，
  * 原首行退成普通行 —— 不这么做，表头会掉到第 2 行，序列化时 `<thead>` 直接消失。
+ *
+ * 新行的对齐逐列继承**参照行**（插入位置后面那一行，追加时取最后一行）：对齐是列属性，
+ * 不继承的话，往居中的表里插一行会出现「上半列居中、下半列靠左」。
  */
 export function insertRow(rows: readonly TableCell[][], at: number): TableCell[][] {
   const grid = normalizeTable(rows)
@@ -93,8 +143,11 @@ export function insertRow(rows: readonly TableCell[][], at: number): TableCell[]
     for (const cell of oldHead) cell.header = false
   }
 
+  const reference = grid[index] ?? grid[grid.length - 1]
   const row: TableCell[] = []
-  for (let column = 0; column < width; column += 1) row.push(emptyCell(takesHeader))
+  for (let column = 0; column < width; column += 1) {
+    row.push(emptyCell(takesHeader, reference?.[column]?.align))
+  }
   grid.splice(index, 0, row)
   return grid
 }
@@ -112,7 +165,8 @@ export function removeRow(rows: readonly TableCell[][], at: number): TableCell[]
  *
  * 新格子继承「所在行原本的性质」：插在表头行上就是表头格。不继承的话，表头行会
  * 变成「一半 th 一半 td」，`isHeaderRow` 判否 —— 序列化时整行跌出 `<thead>`，
- * 用户只是加了一列，表头却没了。
+ * 用户只是加了一列，表头却没了。对齐同理，取**左邻**那一格（插到最左侧时取原首格）：
+ * 新列一进来就与该列并排的邻居齐平，不会突兀地跳成左对齐。
  */
 export function insertColumn(rows: readonly TableCell[][], at: number): TableCell[][] {
   const grid = normalizeTable(rows)
@@ -120,7 +174,10 @@ export function insertColumn(rows: readonly TableCell[][], at: number): TableCel
   if (width === 0 || width >= MAX_TABLE_COLUMNS) return grid
 
   const index = clamp(at, 0, width)
-  for (const row of grid) row.splice(index, 0, emptyCell(isHeaderRow(row)))
+  for (const row of grid) {
+    const donor = row[index - 1] ?? row[index]
+    row.splice(index, 0, emptyCell(isHeaderRow(row), donor?.align))
+  }
   return grid
 }
 

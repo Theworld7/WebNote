@@ -75,10 +75,19 @@ export interface ImageBlock {
   title: string
 }
 
+/** 单元格水平对齐。取值只有三档，UI 与序列化都按这三档走。 */
+export type TableAlign = "left" | "center" | "right"
+
 /** 表格单元格。`header` 对应 `<th>`。 */
 export interface TableCell {
   header: boolean
   runs: InlineRun[]
+  /**
+   * 水平对齐。**缺省即 `left`**，且左对齐不落存储（解析、设置都把它归成「未设置」）——
+   * 三处口径必须一致：模型里没有 `"left"`、序列化不为它写 `style`、导出靠 DOC_STYLE
+   * 里 `th, td { text-align: left }` 兜默认。
+   */
+  align?: TableAlign
 }
 
 /** 表格块。单元格按 `rows[行][列]` 索引；整表是一个原子块，不拆成多块。 */

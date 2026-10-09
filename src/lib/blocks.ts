@@ -11,6 +11,7 @@ import type {
   TextualBlockType,
 } from "@/types/workspace"
 import { cloneRuns, runsText, textToRuns } from "@/lib/inline"
+import { cloneCell } from "@/lib/table"
 
 /**
  * 块类型登记表 —— 类型标识符的唯一真源。
@@ -149,16 +150,16 @@ export function retypeBlock(block: Block, type: BlockType): Block {
  * 深拷一个块并指定 id。
  *
  * 浅拷（`{ ...block }`）在旧模型下够用，现在不够 —— `runs` / `rows` 都是数组，
- * 浅拷会让两份块共享同一批 run 对象，改一处动两处。id 由调用方给：
- * 拷进工作区状态时沿用原 id，「复制块」时换成新的。
+ * 浅拷会让两份块共享同一批 run 对象，改一处动两处。表格的格子走 `cloneCell()`
+ * （`table.ts`），拷格子的口径 —— runs 深拷、对齐只在非左时才带 —— 收在那一边一处。
+ * id 由调用方给：拷进工作区状态时沿用原 id，「复制块」时换成新的。
  *
  * `source` 是字符串，图片块那种平坦形态浅拷即可。
  */
 export function cloneBlock(block: Block, id: string): Block {
   if (block.type === "image" || block.type === "mermaid") return { ...block, id }
   if (block.type === "table") {
-    const rows = block.rows.map((row) => row.map((cell) => ({ header: cell.header, runs: cloneRuns(cell.runs) })))
-    return { ...block, id, rows }
+    return { ...block, id, rows: block.rows.map((row) => row.map(cloneCell)) }
   }
   return { ...block, id, runs: cloneRuns(block.runs) }
 }

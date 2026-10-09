@@ -28,8 +28,12 @@ import { escapeHtml, runsText, runsToHtml } from "@/lib/inline"
  * `color-scheme` 必须写在 `:root` 的声明块里：裸放在样式表顶层不是合法规则，
  * 解析器会把它和紧随的 `:root {}` 当成一条选择器去解析，两条一起丢掉 ——
  * 表现是浅色模式下所有变量都取不到值（引用块、表头全没底色）。
+ *
+ * 表格的外框与圆角（`--radius-table`，编辑器侧对应 `TableBlockView.vue` 的 `rounded-[8px]`）
+ * 也在这套「两边同一值」的约定里：`collapse` 下浏览器忽略 `border-radius`，所以外框由
+ * `<table>` 自己画、格子只留右/下内线，四角格子再各设一档内弧（外弧减 1px 边框）。
  */
-const DOC_STYLE = `    :root { color-scheme: light dark; --fg: #1c1c1e; --muted: #6b7280; --line: #e4e4e7; --bg-soft: #f4f4f5; --accent-bg: #eef2ff; --accent-fg: #313d6b; --mark-bg: #fdf3b0; }
+const DOC_STYLE = `    :root { color-scheme: light dark; --fg: #1c1c1e; --muted: #6b7280; --line: #e4e4e7; --bg-soft: #f4f4f5; --accent-bg: #eef2ff; --accent-fg: #313d6b; --mark-bg: #fdf3b0; --radius-table: 8px; }
     @media (prefers-color-scheme: dark) {
       :root { --fg: #e6e6e8; --muted: #9ca3af; --line: #33333a; --bg-soft: #1e1e22; --accent-bg: #232a45; --accent-fg: #c3ccff; --mark-bg: #4a4120; }
     }
@@ -49,8 +53,16 @@ const DOC_STYLE = `    :root { color-scheme: light dark; --fg: #1c1c1e; --muted:
     pre code { font-size: 0.86em; display: inline; padding: 0; background: none; }
     hr { height: 1px; margin: 12px 0; border: 0; background: var(--line); }
     img { display: block; max-width: 100%; margin: 16px 0; border-radius: 0.6em; }
-    table { width: 100%; margin: 16px 0; border-collapse: collapse; }
-    th, td { padding: 0.45em 0.7em; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+    table { width: 100%; margin: 16px 0; border-collapse: separate; border-spacing: 0;
+      border: 1px solid var(--line); border-radius: var(--radius-table); }
+    th, td { padding: 0.45em 0.7em; text-align: left; vertical-align: top;
+      border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    tr > *:last-child { border-right: 0; }
+    table > *:last-child > tr:last-child > * { border-bottom: 0; }
+    table > *:first-child > tr:first-child > *:first-child { border-top-left-radius: calc(var(--radius-table) - 1px); }
+    table > *:first-child > tr:first-child > *:last-child { border-top-right-radius: calc(var(--radius-table) - 1px); }
+    table > *:last-child > tr:last-child > *:first-child { border-bottom-left-radius: calc(var(--radius-table) - 1px); }
+    table > *:last-child > tr:last-child > *:last-child { border-bottom-right-radius: calc(var(--radius-table) - 1px); }
     th { font-weight: 600; background: var(--bg-soft); }
     mark { background-color: var(--mark-bg); color: inherit; }
     body > :first-child { margin-top: 0; } body > :last-child { margin-bottom: 0; }`
@@ -149,8 +161,8 @@ function plainHtml(block: TextualBlock): string {
   }
 }
 
-function wrap(tag: string, inner: string): string {
-  return `<${tag}>${inner}</${tag}>`
+function wrap(tag: string, inner: string, attributes = ""): string {
+  return `<${tag}${attributes}>${inner}</${tag}>`
 }
 
 /** 代码块用 `<pre><code>` 两层：语言标识挂在 `<code class="language-x">` 上，与常见约定一致。 */
@@ -186,6 +198,19 @@ function checkboxHtml(checked: boolean): string {
   return checked ? '<input type="checkbox" checked> ' : '<input type="checkbox"> '
 }
 
+/**
+ * 单元格的对齐内联样式。
+ *
+ * 必须是**内联**的：`DOC_STYLE` 里 `th, td { text-align: left }` 的选择器优先级高于
+ * 继承来的值，写成 `<col style="text-align:center">` 会被它整条压掉，导出的文件里
+ * 对齐根本没生效。左对齐不写 —— 那就是 DOC_STYLE 的默认值，写了只是让每个格子变脏。
+ */
+function alignAttribute(cell: TableCell): string {
+  const align = cell.align
+  if (align === undefined || align === "left") return ""
+  return ` style="text-align:${align}"`
+}
+
 function tableHtml(rows: readonly TableCell[][]): string {
   if (rows.length === 0) return "<table></table>"
 
@@ -194,7 +219,7 @@ function tableHtml(rows: readonly TableCell[][]): string {
 
   for (const row of rows) {
     const cells = row
-      .map((cell) => wrap(cell.header ? "th" : "td", runsToHtml(cell.runs)))
+      .map((cell) => wrap(cell.header ? "th" : "td", runsToHtml(cell.runs), alignAttribute(cell)))
       .join("")
     const line = `      <tr>${cells}</tr>`
     if (row.length > 0 && row.every((cell) => cell.header)) head.push(line)

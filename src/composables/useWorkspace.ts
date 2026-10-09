@@ -1,5 +1,5 @@
 import type { InjectionKey } from "vue"
-import type { Block, BlockType, CloseStrategy, FileNode, InlineRun, OpenTab, TableCell } from "@/types/workspace"
+import type { Block, BlockType, CloseStrategy, FileNode, InlineRun, OpenTab, TableAlign, TableCell } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref } from "vue"
 import { cloneBlock, countChars, createBlock, createBlockId, isTextualBlock, retypeBlock } from "@/lib/blocks"
@@ -449,6 +449,11 @@ function createWorkspace() {
     applyTable(id, (rows) => table.setHeaderRow(rows, header))
   }
 
+  /** 设置某一列的对齐。整列一起写 —— 对齐在模型里是列属性，UI 也只给「列」这一档。 */
+  function setTableColumnAlign(id: string, column: number, align: TableAlign) {
+    applyTable(id, (rows) => table.setColumnAlign(rows, column, align))
+  }
+
   function removeBlock(id: string) {
     const blocks = activeDocument.value
     const index = blocks.findIndex((item) => item.id === id)
@@ -536,6 +541,7 @@ function createWorkspace() {
     insertTableColumn,
     removeTableColumn,
     setTableHeaderRow,
+    setTableColumnAlign,
   }
 }
 

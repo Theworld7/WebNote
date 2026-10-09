@@ -98,6 +98,13 @@ const BUILTIN = [
       '<pre><code class="language-ts">const a = 1;</code></pre><blockquote>引用</blockquote><aside>标注</aside><hr>',
   ],
   [
+    // 列对齐是「每格一个内联样式」的形态（`<col>` 会被 DOC_STYLE 的
+    // `th, td { text-align: left }` 压掉），往返里必须原样带回。
+    "内置：表格列对齐",
+    '<table><thead><tr><th>左</th><th style="text-align:center">中</th><th style="text-align:right">右</th></tr></thead>' +
+      '<tbody><tr><td>a</td><td style="text-align:center">b</td><td style="text-align:right">c</td></tr></tbody></table>',
+  ],
+  [
     // 源码里带 `&` `<` `>` `"`，专门压转义那一环：序列化时全部转成实体，
     // 再解析回来必须逐字符还原，图源多一个 `&amp;` 都会让 mermaid 认不出语法。
     "内置：mermaid 图（转义往返）",
@@ -278,6 +285,33 @@ const loose = [
       b[0].rows[0][0].header === true &&
       b[0].rows[1][0].header === false &&
       b[0].rows[1][0].runs[0].text === "D",
+  ],
+  [
+    "表格对齐：内联 style 认成 align",
+    '<table><tr><td style="text-align:center">c</td><td style="text-align:right">r</td><td>l</td></tr></table>',
+    (b) =>
+      b[0].type === "table" &&
+      b[0].rows[0][0].align === "center" &&
+      b[0].rows[0][1].align === "right" &&
+      b[0].rows[0][2].align === undefined,
+  ],
+  [
+    "表格对齐：旧式 align 属性也认（大小写不敏感）",
+    '<table><tr><td align="center">c</td><td align="RIGHT">r</td></tr></table>',
+    (b) => b[0].rows[0][0].align === "center" && b[0].rows[0][1].align === "right",
+  ],
+  [
+    // 编辑器只提供三档。认不出的值若留在模型里，就会出现「编辑器里看着靠左、文件里两端对齐」。
+    "表格对齐：认不出的值当没设置",
+    '<table><tr><td style="text-align:justify">j</td><td style="text-align:start">s</td><td style="text-align:left">l</td></tr></table>',
+    (b) => b[0].rows[0].every((cell) => cell.align === undefined),
+  ],
+  [
+    "表格对齐：左对齐不写 style，非左才写",
+    '<table><tr><td style="text-align:center">c</td><td>l</td></tr></table>',
+    (b) =>
+      blocksToHtml(b) ===
+      '<table>\n  <tbody>\n      <tr><td style="text-align:center">c</td><td>l</td></tr>\n  </tbody>\n</table>',
   ],
   ["dl / dt / dd → 文本块", "<dl><dt>词</dt><dd>释</dd></dl>", (b) => types(b) === "text,text" && texts(b) === "词 | 释"],
   ["空输入 → 零块", "", (b) => b.length === 0],

@@ -1,6 +1,7 @@
-import type { Block, ImageBlock, InlineRun, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
+import type { Block, ImageBlock, InlineRun, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
 import { createImageBlock, createMermaidBlock, createTableBlock, createTextualBlock } from "@/lib/blocks"
 import { textToRuns, trimRuns } from "@/lib/inline"
+import { isTableAlign } from "@/lib/table"
 import { runsFromNodes } from "./runs-dom"
 import { BLOCK_TAGS, IMAGE_TAG, SKIPPED_TAGS } from "./tags"
 
@@ -245,12 +246,29 @@ function parseTable(table: HTMLTableElement): TableBlock {
   for (const row of table.rows) {
     const cells: TableCell[] = []
     for (const cell of row.cells) {
-      cells.push({ header: cell.tagName === "TH", runs: inlineRunsOf(cell) })
+      const align = cellAlign(cell)
+      const parsed: TableCell = { header: cell.tagName === "TH", runs: inlineRunsOf(cell) }
+      if (align !== undefined) parsed.align = align
+      cells.push(parsed)
     }
     rows.push(cells)
   }
 
   return createTableBlock(rows)
+}
+
+/**
+ * 单元格的水平对齐。
+ *
+ * 认两处写法：内联 `style="text-align:…"`（本项目的导出形态）与旧的 `align` 属性
+ * （剪藏页面、Word 导出的 HTML 里很常见）。归一化到三档，别的一律当没设置 ——
+ * 编辑器只提供三档，认不出的值迟早会在导出时被抹掉，留着只会造成「编辑器里看着靠左、
+ * 文件里却是两端对齐」。`left` 同样归成「没设置」：模型里左对齐不落存储。
+ */
+function cellAlign(cell: HTMLTableCellElement): TableAlign | undefined {
+  const style = cell.style.textAlign
+  const value = (style === "" ? cell.getAttribute("align") ?? "" : style).trim().toLowerCase()
+  return isTableAlign(value) && value !== "left" ? value : undefined
 }
 
 function imageBlockOf(element: Element): ImageBlock {
