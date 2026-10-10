@@ -6,9 +6,9 @@ import { cloneBlock, countChars, createBlock, createBlockId, isTextualBlock, ret
 import { describeError } from "@/lib/errors"
 import { parseHtml, serializeHtml } from "@/lib/html"
 import { createWorkspaceFs } from "@/lib/fs"
-import { defaultExpanded } from "@/lib/fs/policy"
+import { NOTE_EXTENSION, checkName, defaultExpanded, isNoteFile } from "@/lib/fs/policy"
 import * as table from "@/lib/table"
-import { fileName, titleOf, toCrumbs } from "@/lib/paths"
+import { fileName, fromSegments, joinPath, migratePath, titleOf, toCrumbs, toSegments } from "@/lib/paths"
 
 /**
  * 工作区状态。
@@ -46,6 +46,29 @@ function withFlag(source: ReadonlySet<string>, value: string, on: boolean): Set<
   return next
 }
 
+/**
+ * 把某个目录的**直接子级**换掉，其余节点原样保留。
+ *
+ * 必须递归下潜才能改到嵌套目录 —— 只在顶层 `map` 一遍的话，`归档 / 子 / x` 这种
+ * 目标根本找不到，表现是「移动成功但树里没动」。
+ *
+ * 两个必须守住的点：
+ * 1. **只替换 `parentPath` 那一层的 children**，别的目录（哪怕在它下面）保持原样。
+ *    `scanDir` 是单层的，它返回的文件夹一律 `children: []`；若不保住别的目录，
+ *    一次根层刷新就会把所有已展开的子树清空 —— 用户眼前正在看的内容会凭空消失。
+ * 2. 根（`parentPath === ""`）就是树本身，直接整体替换。
+ */
+function replaceChildren(nodes: FileNode[], parentPath: string, children: FileNode[]): FileNode[] {
+  if (parentPath === "") return children
+  return nodes.map((node) => {
+    if (node.kind !== "folder") return node
+    if (node.id === parentPath) return { ...node, children }
+    if (node.children === undefined) return node
+    const next = replaceChildren(node.children, parentPath, children)
+    return next === node.children ? node : { ...node, children: next }
+  })
+}
+
 function createWorkspace() {
   /**
    * 平台驱动。启动前为 null —— 它是异步挑出来的（桌面端那份要动态引入）。
@@ -69,6 +92,17 @@ function createWorkspace() {
 
   /** 待确认关闭的脏标签路径。null 表示没有挂起的关闭动作（确认框关闭）。 */
   const pendingClosePath = ref<string | null>(null)
+
+  /**
+   * 树拖拽的共享状态。
+   *
+   * 放这里而不是 `FileTree` 局部：`FileTreeNode` 是递归组件，逐层透传这两个值会让
+   * 递归签名继续膨胀，且落点变化要跨层重渲染。与 `expandedIds` / `activePath` 同一个模式。
+   *
+   * `draggingPath` 为空串表示没有拖拽在途 —— 用空串而不是 null，与 `activePath` 一致。
+   */
+  const draggingPath = ref("")
+  const dropTargetPath = ref("")
 
   const isSearching = computed(() => query.value.trim().length > 0)
 
@@ -294,6 +328,158 @@ function createWorkspace() {
     await saveTab(activePath.value)
   }
 
+  /**
+   * 自检页用的接缝：直接把一份 `WorkspaceFs` 与本例的根挂上来。
+   *
+   * 存在的理由只有一个 —— 浏览器端 `pickRoot()` 依赖用户手势与真实目录选择器，
+   * 探针里拿不到；而 `create-check.html` 要验证的恰恰是「创建动作怎么编排磁盘与树」，
+   * 与用哪种 driver 无关。桌面端的真实链路仍由 `pnpm tauri dev` 覆盖。
+   */
+  async function attachForTest(driver: WorkspaceFs, next: FsRoot) {
+    fs.value = driver
+    await adoptRoot(next)
+  }
+
+  // ---- 新建（见 ADR-0001 / ADR-0002）----
+
+  /**
+   * 新建动作的公共骨架：先写盘 → 再单层重扫父目录 → 替换树里那一层 → 展开父节点。
+   *
+   * 顺序不能调换。写盘放在最前面，失败路径上就没有任何状态被污染过，
+   * 因此不需要「回滚」这个概念 —— 而回滚一次 `splice` + 一次重排本身就是易错代码。
+   * 重扫期间**不置位 `scanning`**：那个 ref 的语义是「整棵树正在读取」，
+   * 侧栏根名与编辑区空态都在消费它，单层刷新复用它会让整个界面闪一下。
+   */
+  async function createInto(parentPath: string, name: string, folder: boolean): Promise<boolean> {
+    const driver = fs.value
+    const current = root.value
+    if (driver === null || current === null) return false
+
+    const reason = checkName(name)
+    if (reason !== null) {
+      fsError.value = `新建失败：${reason}`
+      return false
+    }
+
+    // 补后缀只在「笔记且没写后缀」时做一次。文件夹名原样用 —— 用户给文件夹起名
+    // `日记.html` 是他的自由，不该被解释成一篇笔记。
+    const fileName = folder || isNoteFile(name) ? name : `${name}${NOTE_EXTENSION}`
+    const path = joinPath(parentPath, fileName)
+    /**
+     * 冲突检测问**两个**路径。
+     *
+     * 用户看到的是「日记」这个名字，而磁盘上是 `日记.html` 或目录 `日记` —— 两回事。
+     * 只查补完后缀的那个（笔记侧）会漏掉同名文件夹；只查原名（文件夹侧）会漏掉
+     * `日记.html`。两边都问一次，才是用户以为的那个「已存在」。
+     */
+    const barePath = folder ? joinPath(parentPath, name.replace(/\.html?$/i, "")) : joinPath(parentPath, name)
+
+    try {
+      if ((await driver.exists(current, path)) || (await driver.exists(current, barePath))) {
+        fsError.value = `新建失败：已存在「${fileName}」`
+        return false
+      }
+      if (folder) await driver.createFolder(current, path)
+      else await driver.createNote(current, path, serializeHtml([createBlock("text")], { title: titleOf(path) }))
+    } catch (error) {
+      fsError.value = `新建「${fileName}」失败：${describeError(error)}`
+      return false
+    }
+
+    // 盘上已经建好了，从这里往下都是纯前端状态同步，不会再失败。
+    try {
+      tree.value = replaceChildren(tree.value, parentPath, await driver.scanDir(current, parentPath))
+    } catch (error) {
+      // 树没刷出来不影响盘上的事实，报一句让用户手动重开目录即可。
+      fsError.value = `新建成功，但刷新目录失败：${describeError(error)}`
+    }
+    if (parentPath !== "") expandedIds.value = withFlag(expandedIds.value, parentPath, true)
+    if (!folder) openFile(path)
+    return true
+  }
+
+  /** 在 `parentPath` 下新建一篇笔记。 */
+  function createNoteIn(parentPath: string, name: string): Promise<boolean> {
+    return createInto(parentPath, name, false)
+  }
+
+  /** 在 `parentPath` 下新建一个文件夹。 */
+  function createFolderIn(parentPath: string, name: string): Promise<boolean> {
+    return createInto(parentPath, name, true)
+  }
+
+  // ---- 移动（见 ADR-0003）----
+
+  /** 取一个路径的父目录。根层节点返回空串。 */
+  function parentOfPath(path: string): string {
+    const segments = toSegments(path)
+    return fromSegments(segments.slice(0, -1))
+  }
+
+  /**
+   * 把 `from`（一个 Note）移到 `destFolder`（空串 = 工作区根）。
+   *
+   * 只搬文件，不搬文件夹，也不表达到同级顺序 —— 磁盘目录没有顺序（ADR-0003）。
+   *
+   * 与 `createInto` 同一个骨架：先动盘 → 再刷树 → 最后同步前端状态。失败路径不污染任何
+   * 状态，所以没有回滚。区别是移动会影响**两个**目录，两边都要重扫。
+   */
+  async function moveFileTo(from: string, destFolder: string): Promise<boolean> {
+    const driver = fs.value
+    const current = root.value
+    if (driver === null || current === null) return false
+
+    const name = fileName(from)
+    if (parentOfPath(from) === destFolder) return false
+
+    const to = joinPath(destFolder, name)
+    try {
+      if (await driver.exists(current, to)) {
+        fsError.value = `移动失败：目标位置已有「${name}」`
+        return false
+      }
+      await driver.move(current, from, to)
+    } catch (error) {
+      fsError.value = `移动「${name}」失败：${describeError(error)}`
+      return false
+    }
+
+    // 盘上已经搬完了，从这里往下是纯前端同步。两个父目录都要重扫。
+    //
+    // 顺序有讲究：**先刷源、后刷目标**都得避开「整体替换根层」这一步毁掉已加载的子树。
+    // `replaceChildren` 现在只动命中那一层，所以两个方向都安全。
+    const sourceParent = parentOfPath(from)
+    try {
+      for (const dir of new Set([sourceParent, destFolder])) {
+        tree.value = replaceChildren(tree.value, dir, await driver.scanDir(current, dir))
+      }
+    } catch (error) {
+      fsError.value = `移动成功，但刷新目录失败：${describeError(error)}`
+    }
+    if (destFolder !== "") expandedIds.value = withFlag(expandedIds.value, destFolder, true)
+
+    /**
+     * 键迁移。五个以路径为键的状态必须一起换，否则会留下指向旧路径的悬空项：
+     * 标签还开着但文档取不到、已加载集判定「没读过」而重读、激活项指向不存在的标签。
+     *
+     * `migratePath` 同时覆盖等值与前缀两种情况，所以将来开放文件夹拖动时这一段不用改。
+     */
+    tabs.value = tabs.value.map((tab) => ({ ...tab, path: migratePath(tab.path, from, to) }))
+    activePath.value = migratePath(activePath.value, from, to)
+    expandedIds.value = new Set([...expandedIds.value].map((id) => migratePath(id, from, to)))
+    if (loadedPaths.value.has(from)) loadedPaths.value = withFlag(loadedPaths.value, to, true)
+    if (loadingPaths.value.has(from)) loadingPaths.value = withFlag(loadingPaths.value, to, true)
+    const blocks = documents.value[from]
+    if (blocks !== undefined) {
+      delete documents.value[from]
+      documents.value[to] = blocks
+    }
+    loadedPaths.value = withFlag(loadedPaths.value, from, false)
+    loadingPaths.value = withFlag(loadingPaths.value, from, false)
+
+    return true
+  }
+
   function markDirty(dirty = true) {
     const tab = activeTab.value
     if (tab) tab.dirty = dirty
@@ -503,6 +689,7 @@ function createWorkspace() {
     bootstrap,
     openRoot,
     dismissError,
+    attachForTest,
     // file actions
     openFile,
     activateTab,
@@ -513,6 +700,12 @@ function createWorkspace() {
     toggleFolder,
     save,
     markDirty,
+    createNoteIn,
+    createFolderIn,
+    moveFileTo,
+    // tree drag state
+    draggingPath,
+    dropTargetPath,
     // block actions
     setBlockRuns,
     toggleBlockChecked,

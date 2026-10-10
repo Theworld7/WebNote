@@ -61,6 +61,104 @@ async function fileHandleAt(
   return parent.getFileHandle(name, { create })
 }
 
+/** 逐级建目录。`getDirectoryHandle(create: true)` 只建最后一级，中间层要自己下沉。 */
+async function ensureDir(root: FileSystemDirectoryHandle, segments: readonly string[]): Promise<void> {
+  let dir = root
+  for (const segment of segments) dir = await dir.getDirectoryHandle(segment, { create: true })
+}
+
+/** 取某个路径的父目录句柄，顺带把最后一段名字摘出来。 */
+async function parentOf(
+  root: FileSystemDirectoryHandle,
+  path: string,
+): Promise<{ parent: FileSystemDirectoryHandle; name: string }> {
+  const segments = toSegments(path)
+  const name = segments[segments.length - 1]
+  if (name === undefined) throw new Error(`工作区路径里没有名字：${path}`)
+  return { parent: await descend(root, segments.slice(0, -1)), name }
+}
+
+/**
+ * 读文件内容。`move` 靠它把源搬到目标 —— 浏览器端没有原生移动（见 ADR-0004）。
+ */
+async function readFileAt(root: FileSystemDirectoryHandle, path: string): Promise<string> {
+  const handle = await fileHandleAt(root, path, false)
+  return (await handle.getFile()).text()
+}
+
+/** 写文件（覆盖或新建），半途失败 abort 而不是 close。 */
+async function writeFileAt(
+  root: FileSystemDirectoryHandle,
+  path: string,
+  text: string,
+): Promise<void> {
+  const handle = await fileHandleAt(root, path, true)
+  const stream = await handle.createWritable()
+  try {
+    await stream.write(text)
+    await stream.close()
+  } catch (error) {
+    await stream.abort()
+    throw error
+  }
+}
+
+/**
+ * 删掉一个文件或**空**目录。
+ *
+ * 只给 `move` 内部用，不暴露到 `WorkspaceFs` 上 —— 独立的删除动作另有一堆问题
+ * （开着的标签、未保存的编辑、确认框），等它自己被要求时再决定（见 ADR-0004）。
+ */
+async function removeAt(root: FileSystemDirectoryHandle, path: string): Promise<void> {
+  const { parent, name } = await parentOf(root, path)
+  try {
+    await parent.removeEntry(name)
+    return
+  } catch {
+    // 目录句柄要显式 `recursive`，文件句柄则已经在上面删掉了。
+  }
+  await parent.removeEntry(name, { recursive: true })
+}
+
+/** 看一个路径在不在。文件与目录都算；任一层不是目录就直接「不存在」。 */
+async function existsAt(root: FileSystemDirectoryHandle, path: string): Promise<boolean> {
+  const segments = toSegments(path)
+  if (segments.length === 0) return true
+  const name = segments[segments.length - 1]
+  if (name === undefined) return false
+  try {
+    const parent = await descend(root, segments.slice(0, -1))
+    await parent.getFileHandle(name)
+    return true
+  } catch {
+    // 不是文件，再试目录 —— 两种都不中才算不存在。
+  }
+  try {
+    const parent = await descend(root, segments.slice(0, -1))
+    await parent.getDirectoryHandle(name)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** 扫一层。与 `walk` 的区别是子目录只占位、不递归（见 ADR-0001）。 */
+async function scanOne(
+  dir: FileSystemDirectoryHandle,
+  parentPath: string,
+): Promise<FileNode[]> {
+  const nodes: FileNode[] = []
+  for await (const [name, handle] of dir.entries()) {
+    if (handle.kind === "directory") {
+      if (!isBrowsableDir(name)) continue
+      nodes.push(folderNode(parentPath, name, []))
+      continue
+    }
+    if (isNoteFile(name)) nodes.push(fileNode(parentPath, name))
+  }
+  return sortNodes(nodes)
+}
+
 async function walk(
   dir: FileSystemDirectoryHandle,
   parentPath: string,
@@ -109,23 +207,48 @@ export function createBrowserFs(): WorkspaceFs {
       return walk(rootOf(root), "", 0)
     },
 
+    async scanDir(root, path) {
+      const dir = path === "" ? rootOf(root) : await descend(rootOf(root), toSegments(path))
+      return scanOne(dir, path)
+    },
+
+    async exists(root, path) {
+      return existsAt(rootOf(root), path)
+    },
+
     async readNote(root, path) {
-      const handle = await fileHandleAt(rootOf(root), path, false)
-      const file = await handle.getFile()
-      return file.text()
+      return readFileAt(rootOf(root), path)
     },
 
     async writeNote(root, path, html) {
-      const handle = await fileHandleAt(rootOf(root), path, true)
-      const stream = await handle.createWritable()
-      try {
-        await stream.write(html)
-        await stream.close()
-      } catch (error) {
-        // 半途失败必须 abort 而不是 close：close 会把已写入的部分提交成一个残缺文件。
-        await stream.abort()
-        throw error
-      }
+      await writeFileAt(rootOf(root), path, html)
+    },
+
+    async createNote(root, path, html) {
+      const directory = rootOf(root)
+      if (await existsAt(directory, path)) throw new Error(`已存在同名文件：${path}`)
+      await writeFileAt(directory, path, html)
+    },
+
+    async createFolder(root, path) {
+      // 逐级建：新建子文件夹时父级必然已在，但 `ensureDir` 顺便把「在深层目录里
+      // 新建」这条路径也走通了，不必让调用方保证父级存在。
+      await ensureDir(rootOf(root), toSegments(path))
+    },
+
+    /**
+     * 读 → 在目标写 → 删源。见 ADR-0004。
+     *
+     * 删源放在最后，所以中途失败只会留下**两份**，不会只剩零份 —— 失败模式是重复而非丢失。
+     * 目标父级由 `writeFileAt` 自己保证（它 `create: true` 取句柄，但中间层要 `ensureDir`）。
+     */
+    async move(root, from, to) {
+      const directory = rootOf(root)
+      if (await existsAt(directory, to)) throw new Error(`已存在同名文件：${to}`)
+      const { parent } = await parentOf(directory, to)
+      if (parent !== directory) await ensureDir(directory, toSegments(to).slice(0, -1))
+      await writeFileAt(directory, to, await readFileAt(directory, from))
+      await removeAt(directory, from)
     },
   }
 }

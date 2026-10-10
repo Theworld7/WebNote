@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>拖动移动自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; display: flex; height: 420px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>移动：合法/非法落点、冲突拒绝、五个键迁移、源行与落点高亮</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { createApp, defineComponent, h, nextTick } from "vue"
+// 必须引应用样式表：高亮的断言查的是 Tailwind 类的计算样式。
+import "../src/style.css"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import AppSidebar from "../src/components/AppSidebar.vue"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { migratePath, joinPath } from "../src/lib/paths.ts"
+import { TREE_ATTR, TREE_ROW_SELECTOR } from "../src/lib/dom.ts"
+import { createMemoryFs } from "./memory-fs.ts"
+
+const out = document.querySelector("#out")
+const lines = []
+let passed = 0
+let failed = 0
+let finished = false
+
+addEventListener("error", (event) => {
+  finished = true
+  out.textContent = `ERROR ${event.message}\n${lines.join("\n")}`
+})
+addEventListener("unhandledrejection", (event) => {
+  finished = true
+  const reason = event.reason
+  const text = reason instanceof Error ? reason.message : String(reason)
+  out.textContent = `REJECT ${text}\n${lines.join("\n")}`
+})
+
+function flush() {
+  const body = lines.join("\n")
+  out.textContent = finished ? body : `running: ${body}`
+}
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  flush()
+}
+
+// ---- 一、migratePath 纯函数。五个状态共用这一条规则，所以它的边界先钉死 ----
+
+check("等值命中", migratePath("a.html", "a.html", "日记 / a.html") === "日记 / a.html")
+check("前缀命中（子文件跟着走）", migratePath("日记 / 二.html", "日记", "归档 / 日记") === "归档 / 日记 / 二.html")
+check("同名前缀不误命中", migratePath("日记本 / a.html", "日记", "归档") === "日记本 / a.html")
+check("无关路径原样返回", migratePath("其它.html", "a.html", "b.html") === "其它.html")
+check("from 为空串时原样返回（根层节点没有可改写的层级）", migratePath("a.html", "", "日记") === "a.html")
+check("深层移动整体改写前缀", migratePath("a / b / c.html", "a / b", "b / a") === "b / a / c.html")
+
+// ---- 二、真实侧栏 + 内存 driver，走真实编排 ----
+
+const seeded = createMemoryFs()
+seeded.seedDir("日记")
+seeded.seedDir("归档")
+seeded.seedDir("空目录")
+seeded.seedFile("日记 / 第二天.html", "<p>第二天</p>")
+seeded.seedFile("第一篇.html", "<p>第一篇</p>")
+seeded.seedFile("第二篇.html", "<p>第二篇</p>")
+
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    return () => h(TooltipProvider, null, { default: () => h(AppSidebar, { width: 260 }) })
+  },
+})
+
+createApp(Root).mount("#app")
+await nextTick()
+
+await workspace.attachForTest(seeded.fs, { kind: "path", path: "/stub" })
+await nextTick()
+await nextTick()
+
+const rowsOf = () => [...document.querySelectorAll(TREE_ROW_SELECTOR)]
+
+/**
+ * 按路径找行。路径用 `dataset` 读 —— 属性选择器在含中文与 ` / ` 的值上要转义，
+ * 直接遍历比对更稳（行数最多几十，代价可忽略）。
+ */
+const rowOf = (path) =>
+  rowsOf().find((r) => r.dataset[TREE_ATTR.path.dataset] === path)
+
+/**
+ * 合成拖拽。`dragstart` 发在源行上，`dragover` / `drop` 发在**目标行**上 ——
+ * 真实拖拽里 `event.target` 就是鼠标底下那一行，事件再冒泡到容器交给委托处理器。
+ * 若把 dragover 直接发在容器上，`event.target` 会是容器自己，`closest` 就找不到行，
+ * 落点恒为 null —— 那样测出来的是「探针发错了地方」，不是应用的行为。
+ */
+function dragStart(path) {
+  const row = rowOf(path)
+  if (row === undefined) throw new Error(`没有这一行：${path}`)
+  const dt = new DataTransfer()
+  dt.setData("application/x-webnote-path", path)
+  dt.setData("text/plain", path)
+  row.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: dt }))
+  return dt
+}
+
+async function dragOver(dt, path) {
+  const row = rowOf(path)
+  if (row === undefined) throw new Error(`没有这一行：${path}`)
+  row.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt }))
+  await nextTick()
+}
+
+/**
+ * 松手。`onDrop` 是 async 且链上有好几处 await（`exists` → `move` → 两次 `scanDir`），
+ * 而合成的 `dispatchEvent` 不会等它 —— 这里必须把微任务队列排空，否则断言会读到中间态。
+ * 固定次数偏保守：多转几轮没有代价，少转一轮就会得到假阴性。
+ */
+async function dropOn(path, dt) {
+  const row = rowOf(path)
+  if (row === undefined) throw new Error(`没有这一行：${path}`)
+  row.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }))
+  for (let i = 0; i < 20; i += 1) await nextTick()
+}
+
+/** 落点高亮看的是 ring 类；拖拽中源行看的是 opacity-50。 */
+const ringOf = (path) => rowOf(path)?.className ?? ""
+const isDimmed = (path) => (rowOf(path)?.className ?? "").includes("opacity-50")
+
+// 先把「第一篇」打开成标签，好验证键迁移确实改了已打开的标签
+await workspace.openFile(joinPath("", "第一篇.html"))
+await nextTick()
+check("前置：第一篇已打开", workspace.activePath.value === "第一篇.html")
+
+// ---- 拖到文件夹行：合法落点 ----
+
+let dt = dragStart("第一篇.html")
+await nextTick()
+check("拖拽中：draggingPath 被记下", workspace.draggingPath.value === "第一篇.html")
+check("拖拽中：源行变半透明", isDimmed("第一篇.html"))
+
+await dragOver(dt, "日记")
+check("落在文件夹行上：dropTargetPath 命中", workspace.dropTargetPath.value === "日记")
+check("落在文件夹行上：该行画 ring", ringOf("日记").includes("ring"), ringOf("日记"))
+
+await dragOver(dt, "第二篇.html")
+check("落在文件行上：落点被清空（文件行接不住）", workspace.dropTargetPath.value === "", workspace.dropTargetPath.value)
+check("落在文件行上：该行不画 ring", !ringOf("第二篇.html").includes("ring"), ringOf("第二篇.html"))
+
+await dragOver(dt, "日记")
+await dropOn("日记", dt)
+
+check("落定后：draggingPath 清空", workspace.draggingPath.value === "")
+check("落定后：dropTargetPath 清空", workspace.dropTargetPath.value === "")
+check("落定后：源行不再半透明", !isDimmed("第一篇.html"))
+
+// ---- 盘上的事实 ----
+
+check("盘上：目标位置有文件", seeded.read("日记 / 第一篇.html") === "<p>第一篇</p>")
+check("盘上：源位置已清空", seeded.read("第一篇.html") === undefined)
+check("盘上：没有多出第三份", seeded.read("日记 / 第一篇.html") !== undefined && seeded.read("日记 / 第二次.html") === undefined)
+
+
+// ---- 树结构 ----
+
+const rootFiles = workspace.tree.value.filter((n) => n.kind === "file").map((n) => n.name)
+const folder = workspace.tree.value.find((n) => n.name === "日记")
+check("树：根层文件少了一篇", !rootFiles.includes("第一篇.html"), JSON.stringify(rootFiles))
+check("树：文件夹的 children 里出现了它", folder?.children?.some((n) => n.name === "第一篇.html") === true)
+check("树：落点文件夹被强制展开", workspace.expandedIds.value.has("日记"))
+
+// ---- 五个以路径为键的状态都要换键 ----
+//
+// `loadedPaths` / `documents` 是模块内部的缓存，**故意没有导出**（它们不是公开状态）。
+// 与其为探针把内部结构摊开，不如断言它们**造成的行为**：标签还开着就说明路径跟着换了；
+// 编辑区还能读到块、且保存会写到新位置，就说明文档缓存与已加载集都跟着换了键。
+
+check("标签路径已迁移", workspace.tabs.value.some((t) => t.path === "日记 / 第一篇.html"))
+check("旧路径的标签已消失", !workspace.tabs.value.some((t) => t.path === "第一篇.html"))
+check("激活项已迁移", workspace.activePath.value === "日记 / 第一篇.html")
+check("标签没有变成两个（键换错会冒出一份重复）", workspace.tabs.value.length === 1, String(workspace.tabs.value.length))
+
+/** 正文块的文字在 `runs` 里（`runs[0].text`），块本身没有 `text` 字段。 */
+const textOf = (block) => (block.runs ?? []).map((r) => r.text).join("")
+
+const blocks = workspace.activeDocument.value
+check(
+  "搬完之后编辑区还能读到块（没有悬空标签）",
+  blocks.length === 1 && textOf(blocks[0]) === "第一篇",
+  JSON.stringify(blocks.map(textOf)),
+)
+
+// 改一笔再存：写下去的位置必须是**新**路径。这一条同时证明文档缓存与已加载集都换了键 ——
+// 若任一没换，保存会落到旧路径或报「文档未加载」。
+workspace.setBlockRuns(blocks[0].id, [{ text: "改过了", marks: [] }])
+check("改动被标记为脏", workspace.isDirty.value === true)
+await workspace.save()
+check("保存未报错", workspace.fsError.value === "", workspace.fsError.value)
+check("保存写到了新位置", seeded.read("日记 / 第一篇.html")?.includes("改过了") === true, String(seeded.read("日记 / 第一篇.html")))
+check("旧位置没有被重新写出来", seeded.read("第一篇.html") === undefined)
+
+// ---- 跨目录移动：两个父目录都要重扫 ----
+//
+// 内存 stub 里直接播种新文件，再用 `attachForTest` 重扫一遍树 —— 公开 API 里没有
+// 「凭空刷新」这个动作（真实使用中它对应重新打开目录），拿它当重扫入口最贴近真实路径。
+
+const rescan = async () => {
+  await workspace.attachForTest(seeded.fs, { kind: "path", path: "/stub" })
+  await nextTick()
+  await nextTick()
+}
+
+workspace.dismissError()
+seeded.seedFile("归档 / 挪过来.html", "<p>x</p>")
+await rescan()
+
+dt = dragStart("归档 / 挪过来.html")
+await dragOver(dt, "空目录")
+await dropOn("空目录", dt)
+
+check("跨目录移动：盘上到新位置", seeded.read("空目录 / 挪过来.html") === "<p>x</p>")
+check("跨目录移动：源位置已清空", seeded.read("归档 / 挪过来.html") === undefined)
+check(
+  "跨目录移动：两个父目录的 children 都刷新了",
+  workspace.tree.value.find((n) => n.name === "归档")?.children?.length === 0 &&
+    workspace.tree.value.find((n) => n.name === "空目录")?.children?.length === 1,
+  `${workspace.tree.value.find((n) => n.name === "归档")?.children?.length} / ${workspace.tree.value.find((n) => n.name === "空目录")?.children?.length}`,
+)
+
+// ---- 冲突：目标已有同名 ----
+//
+// 此刻 `日记 / 第一篇.html` 已经存在（前面那次移动搬进去的），所以根层再放一篇同名，
+// 拖过去必须被拒。断言的是「两边都没被动过」—— 尤其是目标那一份**不能被覆盖**。
+
+workspace.dismissError()
+seeded.seedFile("第一篇.html", "<p>根层又出现一篇</p>")
+await rescan()
+
+const sourceBefore = seeded.read("第一篇.html")
+const targetBefore = seeded.read("日记 / 第一篇.html")
+dt = dragStart("第一篇.html")
+await dragOver(dt, "日记")
+await dropOn("日记", dt)
+
+check("冲突：被拒（源还在原位）", seeded.read("第一篇.html") === sourceBefore)
+check("冲突：给出错误提示", workspace.fsError.value.includes("已存在") || workspace.fsError.value.includes("移动失败"), workspace.fsError.value)
+check("冲突：目标那一份没有被覆盖", seeded.read("日记 / 第一篇.html") === targetBefore, String(seeded.read("日记 / 第一篇.html")))
+check("冲突：没有把源删掉留个空", seeded.read("第一篇.html") !== undefined)
+
+// ---- 同目录落下去是空操作，不该报错也不该动盘 ----
+
+workspace.dismissError()
+seeded.seedFile("归档 / 留守.html", "<p>y</p>")
+await rescan()
+
+dt = dragStart("归档 / 留守.html")
+await dragOver(dt, "归档")
+await dropOn("归档", dt)
+
+check("同目录落点：视作空操作", seeded.read("归档 / 留守.html") === "<p>y</p>")
+check("同目录落点：不报错", workspace.fsError.value === "", workspace.fsError.value)
+
+// ---- 非本应用的拖拽（比如拖进一个图片文件）不该被认领 ----
+
+const foreign = new DataTransfer()
+foreign.setData("text/plain", "别的东西")
+rowOf("日记").dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: foreign }))
+await nextTick()
+check("外来拖拽不设落点", workspace.dropTargetPath.value === "", workspace.dropTargetPath.value)
+
+finished = true
+lines.push(`自检 ${passed}/${passed + failed}`)
+out.textContent = lines.join("\n")
+</script>
+</body>
+</html>

@@ -1,15 +1,27 @@
 <script setup lang="ts">
-import { FolderIcon, FolderOpenIcon, SearchIcon, SlidersHorizontalIcon } from "@lucide/vue"
-import { computed } from "vue"
+import type { CreateTarget } from "@/types/workspace"
+import { FolderIcon, FolderOpenIcon, PlusIcon, SearchIcon, SlidersHorizontalIcon } from "@lucide/vue"
+import { computed, ref } from "vue"
 import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWorkspace } from "@/composables/useWorkspace"
+import CreateDialog from "./CreateDialog.vue"
 import FileTree from "./FileTree.vue"
 
 defineProps<{ width: number }>()
 
 const { query, rootName, hasRoot, scanning, fsHint, openRoot } = useWorkspace()
+
+/** 挂起的命名对话框目标。null 表示关着。 */
+const createTarget = ref<CreateTarget | null>(null)
+
+/** 树的根层新建（父目录 = 工作区根，路径为空串）。空库时这里是唯一的入口。 */
+function requestCreate(kind: CreateTarget["kind"]) {
+  if (!hasRoot.value) return
+  createTarget.value = { parentPath: "", kind }
+}
 
 /**
  * 悬停提示。
@@ -38,6 +50,28 @@ function setQuery(value: string | number) {
     <div class="flex h-[42px] flex-none items-center gap-1 pr-2 pl-4">
       <span class="text-[13px] font-medium tracking-[0.01em]">WebNote</span>
       <span class="flex-1" />
+      <!-- 全局新建：落在工作区根目录。每个文件夹行另有自己的 `+`，这一处是根层入口，
+           也是空库时唯一的入口（此时树里一行都没有）。没选目录时不给点 ——
+           按下去不知道往哪儿建，禁用比报错好。 -->
+      <DropdownMenu v-if="hasRoot">
+        <DropdownMenuTrigger as-child>
+          <button
+            type="button"
+            class="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-label="新建"
+          >
+            <PlusIcon class="size-4" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem class="gap-2 text-[13px]" @select="requestCreate('note')">
+            <span>新建笔记</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem class="gap-2 text-[13px]" @select="requestCreate('folder')">
+            <span>新建文件夹</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
 
     <!-- 工作区行：当前根目录 + 换目录。未选目录时这一行就是入口本身，
@@ -76,7 +110,7 @@ function setQuery(value: string | number) {
       </div>
     </div>
 
-    <FileTree />
+    <FileTree @create="(parentPath, kind) => (createTarget = { parentPath, kind })" />
 
     <div class="flex h-[38px] flex-none items-center gap-2 px-3.5 text-muted-foreground">
       <Button
@@ -88,5 +122,7 @@ function setQuery(value: string | number) {
         <span>设置</span>
       </Button>
     </div>
+
+    <CreateDialog :target="createTarget" @close="createTarget = null" />
   </aside>
 </template>

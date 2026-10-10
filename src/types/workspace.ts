@@ -149,3 +149,14 @@ export type BlockDropEdge = "none" | "before" | "after"
 
 /** 关闭脏标签时用户的选择。 */
 export type CloseStrategy = "save" | "discard"
+
+/**
+ * 新建动作的目标：在哪个目录下、建什么。
+ *
+ * `parentPath` 为空串表示工作区根目录 —— 与树节点的路径表示一致（见 `lib/paths`）。
+ * 对话框与树行、顶部全局 `+` 三处共用它，所以它是「谁发起的」这件事的唯一载体。
+ */
+export interface CreateTarget {
+  parentPath: string
+  kind: "note" | "folder"
+}

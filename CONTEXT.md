@@ -68,10 +68,35 @@ it.
 _Avoid_: Project, vault, root (root is the adapter-level handle on the folder, not the
 concept)
 
+**Folder**:
+A directory under the workspace. It is not a document and holds nothing itself — its only
+role is to be a segment of the Note paths beneath it. It can be created, but never opened.
+_Avoid_: Directory, group, category
+
 **Note path**:
 A Note's location under the workspace, written as folder names joined by `" / "` and ending
-in the file name. It is the identity of an open Tab.
+in the file name. It is the identity of an open Tab, and a Folder's identity is the path
+prefix that all Notes under it share.
 _Avoid_: Full path, key, url
+
+**Create**:
+Adding a new Note or Folder to the workspace. The name is chosen before anything is touched
+on disk; the file or directory is written first and the tree is rebuilt from it afterwards,
+so a failed Create leaves the workspace exactly as it was.
+_Avoid_: New, add
+
+**Name collision**:
+A Create or Move whose target path already holds something. It is refused outright — the
+editor never resolves it by appending a suffix, because a silently different name on disk
+than the one the user typed is a lie the file tree would then repeat.
+_Avoid_: Conflict, duplicate name
+
+**Move**:
+Changing a Note's Folder without changing its name, by dragging it onto another Folder (or
+onto the workspace root row). It is not a reordering: the disk has no notion of sibling
+order, so the tree's sequence is always recomputed from names and a Move can never express
+"put this above that".
+_Avoid_: Drag-and-drop, reorder, relocate
 
 **Tab**:
 An open Note within the editing session. Tabs are few and each has a dirty flag; a note can

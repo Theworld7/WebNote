@@ -131,15 +131,39 @@ const rows = () =>
   })
 const rowOf = (name) => rows().find((d) => d.textContent.trim() === name)
 
-/** 工作区行那颗按钮（未选目录时是「打开文件夹」，选完是目录名）。 */
-const workspaceButton = () => document.querySelector("aside button")
+/**
+ * 工作区行那颗按钮（未选目录时是「打开文件夹」，选完是目录名）。
+ *
+ * 不能用 `aside button` 取第一个 —— 侧栏顶部还有全局「新建」`+`（`aria-label="新建"`），
+ * 它排在前面且没有 tooltip。这里按「有 tooltip 的那颗」定位，增删按钮都不会再让它错位。
+ */
+const workspaceButton = () =>
+  document.querySelector("aside [data-slot='tooltip-trigger']")
+  ?? null
 
-/** reka 的 tooltip 靠 focus 打开，内容挂在 body 上的 portal 里，关掉后卸载。 */
-async function workspaceTipText() {
+/**
+ * 读工作区按钮的 tooltip 文案。
+ *
+ * `expected` 是必须的：reka 的 tooltip 关掉后**不立刻卸载**，第二次 `focus()` 时
+ * 「存在一个 `[role="tooltip"]`」马上成立，读到的是上一次的残留文案 —— 那样断言会随机
+ * 通过或失败（实测三次里错一次）。所以这里等的是**文案变成期望值**，不是「tooltip 存在」。
+ */
+async function workspaceTipText(expected) {
   const button = workspaceButton()
   if (button === null) throw new Error("找不到工作区按钮")
+  // 先失焦再聚焦：上一次调用结束时已经 `blur()`，但 reka 的打开是**异步**的，
+  // 紧接着再 `focus()` 可能被它判成「还是同一个焦点」而不重开。显式走一遍
+  // blur → 让出一帧 → focus，才是干净的一次打开。
+  button.blur()
+  await sleep(50)
   button.focus()
-  const tip = await until(() => document.querySelector('[role="tooltip"]'), "tooltip 打开")
+  const tip = await until(
+    () => {
+      const el = document.querySelector('[role="tooltip"]')
+      return el !== null && el.textContent.trim() === expected ? el : null
+    },
+    `tooltip 文案为「${expected}」`,
+  )
   const text = tip.textContent.trim()
   button.blur()
   await sleep(150)
@@ -147,7 +171,8 @@ async function workspaceTipText() {
 }
 
 step("未选目录时的 tooltip")
-const tipWithoutRoot = await workspaceTipText()
+const expectedWithoutRoot = `选择一个存放笔记的文件夹 · ${workspace.fsHint.value}`
+const tipWithoutRoot = await workspaceTipText(expectedWithoutRoot)
 check(
   "未选目录：动作 + 平台能力两句都在",
   tipWithoutRoot === `选择一个存放笔记的文件夹 · ${workspace.fsHint.value}`,
@@ -165,7 +190,7 @@ await until(() => rowOf("随笔.html"), "根层文件行")
 check("只收 .html：txt 不进树", rowOf("忽略我.txt") === undefined)
 
 step("已选目录时的 tooltip")
-const tipWithRoot = await workspaceTipText()
+const tipWithRoot = await workspaceTipText("点击更换目录")
 check("已选目录：只留「点击更换目录」", tipWithRoot === "点击更换目录", tipWithRoot)
 check(
   "已选目录：不再挂平台能力说明",

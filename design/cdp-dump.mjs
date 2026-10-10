@@ -1,5 +1,5 @@
 // 用 CDP 等页面里的探针跑完（顶层 await 的脚本 --dump-dom 抓不到）。
-// 用法: node cdp-dump.mjs <url> [selector] [bailPrefix]
+// 用法: node cdp-dump.mjs <url> [selector]
 // 想顺便截图（看排版观感）: SHOT=/tmp/x.png node cdp-dump.mjs <url>
 // 内核路径可用 CHROME 环境变量覆盖；否则按平台在 ms-playwright 缓存里探测。
 import { spawn } from "node:child_process"
@@ -56,7 +56,6 @@ if (CHROME === null) {
 
 const url = process.argv[2]
 const selector = process.argv[3] ?? "#out"
-const bail = process.argv[4] ?? "running"
 const shot = process.env.SHOT ?? ""
 
 const chrome = spawn(
@@ -108,11 +107,22 @@ async function readOut() {
   return res.result?.result?.value ?? ""
 }
 
+/**
+ * 等页面里的探针跑完。
+ *
+ * 判据是「正文里已经出现收尾行」——各探针的收尾形如 `自检 41/41` / `10 passed, 0 failed`，
+ * 传进来的是 `--done` 正则。**不能只看「开头不是 running」**：`sidebar-check.html` 这类
+ * 探针会先把 `OK` 行流式写出来（`step()` 又把 `out.textContent` 临时设成 `running: 标题`），
+ * 驱动一旦在中间某次读到不带前缀的瞬间就收工，会打印一份**看起来全绿、实则只跑了一半**的
+ * 结果。所以这里要求「收尾行出现」，且给足轮询次数（OPFS 建目录本身就慢）。
+ */
+const DONE = /(\d+\s*\/\s*\d+)|(\d+\s+passed)|(^ERROR)|(^REJECT)/m
+
 let text = ""
-for (let i = 0; i < 150; i += 1) {
+for (let i = 0; i < 400; i += 1) {
   text = await readOut()
-  if (text && !text.startsWith(bail) && !text.startsWith("REJECT") && !text.startsWith("ERROR")) break
   if (text.startsWith("REJECT") || text.startsWith("ERROR")) break
+  if (DONE.test(text)) break
   await sleep(100)
 }
 

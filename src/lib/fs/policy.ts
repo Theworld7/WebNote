@@ -28,6 +28,41 @@ export function isNoteFile(name: string): boolean {
   return NOTE_EXTENSIONS.some((extension) => lower.endsWith(extension))
 }
 
+/** 新建笔记时补上的后缀。用户输的名字里已经带后缀就不再补。 */
+export const NOTE_EXTENSION = ".html"
+
+/**
+ * 文件夹名里不能出现的字符。
+ *
+ * 分隔符首当其冲：`/` 会被 `joinPath` 当成层级切分，`\` 在 Windows 上同理；
+ * 其余是 Windows 的保留字符（`:` `<` `>` `"` `|` `?` `*`）与控制字符 —— 两端共用一个
+ * 校验，否则同一个名字在桌面端建得出来、在浏览器里建不出来（或反过来）。
+ */
+const FORBIDDEN_NAME_CHARS = /[/\\:*?"<>|\u0000-\u001f]/
+
+/** Windows 保留设备名。大小写不敏感，带后缀也算（`con.html` 一样打不开）。 */
+const RESERVED_NAMES = new Set([
+  "con", "prn", "aux", "nul",
+  "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
+  "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+])
+
+/**
+ * 检查一个用户输入的名字能不能用来新建。
+ *
+ * 返回 `null` 表示可用，否则返回给用户看的原因。合法性规则只此一份 ——
+ * 桌面端与浏览器端都必须先过它，否则「哪些名字建不出来」会随平台漂移。
+ */
+export function checkName(raw: string): string | null {
+  const name = raw.trim()
+  if (name === "") return "名字不能为空"
+  if (name === "." || name === "..") return "这个名字不可用"
+  if (FORBIDDEN_NAME_CHARS.test(name)) return "名字里不能有 / \\ : * ? \" < > | 这些字符"
+  if (RESERVED_NAMES.has(name.split(".")[0]!.toLowerCase())) return "这个名字是系统保留名"
+  if (raw !== name) return "名字首尾不能有空格"
+  return null
+}
+
 /** 点开头的一律不放行：它们的访问受 fs scope 的 `require_literal_leading_dot` 限制，显示出来也读不到。 */
 export function isBrowsableDir(name: string): boolean {
   return !name.startsWith(".") && !SKIP_DIRS.has(name)

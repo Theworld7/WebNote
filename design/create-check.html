@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>新建笔记 / 文件夹自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; display: flex; height: 420px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>新建：名字校验、冲突拒绝、写盘后单层重扫</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { createApp, defineComponent, h, nextTick } from "vue"
+// 必须引应用样式表：树的断言查的是 Tailwind 类的计算几何。
+import "../src/style.css"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import AppSidebar from "../src/components/AppSidebar.vue"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { checkName } from "../src/lib/fs/policy.ts"
+import { createMemoryFs } from "./memory-fs.ts"
+
+const out = document.querySelector("#out")
+const lines = []
+let passed = 0
+let failed = 0
+let finished = false
+
+addEventListener("error", (event) => {
+  finished = true
+  out.textContent = `ERROR ${event.message}\n${lines.join("\n")}`
+})
+addEventListener("unhandledrejection", (event) => {
+  finished = true
+  const reason = event.reason
+  const text = reason instanceof Error ? reason.message : String(reason)
+  out.textContent = `REJECT ${text}\n${lines.join("\n")}`
+})
+
+function flush() {
+  const body = lines.join("\n")
+  out.textContent = finished ? body : `running: ${body}`
+}
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  flush()
+}
+
+// ---- 一、名字校验：纯函数，不碰文件系统 ----
+
+check("空名字被拒", checkName("") !== null)
+check("纯空白被拒", checkName("   ") !== null)
+check("首尾空格被拒（不是静默去掉）", checkName(" 日记 ") !== null)
+check("斜杠被拒", checkName("a/b") !== null)
+check("反斜杠被拒", checkName("a\\b") !== null)
+check("冒号被拒", checkName("a:b") !== null)
+check("问号被拒", checkName("a?b") !== null)
+check("通配符被拒", checkName("a*b") !== null)
+check("控制字符被拒", checkName("a\u0007b") !== null)
+check("`.` 与 `..` 被拒", checkName(".") !== null && checkName("..") !== null)
+check("Windows 保留名被拒（大小写不敏感）", checkName("CON") !== null && checkName("nul") !== null)
+check("保留名带后缀也被拒（con.html）", checkName("con.html") !== null)
+check("普通中文名放行", checkName("日记") === null)
+check("带空格的中文名放行", checkName("2026 计划") === null)
+check("带后缀的名字放行", checkName("a.html") === null)
+
+// ---- 二、真实侧栏 + 内存 driver，走真实编排 ----
+
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    return () => h(TooltipProvider, null, { default: () => h(AppSidebar, { width: 260 }) })
+  },
+})
+
+const memory = createMemoryFs()
+createApp(Root).mount("#app")
+await nextTick()
+
+await workspace.attachForTest(memory.fs, { kind: "path", path: "/stub" })
+await nextTick()
+
+check("空库时树里没有节点", workspace.tree.value.length === 0)
+check("空库时编辑区处于空态", workspace.isEditorEmpty.value === true)
+
+// 根层新建一篇笔记
+workspace.dismissError()
+const okNote = await workspace.createNoteIn("", "第一篇")
+check("新建笔记返回成功", okNote === true)
+check("笔记名补上了 .html", workspace.tree.value.some((n) => n.name === "第一篇.html"))
+check("新建的笔记被自动打开", workspace.activePath.value === "第一篇.html")
+check("标签有一项且不脏", workspace.tabs.value.length === 1 && workspace.tabs.value[0].dirty === false)
+
+const written = memory.read("第一篇.html")
+check("盘上确实有文件", typeof written === "string")
+check(
+  "内容是一个空 Note（空 text 块 + 文件名作 title）",
+  typeof written === "string" && written.includes("<title>第一篇</title>"),
+  typeof written === "string" ? written.slice(0, 120) : String(written),
+)
+
+// 重名冲突 —— 必须先被前置拦截，磁盘内容不能被覆盖
+workspace.dismissError()
+const dup = await workspace.createNoteIn("", "第一篇")
+check("重名被拒绝", dup === false)
+check("重名时给出错误提示", workspace.fsError.value.includes("已存在"), workspace.fsError.value)
+check("重名没有产生第二个节点", workspace.tree.value.filter((n) => n.name === "第一篇.html").length === 1)
+check("重名没有污染标签栏", workspace.tabs.value.length === 1)
+
+// 非法名字
+workspace.dismissError()
+const bad = await workspace.createNoteIn("", "a/b")
+check("非法名字被拒绝", bad === false)
+check("非法名字给出错误提示", workspace.fsError.value.includes("新建失败"), workspace.fsError.value)
+check("非法名字不落盘", (await memory.fs.exists(null, "a / b")) === false)
+
+// 名字里带后缀时不重复补
+workspace.dismissError()
+await workspace.createNoteIn("", "带后缀.html")
+check("已带 .html 的名字不再补后缀", workspace.tree.value.some((n) => n.name === "带后缀.html"))
+
+// 建文件夹 + 往里建笔记
+workspace.dismissError()
+const okFolder = await workspace.createFolderIn("", "日记")
+check("新建文件夹返回成功", okFolder === true)
+check("文件夹出现在树里", workspace.tree.value.some((n) => n.kind === "folder" && n.name === "日记"))
+check("新建文件夹不打开标签", workspace.tabs.value.length === 2)
+
+const inFolder = await workspace.createNoteIn("日记", "第二天")
+check("往子目录里新建成功", inFolder === true)
+check("子目录被强制展开", workspace.expandedIds.value.has("日记"))
+const folderNode = workspace.tree.value.find((n) => n.name === "日记")
+check(
+  "子目录的 children 只有新建的那一篇",
+  folderNode?.children?.length === 1 && folderNode.children[0].name === "第二天.html",
+)
+check("根层文件数没有被污染", workspace.tree.value.filter((n) => n.kind === "file").length === 2)
+
+// 文件夹与文件同名也冲突
+workspace.dismissError()
+const clash = await workspace.createNoteIn("", "日记")
+check("文件与已有文件夹同名被拒", clash === false)
+check("同名文件夹给出错误提示", workspace.fsError.value.includes("已存在"))
+
+// ---- 三、树行 hover 出的 `+` 与顶部全局 `+` ----
+//
+// 用**已经在盘上**的三个节点起一棵树，而不是靠上面创建出来的那些 —— 这样断言的是
+// 「渲染规则」，不依赖前面的创建步骤是否全部成功，失败时也不会一错错一片（根层文件夹
+// 默认展开、子级只在展开后渲染，靠创建顺序凑行数是脆的）。
+
+const seeded = createMemoryFs()
+seeded.seedDir("日记")
+seeded.seedFile("日记 / 第二天.html", "<p></p>")
+seeded.seedFile("第一篇.html", "<p></p>")
+seeded.seedFile("第二篇.html", "<p></p>")
+
+await workspace.attachForTest(seeded.fs, { kind: "path", path: "/stub" })
+await nextTick()
+await nextTick()
+
+/** 折叠态由 reka 写在内容容器的 `data-state` 上。 */
+const contentState = () =>
+  document.querySelector('[data-slot="collapsible-content"]')?.getAttribute("data-state")
+
+const rowsOf = () => [...document.querySelectorAll('[class*="group/row"]')]
+const folderNodeOf = () => workspace.tree.value.find((n) => n.kind === "folder")
+const rows = rowsOf()
+check("根层两个文件行 + 一个文件夹行 + 展开后的一个子行 = 4", rows.length === 4, `实际 ${rows.length}`)
+
+const folderRow = rows.find((r) => r.textContent.includes("日记"))
+check("文件夹行存在", folderRow !== undefined)
+check(
+  "文件夹节点的 id 等于它自己的路径（折叠按 id 开关，两者必须同源）",
+  folderNodeOf()?.id === "日记",
+  `实际 ${folderNodeOf()?.id}`,
+)
+check(
+  "全扫后文件夹的 children 已经填好",
+  folderNodeOf()?.children?.length === 1,
+  `实际 ${folderNodeOf()?.children?.length}`,
+)
+
+const folderPlus = folderRow?.querySelector('button[aria-label="新建"]')
+check("文件夹行的 `+` 按钮存在", folderPlus !== undefined && folderPlus !== null)
+check(
+  "`+` 默认不可见（opacity-0，靠 hover 浮出）",
+  (folderPlus?.getAttribute("class") ?? "").includes("opacity-0"),
+  folderPlus?.getAttribute("class") ?? "缺失",
+)
+
+const fileRow = rows.find((r) => r.textContent.includes("第一篇.html"))
+check("文件行也渲染了", fileRow !== undefined)
+check("文件行没有 `+` 按钮", fileRow?.querySelector('button[aria-label="新建"]') === null || fileRow === undefined)
+
+const globalPlus = document.querySelector('button[aria-label="新建"]')
+const globalPlusInHeader = [...document.querySelectorAll('button[aria-label="新建"]')].some((b) =>
+  (b.getAttribute("class") ?? "").includes("size-6"),
+)
+check("侧栏顶部存在全局 `+`（size-6 那个）", globalPlus !== null && globalPlusInHeader)
+
+// 折叠。断言落在 reka 的 `data-state` 与树的展开集合上，不去量几何 ——
+// 折叠动画期间量高度会读到过渡中的中间值，那种断言是脆的。
+await nextTick()
+const expandedState = contentState()
+check(
+  "初始：展开集合里有该文件夹",
+  workspace.expandedIds.value.has("日记"),
+  `expanded=${[...workspace.expandedIds.value].join("|")}`,
+)
+check(
+  "初始：子行渲染在折叠容器里（不是松散地挂在根层）",
+  document
+    .querySelector('[data-slot="collapsible-content"]')
+    ?.querySelector('[class*="group/row"]') !== null,
+  `data-state=${String(expandedState)}`,
+)
+
+workspace.toggleFolder("日记")
+await nextTick()
+check("折叠后内容容器转为 closed", contentState() === "closed", String(contentState()))
+check("折叠后 expandedIds 里不再有该文件夹", !workspace.expandedIds.value.has("日记"))
+check(
+  "折叠状态下该文件夹行的 `+` 仍在（`+` 不依赖展开态）",
+  rowsOf()
+    .find((r) => r.textContent.includes("日记"))
+    ?.querySelector('button[aria-label="新建"]') !== null,
+)
+check("折叠没有把子节点从树数据里删掉", folderNodeOf()?.children?.length === 1)
+
+finished = true
+lines.push(`自检 ${passed}/${passed + failed}`)
+out.textContent = lines.join("\n")
+</script>
+</body>
+</html>

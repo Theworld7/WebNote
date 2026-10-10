@@ -42,6 +42,24 @@ export function joinPath(parent: string, name: string): string {
   return parent === "" ? name : `${parent}${SEP}${name}`
 }
 
+/**
+ * 把一条路径从 `from` 前缀改写到 `to` 前缀，不命中则原样返回。
+ *
+ * 移动一个 Note 之后，五个以路径为键的状态（标签、文档、已加载集、激活项、展开集）都要
+ * 跟着换键，它们共用这一条规则，所以规则只此一份。见 ADR-0003。
+ *
+ * **判前缀时要求边界对齐**：`日记` 不该命中 `日记本 / a.html` —— 两者只是字符串前缀相同，
+ * 层级上毫无关系。所以比的是「等于」或「以 `from + 分隔符` 开头」。
+ *
+ * `from` 为空串（移动根层节点）时没有可改写的层级，原样返回。
+ */
+export function migratePath(path: string, from: string, to: string): string {
+  if (from === "") return path
+  if (path === from) return to
+  if (!path.startsWith(`${from}${SEP}`)) return path
+  return `${to}${path.slice(from.length)}`
+}
+
 /** 去掉 `.html` / `.htm` 后缀，用作序列化时的 `<title>`。 */
 export function titleOf(path: string): string {
   return fileName(path).replace(/\.html?$/i, "")

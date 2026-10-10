@@ -3,7 +3,7 @@ import type { FileNode } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "./types"
 import { invoke } from "@tauri-apps/api/core"
 import { open } from "@tauri-apps/plugin-dialog"
-import { readDir, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs"
+import { exists as fsExists, mkdir, readDir, readTextFile, rename, writeTextFile } from "@tauri-apps/plugin-fs"
 import { joinPath, toSegments } from "@/lib/paths"
 import {
   MAX_DEPTH,
@@ -115,12 +115,58 @@ export function createTauriFs(): WorkspaceFs {
       return walk(root.path, "", 0)
     },
 
+    async scanDir(root, path) {
+      if (root.kind !== "path") throw new Error("桌面端实现收到了非路径形态的根目录")
+      const dir = path === "" ? root.path : absoluteOf(root, path)
+      const entries = await readDir(dir)
+      const nodes: FileNode[] = []
+      for (const entry of entries) {
+        if (entry.isSymlink) continue
+        if (entry.isDirectory) {
+          if (!isBrowsableDir(entry.name)) continue
+          // 子目录本身只作为「有子级的文件夹」进树，不再往下读 —— 这正是 scanDir
+          // 与 scanTree 的分别。`children: []` 表示尚未读取，展开时由 UI 决定要不要读。
+          nodes.push(folderNode(path, entry.name, []))
+          continue
+        }
+        if (entry.isFile && isNoteFile(entry.name)) nodes.push(fileNode(path, entry.name))
+      }
+      return sortNodes(nodes)
+    },
+
+    async exists(root, path) {
+      if (root.kind !== "path") throw new Error("桌面端实现收到了非路径形态的根目录")
+      return fsExists(absoluteOf(root, path))
+    },
+
     async readNote(root, path) {
       return readTextFile(absoluteOf(root, path))
     },
 
     async writeNote(root, path, html) {
       await writeTextFile(absoluteOf(root, path), html)
+    },
+
+    async createNote(root, path, html) {
+      if (root.kind !== "path") throw new Error("桌面端实现收到了非路径形态的根目录")
+      const absolute = absoluteOf(root, path)
+      if (await fsExists(absolute)) throw new Error(`已存在同名文件：${path}`)
+      await writeTextFile(absolute, html, { createNew: true })
+    },
+
+    async createFolder(root, path) {
+      if (root.kind !== "path") throw new Error("桌面端实现收到了非路径形态的根目录")
+      await mkdir(absoluteOf(root, path), { recursive: true })
+    },
+
+    async move(root, from, to) {
+      if (root.kind !== "path") throw new Error("桌面端实现收到了非路径形态的根目录")
+      const target = absoluteOf(root, to)
+      // 与 `createNote` 同一道防线：`exists` 已在调用方查过，这里再挡一次，
+      // 免得「移动」被底层实现悄悄当成「覆盖」。
+      if (await fsExists(target)) throw new Error(`已存在同名文件：${to}`)
+      // 插件文档明说 `rename` 就是移动，路径可以是文件也可以是目录。
+      await rename(absoluteOf(root, from), target)
     },
   }
 }
