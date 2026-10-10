@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WebNote 应用图标 · mark 层
+  几何：1024 画布全出血 / 超椭圆 |x|^5+|y|^5=(512)^5
+  真源：design/icon/icon.tokens.json · 生成：node design/icon/icon.mjs
+  不要手改这个文件。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024"
+     viewBox="0 0 1024 1024" role="img" aria-label="WebNote">
+  <title>WebNote</title>
+  <!-- L3 标记：HTML 尖括号 + 正文行（笔记的正身就是一份 HTML 文件） -->
+  <g id="wn-mark-mark">
+    <defs>
+      <linearGradient id="wn-glyph" x1="0" y1="0" x2="0.7" y2="1">
+        <stop offset="0" stop-color="rgb(27 79 216)"/>
+        <stop offset="1" stop-color="rgb(11 39 122)"/>
+      </linearGradient>
+    </defs>
+    <g fill="none" stroke="url(#wn-glyph)" stroke-width="26"
+       stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 474 416 L 424 460 L 474 504"/>
+      <path d="M 550 416 L 600 460 L 550 504"/>
+      <path d="M 524.4 382 L 499.6 538"/>
+    </g>
+    <g fill="rgb(45 84 150)" fill-opacity="0.42">
+    <rect x="390" y="598" width="244" height="24" rx="12"/>
+    <rect x="405" y="646" width="214" height="24" rx="12"/>
+    <rect x="437" y="694" width="150" height="24" rx="12"/>
+    </g>
+  </g>
+</svg>

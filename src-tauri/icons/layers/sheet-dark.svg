@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WebNote 应用图标 · sheet 层
+  几何：1024 画布全出血 / 超椭圆 |x|^5+|y|^5=(512)^5
+  真源：design/icon/icon.tokens.json · 生成：node design/icon/icon.mjs
+  不要手改这个文件。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024"
+     viewBox="0 0 1024 1024" role="img" aria-label="WebNote">
+  <title>WebNote</title>
+  <!-- L2 玻璃面板：半透明底面 + 上缘接光 + 折角 -->
+  <g id="wn-sheet-sheet">
+    <defs>
+      <linearGradient id="wn-sheet" x1="0" y1="0" x2="0.55" y2="1">
+        <stop offset="0" stop-color="rgb(246 250 255 / 0.34)"/>
+        <stop offset="0.58" stop-color="rgb(214 230 255 / 0.22)"/>
+        <stop offset="1" stop-color="rgb(180 205 250 / 0.16)"/>
+      </linearGradient>
+      <linearGradient id="wn-sheetRim" x1="0.15" y1="0" x2="0.85" y2="0.4">
+        <stop offset="0" stop-color="rgb(255 255 255)" stop-opacity="0"/>
+        <stop offset="0.45" stop-color="rgb(255 255 255)" stop-opacity="0.5"/>
+        <stop offset="1" stop-color="rgb(255 255 255)" stop-opacity="0"/>
+      </linearGradient>
+      <linearGradient id="wn-fold" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="rgb(226 238 255 / 0.44)"/>
+        <stop offset="1" stop-color="rgb(160 192 246 / 0.3)"/>
+      </linearGradient>
+      <linearGradient id="wn-foldShade" x1="0.1" y1="1" x2="0.9" y2="0.15">
+        <stop offset="0" stop-color="rgb(0 4 16)" stop-opacity="0.45"/>
+        <stop offset="0.55" stop-color="rgb(0 4 16)" stop-opacity="0.117"/>
+        <stop offset="1" stop-color="rgb(0 4 16)" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <path d="M 350 300 H 674 A 64 64 0 0 1 738 364 V 688 A 64 64 0 0 1 674 752 H 350 A 64 64 0 0 1 286 688 V 364 A 64 64 0 0 1 350 300 Z" fill="url(#wn-sheet)"/>
+    <path d="M 350 300 H 674 A 64 64 0 0 1 738 364" fill="none" stroke="url(#wn-sheetRim)" stroke-width="4"/>
+    <path d="M 654 300 L 654 384 L 738 384 Z"
+          fill="url(#wn-foldShade)"/>
+    <path d="M 654 300 L 738 384 L 654 384 Z"
+          fill="url(#wn-fold)"/>
+    <path d="M 654 300 L 738 384" fill="none"
+          stroke="rgb(255 255 255)" stroke-opacity="0.7" stroke-width="5" stroke-linecap="round"/>
+  </g>
+</svg>

@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "icon": "node design/icon/icon.mjs && node design/icon/verify.mjs && python design/icon/rasterize.py"
   },
   "dependencies": {
     "@lucide/vue": "^1.52.0",

@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebNote 图标 · macOS 26 观感核对</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --page: #f4f5f7;
+        --ink: #16181d;
+        --muted: #6b7280;
+        --card: #ffffff;
+        --line: #e4e6ea;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --page: #1c1d21;
+          --ink: #f2f3f5;
+          --muted: #9aa1ad;
+          --card: #26272c;
+          --line: #34363c;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 40px 48px 72px;
+        background: var(--page);
+        color: var(--ink);
+        font: 13px/1.6 -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+      }
+      h1 {
+        font-size: 19px;
+        font-weight: 600;
+        margin: 0 0 4px;
+      }
+      .sub {
+        color: var(--muted);
+        margin: 0 0 32px;
+        max-width: 76ch;
+      }
+      h2 {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 36px 0 14px;
+      }
+      .row {
+        display: flex;
+        gap: 34px;
+        align-items: flex-end;
+        flex-wrap: wrap;
+      }
+      .cell {
+        text-align: center;
+      }
+      .cell img {
+        display: block;
+        border-radius: 0;
+      }
+      .cell .label {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
+      .board {
+        display: flex;
+        gap: 28px;
+        align-items: center;
+        padding: 26px 30px;
+        border-radius: 14px;
+        background: var(--card);
+        border: 1px solid var(--line);
+      }
+      .dock,
+      .finder {
+        display: flex;
+        align-items: flex-end;
+        gap: 16px;
+        padding: 12px 18px;
+        border-radius: 24px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: linear-gradient(180deg, rgba(250, 250, 252, 0.72), rgba(232, 234, 240, 0.6));
+        backdrop-filter: blur(20px) saturate(180%);
+      }
+      .dock img {
+        display: block;
+      }
+      .finder {
+        border-radius: 12px;
+        gap: 40px;
+        padding: 20px 26px;
+      }
+      .pair {
+        display: grid;
+        grid-template-columns: repeat(2, 260px);
+        gap: 20px;
+      }
+      .tile {
+        border-radius: 12px;
+        padding: 26px;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--line);
+      }
+      .tile.light {
+        background: #ffffff;
+      }
+      .tile.dark {
+        background: #1b1c20;
+      }
+      .tile.checker {
+        background:
+          repeating-conic-gradient(#0000000d 0% 25%, #00000000 0% 50%) 0 0 / 16px 16px,
+          #ffffff;
+      }
+      .meta {
+        font-variant-numeric: tabular-nums;
+        color: var(--muted);
+        font-size: 11px;
+        margin-top: 10px;
+      }
+      code {
+        font-family: ui-monospace, "Cascadia Code", monospace;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>WebNote 应用图标</h1>
+    <p class="sub">
+      macOS 26（Tahoe）风格：1024 画布全出血超椭圆（n=5）、玻璃分层、上缘镜面高光。
+      下面是同一份 SVG 的缩小效果与真实场景预览 —— 图标设计在小尺寸上崩掉是最常见的翻车点，
+      所以 32 / 64 / 128 这几档和 1024 一样重要。
+      页面只用 <code>&lt;img&gt;</code>，直接双击用浏览器打开即可（走 <code>file://</code> 也能跑）。
+    </p>
+
+    <h2>分档尺寸</h2>
+    <div class="board">
+      <div class="row" id="ladder"></div>
+    </div>
+
+    <h2>深色外观</h2>
+    <div class="board" style="background: #1b1c20">
+      <div class="row" id="ladderDark"></div>
+    </div>
+
+    <h2>浅底 / 深底</h2>
+    <div class="pair">
+      <div class="tile light"><img id="onLight" width="180" height="180" alt="" /></div>
+      <div class="tile dark"><img id="onDark" width="180" height="180" alt="" /></div>
+    </div>
+
+    <h2>Dock 与访达</h2>
+    <div class="row">
+      <div class="dock" id="dock"></div>
+      <div class="finder" id="finder"></div>
+    </div>
+
+    <h2>透明底（看形状本身）</h2>
+    <div class="tile checker" style="width: 360px">
+      <img id="onChecker" width="240" height="240" alt="" />
+    </div>
+
+    <p class="meta" id="meta"></p>
+
+    <script>
+      // 走 file:// 也能跑：只用 <img>，不 fetch。
+      const FULL = '../src-tauri/icons/webnote-icon.svg'
+      const DARK = '../src-tauri/icons/webnote-icon-dark.svg'
+      const LADDER = [512, 256, 128, 64, 32, 16]
+
+      function img(src, size, cls = '') {
+        const el = new Image()
+        el.src = src
+        el.width = size
+        el.height = size
+        el.alt = `WebNote ${size}px`
+        el.className = cls
+        return el
+      }
+
+      function ladder(mount, src) {
+        for (const size of LADDER) {
+          const cell = document.createElement('div')
+          cell.className = 'cell'
+          cell.append(img(src, size))
+          const label = document.createElement('div')
+          label.className = 'label'
+          label.textContent = `${size}px`
+          cell.append(label)
+          mount.append(cell)
+        }
+      }
+
+      ladder(document.getElementById('ladder'), FULL)
+      ladder(document.getElementById('ladderDark'), DARK)
+
+      for (const id of ['onLight', 'onDark', 'onChecker']) {
+        document.getElementById(id).src = FULL
+      }
+      document.getElementById('onDark').src = DARK
+
+      const dock = document.getElementById('dock')
+      for (const size of [128, 96, 64, 48, 32]) dock.append(img(FULL, size))
+
+      const finder = document.getElementById('finder')
+      for (const size of [256, 128, 64, 32]) finder.append(img(FULL, size))
+
+      document.getElementById('meta').textContent =
+        'viewBox 0 0 1024 1024 · 超椭圆 |x/512|^5 + |y/512|^5 = 1 · ' +
+        '图形外接盒 1024×1024（全出血）· 拟合误差 < 0.0001px'
+    </script>
+  </body>
+</html>
