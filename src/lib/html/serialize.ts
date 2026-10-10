@@ -2,6 +2,7 @@ import type { Block, ImageBlock, MermaidBlock, TableCell, TextualBlock } from "@
 import { isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
 import { escapeHtml, runsText, runsToHtml } from "@/lib/inline"
+import { docStyle } from "@/lib/typography"
 
 /**
  * 块列表 → HTML。
@@ -12,60 +13,11 @@ import { escapeHtml, runsText, runsToHtml } from "@/lib/inline"
  * 而脏输入先被规范化、之后每一轮往返都稳定。
  *
  * 换行 / 缩进只是为了文件可读；解析器会折叠空白，缩进不会进正文。
+ *
+ * 自带样式（`docStyle()`）与编辑器排版规格同源，都出自 `@/lib/typography` ——
+ * 「编辑器里看到什么，双击打开就是什么」这条约定由那份规格保证，不在这里复述。
  */
-
-/**
- * 自包含样式。
- *
- * 笔记文件要能直接双击在浏览器里看，所以样式内联、不引外部 css ——
- * 引用同级 css 的话，文件被单独拷走就没样式了。
- *
- * 字号 / 行高 / 外边距与编辑器（`BlockItem.vue` 的排版规格）**同一套**，都取自
- * Naive UI Typography：正文 14px/1.6、标题 30/22/18/16px 且字重 500、标题 margin
- * `28px 0 20px 0`（h4~h6 收成 18px）、正文 `16px 0`、引用与分割线 `12px 0`。
- * 两边保持一致才能做到「编辑器里看到什么，双击打开就是什么」。
- *
- * `color-scheme` 必须写在 `:root` 的声明块里：裸放在样式表顶层不是合法规则，
- * 解析器会把它和紧随的 `:root {}` 当成一条选择器去解析，两条一起丢掉 ——
- * 表现是浅色模式下所有变量都取不到值（引用块、表头全没底色）。
- *
- * 表格的外框与圆角（`--radius-table`，编辑器侧对应 `TableBlockView.vue` 的 `rounded-[8px]`）
- * 也在这套「两边同一值」的约定里：`collapse` 下浏览器忽略 `border-radius`，所以外框由
- * `<table>` 自己画、格子只留右/下内线，四角格子再各设一档内弧（外弧减 1px 边框）。
- */
-const DOC_STYLE = `    :root { color-scheme: light dark; --fg: #1c1c1e; --muted: #6b7280; --line: #e4e4e7; --bg-soft: #f4f4f5; --accent-bg: #eef2ff; --accent-fg: #313d6b; --mark-bg: #fdf3b0; --radius-table: 8px; }
-    @media (prefers-color-scheme: dark) {
-      :root { --fg: #e6e6e8; --muted: #9ca3af; --line: #33333a; --bg-soft: #1e1e22; --accent-bg: #232a45; --accent-fg: #c3ccff; --mark-bg: #4a4120; }
-    }
-    body { max-width: 46rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; background: Canvas; color: var(--fg);
-      font: 14px/1.6 -apple-system, "PingFang SC", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
-    h1, h2, h3, h4, h5, h6 { margin: 28px 0 20px; font-weight: 500; }
-    h1 { font-size: 30px; } h2 { font-size: 22px; } h3 { font-size: 18px; }
-    h4, h5, h6 { font-size: 16px; margin-bottom: 18px; }
-    p { margin: 16px 0; }
-    ul, ol { margin: 16px 0; padding-left: 2em; }
-    li { margin: 0.25em 0 0; }
-    blockquote { margin: 12px 0; padding-left: 12px; border-left: 4px solid var(--line); }
-    aside { margin: 16px 0; padding: 0.8em 1.1em; background: var(--accent-bg); border-radius: 0.6em; color: var(--accent-fg); }
-    pre { margin: 16px 0; padding: 0.9em 1.1em; background: var(--bg-soft); border-radius: 0.6em; overflow-x: auto; }
-    code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.9em; line-height: 1.4;
-      display: inline-block; padding: 0.05em 0.35em 0; border-radius: 2px; background: var(--bg-soft); }
-    pre code { font-size: 0.86em; display: inline; padding: 0; background: none; }
-    hr { height: 1px; margin: 12px 0; border: 0; background: var(--line); }
-    img { display: block; max-width: 100%; margin: 16px 0; border-radius: 0.6em; }
-    table { width: 100%; margin: 16px 0; border-collapse: separate; border-spacing: 0;
-      border: 1px solid var(--line); border-radius: var(--radius-table); }
-    th, td { padding: 0.45em 0.7em; text-align: left; vertical-align: top;
-      border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-    tr > *:last-child { border-right: 0; }
-    table > *:last-child > tr:last-child > * { border-bottom: 0; }
-    table > *:first-child > tr:first-child > *:first-child { border-top-left-radius: calc(var(--radius-table) - 1px); }
-    table > *:first-child > tr:first-child > *:last-child { border-top-right-radius: calc(var(--radius-table) - 1px); }
-    table > *:last-child > tr:last-child > *:first-child { border-bottom-left-radius: calc(var(--radius-table) - 1px); }
-    table > *:last-child > tr:last-child > *:last-child { border-bottom-right-radius: calc(var(--radius-table) - 1px); }
-    th { font-weight: 600; background: var(--bg-soft); }
-    mark { background-color: var(--mark-bg); color: inherit; }
-    body > :first-child { margin-top: 0; } body > :last-child { margin-bottom: 0; }`
+const DOC_STYLE = docStyle()
 
 export interface DocumentMeta {
   /** 文档标题，写进 `<title>`。一般取文件名去扩展名。 */

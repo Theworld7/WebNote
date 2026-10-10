@@ -17,6 +17,7 @@ import {
 import { useWorkspace } from "@/composables/useWorkspace"
 import { findTableCell, focusEditable } from "@/lib/dom"
 import { columnAlign, isHeaderRow } from "@/lib/table"
+import { TABLE_FRAME_CLASS } from "@/lib/typography"
 import TableCellEditor from "./TableCellEditor.vue"
 import TableSizePicker from "./TableSizePicker.vue"
 
@@ -125,16 +126,9 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
   </div>
 
   <div v-else class="group/tbl relative my-1">
-    <!-- 外框带 8px 圆角，内线由格子自己画。
-         `border-collapse: collapse` 下浏览器会忽略 `border-radius`（计算值有、渲染出来是直角），
-         所以外框与圆角交给 `<table>`（`border-separate` + `border-spacing: 0` 保证相邻格之间没有缝），
-         格子只留右/下内线；末行末列去掉，否则会与外框贴成 2px。
-         四角格子再各设一档内弧（8px 外弧减掉 1px 边框 = 7px），表头底色才跟着弧线走 ——
-         `<table>` 的 `overflow: hidden` 在部分内核上对表格不生效，不指望它裁。
-         末行不画下边框那条特例这次是必需的：外框改由表格自己画，留着才是双线。 -->
-    <table
-      class="w-full rounded-[8px] border border-line border-separate border-spacing-0 [&_tr:last-child>*]:border-b-0 [&_tr>*:last-child]:border-r-0 [&_tr:first-child>*:first-child]:rounded-tl-[7px] [&_tr:first-child>*:last-child]:rounded-tr-[7px] [&_tr:last-child>*:first-child]:rounded-bl-[7px] [&_tr:last-child>*:last-child]:rounded-br-[7px]"
-    >
+    <!-- 外框与四角内弧的几何走 `@/lib/typography` 的 TABLE_FRAME_CLASS，
+         与导出侧的 `--radius-table` 同一份数值。 -->
+    <table :class="TABLE_FRAME_CLASS">
       <tbody>
         <tr v-for="(row, rowIndex) in block.rows" :key="rowIndex">
           <TableCellEditor

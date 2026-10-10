@@ -4,8 +4,41 @@ import type { InlineMark, InlineRun } from "@/types/workspace"
  * 行内内容的纯字符串层（不碰 DOM）。
  *
  * DOM 侧的采集在 `@/lib/html/runs-dom`；这里只做「runs → HTML 字符串」和规范化，
- * 两个方向共用同一份标记顺序，序列化产物才是稳定的。
+ * 两个方向共用同一份标记注册表，序列化产物才是稳定的。
  */
+
+/**
+ * 行内标记注册表 —— 标记知识的唯一真源。
+ *
+ * 一个标记有五件相关的事：**序列化标签**、解析时额外认的**别名标签**、**嵌套顺序**、
+ * **快捷键**、给按钮用的**名字**。它们以前分散在四个模块里（本文件两处、`runs-dom.ts`
+ * 的反查表、`marks.ts` 的快捷键、`InlineToolbar.vue` 的按钮列表），加一个标记要改四处
+ * 且顺序要靠记 —— 现在全部从这张表派生。
+ *
+ * **数组顺序即 `INLINE_MARK_ORDER`**（由外到内）：序列化时按它包裹、归一化时按它排序，
+ * 顺序影响产物，所以不能交给调用方，只能由这张表定死。
+ */
+export interface MarkSpec {
+  mark: InlineMark
+  /** 序列化时用的标签。 */
+  tag: string
+  /** 解析时也认作同一标记的别名标签（`<b>` 与 `<strong>` 等价之类）。 */
+  aliases?: readonly string[]
+  /** 键盘快捷键。`key` 是 `KeyboardEvent.key.toLowerCase()`。 */
+  shortcut?: { key: string; shift?: boolean }
+  /** 格式条上的名字。/ 没有即不出按钮。 */
+  label?: string
+}
+
+export const MARK_REGISTRY = [
+  { mark: "bold", tag: "strong", aliases: ["b"], shortcut: { key: "b" }, label: "加粗" },
+  { mark: "italic", tag: "em", aliases: ["i"] },
+  { mark: "underline", tag: "u", aliases: ["ins"] },
+  { mark: "strike", tag: "s", aliases: ["del", "strike"] },
+  { mark: "code", tag: "code", shortcut: { key: "e" }, label: "行内代码" },
+  // 高亮挂 Shift：`Cmd+H` 在 macOS 被系统占用（隐藏窗口）。
+  { mark: "highlight", tag: "mark", shortcut: { key: "h", shift: true }, label: "高亮" },
+] satisfies readonly MarkSpec[]
 
 /**
  * 序列化时的固定嵌套顺序，由外到内。
@@ -13,16 +46,18 @@ import type { InlineMark, InlineRun } from "@/types/workspace"
  * 它同时是 `marks` 数组的排序依据：解析出来的标记集合一样、来源顺序不同时，
  * 归一化后必须得到同一个数组，否则往返比对会因顺序差异假报不等。
  */
-export const INLINE_MARK_ORDER: readonly InlineMark[] = ["bold", "italic", "underline", "strike", "code", "highlight"]
+export const INLINE_MARK_ORDER: readonly InlineMark[] = MARK_REGISTRY.map((spec) => spec.mark)
 
-const MARK_TAG = new Map<InlineMark, string>([
-  ["bold", "strong"],
-  ["highlight", "mark"],
-  ["italic", "em"],
-  ["underline", "u"],
-  ["strike", "s"],
-  ["code", "code"],
-])
+/** 标记 → 序列化标签。 */
+const MARK_TAG = new Map<InlineMark, string>(MARK_REGISTRY.map((spec) => [spec.mark, spec.tag]))
+
+/** 标签（含别名）→ 标记。`runs-dom.ts` 采集 DOM 时用它反查。 */
+export const TAG_MARKS = new Map<string, InlineMark>(
+  MARK_REGISTRY.flatMap((spec) => [
+    [spec.tag.toUpperCase(), spec.mark] as const,
+    ...(spec.aliases ?? []).map((alias) => [alias.toUpperCase(), spec.mark] as const),
+  ]),
+)
 
 /** 纯文本 → runs（单个无标记 run）。空串得到空数组，与 normalizeRuns 的约定一致。 */
 export function textToRuns(text: string): InlineRun[] {

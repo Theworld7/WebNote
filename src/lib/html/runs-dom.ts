@@ -1,5 +1,5 @@
 import type { InlineMark, InlineRun } from "@/types/workspace"
-import { normalizeRuns } from "@/lib/inline"
+import { TAG_MARKS, normalizeRuns } from "@/lib/inline"
 import { BLOCK_TAGS, IMAGE_TAG, SKIPPED_TAGS } from "./tags"
 
 /**
@@ -10,24 +10,12 @@ import { BLOCK_TAGS, IMAGE_TAG, SKIPPED_TAGS } from "./tags"
  * - 读回 contenteditable（`collapseWhitespace: false`）—— 用户敲的空格是有意义的。
  *
  * 不加这个开关就只能二选一：折叠会让编辑器吃空格，不折叠会让解析结果带着满屏缩进。
+ *
+ * 标签 → 标记的反查表（`TAG_MARKS`）不在这里 —— 它是标记注册表的一半，与「标记 → 标签」
+ * 同源，收在 `@/lib/inline`。
  */
 
 const TEXT_NODE = 3
-
-/** 会转成标记的行内标签。 */
-const TAG_MARKS = new Map<string, InlineMark>([
-  ["STRONG", "bold"],
-  ["B", "bold"],
-  ["MARK", "highlight"],
-  ["EM", "italic"],
-  ["I", "italic"],
-  ["U", "underline"],
-  ["INS", "underline"],
-  ["S", "strike"],
-  ["DEL", "strike"],
-  ["STRIKE", "strike"],
-  ["CODE", "code"],
-])
 
 const LINK_TAG = "A"
 const BREAK_TAG = "BR"

@@ -4,7 +4,7 @@ import { computed, nextTick, ref } from "vue"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { orderedIndexes as orderedIndexesOf } from "@/lib/blocks"
-import { findEditable, focusEditable } from "@/lib/dom"
+import { BLOCK_ROW_SELECTOR, DRAG_HANDLE_SELECTOR, closestBlockId, findEditable, focusEditable } from "@/lib/dom"
 import { isFileDrag, pickImageFiles, readImageFile } from "@/lib/image"
 import BlockItem from "./BlockItem.vue"
 
@@ -88,7 +88,7 @@ const dropIsNoop = computed(() => {
 function computeDropIndex(clientY: number): number | null {
   const root = docRef.value
   if (root === null) return null
-  const rows = root.querySelectorAll("[data-block-id]")
+  const rows = root.querySelectorAll(BLOCK_ROW_SELECTOR)
   if (rows.length === 0) return null
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i]
@@ -102,11 +102,9 @@ function computeDropIndex(clientY: number): number | null {
 function onDragStart(event: DragEvent) {
   const target = event.target
   // 只有手柄发起的才算排序。正文里选中文字也会触发 dragstart，那种放过。
-  if (!(target instanceof HTMLElement) || target.closest("[data-drag-handle]") === null) return
-  const row = target.closest("[data-block-id]")
-  if (!(row instanceof HTMLElement)) return
-  const id = row.dataset.blockId
-  if (id === undefined) return
+  if (!(target instanceof HTMLElement) || target.closest(DRAG_HANDLE_SELECTOR) === null) return
+  const id = closestBlockId(target)
+  if (id === null) return
 
   dragId.value = id
   dropIndex.value = null
@@ -187,10 +185,8 @@ async function insertImageFiles(files: readonly File[], from: number | null) {
 function pasteAnchor(): number {
   const active = document.activeElement
   if (!(active instanceof HTMLElement)) return activeDocument.value.length
-  const row = active.closest("[data-block-id]")
-  if (!(row instanceof HTMLElement)) return activeDocument.value.length
-  const id = row.dataset.blockId
-  if (id === undefined) return activeDocument.value.length
+  const id = closestBlockId(active)
+  if (id === null) return activeDocument.value.length
   const index = activeDocument.value.findIndex((block) => block.id === id)
   return index === -1 ? activeDocument.value.length : index + 1
 }

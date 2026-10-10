@@ -1,5 +1,6 @@
 import type { MermaidConfig } from "mermaid"
 import type mermaid from "mermaid"
+import { describeError } from "@/lib/errors"
 
 /**
  * Mermaid 渲染。
@@ -81,17 +82,4 @@ export async function renderMermaid(id: string, source: string): Promise<string>
   } catch (error) {
     throw new Error(describeError(error))
   }
-}
-
-/** 把 mermaid 抛出来的各种形状压成一句能显示的 message。 */
-function describeError(error: unknown): string {
-  if (error instanceof Error) return error.message
-  if (typeof error === "string") return error
-  if (typeof error === "object" && error !== null) {
-    const message = Reflect.get(error, "message")
-    if (typeof message === "string" && message !== "") return message
-    const raw = Reflect.get(error, "str")
-    if (typeof raw === "string" && raw !== "") return raw
-  }
-  return String(error)
 }

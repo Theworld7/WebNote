@@ -5,6 +5,7 @@ import { PencilIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { focusEditable } from "@/lib/dom"
+import { describeError } from "@/lib/errors"
 import { renderMermaid } from "@/lib/mermaid"
 
 /**
@@ -68,7 +69,7 @@ async function render(source: string) {
   } catch (failure) {
     if (token !== renderToken) return
     svg.value = ""
-    error.value = failure instanceof Error ? failure.message : String(failure)
+    error.value = describeError(failure)
   }
 }
 

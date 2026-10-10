@@ -3,6 +3,7 @@ import type { Block, BlockType, CloseStrategy, FileNode, InlineRun, OpenTab, Tab
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref } from "vue"
 import { cloneBlock, countChars, createBlock, createBlockId, isTextualBlock, retypeBlock } from "@/lib/blocks"
+import { describeError } from "@/lib/errors"
 import { parseHtml, serializeHtml } from "@/lib/html"
 import { createWorkspaceFs } from "@/lib/fs"
 import { defaultExpanded } from "@/lib/fs/policy"
@@ -35,13 +36,6 @@ function filterNodes(nodes: readonly FileNode[], keyword: string): FileNode[] {
     if (children.length > 0) result.push({ ...node, children })
   }
   return result
-}
-
-/** 把 unknown 错误压成一句能直接显示给用户的话。 */
-function describeError(error: unknown): string {
-  if (error instanceof Error) return error.message
-  if (typeof error === "string") return error
-  return String(error)
 }
 
 /** Set 的不可变增删。ref<Set> 内部改动不会触发更新，必须换新对象。 */

@@ -1,5 +1,5 @@
 import type { InlineMark, InlineRun } from "@/types/workspace"
-import { normalizeRuns, runsToHtml } from "./inline"
+import { MARK_REGISTRY, normalizeRuns, runsToHtml } from "./inline"
 
 /**
  * 行内格式的编辑操作：选区 ↔ runs 偏移的映射，以及在 runs 上切换标记。
@@ -231,15 +231,13 @@ export function paintRuns(element: HTMLElement, runs: readonly InlineRun[], rang
 /**
  * 键盘快捷键对应的行内标记，不是格式快捷键时返回 null。
  *
- * 映射只此一份：正文块与表格单元格共用，否则两处的键位迟早会漂。
- * `Cmd+E` 给行内代码，与 Google Docs / Notion / 飞书 一致。
- * 高亮挂在 `Shift` 上是因为 `Cmd+H` 在 macOS 被系统占用（隐藏窗口）。
+ * 键位表在 `@/lib/inline` 的标记注册表里，与标记的标签、顺序、按钮名同源 ——
+ * 正文块与表格单元格共用这条查找，两处的键位不会漂。
  */
 export function shortcutMark(event: KeyboardEvent): InlineMark | null {
   if (!event.metaKey && !event.ctrlKey) return null
+  if (event.altKey) return null
   const key = event.key.toLowerCase()
-  if (key === "b" && !event.shiftKey && !event.altKey) return "bold"
-  if (key === "e" && !event.shiftKey && !event.altKey) return "code"
-  if (key === "h" && event.shiftKey && !event.altKey) return "highlight"
-  return null
+  const hit = MARK_REGISTRY.find((spec) => spec.shortcut?.key === key && (spec.shortcut.shift ?? false) === event.shiftKey)
+  return hit?.mark ?? null
 }

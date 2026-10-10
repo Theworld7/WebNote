@@ -18,6 +18,9 @@ import { cloneCell } from "@/lib/table"
  *
  * `satisfies` 只做校验、不改推断类型：写错或改名某个 type 会在这里报错，
  * 而菜单、marker、序列化都从这张表派生，不存在第二处需要同步的清单。
+ *
+ * 登记表的**完备性**由下面的 `assertRegistryComplete` 在编译期保证 ——
+ * 新增一个块类型却忘了登记，会当场编译报错（`satisfies` 本身查不出漏登记）。
  */
 export const BLOCK_TYPES = [
   { type: "text", marker: "¶", label: "文本" },
@@ -39,6 +42,23 @@ export const BLOCK_TYPES = [
   { type: "image", marker: "▧", label: "图片" },
   { type: "table", marker: "⊞", label: "表格" },
 ] satisfies readonly BlockTypeMeta[]
+
+/**
+ * 登记表里出现过的块类型。
+ *
+ * `(typeof BLOCK_TYPES)[number]["type"]` 拿到的是各项 `type` 的**字面量**联合 ——
+ * 因为 `satisfies` 不改推断，每个 `"text"` 都还是 `"text"` 而不是被拓宽成 `string`。
+ */
+type RegisteredType = (typeof BLOCK_TYPES)[number]["type"]
+
+/**
+ * 编译期完备性自检：`BlockType` 里的每个类型都必须出现在 `BLOCK_TYPES` 里。
+ *
+ * 漏登记的会从 `Exclude` 里漏出来、`as never` 当场报错。`satisfies` 只能查出
+ * 「登记了不存在的类型」，查不出「存在的类型没登记」—— 这一条补上那半边。
+ */
+const assertRegistryComplete: never[] = [] as Exclude<BlockType, RegisteredType>[]
+void assertRegistryComplete
 
 const TYPE_META = new Map<BlockType, BlockTypeMeta>(BLOCK_TYPES.map((meta) => [meta.type, meta]))
 
@@ -77,21 +97,18 @@ export function isListBlock(block: Block): block is TextualBlock & { type: ListB
  * 用 `!==` 而不是判断 `"runs" in block`：前者能被编译器用来收窄联合类型，
  * 后者只是运行时成立，拿到手依然是 `Block`。
  *
- * **新增结构类块（不承载 runs 的形态）时，这里必须跟着补一条 `!==`** ——
- * 漏了不会报错，只会把新块当成正文块，`runs` 处取到 `undefined` 然后静默崩在别处。
+ * 这里的 `!==` 链必须**逐一列出**结构类 —— 编译器不接受「不在某个集合里」这种收窄。
+ * 但新增结构类时不会漏：一旦把新类型加进 `BlockType`，`assertRegistryComplete`
+ * 会要求它在 `BLOCK_TYPES` 里登记，而各处的分派（`createBlock` / `cloneBlock` /
+ * `blockText` / `serialize`）都在收窄后的分支里取字段，漏一处就编译不过。
  */
 export function isTextualBlock(block: Block): block is TextualBlock {
   return block.type !== "image" && block.type !== "table" && block.type !== "mermaid"
 }
 
-/** 块是否自带左侧标记（列表符号 / 复选框）。 */
+/** 块是否自带左侧标记（列表符号 / 复选框）。内容区的缩进也以它为准。 */
 export function hasLeadingMarker(type: BlockType): boolean {
   return isListType(type) || type === "todo"
-}
-
-/** 内容区是否需要为左侧标记让出缩进。 */
-export function bodyHasMarkerIndent(type: BlockType): boolean {
-  return hasLeadingMarker(type)
 }
 
 let seq = 0

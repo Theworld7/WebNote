@@ -3,6 +3,7 @@ import type { Component } from "vue"
 import type { InlineMark } from "@/types/workspace"
 import { BoldIcon, CodeIcon, HighlighterIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
+import { MARK_REGISTRY } from "@/lib/inline"
 import { cn } from "@/lib/utils"
 
 /**
@@ -10,18 +11,26 @@ import { cn } from "@/lib/utils"
  *
  * 只放加粗 / 高亮 / 行内代码三项：其余标记（斜体 / 下划线 / 删除线）虽然模型与
  * 解析都支持，但实际用不到，先不给按钮 —— 菜单里摆一排用不上的东西只会让人犹豫。
+ *
+ * **按钮顺序与注册表顺序无关**：注册表那一列是序列化的嵌套顺序（由外到内，`code`
+ * 在 `highlight` 之前才包得对），而按钮怎么排是 UI 决定（加粗 / 高亮 / 行内代码按
+ * 使用频率）。两者硬绑在一起会让改序列化顺序意外挪动按钮。
+ * 按钮的存废与名字仍由注册表的 `label` 说了算 —— 这里只决定「先给谁」。
  */
-interface FormatItem {
-  mark: InlineMark
-  label: string
-  icon: Component
+const BUTTON_ORDER: readonly InlineMark[] = ["bold", "highlight", "code"]
+
+const ICONS: Readonly<Partial<Record<InlineMark, Component>>> = {
+  bold: BoldIcon,
+  highlight: HighlighterIcon,
+  code: CodeIcon,
 }
 
-const ITEMS: readonly FormatItem[] = [
-  { mark: "bold", label: "加粗", icon: BoldIcon },
-  { mark: "highlight", label: "高亮", icon: HighlighterIcon },
-  { mark: "code", label: "行内代码", icon: CodeIcon },
-]
+const ITEMS = BUTTON_ORDER.flatMap((mark) => {
+  const spec = MARK_REGISTRY.find((item) => item.mark === mark)
+  const icon = ICONS[mark]
+  if (spec?.label === undefined || icon === undefined) return []
+  return [{ mark, label: spec.label, icon }]
+})
 
 const props = defineProps<{
   /** 选区起点处生效的标记，用来把对应的按钮标成激活态。 */

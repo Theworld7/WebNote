@@ -1,12 +1,58 @@
 // 用 CDP 等页面里的探针跑完（顶层 await 的脚本 --dump-dom 抓不到）。
 // 用法: node cdp-dump.mjs <url> [selector] [bailPrefix]
 // 想顺便截图（看排版观感）: SHOT=/tmp/x.png node cdp-dump.mjs <url>
+// 内核路径可用 CHROME 环境变量覆盖；否则按平台在 ms-playwright 缓存里探测。
 import { spawn } from "node:child_process"
-import { writeFileSync } from "node:fs"
+import { existsSync, readdirSync, writeFileSync } from "node:fs"
+import { homedir } from "node:os"
+import { join } from "node:path"
 
-const CHROME =
-  process.env.HOME +
-  "/Library/Caches/ms-playwright/chromium_headless_shell-1244/chrome-headless-shell-mac-arm64/chrome-headless-shell"
+const HEADLESS = "chrome-headless-shell"
+
+/**
+ * 探测 ms-playwright 缓存里的 headless shell。
+ *
+ * 缓存目录带版本号（chromium_headless_shell-1247），每次 playwright 升级都会变，
+ * 所以按前缀列目录、从新到旧挑第一个存在的 —— 写死版本号会在升级后失效。
+ */
+function detectChrome() {
+  if (process.env.CHROME) return process.env.CHROME
+
+  const roots =
+    process.platform === "darwin"
+      ? [join(homedir(), "Library/Caches/ms-playwright")]
+      : process.platform === "win32"
+        ? [join(homedir(), "AppData/Local/ms-playwright")]
+        : [join(homedir(), ".cache/ms-playwright")]
+
+  const relative = {
+    darwin: ["chrome-headless-shell-mac-arm64", HEADLESS],
+    win32: ["chrome-headless-shell-win64", `${HEADLESS}.exe`],
+    linux: ["chrome-headless-shell-linux64", HEADLESS],
+  }[process.platform]
+
+  if (relative === undefined) return null
+
+  for (const root of roots) {
+    if (!existsSync(root)) continue
+    const candidates = readdirSync(root)
+      .filter((name) => name.startsWith("chromium_headless_shell-"))
+      .sort()
+      .reverse()
+    for (const name of candidates) {
+      const path = join(root, name, ...relative)
+      if (existsSync(path)) return path
+    }
+  }
+
+  return null
+}
+
+const CHROME = detectChrome()
+if (CHROME === null) {
+  console.error("找不到 chrome-headless-shell，请设 CHROME 环境变量指向可执行文件")
+  process.exit(1)
+}
 
 const url = process.argv[2]
 const selector = process.argv[3] ?? "#out"
