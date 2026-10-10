@@ -67,6 +67,9 @@ function setQuery(value: string | number) {
           <DropdownMenuItem class="gap-2 text-[13px]" @select="requestCreate('note')">
             <span>新建笔记</span>
           </DropdownMenuItem>
+          <DropdownMenuItem class="gap-2 text-[13px]" @select="requestCreate('table')">
+            <span>新建数据表</span>
+          </DropdownMenuItem>
           <DropdownMenuItem class="gap-2 text-[13px]" @select="requestCreate('folder')">
             <span>新建文件夹</span>
           </DropdownMenuItem>

@@ -1,7 +1,9 @@
-import type { Block, ImageBlock, MermaidBlock, TableCell, TextualBlock } from "@/types/workspace"
+import type { Block, DataTableBlock, ImageBlock, MermaidBlock, TableCell, TextualBlock } from "@/types/workspace"
+import type { DataTable } from "@/types/data-table"
 import { isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
-import { escapeHtml, runsText, runsToHtml } from "@/lib/inline"
+import { cellValue, valueText } from "@/lib/data-table"
+import { escapeHtml, escapeTextToHtml, runsText, runsToHtml } from "@/lib/inline"
 import { docStyle } from "@/lib/typography"
 
 /**
@@ -24,9 +26,28 @@ export interface DocumentMeta {
   title: string
 }
 
-/** 块列表 → `<body>` 里的 HTML 片段。自检与往返测试直接用这个。 */
-export function blocksToHtml(blocks: readonly Block[]): string {
+/**
+ * 引用块 → 快照表格时用的数据来源。
+ *
+ * **必须是同步的纯查询**：`blocksToHtml` 是纯函数（见 `mermaidHtml` 的注释），不能
+ * 在这里 `await` 读盘。调用方（`useWorkspace.saveTab`）先把要用的表读进内存，
+ * 再把这张查找表传进来 —— 于是「读盘」留在 composable 那边，「拼 HTML」留在这里，
+ * 两边各自仍然可测。
+ *
+ * 返回 `null` 表示这张表读不到（被删了、移走了、解析失败）。此时快照降级成一句提示，
+ * 而不是抛错 —— 导出不该因为一个失效引用而整个失败。
+ */
+export type DataTableLookup = (path: string) => DataTable | null
+
+/**
+ * 块列表 → `<body>` 里的 HTML 片段。自检与往返测试直接用这个。
+ *
+ * `lookupTables` 缺省时，引用块一律写成提示态 —— 这是自检页与纯往返测试想要的形态
+ * （不碰文件系统），而导出路径会传进来。
+ */
+export function blocksToHtml(blocks: readonly Block[], lookupTables?: DataTableLookup): string {
   const out: string[] = []
+  const lookup = lookupTables ?? (() => null)
 
   for (let index = 0; index < blocks.length; index += 1) {
     const block = blocks[index]
@@ -43,6 +64,10 @@ export function blocksToHtml(blocks: readonly Block[]): string {
     }
     if (block.type === "mermaid") {
       out.push(mermaidHtml(block))
+      continue
+    }
+    if (block.type === "datatable") {
+      out.push(dataTableHtml(block, lookup(block.path)))
       continue
     }
     if (isListBlock(block)) {
@@ -66,7 +91,11 @@ export function blocksToHtml(blocks: readonly Block[]): string {
 }
 
 /** 块列表 → 可直接双击打开的完整 HTML 文档。 */
-export function serializeHtml(blocks: readonly Block[], meta: DocumentMeta): string {
+export function serializeHtml(
+  blocks: readonly Block[],
+  meta: DocumentMeta,
+  lookupTables?: DataTableLookup,
+): string {
   const title = meta.title === "" ? "未命名" : meta.title
 
   return `<!DOCTYPE html>
@@ -80,7 +109,7 @@ ${DOC_STYLE}
 </style>
 </head>
 <body>
-${blocksToHtml(blocks)}
+${blocksToHtml(blocks, lookupTables)}
 </body>
 </html>
 `
@@ -181,6 +210,40 @@ function tableHtml(rows: readonly TableCell[][]): string {
   const parts = ["<table>"]
   if (head.length > 0) parts.push("  <thead>", ...head, "  </thead>")
   if (body.length > 0) parts.push("  <tbody>", ...body, "  </tbody>")
+  parts.push("</table>")
+
+  return parts.join("\n")
+}
+
+/**
+ * 数据表引用块 → **快照表格**（见 ADR-0005 的「An exported Note writes the table's
+ * contents, not a pointer」）。
+ *
+ * 写出的是**当前内容**而不是指针：导出的文件要能在没有那个 `.tbl` 的地方被双击打开，
+ * 这是本项目最核心的一条承诺。代价是这份内容**不会回头同步** —— 它是一张快照，
+ * 与「另存为一份副本」是同一件事。
+ *
+ * 因此还原路径上它变成普通 `TableBlock`（`parse.ts` 不需要任何改动，`<table>` 本来
+ * 就解析成表格块）：读到的文件里确实就是一张表，把它读成表是**正确的**读法。
+ * 「本来是引用」这件事没有被写进文件，也不再被推断 —— 推断它需要一条猜测规则。
+ *
+ * 表读不到时写一句提示而不是抛错：导出不该因为一个失效引用整个失败。
+ */
+function dataTableHtml(block: DataTableBlock, table: DataTable | null): string {
+  if (table === null) {
+    return `<p><em>（引用的数据表读不到：${escapeHtml(block.path)}）</em></p>`
+  }
+
+  const headLine = `      <tr>${table.columns.map((column) => wrap("th", escapeTextToHtml(column.name))).join("")}</tr>`
+  const bodyLines = table.rows.map((row) => {
+    const cells = table.columns
+      .map((column) => wrap("td", escapeTextToHtml(valueText(cellValue(row, column), column))))
+      .join("")
+    return `      <tr>${cells}</tr>`
+  })
+
+  const parts = ["<table>", "  <thead>", headLine, "  </thead>"]
+  if (bodyLines.length > 0) parts.push("  <tbody>", ...bodyLines, "  </tbody>")
   parts.push("</table>")
 
   return parts.join("\n")

@@ -50,8 +50,8 @@ export type TextualBlockType =
   | "callout"
   | "divider"
 
-/** 全部块类型 = 正文类 + 三个结构类。派生而非常量列表，避免两处维护。 */
-export type BlockType = TextualBlockType | "image" | "table" | "mermaid"
+/** 全部块类型 = 正文类 + 四个结构类。派生而非常量列表，避免两处维护。 */
+export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable"
 
 /** 正文块。块之间是平铺列表；列表的嵌套层级用 `depth` 表达，不建树。 */
 export interface TextualBlock {
@@ -111,7 +111,24 @@ export interface MermaidBlock {
   source: string
 }
 
-export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock
+/**
+ * 数据表引用块。
+ *
+ * 只带一个**工作区路径**，不带任何记录 —— 记录留在那个 `.tbl` 文件里（见 ADR-0005）。
+ * 这是它和 `TableBlock` 的根本分别：`TableBlock` 的数据是笔记的一部分，这个块的数据
+ * 是**别人的**，因此同一张表出现在两篇笔记里时是同一张表，从哪边改都是同一次改动。
+ *
+ * 路径失效（文件被移走、改名或删除）是**正常状态**，不是错误：块照常渲染成提示态，
+ * 不把笔记标成损坏，也不拦着打开（见 `CONTEXT.md` 的「Missing Data table」）。
+ */
+export interface DataTableBlock {
+  id: string
+  type: "datatable"
+  /** 被引用的 `.tbl` 文件的工作区路径。 */
+  path: string
+}
+
+export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock
 
 /** 块类型元数据：菜单标记 + 中文名。菜单渲染直接消费。 */
 export interface BlockTypeMeta {
@@ -121,11 +138,19 @@ export interface BlockTypeMeta {
   label: string
 }
 
-/** 文件树的节点。folder 才有 children。 */
+/**
+ * 文件树的节点。
+ *
+ * 三种文件形态里两种是文件：`note` 与 `table`。分开而不是合成一个 `"file"`，因为
+ * 消费方真的要区别对待 —— 双击打开的是两种不同的编辑器（见 ADR-0005）。
+ *
+ * 它们**各自成行**，不合并：`客户.tbl` 与 `客户.html` 在盘上是两个东西，在树里也就是
+ * 两行。合并成一个节点会让树不再是磁盘的投影，而那正是 ADR-0001 / ADR-0003 的前提。
+ */
 export interface FileNode {
   id: string
   name: string
-  kind: "folder" | "file"
+  kind: "folder" | "note" | "table"
   children?: FileNode[]
 }
 
@@ -158,7 +183,7 @@ export type CloseStrategy = "save" | "discard"
  */
 export interface CreateTarget {
   parentPath: string
-  kind: "note" | "folder"
+  kind: "note" | "folder" | "table"
 }
 
 /**

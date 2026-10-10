@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue"
+import type { CreateTarget } from "@/types/workspace"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { closestTreeRow } from "@/lib/dom"
@@ -10,7 +11,7 @@ const { tree, hasRoot, scanning, isSearching, draggingPath, dropTargetPath, move
 
 /** 新建请求往上冒给 `AppSidebar` —— 对话框挂在那儿，树本身不开弹窗。 */
 const emit = defineEmits<{
-  create: [parentPath: string, kind: "note" | "folder"]
+  create: [parentPath: string, kind: CreateTarget["kind"]]
 }>()
 
 /**
@@ -26,7 +27,9 @@ const message = computed(() => {
   if (!hasRoot.value) return "点上方「打开文件夹」挑一个目录"
   if (tree.value.length > 0) return ""
   if (isSearching.value) return "没有匹配的笔记"
-  return "这个目录里没有 .html 笔记"
+  // 现在认两种文件，文案要跟着说清楚哪两种 —— 只说 .html 会让放了 .tbl 的用户
+  // 以为自己的文件没被认出来。
+  return "这个目录里没有 .html 笔记或 .tbl 数据表"
 })
 
 /**

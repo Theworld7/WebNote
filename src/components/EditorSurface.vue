@@ -3,16 +3,20 @@ import { computed } from "vue"
 import { TriangleAlertIcon, XIcon } from "@lucide/vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import BlockEditor from "./BlockEditor.vue"
+import DataTableEditor from "./DataTableEditor.vue"
 import EditorHome from "./EditorHome.vue"
 import EditorStatusBar from "./EditorStatusBar.vue"
 
-const { activeTab, isLoadingDocument, fsError, dismissError } = useWorkspace()
+const { activeTab, isLoadingDocument, isActiveTable, fsError, dismissError } = useWorkspace()
 
 /**
  * 只有真拿到正文才挂 BlockEditor。
  *
  * 载入中也挂的话，会先用空文档渲染一遍再跳成真内容 —— 闪一下，而且拖拽 / 粘贴那套
  * 处理器会挂在一个马上就要被替换的文档上。
+ *
+ * 数据表走同一扇门：它的正文由数据表编辑器自己读（`useTables`），工作区这边的
+ * `isLoadingDocument` 对它恒为 false，所以它一打开就能挂上。
  */
 const hasDocument = computed(() => activeTab.value !== null && !isLoadingDocument.value)
 </script>
@@ -38,8 +42,10 @@ const hasDocument = computed(() => activeTab.value !== null && !isLoadingDocumen
     </div>
 
     <EditorHome v-if="!hasDocument" />
+    <DataTableEditor v-else-if="isActiveTable" />
     <BlockEditor v-else />
 
-    <EditorStatusBar v-if="hasDocument" />
+    <!-- 数据表的统计由它自己的工具条显示，状态栏是笔记的（字数）。 -->
+    <EditorStatusBar v-if="hasDocument && !isActiveTable" />
   </div>
 </template>

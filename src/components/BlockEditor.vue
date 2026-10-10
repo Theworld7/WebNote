@@ -12,6 +12,7 @@ const {
   activeDocument,
   insertBlockAfter,
   insertBlockAt,
+  insertDataTableBlock,
   appendBlock,
   changeBlockType,
   duplicateBlock,
@@ -36,6 +37,16 @@ async function focusBlock(id: string, at: "start" | "end" = "end") {
 }
 
 function handleInsertAfter(id: string, type: BlockType) {
+  // 数据表块要**先有文件**才能插 —— 引用块指向一个不存在的 `.tbl` 就是一个永远读不到的
+  // 提示态。所以它走自己的异步路径：解析/新建那个表，拿到路径再插块。
+  if (type === "datatable") {
+    const blocks = activeDocument.value
+    const index = blocks.findIndex((item) => item.id === id)
+    void insertDataTableBlock(index === -1 ? blocks.length : index + 1).then((blockId) => {
+      if (blockId !== "") void focusBlock(blockId)
+    })
+    return
+  }
   void focusBlock(insertBlockAfter(id, type))
 }
 

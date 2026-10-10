@@ -11,6 +11,17 @@ import { joinPath } from "@/lib/paths"
 /** 认作笔记的后缀。目录里其它文件一律不进树。 */
 const NOTE_EXTENSIONS = [".html", ".htm"]
 
+/**
+ * 认作数据表的后缀。
+ *
+ * **专用扩展名**，不是 `.json`：树是拿**文件名**建起来的，`readDir` 只给
+ * `name` / `isFile` / `isDirectory`，靠内容区分就得在扫描时把每个 `.json` 都读一遍 ——
+ * 开发者目录里到处是 `package.json` / `tsconfig.json`，既会被列成数据表，也要为此付
+ * 上百次读盘。专用后缀让「它是什么」成为名字的属性，而名字正是扫描唯一看得到的东西。
+ * 代价只有「编辑器不再按 `.json` 给语法高亮」。见 ADR-0005。
+ */
+const TABLE_EXTENSIONS = [".tbl"]
+
 /** 明确不进的目录。点开头的（`.git`、`.obsidian` 之类）由 `isBrowsableDir` 一并挡掉。 */
 const SKIP_DIRS = new Set(["node_modules"])
 
@@ -28,8 +39,32 @@ export function isNoteFile(name: string): boolean {
   return NOTE_EXTENSIONS.some((extension) => lower.endsWith(extension))
 }
 
+/** 是否是数据表文件。判定与 `isNoteFile` 同一口径：只看名字、大小写不敏感。 */
+export function isTableFile(name: string): boolean {
+  const lower = name.toLowerCase()
+  return TABLE_EXTENSIONS.some((extension) => lower.endsWith(extension))
+}
+
 /** 新建笔记时补上的后缀。用户输的名字里已经带后缀就不再补。 */
 export const NOTE_EXTENSION = ".html"
+
+/** 新建数据表时补上的后缀。 */
+export const TABLE_EXTENSION = ".tbl"
+
+/**
+ * 名字主干：去掉已知后缀。`客户.tbl` → `客户`。
+ *
+ * 放在这里而不是各处自己 `replace(/\.\w+$/)`：后缀集合是这份模块的知识，
+ * 判「有没有后缀」的口径只能有一份。新建数据表时拿当前笔记名做主干的默认名，
+ * 「已写了后缀就别再补」也读它。
+ */
+export function fileStem(name: string): string {
+  const lower = name.toLowerCase()
+  for (const extension of [...NOTE_EXTENSIONS, ...TABLE_EXTENSIONS]) {
+    if (lower.endsWith(extension)) return name.slice(0, name.length - extension.length)
+  }
+  return name
+}
 
 /**
  * 文件夹名里不能出现的字符。
@@ -68,10 +103,17 @@ export function isBrowsableDir(name: string): boolean {
   return !name.startsWith(".") && !SKIP_DIRS.has(name)
 }
 
-/** 文件夹在前、同级按拼音。返回入参数组本身，调用方即可 `return sortNodes(list)`。 */
+/**
+ * 文件夹在前、同级按拼音。返回入参数组本身，调用方即可 `return sortNodes(list)`。
+ *
+ * 分组只看「是不是文件夹」—— `note` 与 `table` 都在文件这一组里一起按名字排，
+ * 因为把它们分成两组会让 `客户.tbl` 与 `客户.html` 被拆到两处，而它们是同一个名字。
+ */
 export function sortNodes(nodes: FileNode[]): FileNode[] {
   nodes.sort((left, right) => {
-    if (left.kind !== right.kind) return left.kind === "folder" ? -1 : 1
+    const leftFolder = left.kind === "folder"
+    const rightFolder = right.kind === "folder"
+    if (leftFolder !== rightFolder) return leftFolder ? -1 : 1
     return left.name.localeCompare(right.name, "zh-Hans-CN")
   })
   return nodes
@@ -86,7 +128,7 @@ export function folderNode(parentPath: string, name: string, children: FileNode[
 }
 
 export function fileNode(parentPath: string, name: string): FileNode {
-  return { id: joinPath(parentPath, name), name, kind: "file" }
+  return { id: joinPath(parentPath, name), name, kind: isTableFile(name) ? "table" : "note" }
 }
 
 /**

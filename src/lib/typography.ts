@@ -213,6 +213,7 @@ export const BLOCK_SPACING: Readonly<Record<BlockType, BlockSpacing>> = {
   image: { top: 16, bottom: 16 },
   table: { top: 16, bottom: 16 },
   mermaid: { top: 16, bottom: 16 },
+  datatable: { top: 16, bottom: 16 },
 }
 
 // ───────────────────────────── 编辑器侧适配器 ─────────────────────────────

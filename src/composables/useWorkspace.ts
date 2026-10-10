@@ -1,12 +1,13 @@
 import type { InjectionKey } from "vue"
-import type { Block, BlockType, CloseStrategy, FileNode, InlineRun, OpenTab, TableAlign, TableCell } from "@/types/workspace"
+import type { Block, BlockType, CloseStrategy, CreateTarget, FileNode, InlineRun, OpenTab, TableAlign, TableCell } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref } from "vue"
-import { cloneBlock, countChars, createBlock, createBlockId, isTextualBlock, retypeBlock } from "@/lib/blocks"
+import { cloneBlock, countChars, createBlock, createBlockId, createDataTableBlock, isTextualBlock, retypeBlock } from "@/lib/blocks"
 import { describeError } from "@/lib/errors"
 import { parseHtml, serializeHtml } from "@/lib/html"
+import type { DataTableLookup } from "@/lib/html"
 import { createWorkspaceFs } from "@/lib/fs"
-import { NOTE_EXTENSION, checkName, defaultExpanded, isNoteFile } from "@/lib/fs/policy"
+import { NOTE_EXTENSION, TABLE_EXTENSION, checkName, defaultExpanded, fileStem, isNoteFile, isTableFile } from "@/lib/fs/policy"
 import * as table from "@/lib/table"
 import { fileName, fromSegments, joinPath, migratePath, titleOf, toCrumbs, toSegments } from "@/lib/paths"
 
@@ -118,6 +119,15 @@ function createWorkspace() {
 
   const activeDocument = computed<Block[]>(() => documents.value[activePath.value] ?? [])
 
+  /**
+   * 当前标签是不是一个数据表。
+   *
+   * 编辑器据此分派到两种界面之一 —— 笔记是块编辑器，数据表是表格编辑器。分开而不是
+   * 让一个组件内部判分支：两者的状态、保存语义、快捷键全都不同，糅在一起会立刻变成
+   * 一个到处是 `if` 的组件。
+   */
+  const isActiveTable = computed(() => activePath.value !== "" && isTableFile(fileName(activePath.value)))
+
   const crumbs = computed(() => toCrumbs(activePath.value))
 
   const charCount = computed(() => countChars(activeDocument.value))
@@ -209,16 +219,78 @@ function createWorkspace() {
   // ---- 文档 ----
 
   /**
+   * 引用块 → 快照表格时用的数据来源。
+   *
+   * 由 `App.vue` 在 `provideTables` 之后接上（`attachTableLookup`）。之所以走一层间接：
+   * 数据表注册表要用工作区的 driver / root，所以它依赖工作区；而保存笔记时又需要读
+   * 数据表，于是工作区反过来要用它 —— 直接互相 import 会成环。用这个钩子把「用」的
+   * 方向反转过来，两边各自是单向依赖。
+   *
+   * 缺省返回 `null`：没有接上时（自检页、单元测试）引用块写成提示态，不抛错。
+   */
+  const tableLookup = ref<DataTableLookup>(() => null)
+
+  function attachTableLookup(lookup: DataTableLookup) {
+    tableLookup.value = lookup
+  }
+
+  /**
+   * 「把这篇笔记引用到的表都读进内存」。
+   *
+   * 与 `tableLookup` 分成两个钩子，因为方向不同：这个是异步的**前置动作**（读盘），
+   * 那个是同步的**取值**（拼 HTML）。合成一个就得让 `blocksToHtml` 变成异步，
+   * 而它是纯函数（见 `mermaidHtml` 的注释）。
+   *
+   * 缺省实现什么都不做：没接上时（自检页）引用块写成提示态，不影响其它块。
+   */
+  const preloadTables = ref<(blocks: readonly Block[]) => Promise<void>>(async () => {})
+
+  function attachTablePreload(preload: (blocks: readonly Block[]) => Promise<void>) {
+    preloadTables.value = preload
+  }
+
+  /**
+   * 新建数据表文件时要写什么内容、怎么写。
+   *
+   * 与上面两个钩子同一个理由（避免工作区 ↔ 注册表互相 import 成环），只是方向不同：
+   * 这里工作区是**调用方**，而内容是注册表那边的知识（一张带两列的 `DataTable`）。
+   * 所以把「怎么造」与「怎么写」也做成钩子，由 `App.vue` 在 provide 之后接上。
+   *
+   * 拿到 `driver` 与 `root` 当参数而不是自己去取：调用点（`createInto`）已经握有
+   * 它们，而写盘必须在**同一个 driver** 上发生 —— 传进来比再查一次更不容易漂。
+   *
+   * `null` 表示没接上 —— 那时新建数据表会失败并给出一句明确的错，而不是写一个空文件。
+   */
+  const tableWriter = ref<
+    ((driver: WorkspaceFs, root: FsRoot, path: string) => Promise<void>) | null
+  >(null)
+
+  function attachTableCreate(
+    writer: (driver: WorkspaceFs, root: FsRoot, path: string) => Promise<void>,
+  ) {
+    tableWriter.value = writer
+  }
+
+  /**
    * 读一篇笔记并解析。
    *
    * 失败也要落一个空块并标记已加载：否则标签打开后是一片虚无、每次激活还重试一次，
    * 错误提示会反复刷。读失败的真实原因留在 `fsError` 里给用户看。
+   *
+   * **数据表文件不走这里**：它不是块列表，解析成块没有意义。打开它由数据表编辑器
+   * 自己读（`useTables.acquire`），工作区这边只负责把它记成一个已打开的标签。
    */
   async function loadDocument(path: string) {
     const driver = fs.value
     const current = root.value
     if (driver === null || current === null) return
     if (loadedPaths.value.has(path)) return
+    if (isTableFile(fileName(path))) {
+      // 记账但不解析 —— 数据表的正文由 `useTables` 管，不放进 `documents`。
+      // 放进来的话「一篇笔记 = 一个块列表」这条不变式就被污染了。
+      loadedPaths.value = withFlag(loadedPaths.value, path, true)
+      return
+    }
 
     loadingPaths.value = withFlag(loadingPaths.value, path, true)
     try {
@@ -311,7 +383,15 @@ function createWorkspace() {
     const blocks = documents.value[path]
     if (driver === null || current === null || blocks === undefined) return
 
-    const html = serializeHtml(blocks, { title: titleOf(path) })
+    // 引用块要写成快照，所以它引用的表必须已经在内存里。`preload` 由 App.vue 接上
+    // （注册表的 `acquire`），它负责把还没读过的表读进来。读不回来（文件没了）不算
+    // 错误 —— 那种情况快照本来就要写成提示态。
+    await preloadTables.value(blocks)
+
+    // 引用块在这里被写成**快照**（当前的表格内容），不是指针 —— 导出的文件要能在
+    // 没有那个 `.tbl` 的地方双击打开（ADR-0005）。这一步是同步的纯查询：表已经由
+    // 数据表注册表读进内存了，这里只是把内容拼进去。
+    const html = serializeHtml(blocks, { title: titleOf(path) }, tableLookup.value)
     try {
       await driver.writeNote(current, path, html)
     } catch (error) {
@@ -350,7 +430,7 @@ function createWorkspace() {
    * 重扫期间**不置位 `scanning`**：那个 ref 的语义是「整棵树正在读取」，
    * 侧栏根名与编辑区空态都在消费它，单层刷新复用它会让整个界面闪一下。
    */
-  async function createInto(parentPath: string, name: string, folder: boolean): Promise<boolean> {
+  async function createInto(parentPath: string, name: string, kind: CreateTarget["kind"]): Promise<boolean> {
     const driver = fs.value
     const current = root.value
     if (driver === null || current === null) return false
@@ -361,26 +441,43 @@ function createWorkspace() {
       return false
     }
 
-    // 补后缀只在「笔记且没写后缀」时做一次。文件夹名原样用 —— 用户给文件夹起名
+    // 补后缀只在「文件且没写后缀」时做一次。文件夹名原样用 —— 用户给文件夹起名
     // `日记.html` 是他的自由，不该被解释成一篇笔记。
-    const fileName = folder || isNoteFile(name) ? name : `${name}${NOTE_EXTENSION}`
+    const isFolder = kind === "folder"
+    const extension = kind === "table" ? TABLE_EXTENSION : NOTE_EXTENSION
+    const hasKnownExtension = isNoteFile(name) || isTableFile(name)
+    const fileName = isFolder || hasKnownExtension ? name : `${name}${extension}`
     const path = joinPath(parentPath, fileName)
     /**
      * 冲突检测问**两个**路径。
      *
      * 用户看到的是「日记」这个名字，而磁盘上是 `日记.html` 或目录 `日记` —— 两回事。
-     * 只查补完后缀的那个（笔记侧）会漏掉同名文件夹；只查原名（文件夹侧）会漏掉
+     * 只查补完后缀的那个（文件侧）会漏掉同名文件夹；只查原名（文件夹侧）会漏掉
      * `日记.html`。两边都问一次，才是用户以为的那个「已存在」。
+     *
+     * 数据表按同一口径查：`客户.tbl` 与 `客户.html` 是两个**不同的文件**（ADR-0005
+     * 撤回了「树上合并同名两项」的想法），所以这里也必须真的问一次，而不是靠后缀
+     * 不同就放行 —— 否则新建 `客户.tbl` 而 `客户.html` 已存在时用户会看到两个同名项，
+     * 那正是他要求撤回的那种困惑。
      */
-    const barePath = folder ? joinPath(parentPath, name.replace(/\.html?$/i, "")) : joinPath(parentPath, name)
+    const barePath = isFolder ? joinPath(parentPath, fileStem(name)) : joinPath(parentPath, name)
 
     try {
       if ((await driver.exists(current, path)) || (await driver.exists(current, barePath))) {
         fsError.value = `新建失败：已存在「${fileName}」`
         return false
       }
-      if (folder) await driver.createFolder(current, path)
-      else await driver.createNote(current, path, serializeHtml([createBlock("text")], { title: titleOf(path) }))
+      if (isFolder) {
+        await driver.createFolder(current, path)
+      } else if (kind === "table") {
+        // 初始内容由数据表那边给（一张带两列的空表）。这里不直接 import 注册表 ——
+        // 方向是注册表依赖工作区，反过来引用会成环。走 `tableWriter` 这个钩子。
+        const write = tableWriter.value
+        if (write === null) throw new Error("数据表写入通道未接上")
+        await write(driver, current, path)
+      } else {
+        await driver.createNote(current, path, serializeHtml([createBlock("text")], { title: titleOf(path) }))
+      }
     } catch (error) {
       fsError.value = `新建「${fileName}」失败：${describeError(error)}`
       return false
@@ -394,18 +491,23 @@ function createWorkspace() {
       fsError.value = `新建成功，但刷新目录失败：${describeError(error)}`
     }
     if (parentPath !== "") expandedIds.value = withFlag(expandedIds.value, parentPath, true)
-    if (!folder) openFile(path)
+    if (!isFolder) openFile(path)
     return true
   }
 
   /** 在 `parentPath` 下新建一篇笔记。 */
   function createNoteIn(parentPath: string, name: string): Promise<boolean> {
-    return createInto(parentPath, name, false)
+    return createInto(parentPath, name, "note")
   }
 
   /** 在 `parentPath` 下新建一个文件夹。 */
   function createFolderIn(parentPath: string, name: string): Promise<boolean> {
-    return createInto(parentPath, name, true)
+    return createInto(parentPath, name, "folder")
+  }
+
+  /** 在 `parentPath` 下新建一个数据表。 */
+  function createTableIn(parentPath: string, name: string): Promise<boolean> {
+    return createInto(parentPath, name, "table")
   }
 
   // ---- 移动（见 ADR-0003）----
@@ -519,6 +621,81 @@ function createWorkspace() {
     blocks.splice(at, 0, block)
     markDirty()
     return block.id
+  }
+
+  /**
+   * 在当前笔记里插入一个数据表引用块。
+   *
+   * 与其它块的区别是它**不能只造一个空块**：引用块必须指向一个真实存在的 `.tbl`，
+   * 否则插进去就是一个永远读不到的提示态。所以这里同时做两件事：
+   *
+   * - `path` 为空时：在当前笔记旁边**新建**一个 `.tbl`，默认名取当前笔记的名字主干
+   *   （`客户.html` 里新建 → `客户.tbl`），撞名则不新建、直接引用已存在的那个。
+   * - `path` 非空时：直接引用它（工作区里已经有的表）。
+   *
+   * 返回新建块的 id，调用方（菜单）拿它做聚焦。
+   */
+  async function insertDataTableBlock(index: number, target = ""): Promise<string> {
+    const blocks = activeDocument.value
+    const notePath = activePath.value
+
+    let path = target
+    if (path === "") {
+      path = await resolveDataTableForNote(notePath)
+      // 解析不出来（没有工作区、用户取消、写盘失败）就不插块 —— 留一个读不到的
+      // 引用块比什么都不做更糟，用户会以为已经建好了。
+      if (path === "") return ""
+    }
+
+    const block = createDataTableBlock(path)
+    const at = Math.min(Math.max(index, 0), blocks.length)
+    blocks.splice(at, 0, block)
+    markDirty()
+    return block.id
+  }
+
+  /**
+   * 给一篇笔记找一张可引用的表。
+   *
+   * 规则只有两条，且**撞名不新建**：`客户.html` 里插数据表时，如果 `客户.tbl` 已经
+   * 存在，就引用它 —— 用户的意思显然是「我那张表」，而不是「再给我一份同名副本」。
+   * 这正是「在 Note 中创建数据表」的一个自然特例。
+   */
+  async function resolveDataTableForNote(notePath: string): Promise<string> {
+    const driver = fs.value
+    const current = root.value
+    if (driver === null || current === null) return ""
+
+    const parent = parentOfPath(notePath)
+    const stem = fileStem(fileName(notePath))
+    const candidate = joinPath(parent, `${stem}${TABLE_EXTENSION}`)
+
+    try {
+      if (await driver.exists(current, candidate)) return candidate
+    } catch (error) {
+      fsError.value = `检查数据表失败：${describeError(error)}`
+      return ""
+    }
+
+    const write = tableWriter.value
+    if (write === null) {
+      fsError.value = "数据表写入通道未接上"
+      return ""
+    }
+    try {
+      await write(driver, current, candidate)
+    } catch (error) {
+      fsError.value = `新建数据表「${stem}${TABLE_EXTENSION}」失败：${describeError(error)}`
+      return ""
+    }
+
+    // 盘上建好了，把它刷进树 —— 不刷的话用户看不到新文件，会以为是失败了。
+    try {
+      tree.value = replaceChildren(tree.value, parent, await driver.scanDir(current, parent))
+    } catch (error) {
+      fsError.value = `数据表已建好，但刷新目录失败：${describeError(error)}`
+    }
+    return candidate
   }
 
   function insertBlockAfter(id: string, type: BlockType): string {
@@ -672,6 +849,7 @@ function createWorkspace() {
     // derived
     activeTab,
     activeDocument,
+    isActiveTable,
     crumbs,
     charCount,
     isDirty,
@@ -690,6 +868,13 @@ function createWorkspace() {
     openRoot,
     dismissError,
     attachForTest,
+    // 读写通道与根目录：数据表注册表（`useTables`）要用同一对，否则两个 composable
+    // 会各自持有一份驱动引用，切目录时对不齐。
+    fs,
+    root,
+    attachTableLookup,
+    attachTablePreload,
+    attachTableCreate,
     // file actions
     openFile,
     activateTab,
@@ -702,6 +887,7 @@ function createWorkspace() {
     markDirty,
     createNoteIn,
     createFolderIn,
+    createTableIn,
     moveFileTo,
     // tree drag state
     draggingPath,
@@ -711,6 +897,7 @@ function createWorkspace() {
     toggleBlockChecked,
     insertBlockAfter,
     insertBlockAt,
+    insertDataTableBlock,
     appendBlock,
     changeBlockType,
     duplicateBlock,

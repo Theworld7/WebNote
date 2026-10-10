@@ -7,6 +7,7 @@ import {
   folderNode,
   isBrowsableDir,
   isNoteFile,
+  isTableFile,
   sortNodes,
 } from "./policy"
 
@@ -154,7 +155,7 @@ async function scanOne(
       nodes.push(folderNode(parentPath, name, []))
       continue
     }
-    if (isNoteFile(name)) nodes.push(fileNode(parentPath, name))
+    if (isNoteFile(name) || isTableFile(name)) nodes.push(fileNode(parentPath, name))
   }
   return sortNodes(nodes)
 }
@@ -172,7 +173,7 @@ async function walk(
       nodes.push(folderNode(parentPath, name, await walk(handle, childPath, depth + 1)))
       continue
     }
-    if (isNoteFile(name)) nodes.push(fileNode(parentPath, name))
+    if (isNoteFile(name) || isTableFile(name)) nodes.push(fileNode(parentPath, name))
   }
   return sortNodes(nodes)
 }

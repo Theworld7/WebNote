@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { CreateTarget } from "@/types/workspace"
-import { nextTick, ref, watch } from "vue"
+import { nextTick, ref, watch, computed } from "vue"
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -22,12 +22,25 @@ const props = defineProps<{
 
 const emit = defineEmits<{ close: [] }>()
 
-const { createNoteIn, createFolderIn } = useWorkspace()
+const { createNoteIn, createFolderIn, createTableIn } = useWorkspace()
 
 const name = ref("")
 const input = ref<InstanceType<typeof Input> | null>(null)
 
-const isFolder = () => props.target?.kind === "folder"
+/** 标题与占位符都跟着 kind 走 —— 三处各写一套三元就是漂移的开始。 */
+const title = computed(() => {
+  const kind = props.target?.kind
+  if (kind === "folder") return "新建文件夹"
+  if (kind === "table") return "新建数据表"
+  return "新建笔记"
+})
+
+const placeholder = computed(() => {
+  const kind = props.target?.kind
+  if (kind === "folder") return "文件夹名"
+  if (kind === "table") return "数据表名（不必写 .tbl）"
+  return "笔记名（不必写 .html）"
+})
 
 watch(
   () => props.target,
@@ -45,7 +58,9 @@ async function confirm() {
   if (target === null) return
   const ok = target.kind === "folder"
     ? await createFolderIn(target.parentPath, name.value)
-    : await createNoteIn(target.parentPath, name.value)
+    : target.kind === "table"
+      ? await createTableIn(target.parentPath, name.value)
+      : await createNoteIn(target.parentPath, name.value)
   if (ok) emit("close")
 }
 </script>
@@ -55,7 +70,7 @@ async function confirm() {
     <AlertDialogContent class="max-w-sm" @open-auto-focus.prevent>
       <AlertDialogHeader>
         <AlertDialogTitle class="text-[14px]">
-          {{ isFolder() ? "新建文件夹" : "新建笔记" }}
+          {{ title }}
         </AlertDialogTitle>
         <AlertDialogDescription class="text-[12px]">
           {{ target?.parentPath === "" ? "位置：工作区根目录" : `位置：${target?.parentPath}` }}
@@ -65,7 +80,7 @@ async function confirm() {
       <Input
         ref="input"
         v-model="name"
-        :placeholder="isFolder() ? '文件夹名' : '笔记名（不必写 .html）'"
+        :placeholder="placeholder"
         class="h-8 text-[13px]"
         @keydown.enter.prevent="confirm"
       />

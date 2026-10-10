@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref } from "vue"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { provideWorkspace } from "@/composables/useWorkspace"
+import { provideTables } from "@/composables/useTables"
 import { provideSettings } from "@/composables/useSettings"
 import { useResizableWidth } from "@/composables/useResizableWidth"
 import AppSidebar from "@/components/AppSidebar.vue"
@@ -9,7 +10,29 @@ import EditorSurface from "@/components/EditorSurface.vue"
 import EditorTabBar from "@/components/EditorTabBar.vue"
 import PaneResizer from "@/components/PaneResizer.vue"
 
-const { hasDirty, bootstrap } = provideWorkspace()
+const { hasDirty, bootstrap, fs, root, attachTableLookup, attachTablePreload, attachTableCreate } =
+  provideWorkspace()
+// 数据表注册表与工作区**共用同一对 driver / root**：切目录时两者必须一起换语境，
+// 各持一份引用迟早对不齐（见 useTables 的注释）。
+const tables = provideTables(fs, root)
+// 保存笔记时要把引用块写成快照：先把引用到的表读进内存，再同步取值拼 HTML
+// （见 attachTableLookup / attachTablePreload 的注释）。
+attachTableLookup((path) => tables.peek(path))
+attachTablePreload((blocks) => {
+  const paths = blocks
+    .filter((block) => block.type === "datatable")
+    .map((block) => block.path)
+    .filter((path) => path !== "")
+  return tables.preload(paths)
+})
+// 新建数据表：写什么内容由注册表这边的知识决定（一张带两列的初始表），
+// 工作区只负责把它写到指定路径。见 attachTableCreate 的注释。
+attachTableCreate(async (fsDriver, fsRoot, path) => {
+  const initial = tables.defaultTable()
+  await fsDriver.createNote(fsRoot, path, tables.toJson(initial))
+  // 盘上建好了，把内存也填上 —— 否则紧接着打开它还要多读一次盘。
+  tables.adopt(path, initial)
+})
 // 设置与工作区正交：它只装用户偏好，不参与任何笔记读写，所以在根组件独立 provide 一次。
 provideSettings()
 

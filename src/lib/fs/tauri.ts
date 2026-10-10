@@ -11,6 +11,7 @@ import {
   folderNode,
   isBrowsableDir,
   isNoteFile,
+  isTableFile,
   sortNodes,
 } from "./policy"
 
@@ -79,7 +80,9 @@ async function walk(dir: string, parentPath: string, depth: number): Promise<Fil
       nodes.push(folderNode(parentPath, entry.name, await walk(joinNative(dir, entry.name), childPath, depth + 1)))
       continue
     }
-    if (entry.isFile && isNoteFile(entry.name)) nodes.push(fileNode(parentPath, entry.name))
+    if (entry.isFile && (isNoteFile(entry.name) || isTableFile(entry.name))) {
+      nodes.push(fileNode(parentPath, entry.name))
+    }
   }
 
   return sortNodes(nodes)

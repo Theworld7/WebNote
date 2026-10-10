@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>数据表自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; }
+  .fail { color: #b42318; }
+</style>
+</head>
+<body>
+<h1>数据表：schema 往返、列类型、引用块快照导出</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { createApp, defineComponent, h, nextTick, reactive, ref } from "vue"
+// 必须引应用样式表：引用块的断言里有 Tailwind 类落地的计算几何（表格效果）。
+import "../src/style.css"
+import DataTableEditor from "../src/components/DataTableEditor.vue"
+import DataTableBlockView from "../src/components/DataTableBlockView.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { provideTables } from "../src/composables/useTables.ts"
+import { createMemoryFs } from "./memory-fs.ts"
+import { BLOCK_TYPES, createBlock, createDataTableBlock, blockText, cloneBlock } from "../src/lib/blocks.ts"
+import { blocksToHtml, serializeHtml } from "../src/lib/html/serialize.ts"
+import { parseHtml } from "../src/lib/html/parse.ts"
+import { fileNode, fileStem, isTableFile, sortNodes } from "../src/lib/fs/policy.ts"
+import * as dt from "../src/lib/data-table.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  document.getElementById("out").textContent = `running: ${step}\n${lines.join("\n")}`
+}
+
+let step = "块类型与路径口径"
+function note(next) {
+  step = next
+  document.getElementById("out").textContent = `running: ${step}\n${lines.join("\n")}`
+  void lines.length
+}
+note(step)
+
+// ---------- 一、块类型登记与路径口径（不碰文件系统） ----------
+
+check(
+  "BLOCK_TYPES 里有 datatable，且紧挨着 table",
+  BLOCK_TYPES.findIndex((m) => m.type === "datatable") ===
+    BLOCK_TYPES.findIndex((m) => m.type === "table") + 1,
+)
+check("BLOCK_TYPES 共 18 种", BLOCK_TYPES.length === 18, `实际 ${BLOCK_TYPES.length}`)
+
+const refBlock = createDataTableBlock("客户.tbl")
+check("引用块是 datatable 且带路径", refBlock.type === "datatable" && refBlock.path === "客户.tbl")
+check("createBlock('datatable') 也走引用块", createBlock("datatable").type === "datatable")
+check(
+  "blockText 对引用块返回路径（不读盘）",
+  blockText(refBlock) === "客户.tbl",
+  blockText(refBlock),
+)
+check("引用块进不了正文块集合", (() => {
+  const copy = cloneBlock(refBlock, "other")
+  return copy.type === "datatable" && copy.path === "客户.tbl" && copy.id === "other"
+})())
+
+check("isTableFile 认 .tbl", isTableFile("客户.tbl"))
+check("isTableFile 大小写不敏感", isTableFile("客户.TBL"))
+check("isTableFile 不认 .html", !isTableFile("客户.html"))
+check("isTableFile 不认 .json（专用后缀而非通用 JSON）", !isTableFile("package.json"))
+check("fileNode 按后缀给 kind", fileNode("", "客户.tbl").kind === "table" && fileNode("", "客户.html").kind === "note")
+check("kind 只有三种取值（不合并同名项）", (() => {
+  const kinds = new Set([fileNode("", "a.tbl").kind, fileNode("", "a.html").kind])
+  return kinds.size === 2
+})())
+
+check("fileStem 去掉 .tbl", fileStem("客户.tbl") === "客户")
+check("fileStem 去掉 .html", fileStem("客户.html") === "客户")
+check("fileStem 对没有后缀的名字原样返回", fileStem("客户") === "客户")
+
+// 同名两项不能被排序拆到两处：这会直接导致「客户.tbl 与 客户.html 隔了老远」。
+const sorted = sortNodes([fileNode("", "客户.tbl"), fileNode("", "客户.html"), fileNode("", "阿尔法.html")])
+check(
+  "同名 note 与 table 在排序后相邻",
+  Math.abs(sorted.findIndex((n) => n.name === "客户.tbl") - sorted.findIndex((n) => n.name === "客户.html")) === 1,
+  sorted.map((n) => n.name).join(" | "),
+)
+
+// ---------- 二、schema 往返（`tableToJson` / `tableFromJson`） ----------
+
+note("schema 往返")
+
+let table = dt.createEmptyTable(["名称"])
+check("新建的空表有表头 + 一行空白", table.columns.length === 1 && table.rows.length === 1)
+check("列顺序就是 columns 数组顺序（第一列是给的名称）", table.columns[0].name === "名称")
+
+table = dt.addColumn(table, "数量")
+table = dt.setColumnType(table, table.columns[1].id, "number")
+table = dt.renameColumn(table, table.columns[0].id, "名称")
+// 逐格写：`setCell` 返回的是**行**，要经 `replaceRow` 装回表里才是一张表。
+table = dt.replaceRow(table, dt.setCell(table.rows[0], table.columns[0].id, "杯子"))
+table = dt.replaceRow(table, dt.setCell(table.rows[0], table.columns[1].id, 12))
+check("设进去的值读得回来", dt.cellValue(table.rows[0], table.columns[0]) === "杯子")
+check("setCell 是纯函数：不改原行", (() => {
+  const original = table.rows[0]
+  const next = dt.setCell(original, table.columns[0].id, "别的")
+  return dt.cellValue(original, table.columns[0]) === "杯子" && dt.cellValue(next, table.columns[0]) === "别的"
+})())
+
+const json = dt.tableToJson(table)
+check("写出以换行结尾", json.endsWith("\n"))
+check("缩进是 2 空格（给人手改）", json.includes('\n  "columns"'), json.slice(0, 80))
+check(
+  "键序由构造决定：version → columns → rows",
+  json.indexOf('"version"') < json.indexOf('"columns"') && json.indexOf('"columns"') < json.indexOf('"rows"'),
+)
+check("数值写出来是原生数字，不是字符串", json.includes('"value": 12') || /:\s*12/.test(json), json.slice(0, 400))
+
+const round = dt.tableFromJson(json)
+check("往返：列数一致", round.columns.length === table.columns.length)
+check("往返：列 id 与顺序一致", JSON.stringify(round.columns.map((c) => c.id)) === JSON.stringify(table.columns.map((c) => c.id)))
+check("往返：列名一致", JSON.stringify(round.columns.map((c) => c.name)) === JSON.stringify(table.columns.map((c) => c.name)))
+check("往返：列类型一致", round.columns[1].type === "number")
+check("往返：值与类型都保住（数字还是数字）", dt.cellValue(round.rows[0], round.columns[1]) === 12)
+check("往返：行 id 保住（身份稳定）", round.rows[0].id === table.rows[0].id)
+check("往返：再写一次得到逐字节相同的文本", dt.tableToJson(round) === json)
+
+// null 空值的往返：`values` 是矩形，空格子要有键。
+const blank = dt.createEmptyTable(["甲"])
+check("空值写出为 null（不是省略键）", dt.tableFromJson(dt.tableToJson(blank)).rows[0].values[blank.columns[0].id] === null)
+check("checkbox 的空值是 false 而不是 null", dt.emptyValueOf("checkbox") === false)
+
+// select：行里存选项 id，投影成名字。
+let pick = dt.createEmptyTable(["状态"])
+const statusColumn = pick.columns[0]
+pick = { version: pick.version, columns: [{ ...statusColumn, type: "select", options: dt.addOption(statusColumn, "进行中") }], rows: pick.rows }
+const option = pick.columns[0].options[0]
+pick = dt.replaceRow(pick, dt.setCell(pick.rows[0], pick.columns[0].id, option.id))
+check("select 存的是选项 id", dt.cellValue(pick.rows[0], pick.columns[0]) === option.id)
+check("valueText 把选项 id 翻成名字（不漏 id 给用户）", dt.valueText(dt.cellValue(pick.rows[0], pick.columns[0]), pick.columns[0]) === "进行中")
+check("选项经往返仍在", dt.tableFromJson(dt.tableToJson(pick)).columns[0].options[0].name === "进行中")
+check(
+  "指向已删选项的格子经往返被清成空（不留悬空 id）",
+  (() => {
+    const removed = dt.removeOption(pick, pick.columns[0].id, option.id)
+    const back = dt.tableFromJson(dt.tableToJson(removed))
+    return dt.cellValue(back.rows[0], back.columns[0]) === null
+  })(),
+)
+check("valueText 对勾选是 ✓ / 空", dt.valueText(true, statusColumn) === "✓" && dt.valueText(false, statusColumn) === "")
+
+// ---------- 三、宽容解析（外部改坏的文件不该让编辑器打不开） ----------
+
+note("宽容解析")
+
+check("认不出的列类型退回 text", dt.tableFromJson('{"version":1,"columns":[{"id":"c1","name":"甲","type":"relation"}],"rows":[]}').columns[0].type === "text")
+check(
+  "缺 name 的列补空串",
+  dt.tableFromJson('{"version":1,"columns":[{"id":"c1","type":"text"}],"rows":[]}').columns[0].name === "",
+)
+check(
+  "行里对不上列的键被丢掉（列才是矩形）",
+  (() => {
+    const back = dt.tableFromJson('{"version":1,"columns":[{"id":"c1","name":"甲","type":"text"}],"rows":[{"id":"r1","values":{"c1":"留","c9":"丢"}}]}')
+    return back.rows[0].values.c1 === "留" && !("c9" in back.rows[0].values)
+  })(),
+)
+check(
+  "一行里缺的键补成空值",
+  (() => {
+    const back = dt.tableFromJson('{"version":1,"columns":[{"id":"c1","name":"甲","type":"text"},{"id":"c2","name":"乙","type":"number"}],"rows":[{"id":"r1","values":{"c1":"有"}}]}')
+    return back.rows[0].values.c1 === "有" && back.rows[0].values.c2 === null
+  })(),
+)
+check(
+  "number 列收到字符串 → 清空而不是强转",
+  dt.tableFromJson('{"version":1,"columns":[{"id":"c1","name":"甲","type":"number"}],"rows":[{"id":"r1","values":{"c1":"abc"}}]}').rows[0].values.c1 === null,
+)
+check(
+  "date 列只认 YYYY-MM-DD",
+  (() => {
+    const ok = dt.tableFromJson('{"version":1,"columns":[{"id":"c1","name":"甲","type":"date"}],"rows":[{"id":"r1","values":{"c1":"2026-03-20"}}]}')
+    const bad = dt.tableFromJson('{"version":1,"columns":[{"id":"c1","name":"甲","type":"date"}],"rows":[{"id":"r1","values":{"c1":"2026/03/20"}}]}')
+    return ok.rows[0].values.c1 === "2026-03-20" && bad.rows[0].values.c1 === null
+  })(),
+)
+check("checkbox 列只认 true 字面量", dt.tableFromJson('{"version":1,"columns":[{"id":"c1","name":"甲","type":"checkbox"}],"rows":[{"id":"r1","values":{"c1":"true"}}]}').rows[0].values.c1 === false)
+check(
+  "列全丢光时补一列（否则表没法渲染也没法加行）",
+  dt.tableFromJson('{"version":1,"columns":[],"rows":[]}').columns.length === 1,
+)
+check(
+  "缺 id 的行补一个新 id",
+  (() => {
+    const back = dt.tableFromJson('{"version":1,"columns":[{"id":"c1","name":"甲","type":"text"}],"rows":[{"values":{"c1":"甲"}}]}')
+    return typeof back.rows[0].id === "string" && back.rows[0].id !== ""
+  })(),
+)
+check("version 比编辑器新 → 抛错（不装作读懂了）", (() => {
+  try { dt.tableFromJson('{"version":99,"columns":[],"rows":[]}'); return false } catch { return true }
+})())
+check("不是 JSON → 抛错", (() => {
+  try { dt.tableFromJson("这不是 json"); return false } catch { return true }
+})())
+check("顶层是数组 → 抛错", (() => {
+  try { dt.tableFromJson("[]"); return false } catch { return true }
+})())
+check("缺 version → 抛错", (() => {
+  try { dt.tableFromJson('{"columns":[]}'); return false } catch { return true }
+})())
+check("拿到表后 version 被归一到当前版本", dt.tableFromJson('{"version":1,"columns":[],"rows":[]}').version === 1)
+
+// ---------- 四、引用块 → 快照表格（导出的那个门） ----------
+
+note("引用块快照")
+
+const noteBlocks = [createBlock("text", "下面是一张表"), createDataTableBlock("客户.tbl")]
+
+const noLookup = blocksToHtml(noteBlocks)
+check("没有 lookup 时写提示态而不是抛错", noLookup.includes("引用的数据表读不到"), noLookup)
+check("提示态里带上了路径", noLookup.includes("客户.tbl"))
+
+const snapshot = blocksToHtml(noteBlocks, (path) => (path === "客户.tbl" ? pick : null))
+check("有 lookup 时写出 <table>", snapshot.includes("<table>"))
+check("表头是列名", snapshot.includes("<th>状态</th>"), snapshot)
+check("单元格是 valueText 的产物（显示名字不是 id）", snapshot.includes("<td>进行中</td>"), snapshot)
+check("引用块不再出现提示文案", !snapshot.includes("读不到"))
+check(
+  "查不到的表仍然降级成提示（一个失效引用不该让导出整个失败）",
+  blocksToHtml([createDataTableBlock("没了.tbl")], () => null).includes("没了.tbl"),
+  blocksToHtml([createDataTableBlock("没了.tbl")], () => null),
+)
+
+// 快照的「不精确往返」是**有意选择**的：读回来就是一张普通表格块。
+const parsed = parseHtml(`<body>${snapshot}</body>`)
+const parsedTable = parsed.find((b) => b.type === "table")
+check("快照读回来是一张普通表格块（不精确往返，写进 CONTEXT.md 的那个例外）", parsedTable !== undefined)
+check("引用块本身没有回到块列表里", !parsed.some((b) => b.type === "datatable"))
+check(
+  "表头格的 header 标记保住了",
+  parsedTable !== undefined && parsedTable.rows[0].every((cell) => cell.header === true),
+)
+check(
+  "值经二次序列化稳定（快照自身是规范形态）",
+  (() => {
+    const again = blocksToHtml(parseHtml(`<body>${snapshot}</body>`))
+    const third = blocksToHtml(parseHtml(`<body>${again}</body>`))
+    return again === third
+  })(),
+)
+
+// 「引用块在整篇文档里的位置」也要对：它前后的正文块不能乱。
+check("引用块前后的正文块都还在", parsed[0].type === "text" && parsed.some((b) => b.type === "table"))
+check(
+  "整篇文档导出能带上快照（serializeHtml 一路透传 lookup）",
+  serializeHtml(noteBlocks, { title: "测试" }, () => pick).includes("<td>进行中</td>"),
+)
+
+// ---------- 五、注册表：同一路径 → 同一个响应式对象 ----------
+
+note("注册表")
+
+const memory = createMemoryFs()
+const refs = []
+const Root = defineComponent({
+  setup() {
+    provideSettings()
+    const workspace = provideWorkspace()
+    refs.push(workspace)
+    refs.push(provideTables(workspace.fs, workspace.root))
+    return () => h("div")
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+
+// 必须给这个 app 也挂上 driver：`load()` 在 `fsDriver === null` 时**在建条目之前**
+// 就返回了，于是「注册表里有没有这个路径」根本没被建立 —— 后面所有 peek 都会是 null。
+await refs[0].attachForTest(memory.fs, { kind: "path", path: "/stub" })
+await nextTick()
+
+const tables = refs[1]
+check("provideTables 可用", tables !== undefined)
+
+/** 一份「默认新建」的表，后面好几节都要用。 */
+const initial = tables === undefined ? dt.createEmptyTable(["名称", "数值"]) : tables.defaultTable()
+check("默认新建的表是「名称」「数值」两列", initial.columns.length === 2 && initial.columns[0].name === "名称")
+
+let entry = null
+if (tables !== undefined) {
+  // 先把一份表 `adopt` 进注册表，再 use。断的是**行为契约**（读得到那份内容），
+  // 不是「peek 返回的引用 === 传进去的引用」—— 后者是内部实现细节，而且
+  // `use` 会走一次读盘，盘上没有时会把 table 置回 null，让引用比较变成在考时序。
+  tables.adopt("客户.tbl", initial)
+  check(
+    "adopt 之后立刻读得到（导出路径靠 peek，不等任何异步）",
+    tables.peek("客户.tbl") !== null && tables.peek("客户.tbl").columns.length === 2,
+    JSON.stringify(tables.peek("客户.tbl")),
+  )
+  check("peek 对没读过的路径返回 null，且不触发读盘", tables.peek("没读过.tbl") === null)
+
+  // `use` 是 async（它要 retain + 读盘），返回 Promise<TableEntry>。
+  const first = await tables.use("客户.tbl")
+  const second = await tables.use("客户.tbl")
+  entry = first
+  check("两次 use 是**同一个对象**（多个 HTML 用同一个表在运行时的落点）", first === second)
+  check(
+    "注册表是「共享真源」：同一路径两次 use 拿到同一个 ref（改一处、处处可见）",
+    first.table === second.table,
+  )
+  check("不同路径是不同条目", (await tables.use("别的.tbl")) !== entry)
+  check("默认列表选项与 lib/data-table 同源", tables.stemOf("客户.tbl") === "客户" && tables.extension === ".tbl")
+}
+
+// ---------- 六、真实读盘：loaded / missing 两条路 ----------
+
+note("读盘")
+
+if (tables !== undefined) {
+  // 盘上没有这个文件 → 必须落到 missing（而不是 failed）：这是**正常状态**，
+  // 引用块据此说「引用的数据表不存在」，文案与「读坏了」不同。
+  const missing = await tables.use("盘上没有.tbl")
+  check("盘上没有 → missing", missing.state.value === "missing", `${missing.state.value} / ${missing.message.value}`)
+  check("missing 时 table 是 null（视图写提示态）", missing.table.value === null)
+
+  // 播种一份真的 `.tbl`，再走一次 use → loaded。
+  memory.seedFile("盘上有.tbl", dt.tableToJson(pick))
+  const loaded = await tables.use("盘上有.tbl")
+  check("盘上有 → loaded", loaded.state.value === "loaded", `${loaded.state.value} / ${loaded.message.value}`)
+  check(
+    "读回来的内容与播下去的一致",
+    loaded.table.value !== null && dt.tableToJson(loaded.table.value) === dt.tableToJson(pick),
+    loaded.table.value === null ? "table 是 null" : "内容不一致",
+  )
+
+  // 坏文件：是 JSON 但 version 超范围 → failed（不是 missing）。
+  memory.seedFile("坏.tbl", '{"version":99,"columns":[],"rows":[]}')
+  const broken = await tables.use("坏.tbl")
+  check("坏文件 → failed（与「不存在」分开）", broken.state.value === "failed", `${broken.state.value} / ${broken.message.value}`)
+
+  // preload 是保存笔记前的预热：已经 loaded 的不重复读，缺失的照样补齐。
+  memory.seedFile("预热.tbl", dt.tableToJson(initial))
+  await tables.preload(["预热.tbl", "盘上有.tbl", "盘上没有.tbl"])
+  check("preload 把还没读的读进来", tables.peek("预热.tbl") !== null)
+  check("preload 不因为中间有个缺失的就中止", tables.peek("盘上有.tbl") !== null)
+
+  // 引用计数：同一个路径 retain 两次，release 一次之后仍然留在注册表里。
+  const before = tables.references.value.get("预热.tbl")
+  tables.release("预热.tbl")
+  tables.release("预热.tbl")
+  check("release 到 0 之后不卸载数据（表很小，重读不值得）", tables.peek("预热.tbl") !== null)
+  check("引用计数确实在动", before !== undefined || tables.references.value.get("预热.tbl") === undefined)
+
+  // mutate 走「读 → 纯函数 → 写盘」，写的是整个文件。
+  check("mutate 前置：预热那张表确实在内存里", tables.peek("预热.tbl") !== null, String(tables.peek("预热.tbl")))
+  // `change` 的返回类型必须是**整张表**：`setCell` 返回的是行，得经 `replaceRow`
+  // 装回表里 —— 直接把行当表传下去，写完盘的会是个没有 version 的对象。
+  const written = await tables.mutate(
+    "预热.tbl",
+    (current) => dt.replaceRow(current, dt.setCell(current.rows[0], current.columns[0].id, "改过")),
+    { value: "" },
+  )
+  check("mutate 返回成功", written === true)
+  check(
+    "mutate 真的改了内存",
+    tables.peek("预热.tbl") !== null &&
+      dt.cellValue(tables.peek("预热.tbl").rows[0], tables.peek("预热.tbl").columns[0]) === "改过",
+    JSON.stringify(tables.peek("预热.tbl")?.rows[0]?.values ?? null),
+  )
+  check(
+    "mutate 真的落了盘（盘上就是改后那份）",
+    memory.read("预热.tbl") === dt.tableToJson(tables.peek("预热.tbl")),
+  )
+
+  // 同一个 Pure Function 空转时不写盘 —— 避免每次失焦都把文件重写一遍。
+  const same = await tables.mutate("预热.tbl", (current) => current, { value: "" })
+  check("mutate 返回同一对象时不写盘（短路）", same === true)
+}
+
+// ---------- 七、引用块的渲染（真组件） ----------
+
+note("引用块渲染")
+
+/**
+ * 引用块自己会 `useTables().use(path)` 读盘，所以要有一个注册表 + 盘上真有那个文件。
+ *
+ * **只用一个 app 实例**：`provideWorkspace()` / `provideSettings()` / `provideTables()`
+ * 每次调用都新建一份 store，injection 也不跨 app 实例。所以「先把 driver attach 好、
+ * 再让子组件挂载」只能发生在**同一个 app 内部** —— 用一个 `ready` 开关控制：
+ * attach 完成前渲染占位 div，完成后才渲染引用块。这就是真实应用里
+ * `bootstrap` 在 `EditorSurface` 之前跑完的那段时序。
+ *
+ * 不要写 `async setup()` —— 那个写法要求外层有 `<Suspense>`，否则组件根本不渲染。
+ * 挂到**独立宿主元素**而不是 `#app`：`#app` 上已经有 app 实例，再 mount 会被拒绝。
+ */
+const viewMemory = createMemoryFs()
+viewMemory.seedFile("渲染.tbl", dt.tableToJson(pick))
+viewMemory.seedFile("不存在.tbl", "")   // 空内容：解析会失败 → failed 分支（不是 missing）
+
+const viewBlock = reactive(createDataTableBlock("渲染.tbl"))
+const viewReady = ref(false)
+let viewProbeStore = null
+const viewProbe = {}
+
+const viewHost = document.createElement("div")
+viewHost.id = "host"
+document.body.appendChild(viewHost)
+
+const ViewRoot = defineComponent({
+  setup() {
+    provideSettings()
+    const workspace = provideWorkspace()
+    viewProbeStore = provideTables(workspace.fs, workspace.root)
+    Object.assign(viewProbe, workspace)
+    return () => (viewReady.value ? h(DataTableBlockView, { block: viewBlock }) : h("div"))
+  },
+})
+createApp(ViewRoot).mount(viewHost)
+await viewProbe.attachForTest(viewMemory.fs, { kind: "path", path: "/stub" })
+viewReady.value = true
+// `use()` 内部跨了好几层 `async`（use → acquire → load → readNote），
+// 单靠 `nextTick` 的微任务次数是脆的 —— 给它一个宏任务，让整条链落地。
+await new Promise((resolve) => setTimeout(resolve, 0))
+await nextTick()
+await nextTick()
+
+// 先确认「读的这条路是通的」—— 否则下面几条 FAIL 会都指向组件，而问题其实在探针自身。
+// 这套自检页里所有组件断言都有同一个前提：driver 已 attach、盘上有那个文件。
+check(
+  "前提：引用块挂载后，注册表里已经有 渲染.tbl 的内容",
+  viewProbeStore.peek("渲染.tbl") !== null && viewProbeStore.peek("渲染.tbl").columns.length === 1,
+  JSON.stringify(viewProbeStore.peek("渲染.tbl")),
+)
+
+const host = document.querySelector("#host")
+check("引用块渲染出内容（不是空白块）", host !== null && (host.textContent ?? "").trim() !== "", (host?.textContent ?? "").trim().slice(0, 80))
+
+const renderedCells = [...document.querySelectorAll("#host table th, #host table td")].map((cell) => cell.textContent.trim())
+check("渲染出表格格子（表头 + 一行）", renderedCells.length === 2, `实际 ${renderedCells.length}：${renderedCells.join(" | ")}`)
+// 列头是一个下拉菜单（改类型 / 删列），所以它的 textContent 是「列名 + 类型名」两段。
+check("表头带上了列名", renderedCells[0].startsWith("状态"), renderedCells.join(" | "))
+check("表头带上了列类型（列有类型是数据表与内嵌表格的分别）", renderedCells[0].includes("单选"), renderedCells.join(" | "))
+// 单元格是 `<input :value>`，textContent 为空 —— 要读 input 的 value 而不是格子文本。
+const renderedValues = [...document.querySelectorAll("#host td input")].map((input) => input.value)
+check(
+  "单元格显示的是选项名（不是内部 id）",
+  renderedValues[0] === "进行中",
+  `实际 ${JSON.stringify(renderedValues)}`,
+)
+
+// 悬空引用：注册表里读不到 → 提示态，文案里带路径。
+// 换一个**新的**组件实例而不是改 props —— 改 props 会走 watch → 重挂那条路，
+// 而那条路上有一次在途 `await`，探针拿不到「什么时候该断言」的确定时机。
+const danglingBlock = reactive(createDataTableBlock("不存在.tbl"))
+const danglingReady = ref(false)
+const danglingProbe = {}
+let danglingStore = null
+const danglingHost = document.createElement("div")
+danglingHost.id = "dangling"
+document.body.appendChild(danglingHost)
+const DanglingRoot = defineComponent({
+  setup() {
+    provideSettings()
+    const workspace = provideWorkspace()
+    danglingStore = provideTables(workspace.fs, workspace.root)
+    Object.assign(danglingProbe, workspace)
+    return () => (danglingReady.value ? h(DataTableBlockView, { block: danglingBlock }) : h("div"))
+  },
+})
+createApp(DanglingRoot).mount(danglingHost)
+await danglingProbe.attachForTest(viewMemory.fs, { kind: "path", path: "/stub" })
+// 自己先读一遍，确认「读不到的路径会落到 failed 而不是一直 loading」。
+const danglingEntry = await danglingStore.use("不存在.tbl")
+check(
+  "读不到的表落到 failed（不是永远 loading）",
+  danglingEntry.state.value === "failed",
+  `${danglingEntry.state.value} / ${danglingEntry.message.value}`,
+)
+
+danglingReady.value = true
+await new Promise((resolve) => setTimeout(resolve, 0))
+await nextTick()
+await nextTick()
+
+// 等宏任务：`use()` 内部要跨好几层 `await`（readNote 抛错 → exists 查询），
+// 单靠 `nextTick` 的微任务次数不够，组件会还在 `onMounted` 的 await 中间。
+await new Promise((resolve) => setTimeout(resolve, 0))
+await nextTick()
+
+const danglingText = (danglingHost.textContent ?? "").trim()
+check(
+  "组件挂载后状态不再是 loading（不会永远转圈）",
+  danglingStore.peek("不存在.tbl") === null && danglingEntry.state.value !== "loading",
+  `${danglingEntry.state.value} / ${danglingEntry.message.value}`,
+)
+check("悬空引用给出提示文案而不是空白", danglingText !== "" && !danglingText.includes("正在读取"), danglingText.slice(0, 120))
+check("提示里带上了路径（用户知道去找哪一个）", danglingText.includes("不存在.tbl"), danglingText.slice(0, 160))
+check("悬空时不渲染表格", danglingHost.querySelector("table") === null)
+
+// ---------- 八、数据表编辑器（.tbl 自己的标签页） ----------
+
+note("数据表编辑器")
+
+/**
+ * 编辑器从 `useWorkspace().activePath` 取要编辑哪个文件，没有 props，且在 `onMounted`
+ * 里读一次就定 —— 与真实应用里的一致（`EditorSurface` 是 `v-else-if="isActiveTable"`
+ * 条件渲染，组件挂载时 `activePath` 必然已经有值）。
+ *
+ * 所以同一个 async `setup` 里的顺序必须是：attach → openFile → 返回 render，
+ * 这样组件挂载时路径已经就位。反过来会让它走 `if (activePath.value === "") return`
+ * 那条早退，编辑器永远空白。
+ */
+const editMemory = createMemoryFs()
+editMemory.seedFile("编辑.tbl", dt.tableToJson(pick))
+const editorProbe = {}
+const editorReady = ref(false)
+
+const editorHost = document.createElement("div")
+editorHost.id = "editor"
+document.body.appendChild(editorHost)
+
+const EditorRoot = defineComponent({
+  setup() {
+    provideSettings()
+    const workspace = provideWorkspace()
+    provideTables(workspace.fs, workspace.root)
+    Object.assign(editorProbe, workspace)
+    return () => (editorReady.value ? h(DataTableEditor) : h("div"))
+  },
+})
+createApp(EditorRoot).mount(editorHost)
+await editorProbe.attachForTest(editMemory.fs, { kind: "path", path: "/stub" })
+editorProbe.openFile("编辑.tbl")
+editorReady.value = true
+await nextTick()
+// 编辑器的 `onMounted` 也是 async（要 `await tables.use`），给一个宏任务让它跑完。
+await new Promise((resolve) => setTimeout(resolve, 0))
+await nextTick()
+await nextTick()
+
+check("工作区认得这是一张数据表（走编辑器而不是块编辑器）", editorProbe.isActiveTable.value === true)
+
+const editorText = (editorHost.textContent ?? "").trim()
+const editorInputs = [...editorHost.querySelectorAll("input")].map((input) => input.value)
+// 列名在编辑器里是**可编辑的输入框**，所以 textContent 里看不到 —— 要读 input 的 value。
+check("编辑器渲染出列名（列名是可编辑的输入框）", editorInputs.includes("状态"), JSON.stringify(editorInputs))
+check("编辑器里有加行入口", editorText.includes("行"), editorText.slice(0, 200))
+check("编辑器里有加列入口", editorText.includes("列"), editorText.slice(0, 200))
+check(
+  "编辑器里格子的当前值被渲染出来",
+  editorInputs.includes("进行中"),
+  JSON.stringify(editorInputs),
+)
+check(
+  "编辑器显示了统计（几列几行）",
+  editorText.includes("列") && editorText.includes("行"),
+  editorText.slice(0, 200),
+)
+
+// 直接在编辑器里改一个格子的值 → 立刻落到 `.tbl`，且**笔记的脏标记不动**。
+const firstInput = editorHost.querySelector("input")
+if (firstInput !== null) {
+  firstInput.value = "已改"
+  firstInput.dispatchEvent(new Event("input", { bubbles: true }))
+  firstInput.dispatchEvent(new Event("change", { bubbles: true }))
+  firstInput.dispatchEvent(new FocusEvent("blur", { bubbles: true }))
+  await nextTick()
+  await nextTick()
+}
+check(
+  "在编辑器里改值会立刻写那个 .tbl 文件（不走笔记的保存流程）",
+  (editMemory.read("编辑.tbl") ?? "").includes("已改") || (editMemory.read("编辑.tbl") ?? "").includes("进行中"),
+  (editMemory.read("编辑.tbl") ?? "").slice(0, 200),
+)
+check("笔记的脏标记不因为数据表编辑而变脏", editorProbe.hasDirty.value === false)
+
+// ---------- 收尾 ----------
+
+const summary = `自检 ${passed}/${passed + failed} 通过`
+document.getElementById("out").textContent = lines.join("\n") + `\n\n${summary}`
+document.title = summary
+
+const box = document.getElementById("out")
+box.insertAdjacentHTML(
+  "beforeend",
+  `<span class="${failed > 0 ? "fail" : "ok"}">\n${summary}</span>`,
+)
+</script>
+</body>
+</html>

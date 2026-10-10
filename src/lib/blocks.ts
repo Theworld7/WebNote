@@ -2,6 +2,7 @@ import type {
   Block,
   BlockType,
   BlockTypeMeta,
+  DataTableBlock,
   ImageBlock,
   InlineRun,
   MermaidBlock,
@@ -41,6 +42,8 @@ export const BLOCK_TYPES = [
   { type: "divider", marker: "—", label: "分割线" },
   { type: "image", marker: "▧", label: "图片" },
   { type: "table", marker: "⊞", label: "表格" },
+  // 紧挨 table：数据表在用户眼里就是「更正式的表格」，摆一起最容易找。
+  { type: "datatable", marker: "▤", label: "数据表" },
 ] satisfies readonly BlockTypeMeta[]
 
 /**
@@ -103,7 +106,12 @@ export function isListBlock(block: Block): block is TextualBlock & { type: ListB
  * `blockText` / `serialize`）都在收窄后的分支里取字段，漏一处就编译不过。
  */
 export function isTextualBlock(block: Block): block is TextualBlock {
-  return block.type !== "image" && block.type !== "table" && block.type !== "mermaid"
+  return (
+    block.type !== "image" &&
+    block.type !== "table" &&
+    block.type !== "mermaid" &&
+    block.type !== "datatable"
+  )
 }
 
 /** 块是否自带左侧标记（列表符号 / 复选框）。内容区的缩进也以它为准。 */
@@ -143,11 +151,16 @@ export function createMermaidBlock(source = ""): MermaidBlock {
   return { id: createBlockId(), type: "mermaid", source }
 }
 
+export function createDataTableBlock(path = ""): DataTableBlock {
+  return { id: createBlockId(), type: "datatable", path }
+}
+
 /** 按类型造块。`text` 会被包成单个无标记 run —— 组件层新建块走这条，不必手搓 runs。 */
 export function createBlock(type: BlockType, text = ""): Block {
   if (type === "image") return createImageBlock()
   if (type === "table") return createTableBlock()
   if (type === "mermaid") return createMermaidBlock()
+  if (type === "datatable") return createDataTableBlock()
   return createTextualBlock(type, textToRuns(text))
 }
 
@@ -158,7 +171,9 @@ export function createBlock(type: BlockType, text = ""): Block {
  * 数据若不同步清空，切走标签再切回来又会把旧内容渲染出来（`/` 触发转换时尤其明显）。
  */
 export function retypeBlock(block: Block, type: BlockType): Block {
-  if (type === "image" || type === "table" || type === "mermaid") return createBlock(type)
+  if (type === "image" || type === "table" || type === "mermaid" || type === "datatable") {
+    return createBlock(type)
+  }
   if (!isTextualBlock(block)) return createTextualBlock(type)
   return createTextualBlock(type, [], { depth: block.depth, checked: block.checked })
 }
@@ -174,7 +189,9 @@ export function retypeBlock(block: Block, type: BlockType): Block {
  * `source` 是字符串，图片块那种平坦形态浅拷即可。
  */
 export function cloneBlock(block: Block, id: string): Block {
-  if (block.type === "image" || block.type === "mermaid") return { ...block, id }
+  if (block.type === "image" || block.type === "mermaid" || block.type === "datatable") {
+    return { ...block, id }
+  }
   if (block.type === "table") {
     return { ...block, id, rows: block.rows.map((row) => row.map(cloneCell)) }
   }
@@ -190,6 +207,9 @@ export function cloneBlock(block: Block, id: string): Block {
 export function blockText(block: Block): string {
   if (block.type === "image") return block.alt
   if (block.type === "mermaid") return block.source
+  // 引用块只带路径 —— 表格内容不在笔记里，投影拿不到它，也不该为此去读盘
+  // （字数统计是同步的纯函数）。取路径是这里唯一诚实的选择。
+  if (block.type === "datatable") return block.path
   if (block.type === "table") {
     return block.rows.map((row) => row.map((cell) => runsText(cell.runs)).join(" ")).join("\n")
   }

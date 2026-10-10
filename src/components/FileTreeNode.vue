@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import type { FileNode } from "@/types/workspace"
+import type { CreateTarget, FileNode } from "@/types/workspace"
 import { computed } from "vue"
-import { ChevronRightIcon, FilePlusIcon, FileTextIcon, FolderIcon, FolderPlusIcon, PlusIcon } from "@lucide/vue"
+import { ChevronRightIcon, DatabaseIcon, FilePlusIcon, FileTextIcon, FolderIcon, FolderPlusIcon, PlusIcon } from "@lucide/vue"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useWorkspace } from "@/composables/useWorkspace"
@@ -17,7 +17,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   /** 请求新建：`kind` 决定建笔记还是文件夹，父目录就是这个节点自己。 */
-  create: [parentPath: string, kind: "note" | "folder"]
+  create: [parentPath: string, kind: CreateTarget["kind"]]
 }>()
 
 const { expandedIds, activePath, isSearching, toggleFolder, openFile, draggingPath, dropTargetPath } =
@@ -27,6 +27,8 @@ const { expandedIds, activePath, isSearching, toggleFolder, openFile, draggingPa
 const fullPath = computed(() => joinPath(props.parentPath, props.node.name))
 
 const isFolder = computed(() => props.node.kind === "folder")
+/** 数据表节点。与 `isFolder` 一起构成三种形态 —— 它们不重叠。 */
+const isTable = computed(() => props.node.kind === "table")
 /** 搜索态下一律展开，否则命中的子项会被折叠藏起来。 */
 const isOpen = computed(() => isSearching.value || expandedIds.value.has(props.node.id))
 const isActive = computed(() => !isFolder.value && activePath.value === fullPath.value)
@@ -92,6 +94,10 @@ function startDrag(event: DragEvent) {
               <FilePlusIcon class="size-3.5 text-muted-foreground" />
               <span>新建笔记</span>
             </DropdownMenuItem>
+            <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('create', fullPath, 'table')">
+              <DatabaseIcon class="size-3.5 text-muted-foreground" />
+              <span>新建数据表</span>
+            </DropdownMenuItem>
             <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('create', fullPath, 'folder')">
               <FolderPlusIcon class="size-3.5 text-muted-foreground" />
               <span>新建文件夹</span>
@@ -121,13 +127,19 @@ function startDrag(event: DragEvent) {
       isDragging && 'opacity-50',
     )"
     :style="rowStyle"
-    :data-tree-kind="'file'"
+    :data-tree-kind="node.kind"
     :data-tree-path="fullPath"
     @dragstart="startDrag"
     @dragend="draggingPath = ''"
     @click="openFile(fullPath)"
   >
+    <!-- 数据表一个图标、笔记一个：树上两行同名文件时，这是唯一的区分线索。 -->
+    <DatabaseIcon
+      v-if="isTable"
+      :class="cn('size-3.5 shrink-0', isActive ? 'text-selection-foreground' : 'text-muted-foreground')"
+    />
     <FileTextIcon
+      v-else
       :class="cn('size-3.5 shrink-0', isActive ? 'text-selection-foreground' : 'text-muted-foreground')"
     />
     <span class="min-w-0 flex-1 truncate">{{ node.name }}</span>
