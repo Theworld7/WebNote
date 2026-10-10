@@ -2,12 +2,19 @@
 // 用法: node cdp-dump.mjs <url> [selector]
 // 想顺便截图（看排版观感）: SHOT=/tmp/x.png node cdp-dump.mjs <url>
 // 内核路径可用 CHROME 环境变量覆盖；否则按平台在 ms-playwright 缓存里探测。
+//
+// 窗口宽度(默认 800)是**视口**宽度，不是页面宽度。自检页正文多为 800px + 24px 内边距，
+// 右缘那 24px（表格滚动条 / 右端内阴影所在）会落在视口之外 —— 截图里看不见，
+// 于是把「在渲染但没截进来」误判成「没渲染」。要么把探针页做窄一点，要么加 WINDOW=1000。
 import { spawn } from "node:child_process"
 import { existsSync, readdirSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 
 const HEADLESS = "chrome-headless-shell"
+
+/** 视口宽度，可用 WINDOW 环境变量覆盖（默认 800，与探针页正文同宽）。 */
+const WINDOW = process.env.WINDOW ?? "800"
 
 /**
  * 探测 ms-playwright 缓存里的 headless shell。
@@ -60,7 +67,7 @@ const shot = process.env.SHOT ?? ""
 
 const chrome = spawn(
   CHROME,
-  ["--headless", "--disable-gpu", "--no-first-run", "--remote-debugging-port=9333", url],
+  ["--headless", "--disable-gpu", "--no-first-run", `--window-size=${WINDOW},900`, "--remote-debugging-port=9333", url],
   { stdio: "ignore" },
 )
 

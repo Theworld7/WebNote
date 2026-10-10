@@ -130,3 +130,27 @@ The numbers that fix how a block's text is laid out — font size, line box, mar
 heading scale. The editor and the exported Note must both be driven by the same spec; they
 are two renderings of it, not two sources of it.
 _Avoid_: Styles, theme, CSS
+
+### Preferences
+
+**Preference**:
+A user choice that changes how the editor *shows* a Note without changing the Note. It is
+stored outside the Note (in the app's own settings), so the same file opened on another
+machine renders exactly the same. A Preference is never written into the exported HTML and
+never makes a Tab dirty.
+_Avoid_: Setting (the panel is the settings panel, but a single item is a Preference),
+option, config
+
+**Table effect**:
+The Preference that decides what happens when a Table is wider than the Note's content
+column. Two values:
+- *wrap* — cell text wraps, columns are squeezed, the Table stays exactly as wide as the
+  content column and never scrolls. This is the default, and the shape the exported HTML
+  always takes.
+- *scroll* — cell text does not wrap, the Table is sized to its content and scrolls
+  horizontally within the content column. A soft shadow at the right edge says "there is
+  more to the right"; it disappears once the far edge is reached.
+
+It is a Preference, not a Table property: it applies to every Table at once and is not part
+of Block data.
+_Avoid_: Table layout, table mode, overflow behaviour

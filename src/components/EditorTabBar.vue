@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { LocateFixedIcon, PanelLeftIcon } from "@lucide/vue"
+import { ref } from "vue"
+import { LocateFixedIcon, PanelLeftIcon, SettingsIcon } from "@lucide/vue"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -11,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWorkspace } from "@/composables/useWorkspace"
+import SettingsPanel from "./SettingsPanel.vue"
 import EditorTab from "./EditorTab.vue"
 
 defineProps<{ sidebarCollapsed: boolean }>()
@@ -31,6 +33,9 @@ const {
 } = useWorkspace()
 
 const ACTION = "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foreground"
+
+/** 设置抽屉的开合。放在工具栏这一层：它是浮岛上的一个动作，不是工作区状态。 */
+const settingsOpen = ref(false)
 
 /** 出现即代表「有东西要存」，所以样式是恒定的强调态，不再随 isDirty 分叉。 */
 const SAVE =
@@ -87,8 +92,20 @@ const DIALOG_BTN = "h-7 px-3 text-[13px]"
         </TooltipTrigger>
         <TooltipContent>{{ sidebarCollapsed ? "展开侧栏" : "折叠侧栏" }}</TooltipContent>
       </Tooltip>
+
+      <!-- 设置放在动作组最右：它不针对当前标签，是全局入口，与左侧那几个「对当前文档做事」的按钮分开。 -->
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button variant="ghost" :class="ACTION" aria-label="设置" @click="settingsOpen = true">
+            <SettingsIcon class="size-[15px]" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>设置</TooltipContent>
+      </Tooltip>
     </div>
   </div>
+
+  <SettingsPanel v-model:open="settingsOpen" />
 
   <!-- 关标签拦截：只有「关掉脏标签」这一个动作会被打断，切标签静默保留脏态。
        三个按钮刻意用普通 Button 而不是 AlertDialogAction/Cancel —— 后两者自带「点击即关框」，

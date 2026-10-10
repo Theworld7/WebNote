@@ -1,4 +1,4 @@
-import type { BlockType } from "@/types/workspace"
+import type { BlockType, TableEffect } from "@/types/workspace"
 
 /**
  * 排版规格 —— 视觉常量的唯一真源。
@@ -46,12 +46,26 @@ export const TABLE_RADIUS = 8
 export const LIST_INDENT = 22
 
 /**
- * 表格外框的类名。
+ * 表格外框里与宽度无关的那半截：圆角、边框、格线、四角内弧。
+ *
+ * 单独抽出来是因为「表格效果」这个设置要换掉的只有**宽度策略**（`w-full` ↔ `w-max`），
+ * 外框几何两种效果下一模一样。让它们共享这一份，改圆角时不会只改到一边。
+ * 键在下面的 `TABLE_FRAME_CLASS` 与 `TABLE_*` 两套效果类名里各拼一次。
+ */
+const FRAME_TAIL = [
+  "rounded-[8px] border border-line border-separate border-spacing-0",
+  "[&_tr:last-child>*]:border-b-0 [&_tr>*:last-child]:border-r-0",
+  "[&_tr:first-child>*:first-child]:rounded-tl-[7px] [&_tr:first-child>*:last-child]:rounded-tr-[7px]",
+  "[&_tr:last-child>*:first-child]:rounded-bl-[7px] [&_tr:last-child>*:last-child]:rounded-br-[7px]",
+].join(" ")
+
+/**
+ * 表格外框的类名（`wrap` 效果的那一份，也是规范形态）。
  *
  * **必须是字面量**：Tailwind 只生成源码里能完整看到的候选，`rounded-[${n}px]` 这类
  * 插值在**生产构建**下扫不到（dev 模式的宽松扫描会让人误以为没问题 —— 构建后
  * 圆角直接变 0，`table-align-check` 在 dev 下也照样全绿）。代价是这里的 `8px` / `7px`
- * 与 `TABLE_RADIUS` 是两份，靠下面的 `assertTableRadius` 在编译期钉住。
+ * 与 `TABLE_RADIUS` 是两份，靠下面的 `frameRadius` 在编译期钉住。
  *
  * `border-collapse: collapse` 下浏览器会忽略 `border-radius`（计算值有、渲染出来是直角），
  * 所以外框与圆角交给 `<table>`（`border-separate` + `border-spacing: 0` 保证相邻格之间
@@ -59,12 +73,7 @@ export const LIST_INDENT = 22
  * 内弧（外弧减掉 1px 边框），表头底色才跟着弧线走 —— `<table>` 的 `overflow: hidden`
  * 在部分内核上对表格不生效，不指望它裁。
  */
-export const TABLE_FRAME_CLASS = [
-  "w-full rounded-[8px] border border-line border-separate border-spacing-0",
-  "[&_tr:last-child>*]:border-b-0 [&_tr>*:last-child]:border-r-0",
-  "[&_tr:first-child>*:first-child]:rounded-tl-[7px] [&_tr:first-child>*:last-child]:rounded-tr-[7px]",
-  "[&_tr:last-child>*:first-child]:rounded-bl-[7px] [&_tr:last-child>*:last-child]:rounded-br-[7px]",
-].join(" ")
+export const TABLE_FRAME_CLASS = `w-full ${FRAME_TAIL}`
 
 /**
  * 编译期守卫：类名里写死的外弧值必须与 `TABLE_RADIUS` 一致。
@@ -75,6 +84,100 @@ export const TABLE_FRAME_CLASS = [
  */
 const frameRadius: `${typeof TABLE_RADIUS}` = "8"
 void frameRadius
+
+/**
+ * 表格效果的两种渲染方式 —— 编辑器侧的查看偏好，**不进导出文件**。
+ *
+ * 导出侧（`docStyle()`）永远用 `table { width: 100% }` 那份规范形态：单文件笔记要能
+ * 被单独拷走双击打开，读不到 `localStorage`，把偏好写进文件反而会让「同一个文件在
+ * 两台机器上长得不一样」，「往返一致」这条不变量先碎。所以这里的分叉只存在于编辑器，
+ * 设置面板里也明说了这件事。
+ *
+ * 与 `SPACING_CLASS` / `HEADING_CLASS` 同样的理由要求**字面量**：Tailwind 扫的是源码里
+ * 能完整看到的候选，运行时拼的 `whitespace-${x}` 一条规则都不会生成。
+ */
+
+/** 表格外层容器：`wrap` 与正文同宽；`scroll` 横向滚动。 */
+export interface TableEffectClasses {
+  /** 套在 `<table>` 外面的容器。 */
+  container: string
+  /** `<table>` 自身。 */
+  table: string
+  /** 单元格（`<th>` / `<td>`）。 */
+  cell: string
+}
+
+/**
+ * `wrap`：文字换行、列被挤窄、表格永远与正文同宽 —— 也就是这个设置存在之前的行为。
+ *
+ * 容器空字符串：不额外包一层，几何与从前完全一致。`min-w-16` 是格子下限，
+ * `break-words` 保证长串（URL、英文单词）也会折断，否则它会把列撑破、等于偷偷变回滚动。
+ */
+const TABLE_WRAP: TableEffectClasses = {
+  container: "",
+  table: `w-full ${FRAME_TAIL}`,
+  cell: "min-w-16 whitespace-pre-wrap break-words",
+}
+
+/**
+ * `scroll` 容器为滚动条留的下内边距，**Tailwind 步进单位**（1 = 4px）。
+ *
+ * 存步进而不是像素：这个值最终要落成 `pb-N` 类名，而 Tailwind 只认源码里能完整看到的
+ * 字面量。存步进就能用 `` `pb-${typeof X}` `` 把类名钉成类型（见下面的守卫）；
+ * 存像素的话 `8 ≠ "2"`，类型对不上也推不出类名，守卫就只剩注释了。
+ */
+export const TABLE_SCROLL_GUTTER_STEP = 2
+
+/** 上者的像素值，给探针与断言量几何用。 */
+export const TABLE_SCROLL_GUTTER = TABLE_SCROLL_GUTTER_STEP * 4
+
+/**
+ * `scroll`：文字不换行，表格按内容撑开，超出正文宽度的部分横向滚动。
+ *
+ * 五点缺一不可：
+ * - 容器 `overflow-x-auto`：真正的滚动条挂在它身上，不是 `<table>`。
+ * - `<table>` 从 `w-full` 换成 `w-max`：`w-full` 会被容器宽（= 正文宽）钉死，
+ *   内容再宽也只会溢出格子；`w-max` 才让表格按内容要宽度，从而产生可滚动量。
+ *   同时补 `min-w-full`：列少的时候表格仍至少铺满一行宽，否则会缩成一小坨。
+ * - 格子 `whitespace-nowrap`：不换行，列宽才由内容决定。
+ *   `break-words` 要去掉，它和 `nowrap` 同时存在时前者会赢在折行上、`nowrap` 形同虚设。
+ * - 容器另带 `table-scrollbar`（见 `style.css`）：把系统那条 15px 的粗滚动条换成
+ *   6px 圆角细条。原生观感太重，一进视野就把注意力全吸走 —— 表格本身才是主体。
+ * - 容器 `pb-2`（= 8px）：把滚动条从表格底边推开。不加的话滚动条紧贴外框、还会切进
+ *   那 8px 圆角里。间距取与外框圆角同档的值，看起来才是一体的。
+ *
+ * 「右边还有内容」那条内阴影不在这里：它是压在表格**上面**的一层覆盖元素，
+ * 由 `TableBlockView` 挂（类名 `table-scroll-shadow` 见 `style.css`），
+ * 因为容器背景会被 `th` 底色盖住。它的底边同样要避开这段 padding，见那边的注释。
+ */
+const TABLE_SCROLL: TableEffectClasses = {
+  container: "overflow-x-auto table-scrollbar pb-2",
+  table: `w-max min-w-full ${FRAME_TAIL}`,
+  cell: "min-w-16 whitespace-nowrap",
+}
+
+/**
+ * 编译期守卫：`TABLE_SCROLL.container` 与内阴影各自写死的类名，必须与步进常量一致。
+ *
+ * 与 `frameRadius` 同一手法 —— Tailwind 的 `pb-N` / `bottom-N` 里 N 就是步进值，类型可由
+ * 常量直接拼出。改常量为 `3` 而忘了同步类名，两行的字符串字面量就对不上类型而当场报错。
+ *
+ * 刻意**不**去解析 `TABLE_SCROLL.container` 反推 —— 它是 `string`，类型系统看不见里面的
+ * 字面量（`FRAME_TAIL` 注释里说过同一件事）。
+ *
+ * **覆盖不到的第三处**：`TableBlockView` 模板里那个 `bottom-2`（阴影元素）。模板 class
+ * 是普通字符串，类型系统管不着。改步进常量时除了这里，还得手动同步模板，
+ * `settings-check` 的「阴影底边避开滚动条」用例会在运行时兜住。
+ */
+const gutterClass: `pb-${typeof TABLE_SCROLL_GUTTER_STEP}` = "pb-2"
+const shadowInsetClass: `bottom-${typeof TABLE_SCROLL_GUTTER_STEP}` = "bottom-2"
+void gutterClass
+void shadowInsetClass
+
+/** 按偏好取表格类名。两种效果的类名都在上面写死，这里只做分派。 */
+export function tableEffectClasses(effect: TableEffect): TableEffectClasses {
+  return effect === "scroll" ? TABLE_SCROLL : TABLE_WRAP
+}
 
 /**
  * 块间距 —— 上 / 下外边距，px。

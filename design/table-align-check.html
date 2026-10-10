@@ -22,6 +22,9 @@ import { createApp, defineComponent, h, nextTick, reactive } from "vue"
 // 不引 style.css 这些类根本不存在，计算样式会退化成 UA 默认值 —— 断言全成假象。
 import "../src/style.css"
 import TableBlockView from "../src/components/TableBlockView.vue"
+// TableBlockView 现在要读「表格效果」设置（显示 → 表格效果），所以挂它之前必须先
+// provideSettings()，否则 setup 里 useSettings() 会抛「必须在 provideSettings() 的子树内」。
+import { provideSettings } from "../src/composables/useSettings.ts"
 import { provideWorkspace } from "../src/composables/useWorkspace.ts"
 import { cloneBlock, createTableBlock } from "../src/lib/blocks.ts"
 import { serializeHtml } from "../src/lib/html/serialize.ts"
@@ -106,6 +109,7 @@ const block = reactive(createTableBlock(rows))
 
 const Root = defineComponent({
   setup() {
+    provideSettings()
     provideWorkspace()
     return () => h(TableBlockView, { block })
   },

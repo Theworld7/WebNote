@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { TableAlign, TableBlock } from "@/types/workspace"
-import { computed, nextTick, ref } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { PlusIcon, TableIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
@@ -15,9 +15,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useWorkspace } from "@/composables/useWorkspace"
+import { useSettings } from "@/composables/useSettings"
 import { findTableCell, focusEditable } from "@/lib/dom"
 import { columnAlign, isHeaderRow } from "@/lib/table"
-import { TABLE_FRAME_CLASS } from "@/lib/typography"
+import { tableEffectClasses } from "@/lib/typography"
 import TableCellEditor from "./TableCellEditor.vue"
 import TableSizePicker from "./TableSizePicker.vue"
 
@@ -43,6 +44,79 @@ const {
 const hasRows = computed(() => props.block.rows.length > 0)
 const columnCount = computed(() => props.block.rows[0]?.length ?? 0)
 const headerRow = computed(() => isHeaderRow(props.block.rows[0] ?? []))
+
+/**
+ * 表格效果来自全局设置（显示 → 表格效果），是**查看偏好**而非笔记内容：
+ * 只挑类名，不改 `block.rows`，所以切设置不会让标签变脏。
+ */
+const { tableEffect } = useSettings()
+const frame = computed(() => tableEffectClasses(tableEffect.value))
+
+/**
+ * 「右边还有内容」内阴影的显隐。
+ *
+ * 阴影压在表格**上面**，不能画在滚动容器的背景里 —— 表格的 `th` 有不透明底色、
+ * `td` 有边框，实测会把容器背景整个盖住。所以它是一层独立的覆盖元素（见模板），
+ * 这里只负责判断该不该露出来。
+ *
+ * 判据：`scrollLeft + clientWidth` 还没到 `scrollWidth`，即右边仍有未滚出的内容。
+ * 留 1px 容差 —— 浏览器在非整数缩放下 `scrollLeft` 与 `scrollWidth - clientWidth`
+ * 可能差零点几像素，不留容差会让阴影在最右端闪一下。
+ *
+ * 只有滚动模式才有意义；换行模式容器不可滚，`scrollWidth === clientWidth`，
+ * 判定恒为 false，阴影自然不出现，不需要额外判 `tableEffect`。
+ */
+const scroller = ref<HTMLElement | null>(null)
+const showRightShadow = ref(false)
+
+function updateRightShadow() {
+  const el = scroller.value
+  if (el === null) {
+    showRightShadow.value = false
+    return
+  }
+  showRightShadow.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 1
+}
+
+/**
+ * 监听对象是滚动容器本身，不是 window —— 表格滚动只改容器自己的 `scrollLeft`。
+ * `passive` 是因为只读不 preventDefault。
+ *
+ * 用 `ResizeObserver` 而不是 window 的 resize：容器的宽度还会随侧栏拖拽、
+ * 窗口布局变化而变（这些不一定触发 window resize 的时机与表格相关），
+ * 观察元素本身更直接，也能覆盖「首次挂载时还没算好宽度」这一下。
+ */
+let observer: ResizeObserver | null = null
+
+onMounted(() => {
+  const el = scroller.value
+  if (el === null) return
+  el.addEventListener("scroll", updateRightShadow, { passive: true })
+  observer = new ResizeObserver(updateRightShadow)
+  observer.observe(el)
+  updateRightShadow()
+})
+
+onBeforeUnmount(() => {
+  scroller.value?.removeEventListener("scroll", updateRightShadow)
+  observer?.disconnect()
+  observer = null
+})
+
+/**
+ * 两种情况要重算：
+ *
+ * 1. **表格内容变了**（加列 / 删列 / 切表头）—— 宽度变了，可能从「没有溢出」
+ *    变成「有溢出」，或反之。等 DOM 落地再量。
+ * 2. **表格效果被切换了** —— 这是关键的一条，漏掉会留下脏状态：从滚动切回换行时
+ *    容器的 `overflow-x` 由 auto 变 visible，此刻**不会**自动触发 scroll 事件，
+ *    于是上一轮算出的 `true` 会僵在那里，换行模式平白多出一条阴影。
+ *    实测确认过：不监听它，切回换行后阴影仍在。
+ */
+watch(
+  () => [props.block.rows.length, columnCount.value, tableEffect.value] as const,
+  () => void nextTick(updateRightShadow),
+)
 
 /** 最后聚焦过的格子。 */
 const cursor = ref({ row: 0, column: 0 })
@@ -126,23 +200,38 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
   </div>
 
   <div v-else class="group/tbl relative my-1">
-    <!-- 外框与四角内弧的几何走 `@/lib/typography` 的 TABLE_FRAME_CLASS，
-         与导出侧的 `--radius-table` 同一份数值。 -->
-    <table :class="TABLE_FRAME_CLASS">
-      <tbody>
-        <tr v-for="(row, rowIndex) in block.rows" :key="rowIndex">
-          <TableCellEditor
-            v-for="(cell, columnIndex) in row"
-            :key="columnIndex"
-            :block-id="block.id"
-            :row="rowIndex"
-            :column="columnIndex"
-            :cell="cell"
-            @focus="cursor = { row: rowIndex, column: columnIndex }"
-          />
-        </tr>
-      </tbody>
-    </table>
+    <!-- 滚动模式下真正出滚动条的是这层容器；换行模式下 `container` 是空串，
+         它退化成一层透明 div，几何与从前一致（外框/圆角仍在 <table> 上，见 typography）。 -->
+    <div ref="scroller" :class="frame.container">
+      <table :class="frame.table">
+        <tbody>
+          <tr v-for="(row, rowIndex) in block.rows" :key="rowIndex">
+            <TableCellEditor
+              v-for="(cell, columnIndex) in row"
+              :key="columnIndex"
+              :block-id="block.id"
+              :row="rowIndex"
+              :column="columnIndex"
+              :cell="cell"
+              :wrap-class="frame.cell"
+              @focus="cursor = { row: rowIndex, column: columnIndex }"
+            />
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 「右边还有内容」内阴影。压在表格之上（容器背景会被 th 底色盖住），
+         所以是一层独立的、`pointer-events-none` 的覆盖元素，贴容器右缘。
+         底边用 `bottom-2` 抬起来，避开容器为滚动条留的那段下内边距 —— 否则阴影会
+         一路盖到滚动条上。`bottom-2` 与容器 `pb-2` 同值，typography 的
+         `TABLE_SCROLL_SHADOW_INSET` 在编译期钉住两者。
+         只在滚动模式下出现：换行模式容器不可滚，showRightShadow 恒为 false。 -->
+    <div
+      v-show="showRightShadow"
+      class="table-scroll-shadow pointer-events-none absolute top-0 right-0 bottom-2 w-5"
+      aria-hidden="true"
+    />
 
     <div
       class="absolute -bottom-3.5 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-full bg-background p-0.5 opacity-0 shadow-island transition-opacity group-hover/tbl:opacity-100 focus-within:opacity-100"

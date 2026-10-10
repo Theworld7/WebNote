@@ -172,3 +172,60 @@
     line-height: 1.4;
     }
 }
+
+/*
+ * 表格横向滚动时，右端那条「右边还有内容」的内阴影。
+ *
+ * 形状：从右缘向左渐隐的竖直灰带。用**独立的覆盖层**画，而不是给滚动容器加背景 ——
+ * 背景是画在子元素**下面**的，而表格的 `th` 有不透明底色、`td` 又有边框，
+ * 实测会把容器背景整个盖住（试过 scroll-shadows 那套 local/scroll 双背景技巧，
+ * 截图里完全看不见）。所以阴影必须是一层压在表格**上面**的元素。
+ *
+ * 只做右侧：滚动方向 LTR，左端那点阴影意义不大。颜色取 `--color-line`
+ * （与表格外框同一支灰）再压淡，避免盖过边框。
+ */
+@utility table-scroll-shadow {
+  background-image: linear-gradient(to left, oklch(0 0 0 / 10%) 0, transparent 100%);
+}
+
+/*
+ * 表格横向滚动条：把它压细、压淡，只留一条圆头细杠。
+ *
+ * 原生滚动条（Windows 下 15px、带两端箭头、灰得发重）在这套界面里太抢眼 ——
+ * 表格是内容主体，滚动条只是个附属导航，不该占那么多视觉权重。
+ *
+ * 做法是 WebKit 那套 `::-webkit-scrollbar` 伪元素。Tauri 在 Windows 上走 WebView2
+ * （Chromium 内核），在 macOS 上走 WKWebView —— 两者都是 WebKit 系，同一套伪元素都认。
+ *
+ * **不要**再补 `scrollbar-width` / `scrollbar-color` 那两个标准属性：Chromium 里只要设了
+ * `scrollbar-color`，就会**连同上面那套 `::-webkit-scrollbar` 一起忽略**，细条直接被打回
+ * 原生粗条。只走 WebKit 一条路，两边都覆盖得到。
+ *
+ * 只作用于显式挂了这个类的元素（当前只有表格滚动容器），不做全局 `*` 规则：
+ * 免得哪天加了别的横向滚动区，被无声地改了样子。
+ *
+ * 6px：比原生细一半多，又不至于细到不好抓（指针精度下限大约在 6px 附近）。
+ * 轨道透明、滑块 `--color-line`（与表格边框同一支灰），滚到哪都融在背景里。
+ */
+@utility table-scrollbar {
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  /* 轨道与两端按钮都清掉：箭头的存在感比滚动条本身还大。 */
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+  &::-webkit-scrollbar-thumb {
+    background-color: var(--color-line);
+    border-radius: 9999px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-muted-strong);
+  }
+}

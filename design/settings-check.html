@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>设置面板自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; }
+  .fail { color: #b42318; }
+  /* 固定内容宽度，几何断言才有确定的分母 —— 与 BlockEditor 的 max-w-[800px] 同口径。 */
+  #app .doc { width: 800px; }
+</style>
+</head>
+<body>
+<h1>设置面板：显示 → 表格效果（持久化 / 渲染几何）自检</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { createApp, defineComponent, h, nextTick, reactive, ref } from "vue"
+// 必须引应用样式表：表格效果全靠 Tailwind 类（w-max / overflow-x-auto / whitespace-nowrap）落地，
+// 不引 style.css 这些类根本不存在，几何断言会退化成 UA 默认值 —— 全成假象。
+import "../src/style.css"
+import SettingsPanel from "../src/components/SettingsPanel.vue"
+import TableBlockView from "../src/components/TableBlockView.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { createTableBlock } from "../src/lib/blocks.ts"
+import { textToRuns } from "../src/lib/inline.ts"
+import * as table from "../src/lib/table.ts"
+import { TABLE_SCROLL_GUTTER } from "../src/lib/typography.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+
+let step = "准备"
+function note(next) {
+  step = next
+  document.getElementById("out").textContent = `running: ${step}`
+}
+note(step)
+
+const STORAGE_KEY = "webnote:table-effect"
+window.localStorage.removeItem(STORAGE_KEY)
+
+// ---------- 挂真实组件：设置面板 + 一个宽表格 ----------
+
+/**
+ * 表格刻意做宽（5 列、每格一段长文本）：换行模式下它被挤在 800px 里、
+ * 每格高度撑起来；滚动模式下不换行、表格宽超过 800px、容器出横向滚动。
+ * 两种效果的几何差异必须能被量出来，这是这个自检的全部意义。
+ */
+const WIDE_TEXT = "这是一段足够长的单元格内容用来把列撑开"
+let rows = table.createGrid(5, 2, true)
+rows = rows.map((row) => row.map((cell) => ({ ...cell, runs: textToRuns(WIDE_TEXT) })))
+const block = reactive(createTableBlock(rows))
+
+const open = ref(true)
+
+const Root = defineComponent({
+  setup() {
+    provideSettings()
+    provideWorkspace()
+    return () => h("div", { class: "doc" }, [
+      h(TableBlockView, { block }),
+      h(SettingsPanel, { open: open.value, "onUpdate:open": (v) => (open.value = v) }),
+    ])
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+
+function tableEl() {
+  return document.querySelector("#app table")
+}
+function cellAt(index) {
+  return document.querySelectorAll("#app th, #app td")[index] ?? null
+}
+
+check("表格渲染出来了", tableEl() !== null)
+
+// ---------- 一、默认值 ----------
+
+note("默认值")
+check(
+  "默认是「内容自适应换行不滚动」（未存过任何值时）",
+  window.localStorage.getItem(STORAGE_KEY) === null,
+)
+check(
+  "默认下单元格文字换行（whitespace 不是 nowrap）",
+  cellAt(0) !== null && getComputedStyle(cellAt(0)).whiteSpace !== "nowrap",
+  cellAt(0) === null ? "（没渲染）" : getComputedStyle(cellAt(0)).whiteSpace,
+)
+check(
+  "默认下 <table> 宽度不超容器（100% 语义）",
+  tableEl() !== null && tableEl().getBoundingClientRect().width <= 800.5,
+  tableEl() === null ? "（没渲染）" : String(tableEl().getBoundingClientRect().width),
+)
+
+// ---------- 二、面板本身 ----------
+//
+// 面板是 Dialog，reka 把内容 **portal 到 document.body**，所以选择器不能 scoped 到 `#app`。
+// 页尾那个「坏值防御」用例又挂了第二份面板，所以这里取**第一份**（`querySelector` 天然取首个）。
+
+note("面板")
+function panelRoot() {
+  return document.querySelector('[data-slot="sheet-content"]')
+}
+function optionByLabel(text) {
+  const root = panelRoot()
+  if (root === null) return undefined
+  return [...root.querySelectorAll('[role="radio"]')].find((el) => el.textContent.includes(text))
+}
+
+const wrapOption = optionByLabel("内容自适应换行不滚动")
+const scrollOption = optionByLabel("表格滚动")
+check("面板里有两个选项", wrapOption !== undefined && scrollOption !== undefined)
+check(
+  "选项文案与需求逐字一致",
+  wrapOption !== undefined &&
+    scrollOption !== undefined &&
+    wrapOption.textContent.includes("内容自适应换行不滚动") &&
+    scrollOption.textContent.includes("表格滚动"),
+)
+check(
+  "初始勾选在「换行不滚动」上",
+  wrapOption !== undefined &&
+    wrapOption.getAttribute("aria-checked") === "true" &&
+    scrollOption !== undefined &&
+    scrollOption.getAttribute("aria-checked") === "false",
+)
+const nav = panelRoot() === null ? null : panelRoot().querySelector("nav")
+check("分区栏出现「显示」", nav !== null && nav.textContent.includes("显示"))
+
+// ---------- 三、切到「表格滚动」 ----------
+
+note("切到滚动")
+
+/**
+ * 点选项。面板是 Dialog，内部按钮在 headless 里直接 click 即可 ——
+ * 这里量的是数据与渲染，不是指针命中，不需要派 pointer 事件。
+ */
+if (scrollOption !== undefined) {
+  scrollOption.click()
+  await nextTick()
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  await nextTick()
+}
+
+check("切换后落盘（键 webnote:table-effect）", window.localStorage.getItem(STORAGE_KEY) === "scroll",
+  String(window.localStorage.getItem(STORAGE_KEY)))
+check(
+  "切换后勾选在「表格滚动」上",
+  scrollOption !== undefined && scrollOption.getAttribute("aria-checked") === "true" &&
+    wrapOption !== undefined && wrapOption.getAttribute("aria-checked") === "false",
+)
+
+const scrolled = tableEl()
+check("滚动模式下单元格不换行", cellAt(0) !== null && getComputedStyle(cellAt(0)).whiteSpace === "nowrap",
+  cellAt(0) === null ? "（没渲染）" : getComputedStyle(cellAt(0)).whiteSpace)
+check(
+  "滚动模式下表格宽度超过 800px 容器（内容撑开）",
+  scrolled !== null && scrolled.getBoundingClientRect().width > 800.5,
+  scrolled === null ? "（没渲染）" : String(scrolled.getBoundingClientRect().width),
+)
+
+/** 出滚动条的是套在 <table> 外面那层容器。 */
+const scroller = scrolled === null ? null : scrolled.parentElement
+check(
+  "外层容器真的可横向滚动（scrollWidth > clientWidth）",
+  scroller !== null && scroller.scrollWidth > scroller.clientWidth + 1,
+  scroller === null ? "（没容器）" : `${scroller.scrollWidth} vs ${scroller.clientWidth}`,
+)
+check(
+  "外层容器 overflow-x 是 auto",
+  scroller !== null && ["auto", "scroll"].includes(getComputedStyle(scroller).overflowX),
+  scroller === null ? "（没容器）" : getComputedStyle(scroller).overflowX,
+)
+
+// ---------- 三点二、细滚动条（降低存在感） ----------
+//
+// 系统那条横向滚动条在 Windows 上是 15px 高、带两端箭头，一进视野就把注意力吸走。
+// 换成 6px 圆角细条后，量「滚动条占掉的高度 = offsetHeight - clientHeight」应当掉到 6。
+// 这套样式只走 `::-webkit-scrollbar`：一旦写标准属性 `scrollbar-color`，Chromium 会
+// 直接忽略整套 WebKit 伪元素、退回原生粗条 —— 所以顺带断言没被退回。
+//
+// 注意：headless shell 里 overlay 滚动条不占布局高度。若量出来是 0（内核判定为 overlay，
+// 或 `::-webkit-scrollbar` 已被 gtk/overlay 接管），不能判失败 —— 那时唯一能验的是
+// 类名挂上了、规则在样式表里。真机（WebView2）上这条断言才谈得上「高度」。
+
+note("细滚动条")
+check(
+  "滚动容器挂了 table-scrollbar 类",
+  scroller !== null && scroller.classList.contains("table-scrollbar"),
+  scroller === null ? "（没容器）" : scroller.className,
+)
+
+/** 只判「声明里有没有 6px」，不判它是否真的占布局 —— overlay 内核下后者恒为 0。 */
+const hasThinScrollbarRule = () => {
+  for (const sheet of Array.from(document.styleSheets)) {
+    let rules
+    try {
+      rules = sheet.cssRules
+    } catch {
+      continue // 跨源样式表（这里没有，防御性）
+    }
+    for (const rule of Array.from(rules)) {
+      const text = rule.cssText ?? ""
+      if (text.includes("::-webkit-scrollbar") && text.includes("6px")) return true
+    }
+  }
+  return false
+}
+check("样式表里有 6px 的 ::-webkit-scrollbar 规则", hasThinScrollbarRule())
+
+if (scroller !== null) {
+  const gutter = scroller.offsetHeight - scroller.clientHeight
+  if (gutter > 0) {
+    check("滚动条占高 ≈ 6px（不是系统的 15px）", gutter <= 8, `offsetHeight-clientHeight=${gutter}`)
+  } else {
+    lines.push("INFO 滚动条不占布局高度（overlay 内核）—— 高度断言跳过，真机上再验")
+  }
+  // 标准属性一旦被写上，Chromium 会忽略整套 WebKit 伪元素。
+  check(
+    "没设置标准 scrollbar-color / scrollbar-width（否则会退回原生粗条）",
+    getComputedStyle(scroller).scrollbarColor === "auto",
+    `scrollbar-color=${getComputedStyle(scroller).scrollbarColor}`,
+  )
+}
+
+// ---------- 三点三、滚动条与表格的间距 ----------
+//
+// 早先滚动条直接压在表格外框底边上，还切进了那 8px 圆角。修法是给容器加下内边距
+// （`pb-2`，与表格圆角同档），把滚动条推进空隙里。这里量三件事：
+// 下内边距真的加上了、表格底边确实退到了滚动条以上、内阴影跟着缩到表格底边为止。
+
+note("滚动条间距")
+if (scroller !== null) {
+  check(
+    `容器下内边距 = ${TABLE_SCROLL_GUTTER}px（把滚动条从表格底边推开）`,
+    Math.abs(Number.parseFloat(getComputedStyle(scroller).paddingBottom) - TABLE_SCROLL_GUTTER) < 1,
+    getComputedStyle(scroller).paddingBottom,
+  )
+
+  const gutterPx = scroller.offsetHeight - scroller.clientHeight
+  if (gutterPx > 0) {
+    const scBox = scroller.getBoundingClientRect()
+    const tableBox = scrolled === null ? null : scrolled.getBoundingClientRect()
+    const barTop = scBox.bottom - gutterPx
+    // 表格底边必须在滚动条顶边以上 —— 相等就是紧贴，留出空隙才算推开。
+    const gap = tableBox === null ? -1 : barTop - tableBox.bottom
+    check("表格底边与滚动条之间有间距（不再叠在一起）", gap >= 0.5, `间距=${gap.toFixed(1)}px`)
+  } else {
+    lines.push("INFO 滚动条不占布局高度（overlay 内核）—— 间距断言跳过，真机上再验")
+  }
+}
+
+// ---------- 三点五、右端内阴影（「右边还有内容」的提示） ----------
+//
+// 阴影是压在表格**上面**的一层覆盖元素（容器背景会被 th 底色盖住，试过，看不见）。
+// 这里验它的显隐是否跟着滚动位置走：不在最右 → 露；在最右 → 收。
+
+note("滚动阴影")
+const shadow = scroller === null ? null : scroller.parentElement?.querySelector(".table-scroll-shadow")
+check("阴影覆盖元素存在", shadow instanceof HTMLElement)
+check(
+  "阴影有渐变背景",
+  shadow instanceof HTMLElement && getComputedStyle(shadow).backgroundImage.includes("linear-gradient"),
+  shadow instanceof HTMLElement ? getComputedStyle(shadow).backgroundImage.slice(0, 60) : "（没元素）",
+)
+check(
+  "阴影不吃指针事件（不能挡住格子编辑）",
+  shadow instanceof HTMLElement && getComputedStyle(shadow).pointerEvents === "none",
+  shadow instanceof HTMLElement ? getComputedStyle(shadow).pointerEvents : "（没元素）",
+)
+
+const shadowVisible = () => shadow instanceof HTMLElement && getComputedStyle(shadow).display !== "none"
+
+/** 程序化滚动不会自动触发 scroll 处理器，得手动派一次事件。 */
+async function scrollTo(value) {
+  if (scroller === null) return
+  scroller.scrollLeft = value
+  scroller.dispatchEvent(new Event("scroll"))
+  await nextTick()
+  await new Promise((resolve) => setTimeout(resolve, 30))
+}
+
+if (scroller !== null) {
+  await scrollTo(0)
+  check("滚到最左 → 阴影显示", shadowVisible() === true)
+  await scrollTo(scroller.scrollWidth)
+  check("滚到最右 → 阴影隐藏", shadowVisible() === false)
+  await scrollTo(Math.round((scroller.scrollWidth - scroller.clientWidth) / 2))
+  check("滚回中间 → 阴影重新显示", shadowVisible() === true)
+  await scrollTo(0)
+
+  if (shadow instanceof HTMLElement) {
+    const sr = scroller.getBoundingClientRect()
+    const hr = shadow.getBoundingClientRect()
+    check("阴影右缘贴滚动容器右缘", Math.abs(sr.right - hr.right) < 1.5, `${sr.right} vs ${hr.right}`)
+    // 阴影不再铺满整条容器：底边抬起 TABLE_SCROLL_GUTTER，避开滚动条那条空隙。
+    check(
+      "阴影底边抬起，不盖住滚动条",
+      Math.abs(sr.bottom - hr.bottom - TABLE_SCROLL_GUTTER) < 1.5,
+      `容器底-阴影底=${(sr.bottom - hr.bottom).toFixed(1)}px，期望 ${TABLE_SCROLL_GUTTER}px`,
+    )
+    check(
+      "阴影顶边贴容器顶（上方仍盖满）",
+      Math.abs(hr.top - sr.top) < 1.5,
+      `${hr.top} vs ${sr.top}`,
+    )
+  }
+}
+
+// ---------- 四、切回「换行不滚动」 ----------
+
+note("切回换行")
+if (wrapOption !== undefined) {
+  wrapOption.click()
+  await nextTick()
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  await nextTick()
+}
+check("切回后落盘 wrap", window.localStorage.getItem(STORAGE_KEY) === "wrap",
+  String(window.localStorage.getItem(STORAGE_KEY)))
+check(
+  "切回后表格宽度回到不超容器",
+  tableEl() !== null && tableEl().getBoundingClientRect().width <= 800.5,
+  tableEl() === null ? "（没渲染）" : String(tableEl().getBoundingClientRect().width),
+)
+check("切回后单元格恢复换行", cellAt(0) !== null && getComputedStyle(cellAt(0)).whiteSpace === "pre-wrap",
+  cellAt(0) === null ? "（没渲染）" : getComputedStyle(cellAt(0)).whiteSpace)
+check(
+  "换行模式不出阴影（容器不可滚）",
+  shadow instanceof HTMLElement && getComputedStyle(shadow).display === "none",
+  shadow instanceof HTMLElement ? getComputedStyle(shadow).display : "（没元素）",
+)
+if (shadow instanceof HTMLElement && getComputedStyle(shadow).display !== "none") {
+  const sc = shadow.parentElement?.firstElementChild
+  lines.push(
+    `INFO 阴影未隐藏: display=${getComputedStyle(shadow).display}；` +
+      `容器 overflowX=${sc ? getComputedStyle(sc).overflowX : "?"} ` +
+      `scrollWidth=${sc ? sc.scrollWidth : "?"} clientWidth=${sc ? sc.clientWidth : "?"} ` +
+      `scrollLeft=${sc ? sc.scrollLeft : "?"}；` +
+      `同一容器内阴影数量=${shadow.parentElement?.querySelectorAll(".table-scroll-shadow").length}`,
+  )
+}
+
+// ---------- 五、坏值防御 ----------
+
+note("坏值防御")
+window.localStorage.setItem(STORAGE_KEY, "bogus")
+const badOpen = ref(true)
+const BadRoot = defineComponent({
+  setup() {
+    provideSettings()
+    provideWorkspace()
+    return () => h("div", { class: "doc" }, [
+      h(TableBlockView, { block }),
+      h(SettingsPanel, { open: badOpen.value, "onUpdate:open": (v) => (badOpen.value = v) }),
+    ])
+  },
+})
+const badMount = document.createElement("div")
+badMount.className = "doc"
+// 必须显式给宽：样式表里的 `.doc { width: 800px }` 是 `#app .doc` 作用域的，这里挂在
+// document.body 上取不到。不给的话宽度由视口决定 —— 探针窗口一放宽（WINDOW=1000），
+// 「≤800px」这条断言就量到 952，变成假失败。
+badMount.style.width = "800px"
+document.body.appendChild(badMount)
+createApp(BadRoot).mount(badMount)
+await nextTick()
+const badTable = badMount.querySelector("table")
+check(
+  "存了非法值时退回默认（不抛错、按 wrap 渲染）",
+  badTable !== null && badTable.getBoundingClientRect().width <= 800.5,
+  badTable === null ? "（没渲染）" : String(badTable.getBoundingClientRect().width),
+)
+
+// ---------- 输出 ----------
+
+lines.unshift(`—— ${passed} passed, ${failed} failed ——`)
+document.getElementById("out").textContent = lines.join("\n")
+document.getElementById("out").className = failed === 0 ? "ok" : "fail"
+</script>
+</body>
+</html>

@@ -19,6 +19,12 @@ const props = defineProps<{
   row: number
   column: number
   cell: TableCell
+  /**
+   * 随「表格效果」变化的折行策略（来自 `tableEffectClasses()`）。
+   * 由 `TableBlockView` 传进来，而不是在这里读设置：效果是**整张表**的属性，
+   * 一个表格块里几十个格子各读一次全局状态没有必要，也让这里少一个耦合同级设置的理由。
+   */
+  wrapClass: string
 }>()
 
 const emit = defineEmits<{ (event: "focus"): void }>()
@@ -31,9 +37,11 @@ const editableKey = computed(() => `${props.blockId}/${props.row}/${props.column
 /**
  * 单元格只画右侧与下侧的内线 —— 外框与四个圆角归 `<table>`（见 `TableBlockView`）。
  * 四边都画的话，末行末列会与表格外框贴成 2px。
+ *
+ * 折行 / 不换行（`whitespace-*`、`break-words`、`min-w-16`）不在这里，
+ * 而是由 `wrapClass` 按当前「表格效果」传入 —— 它们是整张表的属性。
  */
-const CELL =
-  "min-w-16 border-r border-b border-line px-2.5 py-1.5 align-top text-sm leading-[1.6] outline-none whitespace-pre-wrap break-words"
+const CELL = "border-r border-b border-line px-2.5 py-1.5 align-top text-sm leading-[1.6] outline-none"
 
 /**
  * 对齐 → 工具类。字面量写全，Tailwind 的 JIT 才扫得到（拼字符串会漏编译）。
@@ -48,7 +56,12 @@ const ALIGN_CLASS: Record<TableAlign, string> = {
 }
 
 const cellClass = computed(() =>
-  cn(CELL, ALIGN_CLASS[props.cell.align ?? "left"], props.cell.header && "bg-muted font-medium"),
+  cn(
+    CELL,
+    props.wrapClass,
+    ALIGN_CLASS[props.cell.align ?? "left"],
+    props.cell.header && "bg-muted font-medium",
+  ),
 )
 
 onMounted(() => {

@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref } from "vue"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { provideWorkspace } from "@/composables/useWorkspace"
+import { provideSettings } from "@/composables/useSettings"
 import { useResizableWidth } from "@/composables/useResizableWidth"
 import AppSidebar from "@/components/AppSidebar.vue"
 import EditorSurface from "@/components/EditorSurface.vue"
@@ -9,6 +10,8 @@ import EditorTabBar from "@/components/EditorTabBar.vue"
 import PaneResizer from "@/components/PaneResizer.vue"
 
 const { hasDirty, bootstrap } = provideWorkspace()
+// 设置与工作区正交：它只装用户偏好，不参与任何笔记读写，所以在根组件独立 provide 一次。
+provideSettings()
 
 const { width: sidebarWidth, dragging, startDrag } = useResizableWidth()
 const sidebarCollapsed = ref(false)

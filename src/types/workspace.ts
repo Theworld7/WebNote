@@ -160,3 +160,15 @@ export interface CreateTarget {
   parentPath: string
   kind: "note" | "folder"
 }
+
+/**
+ * 表格效果 —— 宽表格装不下时怎么办。详见 `CONTEXT.md` 的「Preference / Table effect」。
+ *
+ * - `wrap`：格子内文字换行，列被挤窄，表格永远与正文同宽（默认，也是导出文件永远采用的那份）。
+ * - `scroll`：格子内文字不换行，表格按内容撑开、超出部分横向滚动。
+ *
+ * 它**不是**块数据、也不是表格属性 —— 是全局偏好，一次作用于所有表格，
+ * 不进 `TableBlock`、不进序列化。放在这里而不是 `useSettings.ts`：
+ * `lib/typography.ts` 要按它挑类名，而那份视觉常量模块不该反过来依赖一个 composable。
+ */
+export type TableEffect = "wrap" | "scroll"
