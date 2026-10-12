@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { DataTableBlock } from "@/types/workspace"
-import type { DataCellValue, DataColumn, DataColumnType, DataRow, DataTable } from "@/types/data-table"
+import type { DataColumn, DataColumnType, DataRow, DataTable } from "@/types/data-table"
 import type { TableEffectClasses } from "@/lib/typography"
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue"
 import { DatabaseIcon, ExternalLinkIcon, PlusIcon } from "@lucide/vue"
@@ -106,26 +106,7 @@ function openTable() {
   openFile(props.block.path)
 }
 
-/** 输入框文本 → 列类型对应的值。
- *
- * `text` 与 `select` 原样收下（`select` 这里暂时存字面量，选项系统是下一轮的事）；
- * 数字解析不出就给 `null` —— **不保留原字符串**，否则一列数字里混进一个 `"abc"`，
- * 排序与求和会静默出错，而错误本身看不见。用户输了非法值就应当看到它被拒绝。
- * 日期只认 `YYYY-MM-DD`，与模型里的存储口径一致。
- */
-function parseCellInput(raw: string, type: DataColumnType): DataCellValue {
-  if (type === "number") {
-    if (raw.trim() === "") return null
-    const parsed = Number(raw)
-    return Number.isFinite(parsed) ? parsed : null
-  }
-  if (type === "date") {
-    const trimmed = raw.trim()
-    return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null
-  }
-  if (type === "checkbox") return raw !== ""
-  return raw === "" ? null : raw
-}
+/** 输入框文本 → 值的解析口径收在 `lib/data-table.ts`，画册卡片与这里共用。 */
 
 /**
  * 勾选格的切换。
@@ -150,7 +131,7 @@ function commitOnEnter(event: Event): void {
 function commitOnBlur(row: DataRow, column: DataColumn, event: Event): void {
   const target = event.target
   if (!(target instanceof HTMLInputElement)) return
-  const parsed = parseCellInput(target.value, column.type)
+  const parsed = dt.parseCellInput(target.value, column.type)
   if (parsed === dt.cellValue(row, column)) return
   void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, parsed)))
 }
@@ -169,6 +150,7 @@ const COLUMN_TYPE_ITEMS = [
   { type: "date", label: "日期" },
   { type: "select", label: "单选" },
   { type: "checkbox", label: "勾选" },
+  { type: "image", label: "图片" },
 ] satisfies readonly { type: DataColumnType; label: string }[]
 
 function setColumnType(columnId: string, type: DataColumnType) {
@@ -186,10 +168,21 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
 </script>
 
 <template>
+  <!-- 空指针(转换流程修好前的遗留块 / 手工编辑):如实说没指定,而不是永远转圈。 -->
+  <div
+    v-if="pathLabel === ''"
+    class="my-4 flex items-center gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
+  >
+    <DatabaseIcon class="size-3.5 shrink-0 text-muted-foreground" />
+    <span class="text-[12px] text-muted-foreground">
+      引用块未指定数据表 —— 删掉这个块,用 / 菜单重新插入。
+    </span>
+  </div>
+
   <!-- 引用的文件读不到：提示态，不是错误态。给「重新指定」的入口（下一轮做，
        现在先给「打开」——文件若还在树下，点开它自己就能确认）。 -->
   <div
-    v-if="state === 'missing' || state === 'failed'"
+    v-else-if="state === 'missing' || state === 'failed'"
     class="my-4 flex items-center gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
   >
     <DatabaseIcon class="size-3.5 shrink-0 text-muted-foreground" />
@@ -268,6 +261,16 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
                 :checked="dt.cellValue(row, column) === true"
                 @change="(event: Event) => toggleCheck(row, column, event)"
               >
+              <!-- 图片格在这里只读：换图去数据表编辑页。这里挂选图控件就得跟块编辑器的
+                   文件拖拽抢事件，不值得 —— 引用块是「一扇窗」，不是第二个编辑入口。 -->
+              <div v-else-if="column.type === 'image'">
+                <img
+                  v-if="dt.cellValue(row, column) !== null"
+                  :src="String(dt.cellValue(row, column))"
+                  alt=""
+                  class="max-h-24 rounded"
+                >
+              </div>
               <!-- 其余类型都是文本外观。编辑用 contenteditable 太复杂（要处理富文本、
                    选区、非受控 DOM），这里用最朴素的输入：提交（blur / Enter）时写盘。
                    数据表的单元格本来就是数据，不是正文。 -->

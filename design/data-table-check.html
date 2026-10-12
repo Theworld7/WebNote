@@ -57,7 +57,7 @@ check(
   BLOCK_TYPES.findIndex((m) => m.type === "datatable") ===
     BLOCK_TYPES.findIndex((m) => m.type === "table") + 1,
 )
-check("BLOCK_TYPES 共 18 种", BLOCK_TYPES.length === 18, `实际 ${BLOCK_TYPES.length}`)
+check("BLOCK_TYPES 共 19 种", BLOCK_TYPES.length === 19, `实际 ${BLOCK_TYPES.length}`)
 
 const refBlock = createDataTableBlock("客户.tbl")
 check("引用块是 datatable 且带路径", refBlock.type === "datatable" && refBlock.path === "客户.tbl")
@@ -218,7 +218,51 @@ check("缺 version → 抛错", (() => {
 })())
 check("拿到表后 version 被归一到当前版本", dt.tableFromJson('{"version":1,"columns":[],"rows":[]}').version === 1)
 
-// ---------- 四、引用块 → 快照表格（导出的那个门） ----------
+// ---------- 四、图片列（data URI 内联） ----------
+
+note("图片列")
+
+const URI = "data:image/webp;base64,AAAA"
+
+let img = dt.createEmptyTable(["海报"])
+img = dt.setColumnType(img, img.columns[0].id, "image")
+check("text → image：原文本清空（内容当 src 是烂图）", dt.cellValue(img.rows[0], img.columns[0]) === null)
+img = dt.replaceRow(img, dt.setCell(img.rows[0], img.columns[0].id, URI))
+check("图片格存的就是 data URI", dt.cellValue(img.rows[0], img.columns[0]) === URI)
+check("valueText 对图片列返回空（data URI 不进文本投影）", dt.valueText(URI, img.columns[0]) === "")
+
+const imgJson = dt.tableToJson(img)
+const imgBack = dt.tableFromJson(imgJson)
+check("图片列经往返保住类型", imgBack.columns[0].type === "image")
+check("图片格经往返保住 data URI", dt.cellValue(imgBack.rows[0], imgBack.columns[0]) === URI)
+check("图片表再写出逐字节一致", dt.tableToJson(imgBack) === imgJson)
+
+// 宽容解析：与 date 同一个严格度，长得不对的一律空。
+const imgParse = (raw) =>
+  dt.tableFromJson(`{"version":1,"columns":[{"id":"c1","name":"海报","type":"image"}],"rows":[{"id":"r1","values":{"c1":${raw}}}]}`).rows[0].values.c1
+check("image 列收到非法字符串 → null", imgParse('"abc"') === null)
+check("image 列收到数字 → null", imgParse("42") === null)
+check("image 列收到 data:image → 保住", imgParse(`"${URI}"`) === URI)
+check("image 列收到 data:text → null（只认 data:image/）", imgParse('"data:text/plain;base64,AAAA"') === null)
+
+// 换类型双向清空，image 不设任何无损通道。
+img = dt.replaceRow(img, dt.setCell(img.rows[0], img.columns[0].id, URI))
+const imgToText = dt.setColumnType(img, img.columns[0].id, "text")
+check("image → text：值清空（data URI 当文本是灾难）", dt.cellValue(imgToText.rows[0], imgToText.columns[0]) === null)
+const backToImage = dt.setColumnType(imgToText, imgToText.columns[0].id, "image")
+check("text → image：同样清空", dt.cellValue(backToImage.rows[0], backToImage.columns[0]) === null)
+
+// 快照导出：图片格是真正的 <img>，快照依旧自包含。
+const imgSnapshot = blocksToHtml([createDataTableBlock("海报.tbl")], (path) => (path === "海报.tbl" ? img : null))
+check("快照里图片格是 <img src=data:…>", imgSnapshot.includes('<td><img src="data:image/'), imgSnapshot)
+check("快照里没有裸的 base64 文本格子", !imgSnapshot.includes("<td>data:"), imgSnapshot)
+check(
+  "带图快照读回来仍是稳定的表格块（Snapshot exception 范围）",
+  parseHtml(`<body>${imgSnapshot}</body>`).some((b) => b.type === "table"),
+  imgSnapshot,
+)
+
+// ---------- 五、引用块 → 快照表格（导出的那个门） ----------
 
 note("引用块快照")
 
@@ -264,7 +308,7 @@ check(
   serializeHtml(noteBlocks, { title: "测试" }, () => pick).includes("<td>进行中</td>"),
 )
 
-// ---------- 五、注册表：同一路径 → 同一个响应式对象 ----------
+// ---------- 六、注册表：同一路径 → 同一个响应式对象 ----------
 
 note("注册表")
 
@@ -320,7 +364,7 @@ if (tables !== undefined) {
   check("默认列表选项与 lib/data-table 同源", tables.stemOf("客户.tbl") === "客户" && tables.extension === ".tbl")
 }
 
-// ---------- 六、真实读盘：loaded / missing 两条路 ----------
+// ---------- 七、真实读盘：loaded / missing 两条路 ----------
 
 note("读盘")
 
@@ -385,7 +429,7 @@ if (tables !== undefined) {
   check("mutate 返回同一对象时不写盘（短路）", same === true)
 }
 
-// ---------- 七、引用块的渲染（真组件） ----------
+// ---------- 八、引用块的渲染（真组件） ----------
 
 note("引用块渲染")
 
@@ -505,7 +549,7 @@ check("悬空引用给出提示文案而不是空白", danglingText !== "" && !d
 check("提示里带上了路径（用户知道去找哪一个）", danglingText.includes("不存在.tbl"), danglingText.slice(0, 160))
 check("悬空时不渲染表格", danglingHost.querySelector("table") === null)
 
-// ---------- 八、数据表编辑器（.tbl 自己的标签页） ----------
+// ---------- 九、数据表编辑器（.tbl 自己的标签页） ----------
 
 note("数据表编辑器")
 

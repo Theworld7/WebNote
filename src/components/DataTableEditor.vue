@@ -3,7 +3,8 @@ import type { DataColumn } from "@/types/data-table"
 import type { DataRow } from "@/types/data-table"
 import type { DataCellValue, DataColumnType, DataTable } from "@/types/data-table"
 import { computed, onMounted, ref, shallowRef } from "vue"
-import { PlusIcon, Trash2Icon } from "@lucide/vue"
+import { ImagePlusIcon, PlusIcon, Trash2Icon, XIcon } from "@lucide/vue"
+import { isFileDrag, isImageFile, pickImageFile, readImageFile } from "@/lib/image"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -119,6 +120,60 @@ function toggleCheck(row: DataRow, column: DataColumn, event: Event): void {
   void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, target.checked)))
 }
 
+// ---- 图片列 ----
+
+/** 图片不是文本输入，不走 `parseCellInput`：文件读成 data URI 后直接落格。 */
+
+/** 正被文件拖拽悬停的图片格，`rowId:columnId`，给落点高亮用。 */
+const dropKey = ref("")
+
+function cellKey(row: DataRow, column: DataColumn): string {
+  return row.id + ":" + column.id
+}
+
+function onCellDragOver(event: DragEvent, row: DataRow, column: DataColumn): void {
+  if (column.type !== "image") return
+  if (!isFileDrag(event.dataTransfer)) return
+  event.preventDefault()
+  dropKey.value = cellKey(row, column)
+}
+
+function onCellDragLeave(column: DataColumn): void {
+  if (column.type !== "image") return
+  dropKey.value = ""
+}
+
+async function onCellDrop(event: DragEvent, row: DataRow, column: DataColumn): Promise<void> {
+  if (column.type !== "image") return
+  if (!isFileDrag(event.dataTransfer)) return
+  event.preventDefault()
+  dropKey.value = ""
+  // 拖进来的不是图片就安静吃掉，别让浏览器去打开那个文件。
+  const file = pickImageFile(event.dataTransfer)
+  if (file === null) return
+  await setImage(row, column, file)
+}
+
+async function onPick(event: Event, row: DataRow, column: DataColumn): Promise<void> {
+  const target = event.target
+  if (!(target instanceof HTMLInputElement) || target.files === null) return
+  const file = target.files[0]
+  // 先清空再读：清掉后重选同一个文件也能触发 change。
+  target.value = ""
+  if (file === undefined) return
+  await setImage(row, column, file)
+}
+
+async function setImage(row: DataRow, column: DataColumn, file: File): Promise<void> {
+  if (!isImageFile(file)) return
+  const uri = await readImageFile(file)
+  await change((current) => dt.replaceRow(current, dt.setCell(row, column.id, uri)))
+}
+
+function clearImage(row: DataRow, column: DataColumn): void {
+  void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, null)))
+}
+
 // ---- 行列 ----
 
 function addRow(): void {
@@ -157,6 +212,7 @@ const COLUMN_TYPE_ITEMS = [
   { type: "date", label: "日期" },
   { type: "select", label: "单选" },
   { type: "checkbox", label: "勾选" },
+  { type: "image", label: "图片" },
 ] satisfies readonly { type: DataColumnType; label: string }[]
 
 /** 菜单外框与菜单项，与块手柄的两套菜单同一套参数。 */
@@ -177,7 +233,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
     </div>
   </div>
 
-  <div v-else-if="table !== null" class="flex min-h-0 flex-1 flex-col gap-2">
+  <div v-else-if="table !== null" class="flex min-h-0 flex-1 flex-col gap-2 p-3">
     <!-- 工具条：加行加列在左，统计在右。 -->
     <div class="flex shrink-0 items-center gap-1 px-1">
       <Button
@@ -280,9 +336,34 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
               v-for="column in columns"
               :key="column.id"
               class="border-r border-b border-line px-1.5 py-1 align-middle last:border-r-0"
+              :class="dropKey === cellKey(row, column) && 'ring-2 ring-inset ring-selection-strong'"
+              @dragover="onCellDragOver($event, row, column)"
+              @dragleave="onCellDragLeave(column)"
+              @drop="onCellDrop($event, row, column)"
             >
+              <!-- 图片格：选图 / 缩略图 / 清除，不是文本输入。 -->
+              <div v-if="column.type === 'image'" class="flex items-center justify-center">
+                <label
+                  v-if="dt.cellValue(row, column) === null"
+                  class="flex cursor-pointer items-center gap-1 rounded-[5px] px-1.5 py-0.5 text-[11.5px] text-muted-foreground/50 hover:bg-muted hover:text-muted-foreground"
+                >
+                  <ImagePlusIcon class="size-3" />图片
+                  <input type="file" accept="image/*" class="hidden" @change="onPick($event, row, column)">
+                </label>
+                <div v-else class="group/img relative">
+                  <img :src="String(dt.cellValue(row, column))" alt="" class="h-8 w-full rounded object-cover">
+                  <button
+                    type="button"
+                    class="absolute right-0.5 top-0.5 hidden rounded bg-background/80 p-0.5 text-muted-foreground hover:text-destructive group-hover/img:block"
+                    aria-label="清除图片"
+                    @click.stop="clearImage(row, column)"
+                  >
+                    <XIcon class="size-3" />
+                  </button>
+                </div>
+              </div>
               <input
-                v-if="column.type === 'checkbox'"
+                v-else-if="column.type === 'checkbox'"
                 type="checkbox"
                 class="size-3.5 align-middle accent-foreground"
                 :checked="dt.cellValue(row, column) === true"

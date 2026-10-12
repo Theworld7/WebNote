@@ -26,7 +26,7 @@ import {
  * 显式构造，而不是把内部对象直接丢给 `stringify`。
  */
 
-const COLUMN_TYPES: readonly DataColumnType[] = ["text", "number", "date", "select", "checkbox"]
+const COLUMN_TYPES: readonly DataColumnType[] = ["text", "number", "date", "select", "checkbox", "image"]
 
 export function isDataColumnType(value: string): value is DataColumnType {
   return COLUMN_TYPES.some((type) => type === value)
@@ -45,6 +45,8 @@ export function columnTypeLabel(type: DataColumnType): string {
       return "单选"
     case "checkbox":
       return "勾选"
+    case "image":
+      return "图片"
   }
 }
 
@@ -129,6 +131,8 @@ export function cellValue(row: DataRow, column: DataColumn): DataCellValue {
  */
 export function valueText(value: DataCellValue, column: DataColumn): string {
   if (value === null) return ""
+  // 图片没有文本投影：data URI 进文本是把几千个字符漏给搜索框和快照，排序更是无意义。
+  if (column.type === "image") return ""
   if (typeof value === "boolean") return value ? "✓" : ""
   if (typeof value === "number") return String(value)
   if (column.type === "select") {
@@ -136,6 +140,31 @@ export function valueText(value: DataCellValue, column: DataColumn): string {
     return option === undefined ? "" : option.name
   }
   return value
+}
+
+/**
+ * 输入框文本 → 列类型对应的值。
+ *
+ * `text` 与 `select` 原样收下（`select` 这里暂时存字面量，选项系统是下一轮的事）；
+ * 数字解析不出就给 `null` —— **不保留原字符串**，否则一列数字里混进一个 `"abc"`，
+ * 排序与求和会静默出错，而错误本身看不见。用户输了非法值就应当看到它被拒绝。
+ * 日期只认 `YYYY-MM-DD`，与模型里的存储口径一致。
+ *
+ * 表格视图与画册卡片共用这一条口径：同一格在两个入口编辑，解析规则必须一致，
+ * 否则「在编辑页合法、在卡片上被拒」这种分叉迟早被用户撞上。
+ */
+export function parseCellInput(raw: string, type: DataColumnType): DataCellValue {
+  if (type === "number") {
+    if (raw.trim() === "") return null
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  if (type === "date") {
+    const trimmed = raw.trim()
+    return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null
+  }
+  if (type === "checkbox") return raw !== ""
+  return raw === "" ? null : raw
 }
 
 /**
@@ -220,6 +249,9 @@ export function renameColumn(table: DataTable, columnId: string, name: string): 
  * 只有两条**无损**通道值得保留：`text` ↔ `number`（能解析出数字就留），
  * 以及 `checkbox` → `number`（`true`/`false` 是 1/0）。其余一律清空 —— 与其猜
  * 「这串文本是不是一个日期」，不如空着让用户重填。
+ *
+ * `image` 不设任何无损通道，于是天然落在「清空」里：text 的内容当 `src` 渲染出来
+ * 是一张烂图，data URI 当文本留下是几千个字符的垃圾 —— 双向都是解释不清的值。
  */
 function coerceValue(value: DataCellValue, from: DataColumnType, to: DataColumnType): DataCellValue {
   if (from === to) return value
@@ -399,5 +431,8 @@ function normalizeValue(value: unknown, type: DataColumnType): DataCellValue {
       return typeof value === "string" ? value : null
     case "checkbox":
       return value === true
+    case "image":
+      // 与 date 同一个严格度：长得不对的一律空。任意字符串渲染出来是一张烂图。
+      return typeof value === "string" && /^data:image\//.test(value) ? value : null
   }
 }

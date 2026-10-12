@@ -16,13 +16,13 @@
  */
 
 /**
- * 列类型。决定这一列的单元格怎么解释、怎么排序、怎么编辑。
+ * 列类型。决定这一列的单元格怎么解释、怎么编辑。
  *
  * 这五种是**第一期**的全部：够用、能测、序列化不复杂。刻意排除的：
  * `relation`（引用另一个数据表）、`rollup`、`formula` —— 三者都会引入依赖图与求值，
  * 让文件不再自解释；多视图与「行可以打开成页面」同理，它们是第二期的事。
  */
-export type DataColumnType = "text" | "number" | "date" | "select" | "checkbox"
+export type DataColumnType = "text" | "number" | "date" | "select" | "checkbox" | "image"
 
 /**
  * 单元格值。
@@ -33,6 +33,12 @@ export type DataColumnType = "text" | "number" | "date" | "select" | "checkbox"
  * - `date` → `string`，`YYYY-MM-DD`（不带时间与时区；日历日期就是日历日期）
  * - `select` → `string`，选项 id
  * - `checkbox` → `boolean`
+ * - `image` → `string`，`data:image/…` 的 data URI
+ *
+ * 图片走 **data URI 内联**而不是附件目录：`.tbl` 是独立文档（ADR-0005），旁边挂一个
+ * 图片目录会让「一个文件就是一份完整数据」变成谎话；笔记里的图片现在也是 data URI
+ * 内联（见 `lib/image.ts`），两边同一个立场。代价是文件变大，写在明处：几十行 ×
+ * 几十 KB 的表是几 MB 的 JSON，`mutate` 全量重写仍在几十毫秒量级，可接受。
  *
  * 空值统一用 `null`，而不是「缺字段」—— 缺字段会让「这格是空的」和「这格不存在」
  * 无法区分，而列被删除时两种都可能发生。
