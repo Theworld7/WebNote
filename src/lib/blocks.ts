@@ -162,6 +162,9 @@ export function createDataTableBlock(path = ""): DataTableBlock {
 /** 画册卡片图片的默认显示比例(电影海报)。序列化只写非默认值,解析也以它兜底。 */
 export const GALLERY_RATIO_DEFAULT = "2:3"
 
+/** 画册卡片图片的默认宽度:100 = 铺满卡片。序列化只写非默认值,解析也以它兜底。 */
+export const GALLERY_WIDTH_DEFAULT = 100
+
 /**
  * 造画册块。缺省的设置(响应式列数、海报比例、裁剪填充、全字段可见)是最不意外的起点;
  * 带全参数的调用来自解析器 —— 盘上属性宽容读取后的值在这里收口成合法类型。
@@ -175,8 +178,9 @@ export function createGalleryBlock(
   group = "",
   groupBy = "",
   groupOrder: string[] = [],
+  width: number = GALLERY_WIDTH_DEFAULT,
 ): GalleryBlock {
-  return { id: createBlockId(), type: "gallery", path, columns, fit, hiddenFields, ratio, group, groupBy, groupOrder }
+  return { id: createBlockId(), type: "gallery", path, columns, fit, hiddenFields, ratio, group, groupBy, groupOrder, width }
 }
 
 /** 按类型造块。`text` 会被包成单个无标记 run —— 组件层新建块走这条，不必手搓 runs。 */

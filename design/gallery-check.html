@@ -53,8 +53,9 @@ check("BLOCK_TYPES 共 19 种", BLOCK_TYPES.length === 19, `实际 ${BLOCK_TYPES
 note("工厂与投影")
 
 const block = createGalleryBlock("追剧.tbl")
-check("工厂默认值:响应式 / 海报比例 / 裁剪填充 / 全显",
-  block.columns === "auto" && block.ratio === "2:3" && block.fit === "cover" && block.hiddenFields.length === 0)
+check("工厂默认值:响应式 / 海报比例 / 裁剪填充 / 全显 / 铺满",
+  block.columns === "auto" && block.ratio === "2:3" && block.fit === "cover" && block.hiddenFields.length === 0 &&
+  block.width === 100)
 check("createBlock('gallery') 走画册块", createBlock("gallery").type === "gallery")
 check("blockText 对画册块返回路径", blockText(block) === "追剧.tbl", blockText(block))
 check("cloneBlock 拷贝且不共享 hiddenFields", (() => {
@@ -79,7 +80,7 @@ const lookup = (path) => (path === "追剧.tbl" ? tbl : null)
 const html = blocksToHtml([block], lookup)
 check("快照带 data-gallery 指针", html.includes('data-gallery="追剧.tbl"'), html)
 check("默认设置不写属性(对齐缺省立场)",
-  !html.includes("data-columns") && !html.includes("data-ratio") &&
+  !html.includes("data-columns") && !html.includes("data-ratio") && !html.includes("data-width") &&
   !html.includes("data-fit") && !html.includes("data-fields") && !html.includes("data-group"), html)
 check("图片格是真正的 <img>(自包含快照)", html.includes(`<td><img src="${URI}" alt="">`), html)
 
@@ -89,6 +90,10 @@ check("非默认比例写 data-ratio", custom.includes('data-ratio="9:16"'), cus
 check("contain 写 data-fit", custom.includes('data-fit="contain"'), custom)
 check("隐藏字段写 data-fields(列 id 逗号分隔)", custom.includes('data-fields="c1,c2"'), custom)
 check("聚合字段写 data-group", custom.includes('data-group="c9"'), custom)
+
+const narrow = blocksToHtml([createGalleryBlock("追剧.tbl", "auto", "cover", [], "2:3", "", "", [], 70)], lookup)
+check("非默认宽度写 data-width", narrow.includes('data-width="70"'), narrow)
+check("宽度往返还原", parseHtml(`<body>${narrow}</body>`)[0].width === 70)
 
 // 表读不到:设置跟着笔记走,仍然写出带指针的空表。
 const missing = blocksToHtml([block], () => null)
@@ -117,13 +122,18 @@ check("自定义设置逐项还原",
 const lenient = (attrs) => parseHtml(`<body><table ${attrs}></table></body>`)[0]
 check("只有指针时落回默认设置", (() => {
   const b = lenient('data-gallery="x.tbl"')
-  return b.type === "gallery" && b.columns === "auto" && b.ratio === "2:3" && b.fit === "cover" && b.hiddenFields.length === 0
+  return b.type === "gallery" && b.columns === "auto" && b.ratio === "2:3" && b.fit === "cover" && b.hiddenFields.length === 0 &&
+    b.width === 100
 })())
 check("非法列数落回 auto", lenient('data-gallery="x.tbl" data-columns="abc"').columns === "auto")
 check("越界列数落回 auto", lenient('data-gallery="x.tbl" data-columns="99"').columns === "auto")
 check("非法比例落回海报默认", lenient('data-gallery="x.tbl" data-ratio="abc"').ratio === "2:3")
 check("越界比例落回海报默认", lenient('data-gallery="x.tbl" data-ratio="1:100"').ratio === "2:3")
 check("比例读写归一化(吃掉空格与前导零)", lenient('data-gallery="x.tbl" data-ratio="02:03"').ratio === "2:3")
+check("非法宽度落回铺满", lenient('data-gallery="x.tbl" data-width="abc"').width === 100)
+check("越界宽度落回铺满(认 10..100)", lenient('data-gallery="x.tbl" data-width="5"').width === 100 &&
+  lenient('data-gallery="x.tbl" data-width="150"').width === 100)
+check("小数宽度落回铺满", lenient('data-gallery="x.tbl" data-width="72.5"').width === 100)
 check("contain 才被认作 contain", lenient('data-gallery="x.tbl" data-fit="cover"').fit === "cover")
 check("空 data-fields 落回全显", lenient('data-gallery="x.tbl" data-fields=""').hiddenFields.length === 0)
 check("缺 data-group 落回关闭聚合", lenient('data-gallery="x.tbl"').group === "")

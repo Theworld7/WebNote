@@ -304,6 +304,26 @@ function createWorkspace() {
   }
 
   /**
+   * 「把一张改过的数据表落盘」与「把一张表退回盘上真相」。
+   *
+   * 与上面两个钩子同一理由：工作区不能反向 import 注册表。保存标签前要把改过的表
+   * 先写掉（快照取的就是内存那份，`.tbl` 不跟着落盘，盘上就有两份互相矛盾的真相），
+   * 丢弃标签时要把它改过的表退回盘上 —— 这两个动作都是注册表的知识，由 `App.vue` 接上。
+   * 缺省实现什么都不做：没接上时（自检页）保存/丢弃不影响其它流程。
+   */
+  const flushTable = ref<(path: string) => Promise<string | null>>(async () => null)
+
+  function attachTableFlush(flush: (path: string) => Promise<string | null>) {
+    flushTable.value = flush
+  }
+
+  const reloadTable = ref<(path: string) => Promise<void>>(async () => {})
+
+  function attachTableReload(reload: (path: string) => Promise<void>) {
+    reloadTable.value = reload
+  }
+
+  /**
    * 新建数据表文件时要写什么内容、怎么写。
    *
    * 与上面两个钩子同一个理由（避免工作区 ↔ 注册表互相 import 成环），只是方向不同：
@@ -365,7 +385,7 @@ function createWorkspace() {
   }
 
   function openFile(path: string) {
-    if (!tabs.value.some((tab) => tab.path === path)) tabs.value.push({ path, dirty: false })
+    if (!tabs.value.some((tab) => tab.path === path)) tabs.value.push({ path, dirty: false, dirtyTables: [] })
     activateTab(path)
   }
 
@@ -409,6 +429,11 @@ function createWorkspace() {
       await saveTab(path)
       const tab = tabs.value.find((item) => item.path === path)
       if (tab?.dirty === true) return
+    } else {
+      // 丢弃：把它改过的表退回盘上真相。否则改动还挂在注册表内存里，之后任何一次
+      // 保存都会把它们无声写出去 —— 「不保存」就不能只是不保存笔记那份。
+      const tab = tabs.value.find((item) => item.path === path)
+      for (const tablePath of tab?.dirtyTables ?? []) await reloadTable.value(tablePath)
     }
     closeTab(path)
   }
@@ -430,12 +455,33 @@ function createWorkspace() {
    *
    * 必须按路径定位而不是操作当前激活标签 —— 关掉一个**非激活**的脏标签时，
    * 要保存的是它，不能误清当前标签的脏态。
+   *
+   * 先把这个标签改过的数据表落盘（经 `flushTable` 钩子），再落笔记本身：
+   * 引用块快照取的就是内存那份，`.tbl` 不跟着写，盘上就有两份互相矛盾的「真相」。
+   * 任何一张表写失败就整体中止 —— 部分成功会让「保存」失去全有全无的直觉，
+   * 宁可让用户再点一次。数据表标签没有块列表，保存就是那一次落盘。
    */
   async function saveTab(path: string) {
     const driver = fs.value
     const current = root.value
+    if (driver === null || current === null) return
+    const tab = tabs.value.find((item) => item.path === path)
+    if (tab === undefined) return
+
+    for (const tablePath of tab.dirtyTables) {
+      const error = await flushTable.value(tablePath)
+      if (error !== null) {
+        fsError.value = `保存数据表「${fileName(tablePath)}」失败：${error}`
+        return
+      }
+    }
+
     const blocks = documents.value[path]
-    if (driver === null || current === null || blocks === undefined) return
+    if (blocks === undefined) {
+      tab.dirtyTables = []
+      tab.dirty = false
+      return
+    }
 
     // 引用块要写成快照，所以它引用的表必须已经在内存里。`preload` 由 App.vue 接上
     // （注册表的 `acquire`），它负责把还没读过的表读进来。读不回来（文件没了）不算
@@ -453,8 +499,8 @@ function createWorkspace() {
       return
     }
     // 写成功了才清脏态。
-    const tab = tabs.value.find((item) => item.path === path)
-    if (tab) tab.dirty = false
+    tab.dirty = false
+    tab.dirtyTables = []
   }
 
   /** 保存按钮：保存当前激活标签。 */
@@ -641,6 +687,18 @@ function createWorkspace() {
     if (tab) tab.dirty = dirty
   }
 
+  /**
+   * 数据表内容被改：记到**当前激活标签**名下，与笔记编辑共用同一个保存出口。
+   * 在笔记里改（引用块 / 画册）记到那篇笔记头上，在数据表编辑页改记到表自己头上 ——
+   * 谁的界面里发生的改动归谁，关标签时的保存 / 丢弃提示才有准确的归属。
+   */
+  function markTableDirty(tablePath: string) {
+    const tab = activeTab.value
+    if (tab === null) return
+    if (!tab.dirtyTables.includes(tablePath)) tab.dirtyTables.push(tablePath)
+    tab.dirty = true
+  }
+
   // ---- 块级操作。全部收敛在这里，组件只负责触发与聚焦 ----
 
   /**
@@ -665,7 +723,7 @@ function createWorkspace() {
    * 不是 `.tbl` —— 多篇笔记引用同一张表时，各自的画册设置互不相干。
    * patch 只带改动的键：菜单里每档设置各管各的，不必整包重建。
    */
-  function updateGalleryBlock(id: string, patch: Partial<Pick<GalleryBlock, "columns" | "ratio" | "fit" | "hiddenFields" | "group" | "groupBy" | "groupOrder">>) {
+  function updateGalleryBlock(id: string, patch: Partial<Pick<GalleryBlock, "columns" | "ratio" | "width" | "fit" | "hiddenFields" | "group" | "groupBy" | "groupOrder">>) {
     const block = activeBlock(id)
     if (block === undefined || block.type !== "gallery") return
     Object.assign(block, patch)
@@ -998,6 +1056,8 @@ function createWorkspace() {
     root,
     attachTableLookup,
     attachTablePreload,
+    attachTableFlush,
+    attachTableReload,
     attachTableCreate,
     // file actions
     openFile,
@@ -1009,6 +1069,7 @@ function createWorkspace() {
     toggleFolder,
     save,
     markDirty,
+    markTableDirty,
     createNoteIn,
     createFolderIn,
     createTableIn,

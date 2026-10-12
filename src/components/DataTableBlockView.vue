@@ -2,7 +2,7 @@
 import type { DataTableBlock } from "@/types/workspace"
 import type { DataColumn, DataColumnType, DataRow, DataTable } from "@/types/data-table"
 import type { TableEffectClasses } from "@/lib/typography"
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue"
+import { computed, onBeforeUnmount, onMounted, shallowRef, watch } from "vue"
 import { DatabaseIcon, ExternalLinkIcon, PlusIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
@@ -35,7 +35,7 @@ import { tableEffectClasses } from "@/lib/typography"
  */
 const props = defineProps<{ block: DataTableBlock }>()
 
-const { openFile } = useWorkspace()
+const { openFile, markTableDirty } = useWorkspace()
 const tables = useTables()
 const { tableEffect } = useSettings()
 
@@ -52,9 +52,6 @@ const frame = computed<TableEffectClasses>(() => tableEffectClasses(tableEffect.
  * 而字段内部的更新由字段自己通知（这正是我们要的）。
  */
 const entry = shallowRef<TableEntry | null>(null)
-
-/** 这张表被编辑时往哪儿写错误。挂在笔记的 fsError 上，与其它错误同一个出口。 */
-const errorSink = ref("")
 
 const state = computed(() => entry.value?.state.value ?? "loading")
 const table = computed(() => entry.value?.table.value ?? null)
@@ -87,9 +84,10 @@ onBeforeUnmount(() => {
   if (props.block.path !== "") tables.release(props.block.path)
 })
 
-/** 所有编辑动作都走这一条：算出新表 → 注册表写盘。失败会回退并写 `errorSink`。 */
+/** 所有编辑动作都走这一条：算出新表 → 进内存记脏，随所在笔记统一保存。 */
 async function change(next: (table: DataTable) => DataTable): Promise<void> {
-  await tables.mutate(props.block.path, next, errorSink)
+  const ok = await tables.mutate(props.block.path, next)
+  if (ok) markTableDirty(props.block.path)
 }
 
 function cellOf(row: DataRow, column: DataColumn): string {
@@ -264,10 +262,14 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
               <!-- 图片格在这里只读：换图去数据表编辑页。这里挂选图控件就得跟块编辑器的
                    文件拖拽抢事件，不值得 —— 引用块是「一扇窗」，不是第二个编辑入口。 -->
               <div v-else-if="column.type === 'image'">
+                <!-- 懒加载与编辑器同一口径：引用块挂载即整表渲染，图片不延迟解码
+                     会把笔记打开拖住。 -->
                 <img
                   v-if="dt.cellValue(row, column) !== null"
                   :src="String(dt.cellValue(row, column))"
                   alt=""
+                  loading="lazy"
+                  decoding="async"
                   class="max-h-24 rounded"
                 >
               </div>

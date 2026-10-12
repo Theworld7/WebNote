@@ -10,7 +10,7 @@ import EditorSurface from "@/components/EditorSurface.vue"
 import EditorTabBar from "@/components/EditorTabBar.vue"
 import PaneResizer from "@/components/PaneResizer.vue"
 
-const { hasDirty, bootstrap, fs, root, attachTableLookup, attachTablePreload, attachTableCreate } =
+const { hasDirty, bootstrap, fs, root, attachTableLookup, attachTablePreload, attachTableFlush, attachTableReload, attachTableCreate } =
   provideWorkspace()
 // 数据表注册表与工作区**共用同一对 driver / root**：切目录时两者必须一起换语境，
 // 各持一份引用迟早对不齐（见 useTables 的注释）。
@@ -25,6 +25,10 @@ attachTablePreload((blocks) => {
     .filter((path) => path !== "")
   return tables.preload(paths)
 })
+// 数据表编辑只进内存记脏，落盘发生在标签的统一保存（与笔记同一条出口）；
+// 丢弃标签则把改过的表退回盘上真相。两个动作都是注册表的能力，这里接上。
+attachTableFlush((path) => tables.flush(path))
+attachTableReload((path) => tables.reload(path))
 // 新建数据表：写什么内容由注册表这边的知识决定（一张带两列的初始表），
 // 工作区只负责把它写到指定路径。见 attachTableCreate 的注释。
 attachTableCreate(async (fsDriver, fsRoot, path) => {

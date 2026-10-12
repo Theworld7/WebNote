@@ -36,18 +36,10 @@ import { MAX_DATA_TABLE_COLUMNS } from "@/types/data-table"
  * 单元格用朴素 `input` 而不是 `contenteditable`：格子装的是**数据**，不是正文 ——
  * 富文本、行内标记、非受控 DOM 那一整套在这里没有意义，而它会带来一堆复杂度。
  */
-const { activePath, fsError } = useWorkspace()
+const { activePath, markTableDirty } = useWorkspace()
 const tables = useTables()
 
 const mounted = ref(false)
-
-/** 错误写到工作区那个出口，与其它错误同一个地方显示。 */
-const errorSink = computed({
-  get: () => fsError.value,
-  set: (value: string) => {
-    fsError.value = value
-  },
-})
 
 /**
  * 当前正在编辑的那张表。
@@ -75,9 +67,11 @@ const summary = computed(() => {
   return `${columns.value.length} 列 · ${rows.value.length} 行`
 })
 
+/** 所有编辑动作走这一条：算出新表 → 进内存记脏。落盘在标签的统一保存，与笔记同一条出口。 */
 async function change(next: (current: DataTable) => DataTable): Promise<void> {
   if (activePath.value === "") return
-  await tables.mutate(activePath.value, next, errorSink)
+  const ok = await tables.mutate(activePath.value, next)
+  if (ok) markTableDirty(activePath.value)
 }
 
 // ---- 单元格 ----
@@ -260,7 +254,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
     </div>
 
     <!-- 表格：自己横向滚动，永远铺满窗口宽度（不受「表格效果」偏好影响）。 -->
-    <div class="min-h-0 flex-1 overflow-auto rounded-lg border border-line">
+    <div class="table-scrollbar min-h-0 flex-1 overflow-auto rounded-lg border border-line">
       <table class="w-full border-separate border-spacing-0 text-[13px]">
         <thead>
           <tr>
@@ -322,14 +316,16 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
         <tbody>
           <tr v-for="(row, rowIndex) in rows" :key="row.id" class="group/drow">
             <th class="sticky left-0 z-10 border-r border-b border-line bg-muted/30 px-2 py-1 text-right font-mono text-[10.5px] font-normal text-muted-foreground/60">
-              <span class="group-hover/drow:hidden">{{ rowIndex + 1 }}</span>
+              <!-- 悬停换成删除钮:行号改用 invisible 让位不撤宽度,钮绝对定位叠在原位 ——
+                   两态占同一格,列宽不变,表格不跳动。 -->
+              <span class="group-hover/drow:invisible">{{ rowIndex + 1 }}</span>
               <button
                 type="button"
-                class="hidden text-muted-foreground hover:text-destructive group-hover/drow:inline"
+                class="absolute inset-y-0 right-2 hidden items-center text-muted-foreground hover:text-destructive group-hover/drow:flex"
                 aria-label="删除本行"
                 @click="removeRow(row.id)"
               >
-                <Trash2Icon class="ml-auto size-3" />
+                <Trash2Icon class="size-3" />
               </button>
             </th>
             <td
@@ -351,10 +347,20 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
                   <input type="file" accept="image/*" class="hidden" @change="onPick($event, row, column)">
                 </label>
                 <div v-else class="group/img relative">
-                  <img :src="String(dt.cellValue(row, column))" alt="" class="h-8 w-full rounded object-cover">
+                  <!-- loading=lazy + decoding=async：格子存的是整图 data URI，一张表可能
+                       几十张、总量几十 MB，挂载即全部解码会把首帧拖住数秒。
+                       视口外的先不解，滚到附近再解。高度给到 h-16：太小的缩略图会把
+                       右上角的清除钮挤成主要命中区，容易误触。 -->
+                  <img
+                    :src="String(dt.cellValue(row, column))"
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    class="h-16 w-full rounded object-cover"
+                  >
                   <button
                     type="button"
-                    class="absolute right-0.5 top-0.5 hidden rounded bg-background/80 p-0.5 text-muted-foreground hover:text-destructive group-hover/img:block"
+                    class="absolute right-0.5 top-0.5 hidden rounded bg-background/80 p-1 text-muted-foreground hover:text-destructive group-hover/img:block"
                     aria-label="清除图片"
                     @click.stop="clearImage(row, column)"
                   >
@@ -396,5 +402,11 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
         </tbody>
       </table>
     </div>
+  </div>
+
+  <!-- mount 完成前 entry 还没回来（读盘 + 解析的等待期）：给一句提示而不是空白，
+       否则大表打开时界面像死了。读不到的分支在上面已经截走，走到这里的都还在读。 -->
+  <div v-else class="flex flex-1 items-center justify-center p-8">
+    <p class="text-[12px] text-muted-foreground">正在读取数据表…</p>
   </div>
 </template>

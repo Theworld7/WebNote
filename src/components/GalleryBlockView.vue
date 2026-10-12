@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { GalleryBlock } from "@/types/workspace"
 import type { DataColumn, DataRow, DataTable } from "@/types/data-table"
+import { GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue"
 import {
   ChevronDownIcon,
@@ -39,7 +40,7 @@ import * as dt from "@/lib/data-table"
  */
 const props = defineProps<{ block: GalleryBlock }>()
 
-const { openFile, updateGalleryBlock } = useWorkspace()
+const { openFile, updateGalleryBlock, markTableDirty } = useWorkspace()
 const tables = useTables()
 
 /**
@@ -47,9 +48,6 @@ const tables = useTables()
  * `ref` 的深度解包会把 `TableEntry` 里的 `Ref` 字段压扁,视图永远停在「正在读取」。
  */
 const entry = shallowRef<TableEntry | null>(null)
-
-/** 这张表被编辑时往哪儿写错误。挂在笔记的 fsError 上,与其它错误同一个出口。 */
-const errorSink = ref("")
 
 const state = computed(() => entry.value?.state.value ?? "loading")
 const table = computed(() => entry.value?.table.value ?? null)
@@ -78,9 +76,10 @@ onBeforeUnmount(() => {
   if (props.block.path !== "") tables.release(props.block.path)
 })
 
-/** 所有数据编辑都走这一条:算出新表 → 注册表写盘。失败会回退并写 `errorSink`。 */
+/** 所有数据编辑都走这一条:算出新表 → 进内存记脏,随所在笔记统一保存。 */
 async function change(next: (table: DataTable) => DataTable): Promise<void> {
-  await tables.mutate(props.block.path, next, errorSink)
+  const ok = await tables.mutate(props.block.path, next)
+  if (ok) markTableDirty(props.block.path)
 }
 
 /**
@@ -109,8 +108,15 @@ const gridStyle = computed(() => ({
       : `repeat(${props.block.columns}, minmax(0, 1fr))`,
 }))
 
-/** 图片区显示比例:宽:高直接交给 `aspect-ratio` —— 列宽是多少,高度就跟着算到多少。 */
-const ratioStyle = computed(() => ({ aspectRatio: props.block.ratio.replace(":", " / ") }))
+/** 海报区样式:比例交给 `aspect-ratio` —— 列宽是多少,高度就跟着算到多少;
+ * 宽度百分比小于铺满时收窄并水平居中,两侧空隙留给卡片背景。 */
+const posterStyle = computed(() => {
+  const { width, ratio } = props.block
+  return {
+    aspectRatio: ratio.replace(":", " / "),
+    ...(width !== GALLERY_WIDTH_DEFAULT ? { width: `${width}%`, marginInline: "auto" } : {}),
+  }
+})
 
 // ---- 聚合展示 ----
 
@@ -338,6 +344,16 @@ const ratioSelection = computed({
   set: (value: string) => setRatio(value),
 })
 
+function setWidth(value: number) {
+  updateGalleryBlock(props.block.id, { width: value })
+}
+
+/** 图片宽度的下拉选择:select 的值是字符串,映回数字。 */
+const widthSelection = computed({
+  get: () => String(props.block.width),
+  set: (value: string) => setWidth(Number(value)),
+})
+
 /** 聚合参考字段:空串 = 关闭聚合。与分组可叠加(不同字段),仅当撞上分组的同一字段时把分组关掉 —— 后设的赢。 */
 function setGroup(value: string) {
   updateGalleryBlock(props.block.id, {
@@ -416,6 +432,16 @@ const RATIO_ITEMS = [
   { value: "9:16", label: "竖屏 9:16" },
   { value: "4:3", label: "横版 4:3" },
   { value: "16:9", label: "宽屏 16:9" },
+] satisfies readonly { value: string; label: string }[]
+
+/** 宽度预设:铺满起步,往下给五档 —— 覆盖「图不要顶满卡片」的常见诉求。 */
+const WIDTH_ITEMS = [
+  { value: "100", label: "铺满(100%)" },
+  { value: "90", label: "90%" },
+  { value: "80", label: "80%" },
+  { value: "70", label: "70%" },
+  { value: "60", label: "60%" },
+  { value: "50", label: "50%" },
 ] satisfies readonly { value: string; label: string }[]
 
 function openTable() {
@@ -535,6 +561,19 @@ function focusOnMount(el: unknown): void {
               </option>
             </select>
           </div>
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+            图片宽度
+          </DropdownMenuLabel>
+          <div class="px-2 pb-1.5">
+            <select
+              v-model="widthSelection"
+              class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
+            >
+              <option v-for="item in WIDTH_ITEMS" :key="item.value" :value="item.value">
+                {{ item.label }}
+              </option>
+            </select>
+          </div>
           <template v-if="columns.some((column) => column.type !== 'image')">
             <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
             <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
@@ -635,9 +674,9 @@ function focusOnMount(el: unknown): void {
               alt=""
               class="w-full"
               :class="props.block.fit === 'cover' ? 'object-cover' : 'object-contain'"
-              :style="ratioStyle"
+              :style="posterStyle"
             >
-            <div v-else class="flex w-full items-center justify-center bg-muted/40" :style="ratioStyle">
+            <div v-else class="flex w-full items-center justify-center bg-muted/40" :style="posterStyle">
               <LayoutGridIcon class="size-4 text-muted-foreground/40" />
             </div>
 
@@ -669,9 +708,9 @@ function focusOnMount(el: unknown): void {
                 alt=""
                 class="w-full"
                 :class="props.block.fit === 'cover' ? 'object-cover' : 'object-contain'"
-                :style="ratioStyle"
+                :style="posterStyle"
               >
-              <div v-else class="flex w-full items-center justify-center bg-muted/40" :style="ratioStyle">
+              <div v-else class="flex w-full items-center justify-center bg-muted/40" :style="posterStyle">
                 <LayoutGridIcon class="size-4 text-muted-foreground/40" />
               </div>
 

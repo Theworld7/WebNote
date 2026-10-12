@@ -150,6 +150,8 @@ export interface GalleryBlock {
   ratio: string
   /** 卡片图片的填充方式:`cover` 裁剪填满(默认),`contain` 完整显示。 */
   fit: "cover" | "contain"
+  /** 卡片图片宽度:相对卡片内容宽度的百分比(10..100),100(默认)= 铺满。窄于卡片时水平居中。 */
+  width: number
   /** 隐藏字段的列 id。默认空 = 全显;删列后残留的 id 在渲染时按当前列过滤,无需清洗。 */
   hiddenFields: string[]
   /** 聚合展示的参考列 id。空 = 关闭聚合;指向的列被删后渲染时自然退化为平铺,无需清洗。 */
@@ -190,6 +192,8 @@ export interface FileNode {
 export interface OpenTab {
   path: string
   dirty: boolean
+  /** 这个标签里改过还没落盘的数据表路径。内容在注册表内存里,保存时随标签一起落盘,丢弃时退回盘上真相。 */
+  dirtyTables: string[]
 }
 
 /** 面包屑的一段。最后一段是文件名。 */

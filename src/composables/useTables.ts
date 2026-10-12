@@ -27,8 +27,9 @@ import { TABLE_EXTENSION, fileStem, isTableFile } from "@/lib/fs/policy"
  *    触发的，靠 `revision` 计数器通知视图。
  * 2. **读失败是有状态的结果**，不是异常。引用块要能区分「没读」「读失败」「表不存在」，
  *    因为三者的提示文案不同，而「文件不存在」是这个功能里的**正常状态**（可能被移走了）。
- * 3. **写盘整体替换**。没有行级增量写 —— 一次改一个格子也写整个文件。这符合这个项目的
- *    尺度（本地文件、用户自己点保存），换来的是「盘上永远是一份完整一致的 JSON」。
+ * 3. **写盘整体替换 + 延迟落盘**。编辑只进内存并记脏,真正写盘发生在标签的统一保存
+ *    （`flush`）—— 与笔记编辑共用「改动 → 脏标记 → 保存」这一条出口。没有行级增量写,
+ *    一次落盘就是整个文件,盘上永远是一份完整一致的 JSON。
  */
 
 /** 一张表在某处的加载状态。 */
@@ -40,6 +41,8 @@ export interface TableEntry {
   state: Ref<TableLoadState>
   /** 读失败或文件不存在时的原因。给用户看。 */
   message: Ref<string>
+  /** 有未落盘的改动。置位在 `mutate`,清位在 `flush`（写成功）或 `reload`（丢弃）。 */
+  dirty: Ref<boolean>
 }
 
 function createTables(driver: Ref<WorkspaceFs | null>, root: Ref<FsRoot | null>) {
@@ -62,6 +65,7 @@ function createTables(driver: Ref<WorkspaceFs | null>, root: Ref<FsRoot | null>)
       table: ref<DataTable | null>(null),
       state: ref<TableLoadState>("idle"),
       message: ref(""),
+      dirty: ref(false),
     }
     registry.set(path, entry)
     revision.value += 1
@@ -103,12 +107,13 @@ function createTables(driver: Ref<WorkspaceFs | null>, root: Ref<FsRoot | null>)
     }
   }
 
-  /** 强制重读。文件在盘上被外部改过时用（目前没有「重新加载」入口，留给以后）。 */
+  /** 强制重读。丢弃未落盘的改动、回到盘上真相时也走这里（关标签选「不保存」）。 */
   async function reload(path: string): Promise<void> {
     const entry = registry.get(path)
     if (entry !== undefined) {
       entry.state.value = "idle"
       entry.table.value = null
+      entry.dirty.value = false
     }
     await load(path)
   }
@@ -162,50 +167,53 @@ function createTables(driver: Ref<WorkspaceFs | null>, root: Ref<FsRoot | null>)
     }
   }
 
-  // ---- 编辑操作（全是整体替换 + 写盘）----
+  // ---- 编辑操作（全是整体替换,落盘交给 flush）----
 
   /**
-   * 写回一张表。
+   * 以一个纯函数改一张表。所有编辑动作的统一入口。
    *
-   * 入参 `next` 是**算好的新表**，而不是一个修改函数：调用方（视图或 `mutate`）
-   * 拿到 `DataTable` 之后自己决定怎么改，这里只负责落盘。这样每个编辑动作都是
-   * `lib/data-table.ts` 里的一个纯函数，可以单独测。
+   * 改动只进内存并记脏 —— 落盘交给标签的统一保存（`flush`），与笔记编辑共用
+   * 「改动 → 脏标记 → 保存」这一条出口。纯函数返回同一个对象视为空转,不记脏,
+   * 避免每次失焦都多出一次假保存。
    */
-  async function write(path: string, next: DataTable, errorSink: Ref<string>): Promise<boolean> {
-    const fsDriver = driver.value
-    const current = root.value
-    if (fsDriver === null || current === null) return false
-
-    const entry = entryOf(path)
-    const previous = entry.table.value
-    entry.table.value = next
-    try {
-      await fsDriver.writeNote(current, path, dt.tableToJson(next))
-      return true
-    } catch (error) {
-      // 写失败要**回退内存**：留着未落盘的数据会让用户以为改成功了。
-      entry.table.value = previous
-      errorSink.value = `保存数据表「${path}」失败：${describeError(error)}`
-      return false
-    }
-  }
-
-  /**
-   * 以一个纯函数改一张表并落盘。所有编辑动作的统一入口。
-   *
-   * 视图层不必各自记住「先改内存、再写盘、失败回退」这套顺序 —— 它只在这里一处。
-   */
-  async function mutate(
-    path: string,
-    change: (table: DataTable) => DataTable,
-    errorSink: Ref<string>,
-  ): Promise<boolean> {
+  async function mutate(path: string, change: (table: DataTable) => DataTable): Promise<boolean> {
     const entry = entryOf(path)
     const table = entry.table.value
     if (table === null) return false
     const next = change(table)
     if (next === table) return true
-    return write(path, next, errorSink)
+    entry.table.value = next
+    entry.dirty.value = true
+    return true
+  }
+
+  /**
+   * 把一张脏表落盘。只在有未落盘改动时写;写失败**保持脏态**（内存里那份仍是最新的,
+   * 用户可以再存一次）,返回失败原因给调用方提示;成功或无事可做返回 `null`。
+   */
+  async function flush(path: string): Promise<string | null> {
+    const entry = registry.get(path)
+    if (entry === undefined || !entry.dirty.value) return null
+    const table = entry.table.value
+    if (table === null) {
+      entry.dirty.value = false
+      return null
+    }
+    const fsDriver = driver.value
+    const current = root.value
+    if (fsDriver === null || current === null) return "工作区还没有就绪"
+    try {
+      await fsDriver.writeNote(current, path, dt.tableToJson(table))
+      entry.dirty.value = false
+      return null
+    } catch (error) {
+      return describeError(error)
+    }
+  }
+
+  /** 同步列出所有有未落盘改动的表。自检与调试用。 */
+  function dirtyPaths(): string[] {
+    return [...registry.entries()].filter(([, entry]) => entry.dirty.value).map(([path]) => path)
   }
 
   /** 新建一个数据表文件。名字冲突由调用方前置检查（与 `createInto` 同一套）。 */
@@ -259,6 +267,8 @@ function createTables(driver: Ref<WorkspaceFs | null>, root: Ref<FsRoot | null>)
     preload,
     reload,
     mutate,
+    flush,
+    dirtyPaths,
     create,
     adopt,
     defaultTable,

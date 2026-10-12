@@ -403,30 +403,38 @@ if (tables !== undefined) {
   check("release 到 0 之后不卸载数据（表很小，重读不值得）", tables.peek("预热.tbl") !== null)
   check("引用计数确实在动", before !== undefined || tables.references.value.get("预热.tbl") === undefined)
 
-  // mutate 走「读 → 纯函数 → 写盘」，写的是整个文件。
+  // mutate 走「读 → 纯函数 → 记脏」：改动先在内存，落盘交给标签统一保存的 flush。
   check("mutate 前置：预热那张表确实在内存里", tables.peek("预热.tbl") !== null, String(tables.peek("预热.tbl")))
   // `change` 的返回类型必须是**整张表**：`setCell` 返回的是行，得经 `replaceRow`
-  // 装回表里 —— 直接把行当表传下去，写完盘的会是个没有 version 的对象。
-  const written = await tables.mutate(
+  // 装回表里 —— 直接把行当表传下去，落盘的会是个没有 version 的对象。
+  const changed = await tables.mutate(
     "预热.tbl",
     (current) => dt.replaceRow(current, dt.setCell(current.rows[0], current.columns[0].id, "改过")),
-    { value: "" },
   )
-  check("mutate 返回成功", written === true)
+  check("mutate 返回成功", changed === true)
   check(
     "mutate 真的改了内存",
     tables.peek("预热.tbl") !== null &&
       dt.cellValue(tables.peek("预热.tbl").rows[0], tables.peek("预热.tbl").columns[0]) === "改过",
     JSON.stringify(tables.peek("预热.tbl")?.rows[0]?.values ?? null),
   )
-  check(
-    "mutate 真的落了盘（盘上就是改后那份）",
-    memory.read("预热.tbl") === dt.tableToJson(tables.peek("预热.tbl")),
-  )
+  check("mutate 记了脏", tables.dirtyPaths().includes("预热.tbl"), tables.dirtyPaths().join(","))
+  check("mutate 不落盘（盘上还是播下去那份）", memory.read("预热.tbl") === dt.tableToJson(initial))
 
-  // 同一个 Pure Function 空转时不写盘 —— 避免每次失焦都把文件重写一遍。
-  const same = await tables.mutate("预热.tbl", (current) => current, { value: "" })
-  check("mutate 返回同一对象时不写盘（短路）", same === true)
+  // 统一保存：flush 把脏表写到盘上；没有未落盘改动的表 flush 是空操作。
+  const flushError = await tables.flush("预热.tbl")
+  check(
+    "flush 把改动落到盘上",
+    flushError === null && memory.read("预热.tbl") === dt.tableToJson(tables.peek("预热.tbl")),
+    flushError ?? "",
+  )
+  check("flush 之后脏态清掉", !tables.dirtyPaths().includes("预热.tbl"))
+  check("干净的表再 flush 是空操作", (await tables.flush("预热.tbl")) === null)
+
+  // 同一个 Pure Function 空转时不记脏 —— 避免每次失焦都多出一次假保存。
+  const same = await tables.mutate("预热.tbl", (current) => current)
+  check("mutate 返回同一对象时短路", same === true)
+  check("空转不记脏", !tables.dirtyPaths().includes("预热.tbl"))
 }
 
 // ---------- 八、引用块的渲染（真组件） ----------
@@ -575,7 +583,9 @@ const EditorRoot = defineComponent({
   setup() {
     provideSettings()
     const workspace = provideWorkspace()
-    provideTables(workspace.fs, workspace.root)
+    const tables = provideTables(workspace.fs, workspace.root)
+    // 编辑器的落盘走工作区的统一保存钩子,这里接上(与 App.vue 同一套接线)。
+    workspace.attachTableFlush((path) => tables.flush(path))
     Object.assign(editorProbe, workspace)
     return () => (editorReady.value ? h(DataTableEditor) : h("div"))
   },
@@ -609,7 +619,8 @@ check(
   editorText.slice(0, 200),
 )
 
-// 直接在编辑器里改一个格子的值 → 立刻落到 `.tbl`，且**笔记的脏标记不动**。
+// 直接在编辑器里改一个格子的值 → 只进内存并记脏（标签变脏、表记到标签名下）,
+// 落盘交给统一保存 —— 与笔记编辑同一套语义。
 const firstInput = editorHost.querySelector("input")
 if (firstInput !== null) {
   firstInput.value = "已改"
@@ -620,11 +631,25 @@ if (firstInput !== null) {
   await nextTick()
 }
 check(
-  "在编辑器里改值会立刻写那个 .tbl 文件（不走笔记的保存流程）",
-  (editMemory.read("编辑.tbl") ?? "").includes("已改") || (editMemory.read("编辑.tbl") ?? "").includes("进行中"),
+  "编辑器里改值不落盘（盘上还是原来那份）",
+  editMemory.read("编辑.tbl") === dt.tableToJson(pick),
   (editMemory.read("编辑.tbl") ?? "").slice(0, 200),
 )
-check("笔记的脏标记不因为数据表编辑而变脏", editorProbe.hasDirty.value === false)
+check("改值后标签变脏", editorProbe.hasDirty.value === true)
+check(
+  "脏表记到标签名下（保存 / 丢弃提示有准确归属）",
+  JSON.stringify(editorProbe.tabs.value[0]?.dirtyTables) === JSON.stringify(["编辑.tbl"]),
+  JSON.stringify(editorProbe.tabs.value[0]?.dirtyTables ?? null),
+)
+
+// 统一保存:saveTab 把改过的表落盘并清脏。
+await editorProbe.save()
+check(
+  "保存把改动落到 .tbl",
+  (editMemory.read("编辑.tbl") ?? "").includes("已改"),
+  (editMemory.read("编辑.tbl") ?? "").slice(0, 200),
+)
+check("保存后标签干净", editorProbe.hasDirty.value === false)
 
 // ---------- 收尾 ----------
 

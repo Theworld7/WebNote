@@ -1,5 +1,5 @@
 import type { Block, GalleryBlock, ImageBlock, InlineRun, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
-import { createGalleryBlock, createImageBlock, createMermaidBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT } from "@/lib/blocks"
+import { createGalleryBlock, createImageBlock, createMermaidBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
 import { textToRuns, trimRuns } from "@/lib/inline"
 import { isTableAlign } from "@/lib/table"
 import { runsFromNodes } from "./runs-dom"
@@ -279,6 +279,7 @@ function parseGallery(table: HTMLTableElement): GalleryBlock | null {
     Number.isInteger(rawColumns) && rawColumns >= 1 && rawColumns <= 12 ? rawColumns : "auto"
 
   const ratio = parseGalleryRatio(table.getAttribute("data-ratio"))
+  const width = parseGalleryWidth(table.getAttribute("data-width"))
   const fit = table.getAttribute("data-fit") === "contain" ? "contain" : "cover"
   const fields = table.getAttribute("data-fields") ?? ""
   const hiddenFields = fields === "" ? [] : fields.split(",").filter((id) => id !== "")
@@ -289,7 +290,7 @@ function parseGallery(table: HTMLTableElement): GalleryBlock | null {
   const order = table.getAttribute("data-group-order") ?? ""
   const groupOrder = order === "" ? [] : order.split(",").filter((item) => item !== "")
 
-  return createGalleryBlock(path, columns, fit, hiddenFields, ratio, group, groupBy, groupOrder)
+  return createGalleryBlock(path, columns, fit, hiddenFields, ratio, group, groupBy, groupOrder, width)
 }
 
 /**
@@ -306,6 +307,15 @@ function parseGalleryRatio(raw: string | null): string {
     Number.isInteger(width) && width >= 1 && width <= 16 &&
     Number.isInteger(height) && height >= 1 && height <= 16
   return legal ? `${width}:${height}` : GALLERY_RATIO_DEFAULT
+}
+
+/**
+ * `data-width` 的宽容读取:只认 10..100 的整数(下界挡住手工改出 `5` 这种没有意义的
+ * 窄条,上界即铺满),其余一律落回铺满默认。
+ */
+function parseGalleryWidth(raw: string | null): number {
+  const width = Number(raw)
+  return Number.isInteger(width) && width >= 10 && width <= 100 ? width : GALLERY_WIDTH_DEFAULT
 }
 
 /**

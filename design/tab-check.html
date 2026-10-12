@@ -84,7 +84,7 @@ check("按钮文字为「保存」", shown !== undefined && shown.textContent.tr
 check("激活的脏标签显示「未保存」文字", visible(tagIn(tabButtons()[0])))
 check("激活的脏标签不显示圆点", !visible(dotIn(tabButtons()[0])))
 
-workspace.tabs.value.push({ path: "b.html", dirty: false })
+workspace.tabs.value.push({ path: "b.html", dirty: false, dirtyTables: [] })
 workspace.activePath.value = "b.html"
 await nextTick()
 check("切到干净标签 → 隐藏", saveButton() === undefined)
@@ -137,7 +137,7 @@ check(
 check("未打开文件时不显示「在目录中定位」", !hasLocate())
 check("「更多」按钮已移除", document.querySelector('button[aria-label="更多"]') === null)
 
-workspace.tabs.value = [{ path: "a.html", dirty: false }]
+workspace.tabs.value = [{ path: "a.html", dirty: false, dirtyTables: [] }]
 workspace.activePath.value = "a.html"
 await nextTick()
 check("打开文件后出现「在目录中定位」", hasLocate())
@@ -171,8 +171,8 @@ check(
 )
 
 workspace.tabs.value = [
-  { path: "a.html", dirty: false },
-  { path: "b.html", dirty: false },
+  { path: "a.html", dirty: false, dirtyTables: [] },
+  { path: "b.html", dirty: false, dirtyTables: [] },
 ]
 workspace.activePath.value = "b.html"
 await nextTick()

@@ -1,6 +1,6 @@
 import type { Block, DataTableBlock, GalleryBlock, ImageBlock, MermaidBlock, TableCell, TextualBlock } from "@/types/workspace"
 import type { DataTable } from "@/types/data-table"
-import { GALLERY_RATIO_DEFAULT, isListBlock } from "@/lib/blocks"
+import { GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT, isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
 import { cellValue, valueText } from "@/lib/data-table"
 import { escapeHtml, escapeTextToHtml, runsText, runsToHtml } from "@/lib/inline"
@@ -282,6 +282,7 @@ function galleryHtml(block: GalleryBlock, table: DataTable | null): string {
   const attrs = [`data-gallery="${escapeHtml(block.path)}"`]
   if (block.columns !== "auto") attrs.push(`data-columns="${block.columns}"`)
   if (block.ratio !== GALLERY_RATIO_DEFAULT) attrs.push(`data-ratio="${escapeHtml(block.ratio)}"`)
+  if (block.width !== GALLERY_WIDTH_DEFAULT) attrs.push(`data-width="${block.width}"`)
   if (block.fit !== "cover") attrs.push(`data-fit="${block.fit}"`)
   if (block.hiddenFields.length > 0) attrs.push(`data-fields="${escapeHtml(block.hiddenFields.join(","))}"`)
   if (block.group !== "") attrs.push(`data-group="${escapeHtml(block.group)}"`)
