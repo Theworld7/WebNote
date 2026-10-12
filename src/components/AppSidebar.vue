@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { CreateTarget } from "@/types/workspace"
-import { FolderIcon, FolderOpenIcon, PlusIcon, SearchIcon, SlidersHorizontalIcon } from "@lucide/vue"
+import { FolderIcon, FolderOpenIcon, PlusIcon, RefreshCwIcon, SearchIcon, SlidersHorizontalIcon } from "@lucide/vue"
 import { computed, ref } from "vue"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -12,7 +12,7 @@ import FileTree from "./FileTree.vue"
 
 defineProps<{ width: number }>()
 
-const { query, rootName, hasRoot, scanning, fsHint, openRoot } = useWorkspace()
+const { query, rootName, hasRoot, scanning, fsHint, openRoot, refreshTree } = useWorkspace()
 
 /** 挂起的命名对话框目标。null 表示关着。 */
 const createTarget = ref<CreateTarget | null>(null)
@@ -77,26 +77,44 @@ function setQuery(value: string | number) {
       </DropdownMenu>
     </div>
 
-    <!-- 工作区行：当前根目录 + 换目录。未选目录时这一行就是入口本身，
-         不再额外塞一个「新建文件夹」之类的空按钮 —— 点了没反应的按钮比没有更糟。 -->
+    <!-- 工作区行：当前根目录 + 换目录 + 重扫。未选目录时这一行就是入口本身，
+         不再额外塞一个「新建文件夹」之类的空按钮 —— 点了没反应的按钮比没有更糟。
+         换目录与刷新是两个动作，不能并进一个按钮：只想重读盘上内容的人不该被弹出的
+         选目录对话框打断；刷新按钮也不能嵌进行按钮里，嵌套 button 非法且会误触换目录。 -->
     <div class="flex-none px-2.5 pb-2">
-      <Tooltip>
-        <TooltipTrigger as-child>
-          <button
-            type="button"
-            class="flex h-7 w-full items-center gap-1.5 rounded-md px-1.5 text-[12px] transition-colors hover:bg-muted"
-            :class="hasRoot ? 'text-muted-foreground' : 'font-medium text-foreground'"
-            @click="openRoot"
-          >
-            <FolderOpenIcon class="size-3.5 shrink-0" />
-            <span class="min-w-0 flex-1 truncate text-left">
-              {{ scanning ? "正在读取…" : hasRoot ? rootName : "打开文件夹" }}
-            </span>
-            <FolderIcon v-if="hasRoot" class="size-3.5 shrink-0 opacity-45" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>{{ workspaceTip }}</TooltipContent>
-      </Tooltip>
+      <div class="flex h-7 items-center gap-0.5">
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <button
+              type="button"
+              class="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 text-[12px] transition-colors hover:bg-muted"
+              :class="hasRoot ? 'text-muted-foreground' : 'font-medium text-foreground'"
+              @click="openRoot"
+            >
+              <FolderOpenIcon class="size-3.5 shrink-0" />
+              <span class="min-w-0 flex-1 truncate text-left">
+                {{ scanning ? "正在读取…" : hasRoot ? rootName : "打开文件夹" }}
+              </span>
+              <FolderIcon v-if="hasRoot" class="size-3.5 shrink-0 opacity-45" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{{ workspaceTip }}</TooltipContent>
+        </Tooltip>
+        <Tooltip v-if="hasRoot">
+          <TooltipTrigger as-child>
+            <button
+              type="button"
+              class="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+              :disabled="scanning"
+              aria-label="刷新目录"
+              @click="refreshTree"
+            >
+              <RefreshCwIcon class="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>刷新目录</TooltipContent>
+        </Tooltip>
+      </div>
     </div>
 
     <div class="flex-none px-2.5 pb-2">

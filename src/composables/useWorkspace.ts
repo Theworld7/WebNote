@@ -230,6 +230,42 @@ function createWorkspace() {
     }
   }
 
+  /**
+   * 重扫整棵树：应用外改动文件后手动同步用。
+   *
+   * 与 `adoptRoot` 的分别是**不清工作区语境** —— 标签、展开状态、搜索词都保留，
+   * 重扫只替换树的形状；扫失败也保留旧树，刷新不该把还能显示的东西抹掉。
+   * 已打开且无未保存改动的笔记换上新盘内容：当前激活的读成功才整体替换（不闪空），
+   * 后台标签只清缓存，下次激活经 `loadDocument` 重读。改过的标签一字不动 ——
+   * 未保存的工作不归刷新管；数据表的内容由 `useTables` 管，这里也不碰。
+   */
+  async function refreshTree() {
+    const driver = fs.value
+    const current = root.value
+    if (driver === null || current === null || scanning.value) return
+    scanning.value = true
+    try {
+      tree.value = await driver.scanTree(current)
+      for (const tab of tabs.value) {
+        if (tab.dirty || isTableFile(fileName(tab.path)) || !loadedPaths.value.has(tab.path)) continue
+        if (tab.path === activePath.value) {
+          try {
+            documents.value[tab.path] = parseHtml(await driver.readNote(current, tab.path))
+          } catch (error) {
+            fsError.value = `刷新「${fileName(tab.path)}」失败：${describeError(error)}`
+          }
+        } else {
+          loadedPaths.value = withFlag(loadedPaths.value, tab.path, false)
+          delete documents.value[tab.path]
+        }
+      }
+    } catch (error) {
+      fsError.value = `读取目录失败：${describeError(error)}`
+    } finally {
+      scanning.value = false
+    }
+  }
+
   function dismissError() {
     fsError.value = ""
   }
@@ -953,6 +989,7 @@ function createWorkspace() {
     // workspace actions
     bootstrap,
     openRoot,
+    refreshTree,
     dismissError,
     attachForTest,
     // 读写通道与根目录：数据表注册表（`useTables`）要用同一对，否则两个 composable
