@@ -2,7 +2,7 @@
 import type { DataColumn } from "@/types/data-table"
 import type { DataRow } from "@/types/data-table"
 import type { DataCellValue, DataColumnType, DataTable } from "@/types/data-table"
-import { computed, onMounted, ref, shallowRef } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue"
 import { ImagePlusIcon, PlusIcon, Trash2Icon, XIcon } from "@lucide/vue"
 import { isFileDrag, isImageFile, pickImageFile, readImageFile } from "@/lib/image"
 import { Button } from "@/components/ui/button"
@@ -55,10 +55,20 @@ const table = computed(() => entry.value?.table.value ?? null)
 const columns = computed<readonly DataColumn[]>(() => table.value?.columns ?? [])
 const rows = computed<readonly DataRow[]>(() => table.value?.rows ?? [])
 
+/** 本实例挂载时读的是哪个文件。编辑器按路径换实例(EditorSurface 给了 key),
+ * 卸载时释放的就是挂载那一刻的路径 —— 不能读 activePath,那时可能已经切到别的表。 */
+let mountedPath = ""
+
 onMounted(async () => {
-  if (activePath.value === "") return
-  entry.value = await tables.use(activePath.value)
+  const path = activePath.value
+  if (path === "") return
+  mountedPath = path
+  entry.value = await tables.use(path)
   mounted.value = true
+})
+
+onBeforeUnmount(() => {
+  if (mountedPath !== "") tables.release(mountedPath)
 })
 
 /** 单行统计，给状态栏用。 */

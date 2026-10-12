@@ -7,7 +7,7 @@ import DataTableEditor from "./DataTableEditor.vue"
 import EditorHome from "./EditorHome.vue"
 import EditorStatusBar from "./EditorStatusBar.vue"
 
-const { activeTab, isLoadingDocument, isActiveTable, fsError, dismissError } = useWorkspace()
+const { activeTab, activePath, isLoadingDocument, isActiveTable, fsError, dismissError } = useWorkspace()
 
 /**
  * 只有真拿到正文才挂 BlockEditor。
@@ -42,7 +42,10 @@ const hasDocument = computed(() => activeTab.value !== null && !isLoadingDocumen
     </div>
 
     <EditorHome v-if="!hasDocument" />
-    <DataTableEditor v-else-if="isActiveTable" />
+    <!-- 编辑器在 onMounted 里按当时的 activePath 读一次表,不随激活路径自动重读 ——
+         不加 key 的话,两个数据表标签之间切换会复用实例,永远显示第一张激活的表。
+         key 让每个路径一个实例:换表 = 重挂 = 重读。 -->
+    <DataTableEditor v-else-if="isActiveTable" :key="activePath" />
     <BlockEditor v-else />
 
     <!-- 数据表的统计由它自己的工具条显示，状态栏是笔记的（字数）。 -->
