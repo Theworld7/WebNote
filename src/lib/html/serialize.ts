@@ -284,6 +284,9 @@ function galleryHtml(block: GalleryBlock, table: DataTable | null): string {
   if (block.ratio !== GALLERY_RATIO_DEFAULT) attrs.push(`data-ratio="${escapeHtml(block.ratio)}"`)
   if (block.fit !== "cover") attrs.push(`data-fit="${block.fit}"`)
   if (block.hiddenFields.length > 0) attrs.push(`data-fields="${escapeHtml(block.hiddenFields.join(","))}"`)
+  if (block.group !== "") attrs.push(`data-group="${escapeHtml(block.group)}"`)
+  if (block.groupBy !== "") attrs.push(`data-group-by="${escapeHtml(block.groupBy)}"`)
+  if (block.groupOrder.length > 0) attrs.push(`data-group-order="${escapeHtml(block.groupOrder.join(","))}"`)
 
   // 没有内容可写（表读不到 / 空表）就留一张带属性的空表 —— 表格骨架是
   // 「这是一个画册块」的最小形态，浏览器渲染出来也只是什么都没有，不会坏。

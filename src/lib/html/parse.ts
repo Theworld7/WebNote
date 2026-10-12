@@ -282,8 +282,14 @@ function parseGallery(table: HTMLTableElement): GalleryBlock | null {
   const fit = table.getAttribute("data-fit") === "contain" ? "contain" : "cover"
   const fields = table.getAttribute("data-fields") ?? ""
   const hiddenFields = fields === "" ? [] : fields.split(",").filter((id) => id !== "")
+  // 聚合参考列 id 原样收下,不校验列还存在 —— 指向的列被删后渲染时自然退化为平铺,
+  // 与 hiddenFields 里残留 id 的立场一致。
+  const group = table.getAttribute("data-group") ?? ""
+  const groupBy = table.getAttribute("data-group-by") ?? ""
+  const order = table.getAttribute("data-group-order") ?? ""
+  const groupOrder = order === "" ? [] : order.split(",").filter((item) => item !== "")
 
-  return createGalleryBlock(path, columns, fit, hiddenFields, ratio)
+  return createGalleryBlock(path, columns, fit, hiddenFields, ratio, group, groupBy, groupOrder)
 }
 
 /**

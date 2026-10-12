@@ -80,14 +80,15 @@ const html = blocksToHtml([block], lookup)
 check("快照带 data-gallery 指针", html.includes('data-gallery="追剧.tbl"'), html)
 check("默认设置不写属性(对齐缺省立场)",
   !html.includes("data-columns") && !html.includes("data-ratio") &&
-  !html.includes("data-fit") && !html.includes("data-fields"), html)
+  !html.includes("data-fit") && !html.includes("data-fields") && !html.includes("data-group"), html)
 check("图片格是真正的 <img>(自包含快照)", html.includes(`<td><img src="${URI}" alt="">`), html)
 
-const custom = blocksToHtml([createGalleryBlock("追剧.tbl", 3, "contain", ["c1", "c2"], "9:16")], lookup)
+const custom = blocksToHtml([createGalleryBlock("追剧.tbl", 3, "contain", ["c1", "c2"], "9:16", "c9")], lookup)
 check("自定义列数写 data-columns", custom.includes('data-columns="3"'), custom)
 check("非默认比例写 data-ratio", custom.includes('data-ratio="9:16"'), custom)
 check("contain 写 data-fit", custom.includes('data-fit="contain"'), custom)
 check("隐藏字段写 data-fields(列 id 逗号分隔)", custom.includes('data-fields="c1,c2"'), custom)
+check("聚合字段写 data-group", custom.includes('data-group="c9"'), custom)
 
 // 表读不到:设置跟着笔记走,仍然写出带指针的空表。
 const missing = blocksToHtml([block], () => null)
@@ -109,7 +110,8 @@ const restoredCustom = parseHtml(`<body>${custom}</body>`)[0]
 check("自定义设置逐项还原",
   restoredCustom.columns === 3 && restoredCustom.ratio === "9:16" &&
   restoredCustom.fit === "contain" &&
-  restoredCustom.hiddenFields.join(",") === "c1,c2")
+  restoredCustom.hiddenFields.join(",") === "c1,c2" &&
+  restoredCustom.group === "c9")
 
 // 宽容:属性被手工编辑过 → 非法值落回默认,而不是拒读整篇笔记。
 const lenient = (attrs) => parseHtml(`<body><table ${attrs}></table></body>`)[0]
@@ -124,6 +126,8 @@ check("越界比例落回海报默认", lenient('data-gallery="x.tbl" data-ratio
 check("比例读写归一化(吃掉空格与前导零)", lenient('data-gallery="x.tbl" data-ratio="02:03"').ratio === "2:3")
 check("contain 才被认作 contain", lenient('data-gallery="x.tbl" data-fit="cover"').fit === "cover")
 check("空 data-fields 落回全显", lenient('data-gallery="x.tbl" data-fields=""').hiddenFields.length === 0)
+check("缺 data-group 落回关闭聚合", lenient('data-gallery="x.tbl"').group === "")
+check("data-group 原样收下(列存在性渲染时再判)", lenient('data-gallery="x.tbl" data-group="gone"').group === "gone")
 check("空指针路径容忍(走 missing 提示态)", lenient('data-gallery=""').path === "")
 
 // 剥掉指针(第三方编辑器、旧版应用):退化成普通表格块 —— 与数据表引用块的快照例外等价。

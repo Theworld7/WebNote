@@ -261,7 +261,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
 
     <!-- 表格：自己横向滚动，永远铺满窗口宽度（不受「表格效果」偏好影响）。 -->
     <div class="min-h-0 flex-1 overflow-auto rounded-lg border border-line">
-      <table class="w-full border-separate border-spacing-0">
+      <table class="w-full border-separate border-spacing-0 text-[13px]">
         <thead>
           <tr>
             <!-- 行号列。固定短宽度，不参与列模型。 -->

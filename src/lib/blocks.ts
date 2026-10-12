@@ -172,8 +172,11 @@ export function createGalleryBlock(
   fit: "cover" | "contain" = "cover",
   hiddenFields: string[] = [],
   ratio: string = GALLERY_RATIO_DEFAULT,
+  group = "",
+  groupBy = "",
+  groupOrder: string[] = [],
 ): GalleryBlock {
-  return { id: createBlockId(), type: "gallery", path, columns, fit, hiddenFields, ratio }
+  return { id: createBlockId(), type: "gallery", path, columns, fit, hiddenFields, ratio, group, groupBy, groupOrder }
 }
 
 /** 按类型造块。`text` 会被包成单个无标记 run —— 组件层新建块走这条，不必手搓 runs。 */

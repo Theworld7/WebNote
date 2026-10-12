@@ -152,6 +152,12 @@ export interface GalleryBlock {
   fit: "cover" | "contain"
   /** 隐藏字段的列 id。默认空 = 全显;删列后残留的 id 在渲染时按当前列过滤,无需清洗。 */
   hiddenFields: string[]
+  /** 聚合展示的参考列 id。空 = 关闭聚合;指向的列被删后渲染时自然退化为平铺,无需清洗。 */
+  group: string
+  /** 分组展示的参考列 id。空 = 关闭分组;可与聚合叠加(不同字段),同字段时以设置层「后设的赢」保证不撞。 */
+  groupBy: string
+  /** 分组节的手排顺序:组原始值(文本列即其文本,select 列即选项 id)的有序列表。列表外的组跟首现序排在后面,无需清洗。 */
+  groupOrder: string[]
 }
 
 export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock

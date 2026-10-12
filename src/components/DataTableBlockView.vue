@@ -202,7 +202,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
 
   <div v-else class="group/ref relative my-4">
     <div :class="frame.container">
-      <table :class="frame.table">
+      <table :class="[frame.table, 'text-[13px]']">
         <thead>
           <tr>
             <th

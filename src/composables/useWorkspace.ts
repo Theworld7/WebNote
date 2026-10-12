@@ -629,7 +629,7 @@ function createWorkspace() {
    * 不是 `.tbl` —— 多篇笔记引用同一张表时，各自的画册设置互不相干。
    * patch 只带改动的键：菜单里每档设置各管各的，不必整包重建。
    */
-  function updateGalleryBlock(id: string, patch: Partial<Pick<GalleryBlock, "columns" | "ratio" | "fit" | "hiddenFields">>) {
+  function updateGalleryBlock(id: string, patch: Partial<Pick<GalleryBlock, "columns" | "ratio" | "fit" | "hiddenFields" | "group" | "groupBy" | "groupOrder">>) {
     const block = activeBlock(id)
     if (block === undefined || block.type !== "gallery") return
     Object.assign(block, patch)
