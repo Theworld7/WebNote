@@ -141,7 +141,7 @@ check(
   "子目录的 children 只有新建的那一篇",
   folderNode?.children?.length === 1 && folderNode.children[0].name === "第二天.html",
 )
-check("根层文件数没有被污染", workspace.tree.value.filter((n) => n.kind === "file").length === 2)
+check("根层文件数没有被污染", workspace.tree.value.filter((n) => n.kind !== "folder").length === 2)
 
 // 文件夹与文件同名也冲突
 workspace.dismissError()

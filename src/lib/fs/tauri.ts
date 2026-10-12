@@ -132,7 +132,7 @@ export function createTauriFs(): WorkspaceFs {
           nodes.push(folderNode(path, entry.name, []))
           continue
         }
-        if (entry.isFile && isNoteFile(entry.name)) nodes.push(fileNode(path, entry.name))
+        if (entry.isFile && (isNoteFile(entry.name) || isTableFile(entry.name))) nodes.push(fileNode(path, entry.name))
       }
       return sortNodes(nodes)
     },
