@@ -1,6 +1,6 @@
-import type { Block, DataTableBlock, ImageBlock, MermaidBlock, TableCell, TextualBlock } from "@/types/workspace"
+import type { Block, DataTableBlock, GalleryBlock, ImageBlock, MermaidBlock, TableCell, TextualBlock } from "@/types/workspace"
 import type { DataTable } from "@/types/data-table"
-import { isListBlock } from "@/lib/blocks"
+import { GALLERY_RATIO_DEFAULT, isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
 import { cellValue, valueText } from "@/lib/data-table"
 import { escapeHtml, escapeTextToHtml, runsText, runsToHtml } from "@/lib/inline"
@@ -68,6 +68,10 @@ export function blocksToHtml(blocks: readonly Block[], lookupTables?: DataTableL
     }
     if (block.type === "datatable") {
       out.push(dataTableHtml(block, lookup(block.path)))
+      continue
+    }
+    if (block.type === "gallery") {
+      out.push(galleryHtml(block, lookup(block.path)))
       continue
     }
     if (isListBlock(block)) {
@@ -237,12 +241,71 @@ function dataTableHtml(block: DataTableBlock, table: DataTable | null): string {
   const headLine = `      <tr>${table.columns.map((column) => wrap("th", escapeTextToHtml(column.name))).join("")}</tr>`
   const bodyLines = table.rows.map((row) => {
     const cells = table.columns
-      .map((column) => wrap("td", escapeTextToHtml(valueText(cellValue(row, column), column))))
+      .map((column) => {
+        const value = cellValue(row, column)
+        // 图片格导出成真正的 `<img>`（与 imageHtml 同款转义）：快照的价值是「双击就能看」，
+        // 一格 base64 文本不是看。data URI 内联，导出的单文件依旧自包含。回读时 td 里的
+        // img 会被丢掉、格子变空 —— Snapshot exception 的既有范围，不再另行处理。
+        if (column.type === "image" && typeof value === "string") {
+          return wrap("td", `<img src="${escapeHtml(value)}" alt="">`)
+        }
+        return wrap("td", escapeTextToHtml(valueText(value, column)))
+      })
       .join("")
     return `      <tr>${cells}</tr>`
   })
 
   const parts = ["<table>", "  <thead>", headLine, "  </thead>"]
+  if (bodyLines.length > 0) parts.push("  <tbody>", ...bodyLines, "  </tbody>")
+  parts.push("</table>")
+
+  return parts.join("\n")
+}
+
+/**
+ * 画册块 → **快照 + 指针**（ADR-0006）。
+ *
+ * 内容与 `dataTableHtml` 同源同构：一张快照表格，图片格照旧内联 data URI ——
+ * 拿到导出文件的人双击就能看全全部内容，「不带 .tbl 也能读」的承诺不变。
+ * 与它的差别只有一层 `data-*` 属性：画册的列数、填充、字段显隐是**块的设置**，
+ * 丢了要重新配，所以随快照一并写进文件，编辑器据此把它还原成活的画册块；
+ * 第三方编辑器剥掉这些属性也无妨，剩下的就是一张普通表格（与数据表引用块的
+ * 现状等价）。
+ *
+ * 表读不到时**仍然写出**带属性的空表：设置跟着笔记走，不因一次读盘失败蒸发；
+ * 重开时块自己走「读不到」的提示态。
+ *
+ * 属性只写非默认值（对齐 `TableBlock` 对齐属性的缺省立场）：默认配置的画册块
+ * 在盘上与数据表快照仅差一个 `data-gallery`，人类直接读文件也不觉得吵。
+ */
+function galleryHtml(block: GalleryBlock, table: DataTable | null): string {
+  const attrs = [`data-gallery="${escapeHtml(block.path)}"`]
+  if (block.columns !== "auto") attrs.push(`data-columns="${block.columns}"`)
+  if (block.ratio !== GALLERY_RATIO_DEFAULT) attrs.push(`data-ratio="${escapeHtml(block.ratio)}"`)
+  if (block.fit !== "cover") attrs.push(`data-fit="${block.fit}"`)
+  if (block.hiddenFields.length > 0) attrs.push(`data-fields="${escapeHtml(block.hiddenFields.join(","))}"`)
+
+  // 没有内容可写（表读不到 / 空表）就留一张带属性的空表 —— 表格骨架是
+  // 「这是一个画册块」的最小形态，浏览器渲染出来也只是什么都没有，不会坏。
+  if (table === null || table.rows.length === 0) {
+    return `<table ${attrs.join(" ")}></table>`
+  }
+
+  const headLine = `      <tr>${table.columns.map((column) => wrap("th", escapeTextToHtml(column.name))).join("")}</tr>`
+  const bodyLines = table.rows.map((row) => {
+    const cells = table.columns
+      .map((column) => {
+        const value = cellValue(row, column)
+        if (column.type === "image" && typeof value === "string") {
+          return wrap("td", `<img src="${escapeHtml(value)}" alt="">`)
+        }
+        return wrap("td", escapeTextToHtml(valueText(value, column)))
+      })
+      .join("")
+    return `      <tr>${cells}</tr>`
+  })
+
+  const parts = [`<table ${attrs.join(" ")}>`, "  <thead>", headLine, "  </thead>"]
   if (bodyLines.length > 0) parts.push("  <tbody>", ...bodyLines, "  </tbody>")
   parts.push("</table>")
 

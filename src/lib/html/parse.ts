@@ -1,5 +1,5 @@
-import type { Block, ImageBlock, InlineRun, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
-import { createImageBlock, createMermaidBlock, createTableBlock, createTextualBlock } from "@/lib/blocks"
+import type { Block, GalleryBlock, ImageBlock, InlineRun, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
+import { createGalleryBlock, createImageBlock, createMermaidBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT } from "@/lib/blocks"
 import { textToRuns, trimRuns } from "@/lib/inline"
 import { isTableAlign } from "@/lib/table"
 import { runsFromNodes } from "./runs-dom"
@@ -129,7 +129,11 @@ function parseBlockElement(element: Element, state: ParseState, depth: number): 
       return
     case "TABLE":
       if (element instanceof HTMLTableElement) {
-        state.blocks.push(parseTable(element))
+        // 带指针的快照（ADR-0006）还原成活的画册块：路径与设置都在属性里，
+        // 内容是快照 —— 活数据从 `.tbl` 来，这里丢弃。没有指针就走普通表格。
+        const gallery = parseGallery(element)
+        if (gallery !== null) state.blocks.push(gallery)
+        else state.blocks.push(parseTable(element))
         return
       }
       break
@@ -255,6 +259,47 @@ function parseTable(table: HTMLTableElement): TableBlock {
   }
 
   return createTableBlock(rows)
+}
+
+/**
+ * `<table data-gallery="…">` → 画册块。没有 `data-gallery` 返回 null,调用方回落到
+ * 普通表格 —— 画册块被第三方编辑器动过之后,剩下的就是一张无主快照,按表格读是
+ * 「正确的读法」(与数据表引用块的快照例外同一立场)。
+ *
+ * 属性**宽容**读取:这是自家导出的写法,但文件可能被人手工编辑过 —— 缺失或非法的
+ * 设置一律落回默认值(响应式 / 海报比例 / 裁剪填充 / 全显),而不是拒读整篇笔记。路径是唯一
+ * 没有「默认值」可落的:留空串,块自己渲染成「读不到」的提示态。
+ */
+function parseGallery(table: HTMLTableElement): GalleryBlock | null {
+  const path = table.getAttribute("data-gallery")
+  if (path === null) return null
+
+  const rawColumns = Number(table.getAttribute("data-columns"))
+  const columns =
+    Number.isInteger(rawColumns) && rawColumns >= 1 && rawColumns <= 12 ? rawColumns : "auto"
+
+  const ratio = parseGalleryRatio(table.getAttribute("data-ratio"))
+  const fit = table.getAttribute("data-fit") === "contain" ? "contain" : "cover"
+  const fields = table.getAttribute("data-fields") ?? ""
+  const hiddenFields = fields === "" ? [] : fields.split(",").filter((id) => id !== "")
+
+  return createGalleryBlock(path, columns, fit, hiddenFields, ratio)
+}
+
+/**
+ * `data-ratio` 的宽容读取:只认「两个 1..16 的整数」的写法(上界与设置菜单的预设档位
+ * 对齐 —— 手工改出 `1:100` 这种比例,卡片只会高得没有意义),其余一律落回海报默认。
+ * 命中时按 `宽:高` 归一化返回,不吃下手工文件里的空格与前导零。
+ */
+function parseGalleryRatio(raw: string | null): string {
+  const parts = raw !== null ? raw.split(":") : []
+  const width = Number(parts[0])
+  const height = Number(parts[1])
+  const legal =
+    parts.length === 2 &&
+    Number.isInteger(width) && width >= 1 && width <= 16 &&
+    Number.isInteger(height) && height >= 1 && height <= 16
+  return legal ? `${width}:${height}` : GALLERY_RATIO_DEFAULT
 }
 
 /**

@@ -3,6 +3,7 @@ import type {
   BlockType,
   BlockTypeMeta,
   DataTableBlock,
+  GalleryBlock,
   ImageBlock,
   InlineRun,
   MermaidBlock,
@@ -44,6 +45,8 @@ export const BLOCK_TYPES = [
   { type: "table", marker: "⊞", label: "表格" },
   // 紧挨 table：数据表在用户眼里就是「更正式的表格」，摆一起最容易找。
   { type: "datatable", marker: "▤", label: "数据表" },
+  // 紧挨 datatable：画册展示的就是数据表的数据，只是换了一身衣服。
+  { type: "gallery", marker: "▦", label: "画册" },
 ] satisfies readonly BlockTypeMeta[]
 
 /**
@@ -110,7 +113,8 @@ export function isTextualBlock(block: Block): block is TextualBlock {
     block.type !== "image" &&
     block.type !== "table" &&
     block.type !== "mermaid" &&
-    block.type !== "datatable"
+    block.type !== "datatable" &&
+    block.type !== "gallery"
   )
 }
 
@@ -155,12 +159,30 @@ export function createDataTableBlock(path = ""): DataTableBlock {
   return { id: createBlockId(), type: "datatable", path }
 }
 
+/** 画册卡片图片的默认显示比例(电影海报)。序列化只写非默认值,解析也以它兜底。 */
+export const GALLERY_RATIO_DEFAULT = "2:3"
+
+/**
+ * 造画册块。缺省的设置(响应式列数、海报比例、裁剪填充、全字段可见)是最不意外的起点;
+ * 带全参数的调用来自解析器 —— 盘上属性宽容读取后的值在这里收口成合法类型。
+ */
+export function createGalleryBlock(
+  path = "",
+  columns: "auto" | number = "auto",
+  fit: "cover" | "contain" = "cover",
+  hiddenFields: string[] = [],
+  ratio: string = GALLERY_RATIO_DEFAULT,
+): GalleryBlock {
+  return { id: createBlockId(), type: "gallery", path, columns, fit, hiddenFields, ratio }
+}
+
 /** 按类型造块。`text` 会被包成单个无标记 run —— 组件层新建块走这条，不必手搓 runs。 */
 export function createBlock(type: BlockType, text = ""): Block {
   if (type === "image") return createImageBlock()
   if (type === "table") return createTableBlock()
   if (type === "mermaid") return createMermaidBlock()
   if (type === "datatable") return createDataTableBlock()
+  if (type === "gallery") return createGalleryBlock()
   return createTextualBlock(type, textToRuns(text))
 }
 
@@ -171,7 +193,7 @@ export function createBlock(type: BlockType, text = ""): Block {
  * 数据若不同步清空，切走标签再切回来又会把旧内容渲染出来（`/` 触发转换时尤其明显）。
  */
 export function retypeBlock(block: Block, type: BlockType): Block {
-  if (type === "image" || type === "table" || type === "mermaid" || type === "datatable") {
+  if (type === "image" || type === "table" || type === "mermaid" || type === "datatable" || type === "gallery") {
     return createBlock(type)
   }
   if (!isTextualBlock(block)) return createTextualBlock(type)
@@ -192,6 +214,10 @@ export function cloneBlock(block: Block, id: string): Block {
   if (block.type === "image" || block.type === "mermaid" || block.type === "datatable") {
     return { ...block, id }
   }
+  // 画册的 hiddenFields 是数组：更新总以整体替换发生，但拷贝不该共享同一份。
+  if (block.type === "gallery") {
+    return { ...block, id, hiddenFields: [...block.hiddenFields] }
+  }
   if (block.type === "table") {
     return { ...block, id, rows: block.rows.map((row) => row.map(cloneCell)) }
   }
@@ -210,6 +236,8 @@ export function blockText(block: Block): string {
   // 引用块只带路径 —— 表格内容不在笔记里，投影拿不到它，也不该为此去读盘
   // （字数统计是同步的纯函数）。取路径是这里唯一诚实的选择。
   if (block.type === "datatable") return block.path
+  // 画册同样只带路径 —— 设置（列数、填充、字段显隐）不是文本，不进投影。
+  if (block.type === "gallery") return block.path
   if (block.type === "table") {
     return block.rows.map((row) => row.map((cell) => runsText(cell.runs)).join(" ")).join("\n")
   }

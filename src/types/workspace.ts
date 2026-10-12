@@ -51,7 +51,7 @@ export type TextualBlockType =
   | "divider"
 
 /** 全部块类型 = 正文类 + 四个结构类。派生而非常量列表，避免两处维护。 */
-export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable"
+export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery"
 
 /** 正文块。块之间是平铺列表；列表的嵌套层级用 `depth` 表达，不建树。 */
 export interface TextualBlock {
@@ -128,7 +128,33 @@ export interface DataTableBlock {
   path: string
 }
 
-export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock
+/**
+ * 画册块:把一张数据表渲染成海报卡片宫格。
+ *
+ * 数据同样**只在** `.tbl` 里(与 `DataTableBlock` 同源,见 ADR-0005),块上只带
+ * 引用路径和一组**展示设置**。设置是块的一部分,跟着笔记走 —— 这也是它和
+ * `DataTableBlock` 在盘上形态上分道扬镳的原因:
+ *
+ * `DataTableBlock` 导出成纯快照表格、引用不进文件(没有设置可丢,不值得);画册块的
+ * 列数、比例、填充方式、字段显隐丢了要重新配,所以导出时以 `data-*` 属性把路径与设置
+ * **一并**写进快照(内容照写,「双击可读」承诺不变)—— 快照与指针并存,详见 ADR-0006。
+ */
+export interface GalleryBlock {
+  id: string
+  type: "gallery"
+  /** 被引用的 `.tbl` 文件的工作区路径。 */
+  path: string
+  /** 列数:`"auto"` 响应式(容器多宽就放几列),数字为固定列数(1..12)。 */
+  columns: "auto" | number
+  /** 卡片图片区的显示比例,`"宽:高"` 写法,如 `"2:3"` 海报(默认)。高度随列宽走。 */
+  ratio: string
+  /** 卡片图片的填充方式:`cover` 裁剪填满(默认),`contain` 完整显示。 */
+  fit: "cover" | "contain"
+  /** 隐藏字段的列 id。默认空 = 全显;删列后残留的 id 在渲染时按当前列过滤,无需清洗。 */
+  hiddenFields: string[]
+}
+
+export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock
 
 /** 块类型元数据：菜单标记 + 中文名。菜单渲染直接消费。 */
 export interface BlockTypeMeta {

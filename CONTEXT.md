@@ -91,18 +91,35 @@ is no row order stored — a view may sort by any column.
 _Avoid_: Record, entry, item, line
 
 **Column type**:
-What a Data column's values mean: `text`, `number`, `date`, `select`, or `checkbox`. A value
-is stored in the shape its type implies — a number is a number, a date is a date — not as a
-string that happens to look like one, because sorting, filtering and summing all depend on
-it. `select` is the only type whose values are a closed set: the options live on the column
-and a row stores the option's id.
+What a Data column's values mean: `text`, `number`, `date`, `select`, `checkbox`, or
+`image`. A value is stored in the shape its type implies — a number is a number, a date is
+a date — not as a string that happens to look like one, because sorting, filtering and
+summing all depend on it. `select` is the only type whose values are a closed set: the
+options live on the column and a row stores the option's id.
 _Avoid_: Field type, data type, schema
+
+**Image column**:
+A Data column whose cells hold an image as an inline `data:image/…` URI string; empty is
+`null`. The image lives **inside the `.tbl`**, not beside it — the file is a standalone
+document (see ADR-0005), and a folder of attachments next to it would break that. The cost
+is paid in file size, on purpose.
+_Avoid_: Attachment, thumbnail, photo, file path
 
 **Data table block**:
 A Block inside a Note that points at a Data table by workspace path. It carries the path and
 nothing else — the records stay in the `.tbl` file, so the same table seen from two Notes is
 the same table, and editing it from either place is the same edit.
 _Avoid_: Embed, reference, view, database block
+
+**Gallery block**:
+A Block that presents a Data table as a grid of poster cards — each row becomes one card: an
+image on top, the row's other fields below, editable in place. It points at the same `.tbl` a
+Data table block would, but adds **presentation settings** (column count, image ratio, image
+fit, hidden fields) that belong to the block, not the table: two Notes can present one table
+differently.
+On disk it travels as a snapshot **with** a pointer (`data-gallery` + settings on a `<table>`,
+see ADR-0006) so its settings survive a reopen while the export still opens on its own.
+_Avoid_: Card view, Grid, Poster, Database view
 
 **Missing Data table**:
 The state of a Data table block whose path no longer resolves. It is a normal, recoverable

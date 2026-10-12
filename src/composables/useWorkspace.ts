@@ -1,8 +1,8 @@
 import type { InjectionKey } from "vue"
-import type { Block, BlockType, CloseStrategy, CreateTarget, FileNode, InlineRun, OpenTab, TableAlign, TableCell } from "@/types/workspace"
+import type { Block, BlockType, CloseStrategy, CreateTarget, FileNode, GalleryBlock, InlineRun, OpenTab, TableAlign, TableCell } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref } from "vue"
-import { cloneBlock, countChars, createBlock, createBlockId, createDataTableBlock, isTextualBlock, retypeBlock } from "@/lib/blocks"
+import { cloneBlock, countChars, createBlock, createBlockId, createDataTableBlock, createGalleryBlock, isTextualBlock, retypeBlock } from "@/lib/blocks"
 import { describeError } from "@/lib/errors"
 import { parseHtml, serializeHtml } from "@/lib/html"
 import type { DataTableLookup } from "@/lib/html"
@@ -111,6 +111,24 @@ function createWorkspace() {
   const visibleTree = computed<FileNode[]>(() => {
     if (!isSearching.value) return tree.value
     return filterNodes(tree.value, query.value.trim().toLowerCase())
+  })
+
+  /**
+   * 工作区里全部数据表的路径。
+   *
+   * 走**原始**树而不是 `visibleTree` —— 画册块插入对话框要在没有搜索干扰时列出全量表，
+   * 搜索进行中也不该跟着变。文件树扫描只认 `.html/.htm/.tbl`，所以这里的每一项都是表。
+   */
+  const tablePaths = computed<string[]>(() => {
+    const paths: string[] = []
+    const walk = (nodes: readonly FileNode[]) => {
+      for (const node of nodes) {
+        if (node.kind === "table") paths.push(node.id)
+        walk(node.children ?? [])
+      }
+    }
+    walk(tree.value)
+    return paths
   })
 
   const activeTab = computed<OpenTab | null>(
@@ -606,6 +624,18 @@ function createWorkspace() {
     markDirty()
   }
 
+  /**
+   * 更新画册块的展示设置。改动的是**笔记文档**（块属性随笔记保存，ADR-0006），
+   * 不是 `.tbl` —— 多篇笔记引用同一张表时，各自的画册设置互不相干。
+   * patch 只带改动的键：菜单里每档设置各管各的，不必整包重建。
+   */
+  function updateGalleryBlock(id: string, patch: Partial<Pick<GalleryBlock, "columns" | "ratio" | "fit" | "hiddenFields">>) {
+    const block = activeBlock(id)
+    if (block === undefined || block.type !== "gallery") return
+    Object.assign(block, patch)
+    markDirty()
+  }
+
   function toggleBlockChecked(id: string) {
     const block = activeBlock(id)
     if (block === undefined || block.type !== "todo") return
@@ -655,20 +685,77 @@ function createWorkspace() {
   }
 
   /**
+   * 在当前笔记里插入一个画册块。
+   *
+   * 与 `insertDataTableBlock` 同构,差别在入口:画册块由**对话框**先行确定目标 ——
+   * - `target` 非空:直接引用工作区里已有的那张表。
+   * - `target` 为空:按 `stem`(用户在对话框里起的名)在当前笔记旁边新建一张,
+   *   撞名则直接引用已有的 —— 与数据表的新建规则同一条,「再给我一份同名副本」
+   *   不会是任何人的本意。
+   */
+  async function insertGalleryBlock(index: number, target = "", stem = ""): Promise<string> {
+    const blocks = activeDocument.value
+    const notePath = activePath.value
+
+    let path = target
+    if (path === "") {
+      path = await resolveDataTableForNote(notePath, stem)
+      if (path === "") return ""
+    }
+
+    const block = createGalleryBlock(path)
+    const at = Math.min(Math.max(index, 0), blocks.length)
+    blocks.splice(at, 0, block)
+    markDirty()
+    return block.id
+  }
+
+  /**
+   * 把已有块**原地转换**成数据表引用块或画册块,返回新块 id(失败返回空串)。
+   *
+   * 转换与插入遵守同一条规则:**先有文件才能指**。`/` 菜单与手柄的「转换为」走的是
+   * 这条路,不接规则的话落下的就是 `path` 为空串的引用块 —— 视图会永远停在
+   * 「正在读取」。解析不出路径就不转换,原块保持原样。
+   */
+  async function convertBlockToFileType(
+    id: string,
+    type: "datatable" | "gallery",
+    target = "",
+    stem = "",
+  ): Promise<string> {
+    const blocks = activeDocument.value
+    const index = blocks.findIndex((item) => item.id === id)
+    if (index === -1) return ""
+
+    let path = target
+    if (path === "") {
+      path = await resolveDataTableForNote(activePath.value, stem)
+      if (path === "") return ""
+    }
+
+    const block = type === "gallery" ? createGalleryBlock(path) : createDataTableBlock(path)
+    blocks[index] = block
+    markDirty()
+    return block.id
+  }
+
+  /**
    * 给一篇笔记找一张可引用的表。
    *
    * 规则只有两条，且**撞名不新建**：`客户.html` 里插数据表时，如果 `客户.tbl` 已经
    * 存在，就引用它 —— 用户的意思显然是「我那张表」，而不是「再给我一份同名副本」。
    * 这正是「在 Note 中创建数据表」的一个自然特例。
+   *
+   * `stem` 可指定名字主干：画册块的「新建表…」允许用户自己起名，不跟笔记同名。
    */
-  async function resolveDataTableForNote(notePath: string): Promise<string> {
+  async function resolveDataTableForNote(notePath: string, stem = ""): Promise<string> {
     const driver = fs.value
     const current = root.value
     if (driver === null || current === null) return ""
 
     const parent = parentOfPath(notePath)
-    const stem = fileStem(fileName(notePath))
-    const candidate = joinPath(parent, `${stem}${TABLE_EXTENSION}`)
+    const name = stem === "" ? fileStem(fileName(notePath)) : stem
+    const candidate = joinPath(parent, `${name}${TABLE_EXTENSION}`)
 
     try {
       if (await driver.exists(current, candidate)) return candidate
@@ -685,7 +772,7 @@ function createWorkspace() {
     try {
       await write(driver, current, candidate)
     } catch (error) {
-      fsError.value = `新建数据表「${stem}${TABLE_EXTENSION}」失败：${describeError(error)}`
+      fsError.value = `新建数据表「${name}${TABLE_EXTENSION}」失败：${describeError(error)}`
       return ""
     }
 
@@ -898,6 +985,10 @@ function createWorkspace() {
     insertBlockAfter,
     insertBlockAt,
     insertDataTableBlock,
+    insertGalleryBlock,
+    convertBlockToFileType,
+    updateGalleryBlock,
+    tablePaths,
     appendBlock,
     changeBlockType,
     duplicateBlock,

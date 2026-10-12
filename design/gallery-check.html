@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>画册块自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; }
+  .fail { color: #b42318; }
+</style>
+</head>
+<body>
+<h1>画册块：登记、快照+指针往返、宽容解析</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { BLOCK_TYPES, createBlock, createGalleryBlock, blockText, cloneBlock } from "../src/lib/blocks.ts"
+import { blocksToHtml } from "../src/lib/html/serialize.ts"
+import { parseHtml } from "../src/lib/html/parse.ts"
+import * as dt from "../src/lib/data-table.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+let step = "块类型登记"
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  document.getElementById("out").textContent = `running: ${step}\n${lines.join("\n")}`
+}
+
+function note(next) {
+  step = next
+  document.getElementById("out").textContent = `running: ${step}\n${lines.join("\n")}`
+}
+note(step)
+
+// ---------- 一、块类型登记 ----------
+
+check(
+  "BLOCK_TYPES 里有 gallery，且紧挨着 datatable",
+  BLOCK_TYPES.findIndex((m) => m.type === "gallery") ===
+    BLOCK_TYPES.findIndex((m) => m.type === "datatable") + 1,
+)
+check("BLOCK_TYPES 共 19 种", BLOCK_TYPES.length === 19, `实际 ${BLOCK_TYPES.length}`)
+
+// ---------- 二、工厂与投影 ----------
+
+note("工厂与投影")
+
+const block = createGalleryBlock("追剧.tbl")
+check("工厂默认值:响应式 / 海报比例 / 裁剪填充 / 全显",
+  block.columns === "auto" && block.ratio === "2:3" && block.fit === "cover" && block.hiddenFields.length === 0)
+check("createBlock('gallery') 走画册块", createBlock("gallery").type === "gallery")
+check("blockText 对画册块返回路径", blockText(block) === "追剧.tbl", blockText(block))
+check("cloneBlock 拷贝且不共享 hiddenFields", (() => {
+  const withHidden = createGalleryBlock("追剧.tbl", 3, "contain", ["c1"])
+  const copy = cloneBlock(withHidden, "other")
+  copy.hiddenFields.push("c2")
+  return copy.id === "other" && withHidden.hiddenFields.length === 1
+})())
+
+// ---------- 三、序列化:快照 + 指针 ----------
+
+note("序列化")
+
+const URI = "data:image/webp;base64,AAAA"
+let tbl = dt.createEmptyTable(["名称", "海报", "集数"])
+tbl = dt.setColumnType(tbl, tbl.columns[1].id, "image")
+tbl = dt.replaceRow(tbl, dt.setCell(tbl.rows[0], tbl.columns[0].id, "漫长的季节"))
+tbl = dt.replaceRow(tbl, dt.setCell(tbl.rows[0], tbl.columns[1].id, URI))
+tbl = dt.replaceRow(tbl, dt.setCell(tbl.rows[0], tbl.columns[2].id, 12))
+const lookup = (path) => (path === "追剧.tbl" ? tbl : null)
+
+const html = blocksToHtml([block], lookup)
+check("快照带 data-gallery 指针", html.includes('data-gallery="追剧.tbl"'), html)
+check("默认设置不写属性(对齐缺省立场)",
+  !html.includes("data-columns") && !html.includes("data-ratio") &&
+  !html.includes("data-fit") && !html.includes("data-fields"), html)
+check("图片格是真正的 <img>(自包含快照)", html.includes(`<td><img src="${URI}" alt="">`), html)
+
+const custom = blocksToHtml([createGalleryBlock("追剧.tbl", 3, "contain", ["c1", "c2"], "9:16")], lookup)
+check("自定义列数写 data-columns", custom.includes('data-columns="3"'), custom)
+check("非默认比例写 data-ratio", custom.includes('data-ratio="9:16"'), custom)
+check("contain 写 data-fit", custom.includes('data-fit="contain"'), custom)
+check("隐藏字段写 data-fields(列 id 逗号分隔)", custom.includes('data-fields="c1,c2"'), custom)
+
+// 表读不到:设置跟着笔记走,仍然写出带指针的空表。
+const missing = blocksToHtml([block], () => null)
+check("表读不到仍写出带指针的空表", missing.includes('data-gallery="追剧.tbl"') && missing.includes("<table"), missing)
+
+// ---------- 四、解析:还原与宽容 ----------
+
+note("解析")
+
+const restored = parseHtml(`<body>${html}</body>`)
+check("快照还原成画册块", restored.length === 1 && restored[0].type === "gallery", restored.map((b) => b.type).join(","))
+const gallery = restored[0]
+check("指针与设置逐项还原",
+  gallery.type === "gallery" && gallery.path === "追剧.tbl" &&
+  gallery.columns === "auto" && gallery.ratio === "2:3" &&
+  gallery.fit === "cover" && gallery.hiddenFields.length === 0)
+
+const restoredCustom = parseHtml(`<body>${custom}</body>`)[0]
+check("自定义设置逐项还原",
+  restoredCustom.columns === 3 && restoredCustom.ratio === "9:16" &&
+  restoredCustom.fit === "contain" &&
+  restoredCustom.hiddenFields.join(",") === "c1,c2")
+
+// 宽容:属性被手工编辑过 → 非法值落回默认,而不是拒读整篇笔记。
+const lenient = (attrs) => parseHtml(`<body><table ${attrs}></table></body>`)[0]
+check("只有指针时落回默认设置", (() => {
+  const b = lenient('data-gallery="x.tbl"')
+  return b.type === "gallery" && b.columns === "auto" && b.ratio === "2:3" && b.fit === "cover" && b.hiddenFields.length === 0
+})())
+check("非法列数落回 auto", lenient('data-gallery="x.tbl" data-columns="abc"').columns === "auto")
+check("越界列数落回 auto", lenient('data-gallery="x.tbl" data-columns="99"').columns === "auto")
+check("非法比例落回海报默认", lenient('data-gallery="x.tbl" data-ratio="abc"').ratio === "2:3")
+check("越界比例落回海报默认", lenient('data-gallery="x.tbl" data-ratio="1:100"').ratio === "2:3")
+check("比例读写归一化(吃掉空格与前导零)", lenient('data-gallery="x.tbl" data-ratio="02:03"').ratio === "2:3")
+check("contain 才被认作 contain", lenient('data-gallery="x.tbl" data-fit="cover"').fit === "cover")
+check("空 data-fields 落回全显", lenient('data-gallery="x.tbl" data-fields=""').hiddenFields.length === 0)
+check("空指针路径容忍(走 missing 提示态)", lenient('data-gallery=""').path === "")
+
+// 剥掉指针(第三方编辑器、旧版应用):退化成普通表格块 —— 与数据表引用块的快照例外等价。
+const plain = parseHtml("<body><table><thead><tr><th>名</th></tr></thead><tbody><tr><td>a</td></tr></tbody></table></body>")[0]
+check("没有 data-gallery 就是普通表格块", plain.type === "table", plain.type)
+
+// ---------- 收尾 ----------
+
+const summary = `自检 ${passed}/${passed + failed} 通过`
+document.getElementById("out").textContent = lines.join("\n") + `\n\n${summary}`
+document.title = summary
+
+const box = document.getElementById("out")
+box.insertAdjacentHTML(
+  "beforeend",
+  `<span class="${failed > 0 ? "fail" : "ok"}">\n${summary}</span>`,
+)
+</script>
+</body>
+</html>

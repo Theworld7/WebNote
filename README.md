@@ -79,6 +79,7 @@ pnpm icon          # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | `settings-check.html` | 设置：默认值、面板两选项与勾选态、切换落盘（`webnote:table-effect`）、**两种表格效果的实际渲染几何**（换行=不超容器 / 滚动=撑开且容器可横向滚动）、**细滚动条**（类名挂上、样式表有 6px 的 `::-webkit-scrollbar`、滚动条占高 ≈6px、未退回原生粗条）、**滚动条与表格的间距**（容器下内边距 = 8px、表格底边与滚动条之间有间距）、**右端内阴影的显隐跟随滚动位置**（不在最右显示、最右隐藏、换行模式不出现）及其底边避开滚动条、非法存量值退回默认 |
 | `table-align-check.html` | 表格：列对齐模型（整列一起写、插行列继承）、编辑器与导出的对齐一致、外框/内线/四角内弧的几何 |
 | `data-table-check.html` | 数据表：`.tbl` schema 往返（列顺序 / 原生值 / `null` 空值 / `select` 选项）、宽容解析（认不出的列类型退回 `text`、对不上列的键丢掉、version 超范围抛错）、引用块 → 快照 `<table>` 导出（含无 lookup 的提示态与「读回来是普通表格块」这个有意的不精确往返）、注册表（同路径同一对象、`missing` vs `failed`、preload / 引用计数 / mutate 落盘）、引用块与数据表编辑器的真实渲染 |
+| `gallery-check.html` | 画册块：登记表（紧挨数据表、工厂默认值、cloneBlock 深拷 `hiddenFields`）、快照+指针导出（`data-gallery` 恒写、非默认设置才写 `data-columns`/`data-ratio`/`data-fit`/`data-fields`、图片格 `<img>` 内联、表读不到仍带指针的空表）、宽容解析（缺属性/非法列数/非法与越界比例落回默认、无 `data-gallery` 退化成普通表格块） |
 
 页面会把每个用例输出成 `OK` / `FAIL` 行，便于用无头浏览器 `--dump-dom` 抠出来做回归。
 

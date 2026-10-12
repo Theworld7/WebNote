@@ -26,6 +26,7 @@ import InlineToolbar from "./InlineToolbar.vue"
 import MermaidBlockView from "./MermaidBlockView.vue"
 import TableBlockView from "./TableBlockView.vue"
 import DataTableBlockView from "./DataTableBlockView.vue"
+import GalleryBlockView from "./GalleryBlockView.vue"
 
 const props = defineProps<{
   block: Block
@@ -366,6 +367,8 @@ const bodyClass = computed(() => {
     <MermaidBlockView v-else-if="block.type === 'mermaid'" :block="block" />
 
     <DataTableBlockView v-else-if="block.type === 'datatable'" :block="block" />
+
+    <GalleryBlockView v-else-if="block.type === 'gallery'" :block="block" />
 
     <div v-else-if="block.type === 'divider'" class="h-px bg-line" />
 
