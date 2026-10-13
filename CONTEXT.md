@@ -22,8 +22,9 @@ The atomic unit a Note is made of. Blocks are a flat list, not a tree.
 _Avoid_: Element, node, item, paragraph
 
 **Block type**:
-One of eighteen identifiers. Fourteen are *textual* — they carry body content. Four are
-*structural* and carry their own fields: `image`, `table`, `mermaid`, `datatable`.
+One of twenty identifiers. Fourteen are *textual* — they carry body content. Six are
+*structural* and carry their own fields: `image`, `table`, `mermaid`, `datatable`,
+`gallery`, `layout`.
 _Avoid_: Kind, variant, tag
 
 **Textual block**:
@@ -126,6 +127,20 @@ The state of a Data table block whose path no longer resolves. It is a normal, r
 state — the file may have been moved, renamed or deleted, and the user may want to point the
 block at it again. It never marks the Note as broken and never blocks opening it.
 _Avoid_: Broken reference, dangling link, error
+
+**Layout block**:
+A structural Block that arranges other Blocks side by side: grid mode (2–4 equal columns) or
+flex mode (side by side, wrapping). It is the Note's one container Block — the top level stays
+a flat list, and a Layout block never appears inside another one, so nesting is capped at a
+single level (see ADR-0007). On disk it is `<div class="note-layout" data-layout="…">` holding
+one `<section>` per Cell.
+_Avoid_: Container, wrapper, section, Column, Grid (Grid is a mode name, not the block)
+
+**Cell**:
+One section of a Layout block: an ordered list of Blocks rendered side by side. A Cell is not
+a Note — it holds no settings and no title, and deleting its last block leaves an empty text
+block, the same rule the top level follows.
+_Avoid_: Column, slot, pane, area
 
 ### The workspace
 

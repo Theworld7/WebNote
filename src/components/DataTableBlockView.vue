@@ -270,7 +270,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
                   alt=""
                   loading="lazy"
                   decoding="async"
-                  class="max-h-24 rounded"
+                  class="max-h-24 rounded-lg"
                 >
               </div>
               <!-- 其余类型都是文本外观。编辑用 contenteditable 太复杂（要处理富文本、

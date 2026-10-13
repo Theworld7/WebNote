@@ -171,7 +171,7 @@ check("盘上：没有多出第三份", seeded.read("日记 / 第一篇.html") !
 
 // ---- 树结构 ----
 
-const rootFiles = workspace.tree.value.filter((n) => n.kind === "file").map((n) => n.name)
+const rootFiles = workspace.tree.value.filter((n) => n.kind === "note").map((n) => n.name)
 const folder = workspace.tree.value.find((n) => n.name === "日记")
 check("树：根层文件少了一篇", !rootFiles.includes("第一篇.html"), JSON.stringify(rootFiles))
 check("树：文件夹的 children 里出现了它", folder?.children?.some((n) => n.name === "第一篇.html") === true)

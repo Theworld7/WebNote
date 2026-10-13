@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import type { BlockDropEdge, BlockType } from "@/types/workspace"
-import { computed, nextTick, ref } from "vue"
+import { computed, ref } from "vue"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { orderedIndexes as orderedIndexesOf } from "@/lib/blocks"
-import { BLOCK_ROW_SELECTOR, DRAG_HANDLE_SELECTOR, closestBlockId, findEditable, focusEditable } from "@/lib/dom"
+import { DRAG_HANDLE_SELECTOR, TOP_BLOCK_ROW_SELECTOR, closestBlockId, focusBlockById } from "@/lib/dom"
 import { isFileDrag, pickImageFiles, readImageFile } from "@/lib/image"
 import BlockItem from "./BlockItem.vue"
 import GalleryInsertDialog from "./GalleryInsertDialog.vue"
@@ -49,13 +49,6 @@ function closeGalleryInsert() {
  */
 const orderedIndexes = computed(() => orderedIndexesOf(activeDocument.value))
 
-/** 新块 / 转换后的块要接管焦点，等 DOM 落地再找元素。 */
-async function focusBlock(id: string, at: "start" | "end" = "end") {
-  await nextTick()
-  const el = findEditable(id)
-  if (el) focusEditable(el, at)
-}
-
 function handleInsertAfter(id: string, type: BlockType) {
   // 数据表块要**先有文件**才能插 —— 引用块指向一个不存在的 `.tbl` 就是一个永远读不到的
   // 提示态。所以它走自己的异步路径：解析/新建那个表，拿到路径再插块。
@@ -63,7 +56,7 @@ function handleInsertAfter(id: string, type: BlockType) {
     const blocks = activeDocument.value
     const index = blocks.findIndex((item) => item.id === id)
     void insertDataTableBlock(index === -1 ? blocks.length : index + 1).then((blockId) => {
-      if (blockId !== "") void focusBlock(blockId)
+      if (blockId !== "") void focusBlockById(blockId)
     })
     return
   }
@@ -74,7 +67,7 @@ function handleInsertAfter(id: string, type: BlockType) {
     galleryInsertIndex.value = index === -1 ? blocks.length : index + 1
     return
   }
-  void focusBlock(insertBlockAfter(id, type))
+  void focusBlockById(insertBlockAfter(id, type))
 }
 
 function handleRetype(id: string, type: BlockType) {
@@ -87,12 +80,12 @@ function handleRetype(id: string, type: BlockType) {
   }
   if (type === "datatable") {
     void convertBlockToFileType(id, "datatable").then((blockId) => {
-      if (blockId !== "") void focusBlock(blockId)
+      if (blockId !== "") void focusBlockById(blockId)
     })
     return
   }
   changeBlockType(id, type)
-  void focusBlock(id)
+  void focusBlockById(id)
 }
 
 function handleRemove(id: string) {
@@ -101,7 +94,7 @@ function handleRemove(id: string) {
   removeBlock(id)
   // 删完把自己交给前一个块；删的是首块则落到新的首块。
   const target = blocks[Math.max(index - 1, 0)]
-  if (target) void focusBlock(target.id)
+  if (target) void focusBlockById(target.id)
 }
 
 // ---- 拖拽排序 ----
@@ -139,7 +132,8 @@ const dropIsNoop = computed(() => {
 function computeDropIndex(clientY: number): number | null {
   const root = docRef.value
   if (root === null) return null
-  const rows = root.querySelectorAll(BLOCK_ROW_SELECTOR)
+  // 只算顶层行：格子内也是块行（布局块 ADR-0007），算进落点序列下标就对不上顶层文档了。
+  const rows = root.querySelectorAll(TOP_BLOCK_ROW_SELECTOR)
   if (rows.length === 0) return null
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i]

@@ -109,7 +109,7 @@ await nextTick()
 
 const firstFile = (function find(nodes) {
   for (const node of nodes) {
-    if (node.kind === "file") return node
+    if (node.kind === "note") return node
     const hit = node.children ? find(node.children) : null
     if (hit) return hit
   }

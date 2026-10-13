@@ -1,6 +1,6 @@
-import type { Block, DataTableBlock, GalleryBlock, ImageBlock, MermaidBlock, TableCell, TextualBlock } from "@/types/workspace"
+import type { Block, DataTableBlock, GalleryBlock, ImageBlock, LayoutBlock, MermaidBlock, TableCell, TextualBlock } from "@/types/workspace"
 import type { DataTable } from "@/types/data-table"
-import { GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT, isListBlock } from "@/lib/blocks"
+import { GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT, LAYOUT_COLUMNS_DEFAULT, isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
 import { cellValue, valueText } from "@/lib/data-table"
 import { escapeHtml, escapeTextToHtml, runsText, runsToHtml } from "@/lib/inline"
@@ -72,6 +72,10 @@ export function blocksToHtml(blocks: readonly Block[], lookupTables?: DataTableL
     }
     if (block.type === "gallery") {
       out.push(galleryHtml(block, lookup(block.path)))
+      continue
+    }
+    if (block.type === "layout") {
+      out.push(layoutHtml(block, lookup))
       continue
     }
     if (isListBlock(block)) {
@@ -217,6 +221,23 @@ function tableHtml(rows: readonly TableCell[][]): string {
   parts.push("</table>")
 
   return parts.join("\n")
+}
+
+/**
+ * 布局块 → `<div class="note-layout" data-layout="…">` 包若干 `<section>`（ADR-0007）。
+ *
+ * 格子内容就是普通块 HTML —— 直接递归回 `blocksToHtml`，容器块不另立一套读写规则，
+ * 「解析 ⇄ 序列化精确可逆」对格子里的块同样成立。`data-columns` 只在 grid 且非缺省
+ * 列数时写出（缺省即 2 不落存储）；flex 不认列数，一律不写。
+ */
+function layoutHtml(block: LayoutBlock, lookup: DataTableLookup): string {
+  const columns =
+    block.mode === "grid" && block.columns !== undefined && block.columns !== LAYOUT_COLUMNS_DEFAULT
+      ? ` data-columns="${block.columns}"`
+      : ""
+  const cells = block.cells.map((cell) => `  <section>${blocksToHtml(cell, lookup)}</section>`).join("\n")
+  const inner = cells === "" ? "" : `\n${cells}\n`
+  return `<div class="note-layout" data-layout="${block.mode}"${columns}>${inner}</div>`
 }
 
 /**

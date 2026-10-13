@@ -6,6 +6,8 @@ import type {
   GalleryBlock,
   ImageBlock,
   InlineRun,
+  LayoutBlock,
+  LayoutMode,
   MermaidBlock,
   TableBlock,
   TableCell,
@@ -47,6 +49,8 @@ export const BLOCK_TYPES = [
   { type: "datatable", marker: "▤", label: "数据表" },
   // 紧挨 datatable：画册展示的就是数据表的数据，只是换了一身衣服。
   { type: "gallery", marker: "▦", label: "画册" },
+  // 压轴：容器块是「版面级」的重结构，跟在内容块族的最后。
+  { type: "layout", marker: "⬚", label: "布局" },
 ] satisfies readonly BlockTypeMeta[]
 
 /**
@@ -114,9 +118,22 @@ export function isTextualBlock(block: Block): block is TextualBlock {
     block.type !== "table" &&
     block.type !== "mermaid" &&
     block.type !== "datatable" &&
-    block.type !== "gallery"
+    block.type !== "gallery" &&
+    block.type !== "layout"
   )
 }
+
+/**
+ * 格子内插入/转换菜单要滤掉的类型：容器块本身（一层容器）与引用块。
+ *
+ * 引用块（数据表/画册）要「先有文件才能指」，那条异步分流与选表对话框都长在顶层
+ * 编辑器上，格子内不值得为此再铺一条路 —— 引用块放进布局格子的场景也足够边缘。
+ */
+export const CELL_EXCLUDED_TYPES: readonly BlockType[] = ["layout", "datatable", "gallery"]
+
+/** 布局块网格模式的列数档位与缺省值。缺省即 2 不落存储，解析也以它兜底。 */
+export const LAYOUT_COLUMNS = [2, 3, 4] as const
+export const LAYOUT_COLUMNS_DEFAULT = 2
 
 /** 块是否自带左侧标记（列表符号 / 复选框）。内容区的缩进也以它为准。 */
 export function hasLeadingMarker(type: BlockType): boolean {
@@ -183,6 +200,15 @@ export function createGalleryBlock(
   return { id: createBlockId(), type: "gallery", path, columns, fit, hiddenFields, ratio, group, groupBy, groupOrder, width }
 }
 
+/**
+ * 造布局块。`cells` 缺省为空 = 「尚未选择布局方式」，视图显示网格/弹性选择器；
+ * 选择后由操作层初始化两个格子（各含一个空文本块，光标有处落）。
+ * 带全参数的调用来自解析器 —— 盘上属性宽容读取后的值在这里收口成合法类型。
+ */
+export function createLayoutBlock(mode: LayoutMode = "grid", columns?: number, cells: Block[][] = []): LayoutBlock {
+  return { id: createBlockId(), type: "layout", mode, columns, cells }
+}
+
 /** 按类型造块。`text` 会被包成单个无标记 run —— 组件层新建块走这条，不必手搓 runs。 */
 export function createBlock(type: BlockType, text = ""): Block {
   if (type === "image") return createImageBlock()
@@ -190,6 +216,7 @@ export function createBlock(type: BlockType, text = ""): Block {
   if (type === "mermaid") return createMermaidBlock()
   if (type === "datatable") return createDataTableBlock()
   if (type === "gallery") return createGalleryBlock()
+  if (type === "layout") return createLayoutBlock()
   return createTextualBlock(type, textToRuns(text))
 }
 
@@ -200,7 +227,7 @@ export function createBlock(type: BlockType, text = ""): Block {
  * 数据若不同步清空，切走标签再切回来又会把旧内容渲染出来（`/` 触发转换时尤其明显）。
  */
 export function retypeBlock(block: Block, type: BlockType): Block {
-  if (type === "image" || type === "table" || type === "mermaid" || type === "datatable" || type === "gallery") {
+  if (type === "image" || type === "table" || type === "mermaid" || type === "datatable" || type === "gallery" || type === "layout") {
     return createBlock(type)
   }
   if (!isTextualBlock(block)) return createTextualBlock(type)
@@ -228,6 +255,11 @@ export function cloneBlock(block: Block, id: string): Block {
   if (block.type === "table") {
     return { ...block, id, rows: block.rows.map((row) => row.map(cloneCell)) }
   }
+  // 布局块的格子各自持有块列表：递归深拷、子块全部换新 id —— 复制出来的是一份
+  // 独立副本，不是共享子块的浅壳。
+  if (block.type === "layout") {
+    return { ...block, id, cells: block.cells.map((cell) => cell.map((item) => cloneBlock(item, createBlockId()))) }
+  }
   return { ...block, id, runs: cloneRuns(block.runs) }
 }
 
@@ -245,6 +277,10 @@ export function blockText(block: Block): string {
   if (block.type === "datatable") return block.path
   // 画册同样只带路径 —— 设置（列数、填充、字段显隐）不是文本，不进投影。
   if (block.type === "gallery") return block.path
+  // 布局块把格子里的块递归拼起来 —— 字数统计因此覆盖容器内的内容。
+  if (block.type === "layout") {
+    return block.cells.map((cell) => cell.map((item) => blockText(item)).join(" ")).join(" ")
+  }
   if (block.type === "table") {
     return block.rows.map((row) => row.map((cell) => runsText(cell.runs)).join(" ")).join("\n")
   }

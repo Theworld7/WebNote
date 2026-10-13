@@ -50,8 +50,8 @@ export type TextualBlockType =
   | "callout"
   | "divider"
 
-/** 全部块类型 = 正文类 + 四个结构类。派生而非常量列表，避免两处维护。 */
-export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery"
+/** 全部块类型 = 正文类 + 结构类。派生而非常量列表，避免两处维护。 */
+export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "layout"
 
 /** 正文块。块之间是平铺列表；列表的嵌套层级用 `depth` 表达，不建树。 */
 export interface TextualBlock {
@@ -162,7 +162,29 @@ export interface GalleryBlock {
   groupOrder: string[]
 }
 
-export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock
+/**
+ * 布局块:笔记里唯一的**容器块** —— 把若干格子按网格或弹性方式排开,每个格子各持有
+ * 一份独立的块列表(Notion 式)。顶层文档仍是扁平列表;布局块是唯一一层受控的嵌套,
+ * 且**格子内不再出现布局块**(一层容器原则,UI 的插入/转换菜单在格子内会把它滤掉)。
+ *
+ * 盘上形态是 `<div class="note-layout" data-layout="…">` 包若干 `<section>`,格子内容
+ * 就是普通块 HTML —— 序列化与解析各自复用既有的块读写,不另起一套(见 ADR-0007)。
+ */
+export interface LayoutBlock {
+  id: string
+  type: "layout"
+  /** 布局方式:网格(按行列均分)或弹性(横向排开、自动换行)。 */
+  mode: LayoutMode
+  /** 仅 grid 使用:每行列数(2..4)。缺省即 2,非 2 才落盘 —— 与 TableAlign 的「缺省不落存储」同一口径。 */
+  columns?: number
+  /** 格子的块列表,按序排列。空 `cells` = 尚未选择布局方式,视图显示选择器。 */
+  cells: Block[][]
+}
+
+/** 布局块的排布方式。 */
+export type LayoutMode = "grid" | "flex"
+
+export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | LayoutBlock
 
 /** 块类型元数据：菜单标记 + 中文名。菜单渲染直接消费。 */
 export interface BlockTypeMeta {

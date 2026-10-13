@@ -215,6 +215,7 @@ export const BLOCK_SPACING: Readonly<Record<BlockType, BlockSpacing>> = {
   mermaid: { top: 16, bottom: 16 },
   datatable: { top: 16, bottom: 16 },
   gallery: { top: 16, bottom: 16 },
+  layout: { top: 16, bottom: 16 },
 }
 
 // ───────────────────────────── 编辑器侧适配器 ─────────────────────────────
@@ -393,6 +394,15 @@ ${headingRules}
     table > *:last-child > tr:last-child > *:first-child { border-bottom-left-radius: calc(var(--radius-table) - 1px); }
     table > *:last-child > tr:last-child > *:last-child { border-bottom-right-radius: calc(var(--radius-table) - 1px); }
     th { font-weight: 600; background: var(--bg-soft); }
+    .note-layout { margin: ${BLOCK_SPACING.table.top}px 0; }
+    .note-layout[data-layout="grid"] { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .note-layout[data-layout="grid"][data-columns="3"] { grid-template-columns: repeat(3, 1fr); }
+    .note-layout[data-layout="grid"][data-columns="4"] { grid-template-columns: repeat(4, 1fr); }
+    .note-layout[data-layout="flex"] { display: flex; flex-wrap: wrap; gap: 12px; }
+    .note-layout > section { min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; }
+    .note-layout[data-layout="flex"] > section { flex: 1 1 0; min-width: 8rem; }
+    .note-layout > section > :first-child { margin-top: 0; }
+    .note-layout > section > :last-child { margin-bottom: 0; }
     mark { background-color: var(--mark-bg); color: inherit; }
     body > :first-child { margin-top: 0; } body > :last-child { margin-bottom: 0; }`
 }

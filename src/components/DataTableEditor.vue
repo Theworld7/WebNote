@@ -366,7 +366,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
                     alt=""
                     loading="lazy"
                     decoding="async"
-                    class="h-16 w-full rounded object-cover"
+                    class="h-16 w-full rounded-lg object-cover"
                   >
                   <button
                     type="button"

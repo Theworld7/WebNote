@@ -19,6 +19,10 @@ defineProps<{
   /** 当前打开的是哪个菜单，由父级 BlockItem 持有 —— 因为 `/` 输入也要程序化打开类型菜单。 */
   openMenu: BlockMenuKind
   typeMenuMode: "insert" | "convert"
+  /** 类型菜单要滤掉的类型。格子内滤容器块与引用块（ADR-0007），顶层不滤。 */
+  excludeTypes?: readonly BlockType[]
+  /** 是否渲染在布局格子里：手柄贴内容左缘，而不是伸到行外 50px（格子外没地方伸）。 */
+  inside?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -50,8 +54,8 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
 
 <template>
   <div
-    class="absolute left-[-50px] flex gap-0.5 transition-opacity"
-    :class="openMenu === '' ? 'opacity-0 group-hover:opacity-100' : 'opacity-100'"
+    class="absolute flex gap-0.5 transition-opacity"
+    :class="[openMenu === '' ? 'opacity-0 group-hover:opacity-100' : 'opacity-100', inside ? 'left-0' : 'left-[-50px]']"
     :style="{ top: 'var(--tools-top, 2px)' }"
   >
     <!-- +：在当前块下方插入。`/` 输入时复用同一个菜单，只是 mode 换成 convert。 -->
@@ -69,6 +73,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
           {{ typeMenuMode === "insert" ? "在当前块下方插入" : "转换为" }}
         </DropdownMenuLabel>
         <BlockTypeMenuItems
+          :exclude="excludeTypes"
           @pick="(type: BlockType) => (typeMenuMode === 'insert' ? emit('insert', type) : emit('retype', type))"
         />
       </DropdownMenuContent>
@@ -103,7 +108,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
             <span>转为…</span>
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent :class="MENU">
-            <BlockTypeMenuItems @pick="(type: BlockType) => emit('retype', type)" />
+            <BlockTypeMenuItems :exclude="excludeTypes" @pick="(type: BlockType) => emit('retype', type)" />
           </DropdownMenuSubContent>
         </DropdownMenuSub>
 

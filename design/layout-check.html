@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>布局块自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; }
+  .fail { color: #b42318; }
+  .sum { margin-top: 12px; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>布局块（ADR-0007）：序列化 / 解析 / 投影，自检</h1>
+<pre id="out">running…</pre>
+
+<script type="module">
+import { parseHtml } from "../src/lib/html/parse.ts"
+import { blocksToHtml, serializeHtml } from "../src/lib/html/serialize.ts"
+import { blockText, createBlock, createLayoutBlock } from "../src/lib/blocks.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) {
+    passed += 1
+    lines.push(`OK   ${name}`)
+  } else {
+    failed += 1
+    lines.push(`FAIL ${name} —— ${detail}`)
+  }
+}
+
+/**
+ * 比对块时去掉 id：解析每次都重新生成 id，它不参与等价判断。
+ * 布局块的 id 在格子里还有一层，必须递归剥掉。
+ */
+function strip(blocks) {
+  return blocks.map((block) => {
+    const copy = { ...block }
+    delete copy.id
+    if (copy.type === "layout") copy.cells = copy.cells.map(strip)
+    return copy
+  })
+}
+
+function same(a, b) {
+  return JSON.stringify(strip(a)) === JSON.stringify(strip(b))
+}
+
+function types(blocks) {
+  return blocks.map((block) => block.type).join(",")
+}
+
+function texts(blocks) {
+  return blocks.map((block) => (block.type === "layout" ? `[layout:${block.cells.length}格]` : blockText(block))).join(" | ")
+}
+
+// ---------- 一、往返精确：解析 ⇄ 序列化 ----------
+
+const ROUNDTRIP = [
+  [
+    "grid 缺省列数",
+    '<div class="note-layout" data-layout="grid"><section><p>甲</p></section><section><p>乙</p></section></div>',
+  ],
+  ["grid 三列", '<div class="note-layout" data-layout="grid" data-columns="3"><section><p>a</p></section><section><p>b</p></section><section><p>c</p></section></div>'],
+  ["flex 模式", '<div class="note-layout" data-layout="flex"><section><p>左</p></section><section><p>右</p></section></div>'],
+  [
+    "格子带行内标记",
+    '<div class="note-layout" data-layout="grid"><section><p><strong>加粗</strong>与<mark>高亮</mark>和<code>行内码</code>及<a href="/x">链接</a></p></section><section><p>普通</p></section></div>',
+  ],
+  [
+    "格子里多块：标题 / 段落 / 列表",
+    '<div class="note-layout" data-layout="flex"><section><h4>小标</h4><p>正文</p><ul><li>条目</li></ul></section><section><p>第二格</p></section></div>',
+  ],
+  ["空格子（空段落保留）", '<div class="note-layout" data-layout="grid"><section><p></p></section><section><p>有字</p></section></div>'],
+  ["未初始化：零格子", '<div class="note-layout" data-layout="grid"></div>'],
+  ["section 之间的换行空白不产块", '<div class="note-layout" data-layout="grid">\n  <section><p>a</p></section>\n  <section><p>b</p></section>\n</div>'],
+]
+
+for (const [name, html] of ROUNDTRIP) {
+  let ok = false
+  let detail = ""
+  try {
+    const parsed = parseHtml(html)
+    const again = parseHtml(blocksToHtml(parsed))
+    ok = same(parsed, again) && parsed.length === 1 && parsed[0].type === "layout"
+    if (!ok) detail = `\n  一次 ${texts(parsed)}\n  二次 ${texts(again)}`
+  } catch (error) {
+    detail = String(error)
+  }
+  check(`往返精确：${name}`, ok, detail)
+}
+
+// ---------- 二、宽容解析 ----------
+
+const loose = [
+  [
+    "data-layout 非法值回退 grid",
+    '<div class="note-layout" data-layout="flexx"><section><p>x</p></section></div>',
+    (b) => b.length === 1 && b[0].mode === "grid",
+  ],
+  [
+    "data-layout 大写不认（属性值区分大小写）",
+    '<div data-layout="FLEX"><section><p>x</p></section></div>',
+    (b) => b.length === 1 && b[0].mode === "grid",
+  ],
+  [
+    "data-columns 非法（5）回退缺省",
+    '<div data-layout="grid" data-columns="5"><section><p>x</p></section></div>',
+    (b) => b[0].columns === undefined,
+  ],
+  [
+    "data-columns 非数字回退缺省",
+    '<div data-layout="grid" data-columns="abc"><section><p>x</p></section></div>',
+    (b) => b[0].columns === undefined,
+  ],
+  [
+    "data-columns 边界：1 拒收、2/3/4 收",
+    '<div data-layout="grid" data-columns="1"><section><p>a</p></section></div>' +
+      '<div data-layout="grid" data-columns="2"><section><p>b</p></section></div>' +
+      '<div data-layout="grid" data-columns="3"><section><p>c</p></section></div>' +
+      '<div data-layout="grid" data-columns="4"><section><p>d</p></section></div>',
+    (b) =>
+      b.length === 4 &&
+      b[0].columns === undefined &&
+      b[1].columns === 2 &&
+      b[2].columns === 3 &&
+      b[3].columns === 4,
+  ],
+  [
+    "非 section 子元素被忽略",
+    '<div data-layout="grid"><p>裸文本</p><section><p>格内</p></section></div>',
+    (b) => b.length === 1 && b[0].cells.length === 1 && texts(b[0].cells.flat()) === "格内",
+  ],
+  [
+    "无 data-layout 的 div 照旧穿透",
+    "<div><span>a</span><span>b</span></div>",
+    (b) => types(b) === "text" && texts(b) === "ab",
+  ],
+  [
+    "顶层 section 照旧穿透",
+    "<section><p>散装的</p></section>",
+    (b) => types(b) === "text" && texts(b) === "散装的",
+  ],
+]
+
+for (const [name, html, verify] of loose) {
+  let ok = false
+  let detail = ""
+  try {
+    const blocks = parseHtml(html)
+    ok = verify(blocks)
+    if (!ok) detail = `得到 ${types(blocks)} / ${JSON.stringify(strip(blocks))}`
+  } catch (error) {
+    detail = String(error)
+  }
+  check(name, ok, detail)
+}
+
+// ---------- 三、序列化形态 ----------
+
+/** 手搓块，验证写出的属性遵循「缺省不落存储」。 */
+const cellA = [createBlock("text", "a")]
+const cellB = [createBlock("text", "b")]
+
+check(
+  "缺省 grid 不写 data-columns",
+  blocksToHtml([createLayoutBlock("grid", undefined, [cellA, cellB])]) ===
+    '<div class="note-layout" data-layout="grid">\n  <section><p>a</p></section>\n  <section><p>b</p></section>\n</div>',
+)
+check(
+  "显式 2 列与缺省同形态（缺省即 2 不落存储）",
+  blocksToHtml([createLayoutBlock("grid", 2, [cellA])]) ===
+    '<div class="note-layout" data-layout="grid">\n  <section><p>a</p></section>\n</div>',
+)
+check(
+  "三列写 data-columns=3",
+  blocksToHtml([createLayoutBlock("grid", 3, [cellA])]) ===
+    '<div class="note-layout" data-layout="grid" data-columns="3">\n  <section><p>a</p></section>\n</div>',
+)
+check(
+  "flex 不认列数：带 columns 也不写",
+  blocksToHtml([createLayoutBlock("flex", 4, [cellA])]) ===
+    '<div class="note-layout" data-layout="flex">\n  <section><p>a</p></section>\n</div>',
+)
+
+// ---------- 四、blockText 投影 ----------
+
+check(
+  "投影：格内文本按序拼接",
+  blockText(createLayoutBlock("grid", undefined, [[createBlock("text", "甲")], [createBlock("text", "乙"), createBlock("text", "丙")]])) ===
+    "甲 乙 丙",
+)
+check("投影：空布局为空串", blockText(createLayoutBlock()) === "")
+
+// ---------- 五、导出文件 ----------
+
+const sample = parseHtml(
+  '<h2>前</h2><div class="note-layout" data-layout="grid" data-columns="3"><section><p>一</p></section><section><p>二</p></section><section><p>三</p></section></div><p>后</p>',
+)
+const doc = serializeHtml(sample, { title: "布局样本" })
+check("完整文档能被重新解析", same(sample, parseHtml(doc)))
+check("导出 CSS 带 grid 两列兜底", doc.includes('.note-layout[data-layout="grid"] { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }'))
+check("导出 CSS 带 3 / 4 列覆盖", doc.includes('[data-columns="3"]') && doc.includes('[data-columns="4"]'))
+check("导出 CSS 带 flex 换行", doc.includes('.note-layout[data-layout="flex"] { display: flex; flex-wrap: wrap; gap: 12px; }'))
+check("导出 CSS 带格子边框", doc.includes(".note-layout > section { min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; }"))
+
+// ---------- 输出 ----------
+
+const summary = `自检 ${passed}/${passed + failed} 通过`
+const box = document.getElementById("out")
+box.textContent = lines.join("\n")
+box.insertAdjacentHTML("beforeend", `\n\n<span class="sum ${failed > 0 ? "fail" : "ok"}">${summary}</span>`)
+document.title = summary
+</script>
+</body>
+</html>

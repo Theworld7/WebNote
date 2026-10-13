@@ -1,5 +1,5 @@
-import type { Block, GalleryBlock, ImageBlock, InlineRun, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
-import { createGalleryBlock, createImageBlock, createMermaidBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
+import type { Block, GalleryBlock, ImageBlock, InlineRun, LayoutBlock, LayoutMode, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
+import { createGalleryBlock, createImageBlock, createLayoutBlock, createMermaidBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
 import { textToRuns, trimRuns } from "@/lib/inline"
 import { isTableAlign } from "@/lib/table"
 import { runsFromNodes } from "./runs-dom"
@@ -127,6 +127,14 @@ function parseBlockElement(element: Element, state: ParseState, depth: number): 
     case "HR":
       state.blocks.push(createTextualBlock("divider"))
       return
+    case "DIV":
+      // 布局块（ADR-0007）以 data-layout 指针认领；没有指针的 div 照旧穿透 ——
+      // 剪藏来的页面满地都是 div，不能因为新增了容器块就改变它们的去处。
+      if (element.hasAttribute("data-layout")) {
+        state.blocks.push(parseLayout(element))
+        return
+      }
+      break
     case "TABLE":
       if (element instanceof HTMLTableElement) {
         // 带指针的快照（ADR-0006）还原成活的画册块：路径与设置都在属性里，
@@ -259,6 +267,35 @@ function parseTable(table: HTMLTableElement): TableBlock {
   }
 
   return createTableBlock(rows)
+}
+
+/**
+ * `<div data-layout="grid|flex">` → 布局块（ADR-0007）。
+ *
+ * 每个 `<section>` 格子用既有的容器解析走一遍 —— 格子内容就是普通块，不另立规则。
+ * 宽容口径与画册一致：`data-layout` 缺失或非法回退 grid；`data-columns` 非法或缺省
+ * 归成 undefined（缺省即 2 不落存储）。section 全部缺失（空 div）解析成 `cells: []`，
+ * 视图回到「未选择布局方式」的选择器 —— 与序列化端对未初始化块的写法互相咬合。
+ * 格子内若解析出布局块照单收下：外部 HTML 的嵌套不被禁止，UI 不会产生它。
+ */
+function parseLayout(element: Element): LayoutBlock {
+  const mode: LayoutMode = element.getAttribute("data-layout") === "flex" ? "flex" : "grid"
+  const columns = parseLayoutColumns(element.getAttribute("data-columns"))
+  const cells: Block[][] = []
+  for (const child of element.children) {
+    if (child.tagName !== "SECTION") continue
+    const state: ParseState = { blocks: [] }
+    parseContainer(child, state, 0)
+    cells.push(state.blocks)
+  }
+  return createLayoutBlock(mode, columns, cells)
+}
+
+/** 列数的宽容读取：只认 2..4 的整数（与设置菜单的档位对齐），其余落回缺省。 */
+function parseLayoutColumns(raw: string | null): number | undefined {
+  if (raw === null) return undefined
+  const value = Number(raw)
+  return Number.isInteger(value) && value >= 2 && value <= 4 ? value : undefined
 }
 
 /**

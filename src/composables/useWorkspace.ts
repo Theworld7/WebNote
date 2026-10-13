@@ -1,5 +1,5 @@
 import type { InjectionKey } from "vue"
-import type { Block, BlockType, CloseStrategy, CreateTarget, FileNode, GalleryBlock, InlineRun, OpenTab, TableAlign, TableCell } from "@/types/workspace"
+import type { Block, BlockType, CloseStrategy, CreateTarget, FileNode, GalleryBlock, InlineRun, LayoutMode, OpenTab, TableAlign, TableCell } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref } from "vue"
 import { cloneBlock, countChars, createBlock, createBlockId, createDataTableBlock, createGalleryBlock, isTextualBlock, retypeBlock } from "@/lib/blocks"
@@ -702,13 +702,38 @@ function createWorkspace() {
   // ---- 块级操作。全部收敛在这里，组件只负责触发与聚焦 ----
 
   /**
+   * 按 id 定位一个块：返回它**所在的块列表与下标**。
+   *
+   * 顶层文档找不着就下潜到布局块的格子里找 —— 格子各自持有块列表（ADR-0007），
+   * 而增删改的写法都是「拿到列表引用后 splice」，所以定位出列表引用，格子内块的
+   * 一切操作就与顶层块共用同一套函数，不需要平行的第二套 API。
+   *
+   * 异步回调里块可能已被删除，返回 null 是正常路径而非异常（与 `activeBlock` 同一立场）。
+   */
+  function locateBlock(id: string): { list: Block[]; index: number } | null {
+    const blocks = activeDocument.value
+    const index = blocks.findIndex((item) => item.id === id)
+    if (index !== -1) return { list: blocks, index }
+    for (const block of blocks) {
+      if (block.type !== "layout") continue
+      for (const cell of block.cells) {
+        const at = cell.findIndex((item) => item.id === id)
+        if (at !== -1) return { list: cell, index: at }
+      }
+    }
+    return null
+  }
+
+  /**
    * 在当前文档里按 id 取块。
    *
    * 一律走它而不是自己 `find`：图片读文件、表格单元格回读这类**异步**回调里，
    * 块可能在 await 期间已被删除，拿到 undefined 是正常路径而非异常。
+   * 格子内的块（布局块容器里）同样找得到。
    */
   function activeBlock(id: string): Block | undefined {
-    return activeDocument.value.find((item) => item.id === id)
+    const at = locateBlock(id)
+    return at === null ? undefined : at.list[at.index]
   }
 
   function setBlockRuns(id: string, runs: InlineRun[]) {
@@ -737,14 +762,18 @@ function createWorkspace() {
     markDirty()
   }
 
-  /** 在 `index` 处插入新块，越界夹到两端。拖入图片要按落点插，不能只支持「追加」。 */
-  function insertBlockAt(index: number, type: BlockType): string {
-    const blocks = activeDocument.value
+  /** 往**指定**的块列表插入新块，越界夹到两端。顶层与格子共用这一条路。 */
+  function insertIntoList(list: Block[], index: number, type: BlockType): string {
     const block = createBlock(type)
-    const at = Math.min(Math.max(index, 0), blocks.length)
-    blocks.splice(at, 0, block)
+    const at = Math.min(Math.max(index, 0), list.length)
+    list.splice(at, 0, block)
     markDirty()
     return block.id
+  }
+
+  /** 在 `index` 处插入新块，越界夹到两端。拖入图片要按落点插，不能只支持「追加」。 */
+  function insertBlockAt(index: number, type: BlockType): string {
+    return insertIntoList(activeDocument.value, index, type)
   }
 
   /**
@@ -880,9 +909,10 @@ function createWorkspace() {
   }
 
   function insertBlockAfter(id: string, type: BlockType): string {
-    const blocks = activeDocument.value
-    const index = blocks.findIndex((item) => item.id === id)
-    return insertBlockAt(index === -1 ? blocks.length : index + 1, type)
+    const at = locateBlock(id)
+    // 找不到（块已被删）退化为追加到文档末尾 —— 与原型行为一致。
+    if (at === null) return insertIntoList(activeDocument.value, activeDocument.value.length, type)
+    return insertIntoList(at.list, at.index + 1, type)
   }
 
   function appendBlock(type: BlockType): string {
@@ -890,21 +920,21 @@ function createWorkspace() {
   }
 
   function changeBlockType(id: string, type: BlockType) {
-    const blocks = activeDocument.value
-    const index = blocks.findIndex((item) => item.id === id)
-    const current = index === -1 ? undefined : blocks[index]
-    if (current === undefined) return
-    blocks[index] = retypeBlock(current, type)
+    const at = locateBlock(id)
+    const current = at === null ? undefined : at.list[at.index]
+    if (at === null || current === undefined) return
+    // 一层容器（ADR-0007）：格子内不再嵌布局块。UI 菜单在格子内已把它滤掉，
+    // 这里再挡一道是防程序化路径（快捷键、未来的批量操作）漏进来。
+    if (type === "layout" && at.list !== activeDocument.value) return
+    at.list[at.index] = retypeBlock(current, type)
     markDirty()
   }
 
   function duplicateBlock(id: string) {
-    const blocks = activeDocument.value
-    const index = blocks.findIndex((item) => item.id === id)
-    if (index === -1) return
-    const source = blocks[index]
-    if (source === undefined) return
-    blocks.splice(index + 1, 0, cloneBlock(source, createBlockId()))
+    const at = locateBlock(id)
+    const source = at === null ? undefined : at.list[at.index]
+    if (at === null || source === undefined) return
+    at.list.splice(at.index + 1, 0, cloneBlock(source, createBlockId()))
     markDirty()
   }
 
@@ -993,12 +1023,61 @@ function createWorkspace() {
   }
 
   function removeBlock(id: string) {
-    const blocks = activeDocument.value
-    const index = blocks.findIndex((item) => item.id === id)
-    if (index === -1) return
-    blocks.splice(index, 1)
-    // 文档至少保留一个空块，否则光标无处落。
-    if (blocks.length === 0) blocks.push(createBlock("text"))
+    const at = locateBlock(id)
+    if (at === null) return
+    at.list.splice(at.index, 1)
+    // 顶层文档至少保留一个空块，否则光标无处落；格子删空同样补一个空文本块，
+    // 否则格子成了无处聚焦的空壳，序列化出来的空 section 也无处落光标。
+    if (at.list.length === 0) at.list.push(createBlock("text"))
+    markDirty()
+  }
+
+  // ---- 布局块 ----
+
+  /**
+   * 选定布局方式（网格/弹性）。`cells` 为空说明是刚插入的未初始化块，
+   * 顺手铺两个格子（各含一个空文本块）—— 光标有处落，选择器不再出现。
+   * 已有格子的块切模式只换容器排布，格子内容原样保留。
+   */
+  function setLayoutMode(id: string, mode: LayoutMode) {
+    const block = activeBlock(id)
+    if (block === undefined || block.type !== "layout") return
+    block.mode = mode
+    if (block.cells.length === 0) block.cells = [createLayoutCell(), createLayoutCell()]
+    markDirty()
+  }
+
+  /** 一个新格子：一个空文本块起底 —— 空格子无处聚焦，也没法敲回车往上长。 */
+  function createLayoutCell(): Block[] {
+    return [createBlock("text")]
+  }
+
+  /** 改网格列数（2..4）。档位由设置菜单保证，这里照单收下。 */
+  function setLayoutColumns(id: string, columns: number) {
+    const block = activeBlock(id)
+    if (block === undefined || block.type !== "layout") return
+    block.columns = columns
+    markDirty()
+  }
+
+  /** 末尾追加一个格子。 */
+  function addLayoutCell(id: string) {
+    const block = activeBlock(id)
+    if (block === undefined || block.type !== "layout") return
+    block.cells.push(createLayoutCell())
+    markDirty()
+  }
+
+  /**
+   * 删一个格子（默认末尾，传入下标则删那一格）。只剩一格时拒绝 ——
+   * 布局块至少要有一个格子，删光了它就成了无法进入的空壳。
+   * 删掉的格子内容随格子一起消失：删除是明确的破坏性动作，不搞「内容上提」的猜法。
+   */
+  function removeLayoutCell(id: string, index = Number.MAX_SAFE_INTEGER) {
+    const block = activeBlock(id)
+    if (block === undefined || block.type !== "layout" || block.cells.length <= 1) return
+    const at = Math.min(Math.max(index, 0), block.cells.length - 1)
+    block.cells.splice(at, 1)
     markDirty()
   }
 
@@ -1092,6 +1171,11 @@ function createWorkspace() {
     duplicateBlock,
     removeBlock,
     moveBlock,
+    // layout actions
+    setLayoutMode,
+    setLayoutColumns,
+    addLayoutCell,
+    removeLayoutCell,
     // image actions
     setImageSource,
     // mermaid actions

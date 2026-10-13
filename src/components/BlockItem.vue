@@ -23,10 +23,12 @@ import { cn } from "@/lib/utils"
 import BlockToolbar from "./BlockToolbar.vue"
 import ImageBlockView from "./ImageBlockView.vue"
 import InlineToolbar from "./InlineToolbar.vue"
+import LayoutBlockView from "./LayoutBlockView.vue"
 import MermaidBlockView from "./MermaidBlockView.vue"
 import TableBlockView from "./TableBlockView.vue"
 import DataTableBlockView from "./DataTableBlockView.vue"
 import GalleryBlockView from "./GalleryBlockView.vue"
+import { CELL_EXCLUDED_TYPES } from "@/lib/blocks"
 
 const props = defineProps<{
   block: Block
@@ -36,6 +38,8 @@ const props = defineProps<{
   dragging: boolean
   /** 落点指示线画在哪条边。`none` 表示当前块不是落点。 */
   dropEdge: BlockDropEdge
+  /** 是否渲染在布局格子里：菜单滤掉容器/引用块、手柄贴内容左缘、行首留出手柄位。 */
+  inCell?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -322,21 +326,25 @@ const bodyClass = computed(() => {
 
 <template>
   <div
-    class="group relative"
-    :data-block-id="block.id"
-    :class="[
-      blockClass,
-      // naive 的 :first-child / :last-child 归零：首块不额外下压、末块不留尾。
-      'first:mt-0 last:mb-0',
-      dragging && 'opacity-40',
-      dropEdge === 'before' && DROP_BEFORE,
-      dropEdge === 'after' && DROP_AFTER,
-    ]"
-    :style="rowStyle"
-  >
+      class="group relative"
+      :data-block-id="block.id"
+      :class="[
+        blockClass,
+        // naive 的 :first-child / :last-child 归零：首块不额外下压、末块不留尾。
+        'first:mt-0 last:mb-0',
+        // 格子内行首留出手柄位：手柄贴左缘悬浮（left-0），内容统一右缩让开它。
+        inCell === true && 'pl-7',
+        dragging && 'opacity-40',
+        dropEdge === 'before' && DROP_BEFORE,
+        dropEdge === 'after' && DROP_AFTER,
+      ]"
+      :style="rowStyle"
+    >
     <BlockToolbar
       :open-menu="openMenu"
       :type-menu-mode="typeMenuMode"
+      :exclude-types="inCell === true ? CELL_EXCLUDED_TYPES : undefined"
+      :inside="inCell === true"
       @update:open-menu="onMenuChange"
       @insert="(type: BlockType) => emit('insert-after', block.id, type)"
       @retype="(type: BlockType) => emit('retype', block.id, type)"
@@ -369,6 +377,8 @@ const bodyClass = computed(() => {
     <DataTableBlockView v-else-if="block.type === 'datatable'" :block="block" />
 
     <GalleryBlockView v-else-if="block.type === 'gallery'" :block="block" />
+
+    <LayoutBlockView v-else-if="block.type === 'layout'" :block="block" />
 
     <div v-else-if="block.type === 'divider'" class="h-px bg-line" />
 

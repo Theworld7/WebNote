@@ -13,7 +13,8 @@ WebNote:本地优先的块式笔记编辑器。笔记 = 磁盘上的普通 `.htm
   `execCommand`、引用块的 `entry` 必须 `shallowRef`、读盘留在 composable / 拼 HTML 留在纯函数。
   动到这些区域先读原文,本文件不复述细节。
 - **决策记录** —— `docs/adr/`:树拖拽是移动非重排(0003)、重名直接拒绝(0002)、新建后单层重扫
-  (0001)、浏览器适配器伪造移动(0004)、数据表是独立文件(0005)。改对应行为前先读那篇。
+  (0001)、浏览器适配器伪造移动(0004)、数据表是独立文件(0005)、画册快照+指针(0006)、布局块是
+  唯一受控容器(0007)。改对应行为前先读那篇。
 
 ## 验证
 
@@ -28,7 +29,8 @@ WebNote:本地优先的块式笔记编辑器。笔记 = 磁盘上的普通 `.htm
 
 改哪层跑哪页:动 `lib/html` → `parse-check`;动块拖拽 / 标签栏 → `drag-check` / `tab-check`;
 动数据表 → `data-table-check`;动排版样式 → `typography-check`;动新建 / 移动 →
-`create-check` / `move-check`;动设置 → `settings-check`。覆盖明细见 README「自检」一节。
+`create-check` / `move-check`;动设置 → `settings-check`;动布局块 → `layout-check`。
+覆盖明细见 README「自检」一节。
 
 ## 写代码
 

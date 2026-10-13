@@ -3,6 +3,7 @@
  *
  * 这里刻意用 `instanceof` 做类型收窄，而不是 `as HTMLElement` —— 项目禁用类型断言。
  */
+import { nextTick } from "vue"
 
 /**
  * 跨组件约定的 DOM 属性名。
@@ -23,6 +24,15 @@ export const DOM_ATTR = {
 
 /** 所有块根节点。遍历它算落点、量几何。 */
 export const BLOCK_ROW_SELECTOR = `[${DOM_ATTR.blockId}]`
+
+/**
+ * **顶层**块行：只匹配容器的直接子级。
+ *
+ * 布局块（ADR-0007）的格子里面也是块行，同样挂着 `data-block-id` —— 顶层拖拽
+ * 用全量选择器遍历会把格子内的行也算进落点序列，下标对不上顶层文档。算落点
+ * 一律用它，`closest`（向上找归属）继续用全量的 `BLOCK_ROW_SELECTOR`。
+ */
+export const TOP_BLOCK_ROW_SELECTOR = `:scope > [${DOM_ATTR.blockId}]`
 
 /** 拖拽手柄。只有手柄发起的 dragstart 才算块排序。 */
 export const DRAG_HANDLE_SELECTOR = `[${DOM_ATTR.dragHandle}]`
@@ -94,6 +104,18 @@ export function findTableCell(blockId: string, row: number, column: number): HTM
 /** 可编辑体的选择器。键由调用方给 —— 块 id，或表格格子的 `块id/行/列`。 */
 function editableSelector(key: string): string {
   return `[${DOM_ATTR.editable}="${key}"]`
+}
+
+/**
+ * 等新块/转换后的块落进 DOM，再把焦点交给它。
+ *
+ * `BlockEditor`（顶层）与 `LayoutBlockView`（格子内）都要做这同一件事 ——
+ * 收成一处，调用方只管喊聚焦。
+ */
+export async function focusBlockById(blockId: string, at: "start" | "end" = "end"): Promise<void> {
+  await nextTick()
+  const el = findEditable(blockId)
+  if (el !== null) focusEditable(el, at)
 }
 
 /**
