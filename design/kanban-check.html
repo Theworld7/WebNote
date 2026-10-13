@@ -53,8 +53,8 @@ check("kanban 紧挨 bookmark（在它后面）", kanbanIdx === bookmarkIdx + 1,
 
 note("工厂与投影")
 const empty = createKanbanBlock()
-check("createKanbanBlock 默认：type/path/groupColumnId/displayColumnIds",
-  empty.type === "kanban" && empty.path === "" && empty.groupColumnId === "" && empty.displayColumnIds.length === 0,
+check("createKanbanBlock 默认：type/path/groupColumnId/displayColumnIds/groupOrder",
+  empty.type === "kanban" && empty.path === "" && empty.groupColumnId === "" && empty.displayColumnIds.length === 0 && empty.groupOrder.length === 0,
   JSON.stringify(empty))
 
 const made = createBlock("kanban")
@@ -89,12 +89,13 @@ const table = {
 }
 const lookup = () => table
 
-const full = createKanbanBlock("看板.tbl", "c2", ["c1", "c3"])
+const full = createKanbanBlock("看板.tbl", "c2", ["c1", "c3"], ["o2", "o1"])
 const html = blocksToHtml([full], lookup)
 
 check("写 data-kanban", html.includes('data-kanban="看板.tbl"'), html.slice(0, 80))
 check("非空 groupColumnId 写 data-group", html.includes('data-group="c2"'))
 check("非空 displayColumnIds 写 data-fields", html.includes('data-fields="c1,c3"'))
+check("非空 groupOrder 写 data-group-order", html.includes('data-group-order="o2,o1"'))
 check("快照写出表头（名称/状态/负责）", html.includes("名称") && html.includes("状态") && html.includes("负责"))
 check("快照写出行值（任务A）", html.includes("任务A"))
 
@@ -108,6 +109,7 @@ check("往返是 kanban", r0.type === "kanban", r0.type)
 check("往返 path 一致", r0.type === "kanban" && r0.path === "看板.tbl")
 check("往返 groupColumnId 一致", r0.type === "kanban" && r0.groupColumnId === "c2")
 check("往返 displayColumnIds 一致", r0.type === "kanban" && r0.displayColumnIds.join(",") === "c1,c3")
+check("往返 groupOrder 一致", r0.type === "kanban" && r0.groupOrder.join(",") === "o2,o1")
 check("往返丢弃快照行（块不带 rows）", r0.type === "kanban" && !("rows" in r0))
 
 // ---------- 五、缺省不落存储 ----------
@@ -117,6 +119,7 @@ const bare = createKanbanBlock("空.tbl")
 const bareHtml = blocksToHtml([bare], lookup)
 check("空 groupColumnId 不写 data-group", !bareHtml.includes("data-group="))
 check("空 displayColumnIds 不写 data-fields", !bareHtml.includes("data-fields="))
+check("空 groupOrder 不写 data-group-order", !bareHtml.includes("data-group-order="))
 check("但恒写 data-kanban", bareHtml.includes('data-kanban="空.tbl"'))
 
 // ---------- 六、宽容解析 ----------
@@ -126,6 +129,7 @@ const handMissing = `<table data-kanban="手改.tbl"></table>`
 const hm = parseHtml(handMissing)
 check("缺 data-group 落空串", hm.length === 1 && hm[0].type === "kanban" && hm[0].groupColumnId === "")
 check("缺 data-fields 落空数组", hm.length === 1 && hm[0].type === "kanban" && hm[0].displayColumnIds.length === 0)
+check("缺 data-group-order 落空数组", hm.length === 1 && hm[0].type === "kanban" && hm[0].groupOrder.length === 0)
 
 const plain = `<table><thead><tr><th>x</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table>`
 const pt = parseHtml(plain)

@@ -896,7 +896,7 @@ function createWorkspace() {
    * 改的是笔记文档里的块属性,与 `.tbl` 无关 —— 同一张表在两篇笔记里可以按不同列
    * 分组、显示不同字段。
    */
-  function updateKanbanBlock(id: string, patch: Partial<Pick<KanbanBlock, "groupColumnId" | "displayColumnIds">>) {
+  function updateKanbanBlock(id: string, patch: Partial<Pick<KanbanBlock, "groupColumnId" | "displayColumnIds" | "groupOrder">>) {
     const block = activeBlock(id)
     if (block === undefined || block.type !== "kanban") return
     Object.assign(block, patch)

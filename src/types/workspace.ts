@@ -222,6 +222,8 @@ export interface KanbanBlock {
   groupColumnId: string
   /** 卡片上显示的列 id(有序)。空 = 全显(分组列本身除外);删列后残留的 id 在渲染时按当前列过滤,无需清洗。 */
   displayColumnIds: string[]
+  /** 分组列的手排顺序:组原始值(文本列即其文本,select 列即选项 id)的有序列表。「未分组」列不参与手排恒在最左;列表外的组跟首现序排在后面,无需清洗。 */
+  groupOrder: string[]
 }
 
 /**

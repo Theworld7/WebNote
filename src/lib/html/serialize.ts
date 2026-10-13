@@ -350,7 +350,7 @@ function galleryHtml(block: GalleryBlock, table: DataTable | null): string {
  *
  * 内容与 `galleryHtml` 同源同构:一张快照表格,图片格照旧内联 data URI ——
  * 双击可读全数据,「不带 .tbl 也能读」的承诺不变。差别只有一层 `data-*` 属性:
- * 看板的分组列、卡片显示列是**块的设置**,丢了要重新配,所以随快照一并写进文件,
+ * 看板的分组列、卡片显示列、组序是**块的设置**,丢了要重新配,所以随快照一并写进文件,
  * 编辑器据此把它还原成活的看板块;第三方编辑器剥掉属性后剩下的就是一张普通表格。
  *
  * `data-fields` 存的是**显示列** id(正向,看板块独有语义),与画册 `data-fields`
@@ -364,6 +364,7 @@ function kanbanHtml(block: KanbanBlock, table: DataTable | null): string {
   const attrs = [`data-kanban="${escapeHtml(block.path)}"`]
   if (block.groupColumnId !== "") attrs.push(`data-group="${escapeHtml(block.groupColumnId)}"`)
   if (block.displayColumnIds.length > 0) attrs.push(`data-fields="${escapeHtml(block.displayColumnIds.join(","))}"`)
+  if (block.groupOrder.length > 0) attrs.push(`data-group-order="${escapeHtml(block.groupOrder.join(","))}"`)
 
   if (table === null || table.rows.length === 0) {
     return `<table ${attrs.join(" ")}></table>`

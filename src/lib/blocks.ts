@@ -236,8 +236,9 @@ export function createKanbanBlock(
   path = "",
   groupColumnId = "",
   displayColumnIds: string[] = [],
+  groupOrder: string[] = [],
 ): KanbanBlock {
-  return { id: createBlockId(), type: "kanban", path, groupColumnId, displayColumnIds }
+  return { id: createBlockId(), type: "kanban", path, groupColumnId, displayColumnIds, groupOrder }
 }
 
 /**
@@ -294,9 +295,9 @@ export function cloneBlock(block: Block, id: string): Block {
   if (block.type === "gallery") {
     return { ...block, id, hiddenFields: [...block.hiddenFields] }
   }
-  // 看板的 displayColumnIds 同理：整体替换,但拷贝要独立。
+  // 看板的 displayColumnIds / groupOrder 是数组：整体替换,但拷贝要独立。
   if (block.type === "kanban") {
-    return { ...block, id, displayColumnIds: [...block.displayColumnIds] }
+    return { ...block, id, displayColumnIds: [...block.displayColumnIds], groupOrder: [...block.groupOrder] }
   }
   if (block.type === "table") {
     return { ...block, id, rows: block.rows.map((row) => row.map(cloneCell)) }

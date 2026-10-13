@@ -3,7 +3,7 @@ import type { KanbanBlock } from "@/types/workspace"
 import type { DataColumn, DataRow, DataTable, DataCellValue } from "@/types/data-table"
 import type { TableEntry } from "@/composables/useTables"
 import { computed, onBeforeUnmount, onMounted, shallowRef, watch } from "vue"
-import { DatabaseIcon, Settings2Icon } from "@lucide/vue"
+import { ChevronDownIcon, ChevronUpIcon, DatabaseIcon, Settings2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -88,9 +88,10 @@ interface KanbanGroup {
 }
 
 /**
- * 按分组列的值归组。组序跟值的首次出现序;空值(null / "")行收进最左的「未分组」列。
- * 一个值自成一组(即便只有一行)—— 看板的列就是分组的可视化,合并单行组会让
- * 「这一列为什么没有卡片」变成谜题。
+ * 按分组列的值归组。空值(null / "")行收进最左的「未分组」列;其余组按 groupOrder
+ * 手排,没记录的跟值首次出现序排在后面(JS sort 稳定,同为未记录的组之间保持原
+ * 相对顺序)。一个值自成一组(即便只有一行)—— 看板的列就是分组的可视化,合并
+ * 单行组会让「这一列为什么没有卡片」变成谜题。
  */
 const groups = computed<readonly KanbanGroup[]>(() => {
   const col = groupColumn.value
@@ -110,11 +111,21 @@ const groups = computed<readonly KanbanGroup[]>(() => {
     else bucket.rows.push(row)
   }
 
+  // 手排:groupOrder 里记录的组按记录序靠前,没记录的跟首现序排在后面。
+  const recorded = props.block.groupOrder
+  const ordered = [...buckets.values()]
+    .map((bucket, index) => ({ bucket, index, rank: recorded.indexOf(String(bucket.value)) }))
+    .sort((a, b) => {
+      const ra = a.rank === -1 ? recorded.length + a.index : a.rank
+      const rb = b.rank === -1 ? recorded.length + b.index : b.rank
+      return ra - rb
+    })
+
   const out: KanbanGroup[] = []
   if (ungrouped.length > 0) {
     out.push({ key: "__ungrouped__", value: null, label: "未分组", rows: ungrouped })
   }
-  for (const bucket of buckets.values()) {
+  for (const { bucket } of ordered) {
     out.push({
       key: String(bucket.value),
       value: bucket.value,
@@ -210,6 +221,23 @@ const groupSelection = computed({
   get: () => props.block.groupColumnId,
   set: (value: string) => updateKanbanBlock(props.block.id, { groupColumnId: value }),
 })
+
+/**
+ * 上移/下移分组列:按当前生效顺序整体重写 groupOrder。之后它就是全量清单 ——
+ * 后续新增的组值不在列表里,照常按首现序排在末尾,无需清洗。「未分组」列不参与。
+ */
+function moveGroup(value: string, dir: -1 | 1): void {
+  const values = groups.value.filter((group) => group.value !== null).map((group) => String(group.value))
+  const i = values.indexOf(value)
+  const j = i + dir
+  if (i === -1 || j < 0 || j >= values.length) return
+  const a = values[i]
+  const b = values[j]
+  if (a === undefined || b === undefined) return
+  values[i] = b
+  values[j] = a
+  updateKanbanBlock(props.block.id, { groupOrder: values })
+}
 
 /** 该列是否在卡片上显示。全显模式(displayColumnIds 空)下默认全显。 */
 function isFieldShown(column: DataColumn): boolean {
@@ -316,6 +344,29 @@ function openTable() {
                 {{ column.name }}
               </option>
             </select>
+            <!-- 组序手排:选了分组列才出现;按当前生效顺序列出各组(不含「未分组」),
+                 ↑↓ 即时写回 groupOrder。mt 与 select 拉开间距,px-1.5 对齐 select 的边框内文字。 -->
+            <div v-if="props.block.groupColumnId !== ''" class="mt-1.5 space-y-0.5 px-1.5">
+              <div v-for="group in groups" v-show="group.value !== null" :key="group.key" class="flex items-center gap-1">
+                <span class="min-w-0 flex-1 truncate text-[12px]">{{ group.label }}</span>
+                <button
+                  type="button"
+                  aria-label="上移该组"
+                  class="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  @click="moveGroup(String(group.value), -1)"
+                >
+                  <ChevronUpIcon class="size-3" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="下移该组"
+                  class="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  @click="moveGroup(String(group.value), 1)"
+                >
+                  <ChevronDownIcon class="size-3" />
+                </button>
+              </div>
+            </div>
           </div>
           <template v-if="props.block.groupColumnId !== ''">
             <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
