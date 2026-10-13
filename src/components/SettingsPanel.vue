@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { TableEffect } from "@/composables/useSettings"
+import type { ContentWidth, TableEffect } from "@/composables/useSettings"
 import type { Component } from "vue"
 import { CheckIcon, MoveHorizontalIcon, WrapTextIcon, XIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
@@ -11,7 +11,7 @@ import {
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { useSettings } from "@/composables/useSettings"
+import { CONTENT_WIDTH_PX, useSettings } from "@/composables/useSettings"
 
 /**
  * 设置面板。
@@ -25,7 +25,7 @@ import { useSettings } from "@/composables/useSettings"
  */
 const open = defineModel<boolean>("open", { required: true })
 
-const { tableEffect, setTableEffect } = useSettings()
+const { tableEffect, setTableEffect, contentWidth, setContentWidth } = useSettings()
 
 /** 分区。加新分区时在这里加一条，右侧内容按 `CURRENT` 分派。 */
 const SECTIONS = [{ id: "display", label: "显示" }] as const
@@ -60,6 +60,28 @@ const TABLE_EFFECT_OPTIONS: readonly TableEffectOption[] = [
     icon: MoveHorizontalIcon,
   },
 ]
+
+interface ContentWidthOption {
+  value: ContentWidth
+  label: string
+}
+
+/**
+ * 三档内容宽度。图标位置换成一条宽度按档位递增的横条 —— 宽度这个量,
+ * 画出来比任何象形图标都直白;`standard` 就是这个偏好出现之前的 800px。
+ */
+const CONTENT_WIDTH_OPTIONS: readonly ContentWidthOption[] = [
+  { value: "narrow", label: "窄" },
+  { value: "standard", label: "标准" },
+  { value: "wide", label: "宽" },
+]
+
+/** 档位条的宽度类,与档位单调递增对应(12 / 20 / 28px)。字面量,Tailwind 扫描要求。 */
+const CONTENT_WIDTH_BAR: Readonly<Record<ContentWidth, string>> = {
+  narrow: "w-3",
+  standard: "w-5",
+  wide: "w-7",
+}
 
 /** 抽屉标题栏的关闭按钮，与工具栏那批小按钮同一体量。 */
 const CLOSE = "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foreground"
@@ -149,6 +171,40 @@ function optionClass(isActive: boolean): string {
                     v-if="tableEffect === option.value"
                     class="ml-auto mt-0.5 size-3.5 flex-none text-foreground"
                   />
+                </button>
+              </div>
+            </section>
+
+            <section class="flex flex-col gap-2">
+              <h3 class="text-[13px] font-medium text-foreground">内容宽度</h3>
+              <SheetDescription>编辑器里正文内容的最大宽度。</SheetDescription>
+
+              <!-- 三档横排:窄 → 宽本身是个一维刻度,横排比竖叠更读得出「档位」。 -->
+              <div class="mt-0.5 grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="内容宽度">
+                <button
+                  v-for="option in CONTENT_WIDTH_OPTIONS"
+                  :key="option.value"
+                  type="button"
+                  role="radio"
+                  :aria-checked="contentWidth === option.value"
+                  :class="[
+                    'flex flex-col items-center gap-1.5 rounded-[9px] border p-2.5 transition-colors',
+                    optionClass(contentWidth === option.value),
+                  ]"
+                  @click="setContentWidth(option.value)"
+                >
+                  <!-- 档位条:宽度随档位递增,条本身就在回答「这档有多宽」。 -->
+                  <span class="flex h-1 items-center">
+                    <span
+                      :class="['h-1 rounded-full bg-muted-foreground', CONTENT_WIDTH_BAR[option.value]]"
+                    />
+                  </span>
+                  <span class="text-[13px] leading-[1.4] text-foreground">
+                    {{ option.label }}
+                  </span>
+                  <span class="text-[11.5px] leading-[1.45] text-muted-foreground">
+                    {{ CONTENT_WIDTH_PX[option.value] }}px
+                  </span>
                 </button>
               </div>
             </section>

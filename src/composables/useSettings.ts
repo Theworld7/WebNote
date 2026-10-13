@@ -36,11 +36,43 @@ function readTableEffect(): TableEffect {
   return found ?? DEFAULT_TABLE_EFFECT
 }
 
+/**
+ * 内容宽度 —— 正文列（编辑器里那列块）的最大宽度，三档。
+ * 档位存字符串 id 而不是像素值：像素只是各档的属性，落在下面的映射表里，
+ * 改档位像素时不用动存储格式，旧值也永远合法。
+ *
+ * 类型放在这里而不是 `@/types/workspace`：与 `TableEffect` 的判据一致 —— 那边进
+ * types 是因为 `lib/typography.ts` 要消费它；这里只有组件消费，没有 lib 依赖。
+ */
+export type ContentWidth = "narrow" | "standard" | "wide"
+
+const CONTENT_WIDTH_KEY = "webnote:content-width"
+const DEFAULT_CONTENT_WIDTH: ContentWidth = "standard"
+
+/** 各档的正文列最大宽度（px）。`standard` 就是这个偏好出现之前写死的 800px。 */
+export const CONTENT_WIDTH_PX: Readonly<Record<ContentWidth, number>> = {
+  narrow: 640,
+  standard: 800,
+  wide: 1000,
+}
+
+const CONTENT_WIDTHS: readonly ContentWidth[] = ["narrow", "standard", "wide"]
+
+function readContentWidth(): ContentWidth {
+  const raw = window.localStorage.getItem(CONTENT_WIDTH_KEY)
+  if (raw === null) return DEFAULT_CONTENT_WIDTH
+  const found = CONTENT_WIDTHS.find((value) => value === raw)
+  return found ?? DEFAULT_CONTENT_WIDTH
+}
+
 interface Settings {
   /** 表格效果。`ref` 而不是 `reactive`：设置项各自独立，且都会被整体读写。 */
   tableEffect: Ref<TableEffect>
   /** 改设置并落盘。唯一写入口，避免有人绕过持久化直接改 ref。 */
   setTableEffect: (value: TableEffect) => void
+  /** 内容宽度（正文列最大宽度档位）。同上，`ref` 且只经 setter 写。 */
+  contentWidth: Ref<ContentWidth>
+  setContentWidth: (value: ContentWidth) => void
 }
 
 function createSettings(): Settings {
@@ -51,7 +83,14 @@ function createSettings(): Settings {
     window.localStorage.setItem(TABLE_EFFECT_KEY, value)
   }
 
-  return { tableEffect, setTableEffect }
+  const contentWidth = ref<ContentWidth>(readContentWidth())
+
+  function setContentWidth(value: ContentWidth) {
+    contentWidth.value = value
+    window.localStorage.setItem(CONTENT_WIDTH_KEY, value)
+  }
+
+  return { tableEffect, setTableEffect, contentWidth, setContentWidth }
 }
 
 export type { Settings }

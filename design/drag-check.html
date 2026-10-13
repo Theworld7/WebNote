@@ -21,6 +21,7 @@ import "../src/style.css"
 import { createApp, defineComponent, h, nextTick } from "vue"
 import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
 import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
 import { provideWorkspace } from "../src/composables/useWorkspace.ts"
 
 const lines = []
@@ -59,6 +60,8 @@ let workspace = null
 const Root = defineComponent({
   setup() {
     workspace = provideWorkspace()
+    // BlockEditor 读内容宽度偏好（useSettings），不 provide 会在 setup 里抛错。
+    provideSettings()
     return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
   },
 })

@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import type { CreateTarget, TreeTarget } from "@/types/workspace"
-import { FolderIcon, FolderOpenIcon, PlusIcon, RefreshCwIcon, SearchIcon, SlidersHorizontalIcon } from "@lucide/vue"
+import { FolderIcon, FolderOpenIcon, PlusIcon, RefreshCwIcon, SearchIcon } from "@lucide/vue"
 import { computed, ref } from "vue"
-import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -142,17 +141,6 @@ function setQuery(value: string | number) {
       @rename="(path, kind) => (renameTarget = { path, kind })"
       @remove="(path, kind) => (deleteTarget = { path, kind })"
     />
-
-    <div class="flex h-[38px] flex-none items-center gap-2 px-3.5 text-muted-foreground">
-      <Button
-        variant="ghost"
-        size="xs"
-        class="-ml-2 gap-1.5 text-[13px] text-muted-foreground hover:text-foreground"
-      >
-        <SlidersHorizontalIcon class="size-3.5" />
-        <span>设置</span>
-      </Button>
-    </div>
 
     <CreateDialog :target="createTarget" @close="createTarget = null" />
     <RenameDialog :target="renameTarget" @close="renameTarget = null" />

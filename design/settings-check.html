@@ -10,12 +10,12 @@
   pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
   .ok { color: #1c7a3e; }
   .fail { color: #b42318; }
-  /* 固定内容宽度，几何断言才有确定的分母 —— 与 BlockEditor 的 max-w-[800px] 同口径。 */
+  /* 固定内容宽度，几何断言才有确定的分母 —— 与内容宽度偏好的 standard 档（800px）同口径。 */
   #app .doc { width: 800px; }
 </style>
 </head>
 <body>
-<h1>设置面板：显示 → 表格效果（持久化 / 渲染几何）自检</h1>
+<h1>设置面板：显示 → 表格效果 / 内容宽度（持久化 / 渲染几何）自检</h1>
 <div id="app"></div>
 <pre id="out">running…</pre>
 <script type="module">
@@ -23,6 +23,7 @@ import { createApp, defineComponent, h, nextTick, reactive, ref } from "vue"
 // 必须引应用样式表：表格效果全靠 Tailwind 类（w-max / overflow-x-auto / whitespace-nowrap）落地，
 // 不引 style.css 这些类根本不存在，几何断言会退化成 UA 默认值 —— 全成假象。
 import "../src/style.css"
+import BlockEditor from "../src/components/BlockEditor.vue"
 import SettingsPanel from "../src/components/SettingsPanel.vue"
 import TableBlockView from "../src/components/TableBlockView.vue"
 import { provideSettings } from "../src/composables/useSettings.ts"
@@ -50,6 +51,8 @@ note(step)
 
 const STORAGE_KEY = "webnote:table-effect"
 window.localStorage.removeItem(STORAGE_KEY)
+const WIDTH_KEY = "webnote:content-width"
+window.localStorage.removeItem(WIDTH_KEY)
 
 // ---------- 挂真实组件：设置面板 + 一个宽表格 ----------
 
@@ -69,8 +72,11 @@ const Root = defineComponent({
   setup() {
     provideSettings()
     provideWorkspace()
+    // BlockEditor 也挂上：内容宽度偏好的几何断言量的是它那层 [data-doc] 容器
+    // （computed maxWidth），比只验数据落盘多走一整段「设置 → 渲染」链路。
     return () => h("div", { class: "doc" }, [
       h(TableBlockView, { block }),
+      h(BlockEditor),
       h(SettingsPanel, { open: open.value, "onUpdate:open": (v) => (open.value = v) }),
     ])
   },
@@ -139,6 +145,70 @@ check(
 )
 const nav = panelRoot() === null ? null : panelRoot().querySelector("nav")
 check("分区栏出现「显示」", nav !== null && nav.textContent.includes("显示"))
+
+// ---------- 二点五、内容宽度 ----------
+//
+// 同时验两件事：面板上的档位（数据层）和 BlockEditor 正文列的 computed maxWidth（渲染层）。
+// [data-doc] 是 BlockEditor 那层正文容器上的探针钩子，量它而不是量任意外层，
+// 断言才钉在「设置 → 渲染」这段链路本身上。
+
+note("内容宽度")
+/**
+ * 只在「内容宽度」的 radiogroup 里找档位 —— 不能全面板搜文字：表格效果那组的
+ * hint（「表格**宽**度始终与正文一致」）也含「宽」字，会把点到表格选项上去。
+ */
+function widthOptionByLabel(text) {
+  const root = panelRoot()
+  if (root === null) return undefined
+  const group = root.querySelector('[role="radiogroup"][aria-label="内容宽度"]')
+  if (group === null) return undefined
+  return [...group.querySelectorAll('[role="radio"]')].find((el) => el.textContent.includes(text))
+}
+const narrowOption = widthOptionByLabel("窄")
+const standardOption = widthOptionByLabel("标准")
+const wideOption = widthOptionByLabel("宽")
+check(
+  "面板里有三档内容宽度（窄 / 标准 / 宽）",
+  narrowOption !== undefined && standardOption !== undefined && wideOption !== undefined,
+)
+
+const docEl = () => document.querySelector("#app [data-doc]")
+check(
+  "默认勾选在「标准」上",
+  standardOption !== undefined && standardOption.getAttribute("aria-checked") === "true",
+)
+check(
+  "默认下正文列 maxWidth 是 800px（standard 档）",
+  docEl() !== null && getComputedStyle(docEl()).maxWidth === "800px",
+  docEl() === null ? "（没渲染）" : getComputedStyle(docEl()).maxWidth,
+)
+
+if (wideOption !== undefined) {
+  wideOption.click()
+  await nextTick()
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  await nextTick()
+}
+check("切到宽后落盘（键 webnote:content-width）", window.localStorage.getItem(WIDTH_KEY) === "wide",
+  String(window.localStorage.getItem(WIDTH_KEY)))
+check(
+  "切到宽后正文列 maxWidth 变 1000px",
+  docEl() !== null && getComputedStyle(docEl()).maxWidth === "1000px",
+  docEl() === null ? "（没渲染）" : getComputedStyle(docEl()).maxWidth,
+)
+
+// 切回标准，别把宽档状态漏给后面的用例。
+if (standardOption !== undefined) {
+  standardOption.click()
+  await nextTick()
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  await nextTick()
+}
+check(
+  "切回标准后正文列 maxWidth 回到 800px",
+  docEl() !== null && getComputedStyle(docEl()).maxWidth === "800px",
+  docEl() === null ? "（没渲染）" : getComputedStyle(docEl()).maxWidth,
+)
 
 // ---------- 三、切到「表格滚动」 ----------
 
@@ -358,6 +428,7 @@ if (shadow instanceof HTMLElement && getComputedStyle(shadow).display !== "none"
 
 note("坏值防御")
 window.localStorage.setItem(STORAGE_KEY, "bogus")
+window.localStorage.setItem(WIDTH_KEY, "bogus")
 const badOpen = ref(true)
 const BadRoot = defineComponent({
   setup() {
@@ -365,6 +436,7 @@ const BadRoot = defineComponent({
     provideWorkspace()
     return () => h("div", { class: "doc" }, [
       h(TableBlockView, { block }),
+      h(BlockEditor),
       h(SettingsPanel, { open: badOpen.value, "onUpdate:open": (v) => (badOpen.value = v) }),
     ])
   },
@@ -383,6 +455,12 @@ check(
   "存了非法值时退回默认（不抛错、按 wrap 渲染）",
   badTable !== null && badTable.getBoundingClientRect().width <= 800.5,
   badTable === null ? "（没渲染）" : String(badTable.getBoundingClientRect().width),
+)
+const badDoc = badMount.querySelector("[data-doc]")
+check(
+  "宽度存了非法值时退回默认 800px",
+  badDoc !== null && getComputedStyle(badDoc).maxWidth === "800px",
+  badDoc === null ? "（没渲染）" : getComputedStyle(badDoc).maxWidth,
 )
 
 // ---------- 输出 ----------

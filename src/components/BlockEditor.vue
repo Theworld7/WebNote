@@ -2,6 +2,7 @@
 import type { BlockDropEdge, BlockType } from "@/types/workspace"
 import { computed, ref } from "vue"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { useSettings, CONTENT_WIDTH_PX } from "@/composables/useSettings"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { orderedIndexes as orderedIndexesOf } from "@/lib/blocks"
 import { DRAG_HANDLE_SELECTOR, TOP_BLOCK_ROW_SELECTOR, closestBlockId, focusBlockById } from "@/lib/dom"
@@ -58,6 +59,11 @@ function openInsertDialog(kind: "gallery" | "bookmark" | "kanban", id: string) {
  * 规则收在 `orderedIndexes()` 里，与序列化的分组共用一份判断：**不相邻的 ol 各自从 1 数**。
  */
 const orderedIndexes = computed(() => orderedIndexesOf(activeDocument.value))
+
+// 内容宽度（正文列最大宽度）来自用户偏好。走内联 style 而不是 `max-w-[Npx]` 类名：
+// 档位是运行时值，Tailwind 扫不到拼出来的候选（与 typography.ts 里「类名必须是字面量」同一条立场）。
+const { contentWidth } = useSettings()
+const docStyle = computed(() => ({ maxWidth: `${CONTENT_WIDTH_PX[contentWidth.value]}px` }))
 
 function handleInsertAfter(id: string, type: BlockType) {
   // 数据表块要**先有文件**才能插 —— 引用块指向一个不存在的 `.tbl` 就是一个永远读不到的
@@ -281,9 +287,12 @@ function edgeOf(index: number, to: number): BlockDropEdge {
 
 <template>
   <ScrollArea class="min-h-0 flex-1">
+    <!-- `data-doc` 给自检页当探针钩子：量正文列宽度（内容宽度偏好）时靠它定位这层容器。 -->
     <div
       ref="docRef"
-      class="mx-auto w-full max-w-[800px] pt-5 pb-30 pr-10 pl-24"
+      data-doc
+      class="mx-auto w-full pt-5 pb-30 pr-10 pl-24"
+      :style="docStyle"
       @dragstart="onDragStart"
       @dragover="onDragOver"
       @dragleave="onDragLeave"
