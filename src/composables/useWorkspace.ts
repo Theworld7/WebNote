@@ -9,7 +9,7 @@ import type { DataTableLookup } from "@/lib/html"
 import { createWorkspaceFs } from "@/lib/fs"
 import { NOTE_EXTENSION, TABLE_EXTENSION, checkName, defaultExpanded, fileStem, isNoteFile, isTableFile } from "@/lib/fs/policy"
 import * as table from "@/lib/table"
-import { fileName, fromSegments, joinPath, migratePath, titleOf, toCrumbs, toSegments } from "@/lib/paths"
+import { fileName, fromSegments, isUnder, joinPath, migratePath, titleOf, toCrumbs, toSegments } from "@/lib/paths"
 
 /**
  * 工作区状态。
@@ -612,10 +612,32 @@ function createWorkspace() {
 
   // ---- 移动（见 ADR-0003）----
 
-  /** 取一个路径的父目录。根层节点返回空串。 */
+/** 取一个路径的父目录。根层节点返回空串。 */
   function parentOfPath(path: string): string {
     const segments = toSegments(path)
     return fromSegments(segments.slice(0, -1))
+  }
+
+  /**
+   * 把一条路径迁移牵连到的**所有**以路径为键的前端状态一起换键。
+   *
+   * `migratePath` 同时覆盖等值与前缀两种情况，所以整个目录改名时它下面开着的
+   * 标签、读进内存的文档、展开着的子目录一起跟着走，不会留下悬空键。
+   */
+  function migrateKeys(from: string, to: string) {
+    tabs.value = tabs.value.map((tab) => ({
+      ...tab,
+      path: migratePath(tab.path, from, to),
+      // 标签记名的脏数据表也要跟着换：`.tbl` 在改名的目录下时，旧键已经写不回去了。
+      dirtyTables: tab.dirtyTables.map((path) => migratePath(path, from, to)),
+    }))
+    activePath.value = migratePath(activePath.value, from, to)
+    expandedIds.value = new Set([...expandedIds.value].map((id) => migratePath(id, from, to)))
+    loadedPaths.value = new Set([...loadedPaths.value].map((path) => migratePath(path, from, to)))
+    loadingPaths.value = new Set([...loadingPaths.value].map((path) => migratePath(path, from, to)))
+    documents.value = Object.fromEntries(
+      Object.entries(documents.value).map(([path, blocks]) => [migratePath(path, from, to), blocks]),
+    )
   }
 
   /**
@@ -663,22 +685,125 @@ function createWorkspace() {
     /**
      * 键迁移。五个以路径为键的状态必须一起换，否则会留下指向旧路径的悬空项：
      * 标签还开着但文档取不到、已加载集判定「没读过」而重读、激活项指向不存在的标签。
-     *
-     * `migratePath` 同时覆盖等值与前缀两种情况，所以将来开放文件夹拖动时这一段不用改。
      */
-    tabs.value = tabs.value.map((tab) => ({ ...tab, path: migratePath(tab.path, from, to) }))
-    activePath.value = migratePath(activePath.value, from, to)
-    expandedIds.value = new Set([...expandedIds.value].map((id) => migratePath(id, from, to)))
-    if (loadedPaths.value.has(from)) loadedPaths.value = withFlag(loadedPaths.value, to, true)
-    if (loadingPaths.value.has(from)) loadingPaths.value = withFlag(loadingPaths.value, to, true)
-    const blocks = documents.value[from]
-    if (blocks !== undefined) {
-      delete documents.value[from]
-      documents.value[to] = blocks
-    }
-    loadedPaths.value = withFlag(loadedPaths.value, from, false)
-    loadingPaths.value = withFlag(loadingPaths.value, from, false)
+    migrateKeys(from, to)
 
+    return true
+  }
+
+  // ---- 重命名与删除 ----
+
+  /**
+   * 当前有未落盘改动的数据表路径。
+   *
+   * 改名/删目录对脏数据表是危险的：表的内容以**旧路径**记在注册表里，路径一变，
+   * 之后任何一次保存都会把改动写向一个已经不存在的位置 —— 浏览器端 `writeNote` 甚至会
+   * 把删掉的文件原样写回来。所以这两个动作前置拦下受影响的脏表，让用户先保存或丢弃。
+   */
+  function dirtyTablePaths(): Set<string> {
+    const dirty = new Set<string>()
+    for (const tab of tabs.value) {
+      if (tab.dirty && isTableFile(fileName(tab.path))) dirty.add(tab.path)
+      for (const tablePath of tab.dirtyTables) dirty.add(tablePath)
+    }
+    return dirty
+  }
+
+  /**
+   * 把一个文件或文件夹改名（只换名字，不换父级）。
+   *
+   * 与 `createInto` 同一个骨架：校验 → 前置查冲突 → 动盘 → 刷树 → 换键。冲突口径也
+   * 同一条（ADR-0002）：补完后缀的路径与用户输入的裸名字都查，重名直接拒绝。
+   *
+   * 名字没变视为成功 —— 对话框正常关闭，不动盘也不刷树。
+   */
+  async function renameFile(path: string, name: string, kind: CreateTarget["kind"]): Promise<boolean> {
+    const driver = fs.value
+    const current = root.value
+    if (driver === null || current === null) return false
+
+    const reason = checkName(name)
+    if (reason !== null) {
+      fsError.value = `重命名失败：${reason}`
+      return false
+    }
+
+    // 后缀补全与 `createInto` 同一条规则：文件夹名原样用，文件没写后缀补上。
+    const isFolder = kind === "folder"
+    const extension = kind === "table" ? TABLE_EXTENSION : NOTE_EXTENSION
+    const hasKnownExtension = isNoteFile(name) || isTableFile(name)
+    const finalName = isFolder || hasKnownExtension ? name : `${name}${extension}`
+    const to = joinPath(parentOfPath(path), finalName)
+    if (to === path) return true
+
+    for (const tablePath of dirtyTablePaths()) {
+      if (!isUnder(tablePath, path)) continue
+      fsError.value = `重命名失败：「${fileName(tablePath)}」有未保存的修改，先保存或丢弃再试`
+      return false
+    }
+
+    const barePath = isFolder ? joinPath(parentOfPath(path), fileStem(name)) : joinPath(parentOfPath(path), name)
+    try {
+      if ((await driver.exists(current, to)) || (await driver.exists(current, barePath))) {
+        fsError.value = `重命名失败：已存在「${finalName}」`
+        return false
+      }
+      await driver.rename(current, path, to)
+    } catch (error) {
+      fsError.value = `重命名「${fileName(path)}」失败：${describeError(error)}`
+      return false
+    }
+
+    try {
+      tree.value = replaceChildren(tree.value, parentOfPath(path), await driver.scanDir(current, parentOfPath(path)))
+    } catch (error) {
+      fsError.value = `重命名成功，但刷新目录失败：${describeError(error)}`
+    }
+    migrateKeys(path, to)
+    return true
+  }
+
+  /**
+   * 删除一个文件或文件夹（文件夹连同其下全部内容）。
+   *
+   * 受影响标签直接关闭（含脏的 —— 未保存的修改随确认框里的说明一并丢弃）；
+   * 脏数据表则在动盘之前拦下，理由见 `dirtyTablePaths`。
+   */
+  async function deleteFile(path: string): Promise<boolean> {
+    const driver = fs.value
+    const current = root.value
+    if (driver === null || current === null) return false
+
+    for (const tablePath of dirtyTablePaths()) {
+      if (!isUnder(tablePath, path)) continue
+      fsError.value = `删除失败：「${fileName(tablePath)}」有未保存的修改，先保存或丢弃再试`
+      return false
+    }
+
+    try {
+      await driver.remove(current, path)
+    } catch (error) {
+      fsError.value = `删除「${fileName(path)}」失败：${describeError(error)}`
+      return false
+    }
+
+    const parent = parentOfPath(path)
+    try {
+      tree.value = replaceChildren(tree.value, parent, await driver.scanDir(current, parent))
+    } catch (error) {
+      fsError.value = `删除成功，但刷新目录失败：${describeError(error)}`
+    }
+
+    // 盘上已经删掉了，从这里往下是纯前端清理：关标签、清文档缓存、摘掉各集合里的键。
+    for (const tab of [...tabs.value]) {
+      if (isUnder(tab.path, path)) closeTab(tab.path)
+    }
+    for (const key of Object.keys(documents.value)) {
+      if (isUnder(key, path)) delete documents.value[key]
+    }
+    loadedPaths.value = new Set([...loadedPaths.value].filter((key) => !isUnder(key, path)))
+    loadingPaths.value = new Set([...loadingPaths.value].filter((key) => !isUnder(key, path)))
+    expandedIds.value = new Set([...expandedIds.value].filter((key) => !isUnder(key, path)))
     return true
   }
 
@@ -1186,6 +1311,8 @@ function createWorkspace() {
     createFolderIn,
     createTableIn,
     moveFileTo,
+    renameFile,
+    deleteFile,
     // tree drag state
     draggingPath,
     dropTargetPath,

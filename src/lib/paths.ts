@@ -60,6 +60,20 @@ export function migratePath(path: string, from: string, to: string): string {
   return `${to}${path.slice(from.length)}`
 }
 
+/**
+ * `path` 是否就是 `dir` 或位于它之下。
+ *
+ * 判前缀要求段边界对齐 —— `日记` 不是 `日记本 / a.html` 的前缀 —— 所以按段比，
+ * 不做字符串 `startsWith`。
+ */
+export function isUnder(path: string, dir: string): boolean {
+  const segments = toSegments(path)
+  const prefix = toSegments(dir)
+  return (
+    segments.length >= prefix.length && prefix.every((segment, index) => segments[index] === segment)
+  )
+}
+
 /** 去掉 `.html` / `.htm` 后缀，用作序列化时的 `<title>`。 */
 export function titleOf(path: string): string {
   return fileName(path).replace(/\.html?$/i, "")

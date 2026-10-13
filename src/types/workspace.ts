@@ -279,6 +279,16 @@ export interface CreateTarget {
 }
 
 /**
+ * 树里一次重命名 / 删除请求的目标：哪个节点、是什么。
+ *
+ * 与 `CreateTarget` 同一个模式 —— 请求从树行冒给 `AppSidebar`，对话框只认这个载体。
+ */
+export interface TreeTarget {
+  path: string
+  kind: "note" | "folder" | "table"
+}
+
+/**
  * 表格效果 —— 宽表格装不下时怎么办。详见 `CONTEXT.md` 的「Preference / Table effect」。
  *
  * - `wrap`：格子内文字换行，列被挤窄，表格永远与正文同宽（默认，也是导出文件永远采用的那份）。

@@ -63,4 +63,14 @@ export interface WorkspaceFs {
    * 目标已存在时必须抛错：冲突由调用方前置拦截（`exists`），与 `createNote` 同理。
    */
   move(root: FsRoot, from: string, to: string): Promise<void>
+  /**
+   * 重命名一个文件或目录：只换名字，不换父级。目标已存在时必须抛错 ——
+   * 冲突由调用方前置拦截（`exists`），与 `move` / `createNote` 同理。
+   */
+  rename(root: FsRoot, from: string, to: string): Promise<void>
+  /**
+   * 删除一个文件或目录，目录连同其下全部内容递归删除。
+   * 不可逆是这条原语的本性 —— 确认框属于调用方，这一层不做任何拦截。
+   */
+  remove(root: FsRoot, path: string): Promise<void>
 }

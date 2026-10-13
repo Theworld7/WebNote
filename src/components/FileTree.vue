@@ -9,9 +9,11 @@ import FileTreeNode from "./FileTreeNode.vue"
 const { tree, hasRoot, scanning, isSearching, draggingPath, dropTargetPath, moveFileTo, dismissError } =
   useWorkspace()
 
-/** 新建请求往上冒给 `AppSidebar` —— 对话框挂在那儿，树本身不开弹窗。 */
+/** 新建请求往上冒给 `AppSidebar` —— 对话框挂在那儿，树本身不开弹窗。重命名 / 删除同理。 */
 const emit = defineEmits<{
   create: [parentPath: string, kind: CreateTarget["kind"]]
+  rename: [path: string, kind: CreateTarget["kind"]]
+  remove: [path: string, kind: CreateTarget["kind"]]
 }>()
 
 /**
@@ -107,6 +109,8 @@ async function onDrop(event: DragEvent) {
           :depth="0"
           parent-path=""
           @create="(parentPath, kind) => emit('create', parentPath, kind)"
+          @rename="(path, kind) => emit('rename', path, kind)"
+          @remove="(path, kind) => emit('remove', path, kind)"
         />
       </template>
     </div>

@@ -3,7 +3,7 @@ import type { FileNode } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "./types"
 import { invoke } from "@tauri-apps/api/core"
 import { open } from "@tauri-apps/plugin-dialog"
-import { exists as fsExists, mkdir, readDir, readTextFile, rename, writeTextFile } from "@tauri-apps/plugin-fs"
+import { exists as fsExists, mkdir, readDir, readTextFile, remove as fsRemove, rename, writeTextFile } from "@tauri-apps/plugin-fs"
 import { joinPath, toSegments } from "@/lib/paths"
 import {
   MAX_DEPTH,
@@ -170,6 +170,19 @@ export function createTauriFs(): WorkspaceFs {
       if (await fsExists(target)) throw new Error(`已存在同名文件：${to}`)
       // 插件文档明说 `rename` 就是移动，路径可以是文件也可以是目录。
       await rename(absoluteOf(root, from), target)
+    },
+
+    /** 桌面端改名与移动是同一个系统调用，只是 `from` 与 `to` 同父级。 */
+    async rename(root, from, to) {
+      if (root.kind !== "path") throw new Error("桌面端实现收到了非路径形态的根目录")
+      const target = absoluteOf(root, to)
+      if (await fsExists(target)) throw new Error(`已存在同名文件：${to}`)
+      await rename(absoluteOf(root, from), target)
+    },
+
+    async remove(root, path) {
+      if (root.kind !== "path") throw new Error("桌面端实现收到了非路径形态的根目录")
+      await fsRemove(absoluteOf(root, path), { recursive: true })
     },
   }
 }

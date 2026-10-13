@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import type { CreateTarget, FileNode } from "@/types/workspace"
 import { computed } from "vue"
-import { ChevronRightIcon, DatabaseIcon, FilePlusIcon, FileTextIcon, FolderIcon, FolderPlusIcon, PlusIcon } from "@lucide/vue"
+import { ChevronRightIcon, DatabaseIcon, EllipsisIcon, FilePlusIcon, FileTextIcon, FolderIcon, FolderPlusIcon, PencilIcon, PlusIcon, TrashIcon } from "@lucide/vue"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { joinPath } from "@/lib/paths"
 import { cn } from "@/lib/utils"
@@ -18,6 +18,9 @@ const props = defineProps<{
 const emit = defineEmits<{
   /** 请求新建：`kind` 决定建笔记还是文件夹，父目录就是这个节点自己。 */
   create: [parentPath: string, kind: CreateTarget["kind"]]
+  /** 请求重命名 / 删除这个节点自己。 */
+  rename: [path: string, kind: CreateTarget["kind"]]
+  remove: [path: string, kind: CreateTarget["kind"]]
 }>()
 
 const { expandedIds, activePath, isSearching, toggleFolder, openFile, draggingPath, dropTargetPath } =
@@ -42,6 +45,10 @@ const isDropTarget = computed(() => isFolder.value && dropTargetPath.value === f
 const rowStyle = computed(() => ({ paddingLeft: `${6 + props.depth * 16}px` }))
 
 const ROW = "flex h-7 cursor-default items-center gap-1.5 rounded-md pr-1.5 text-[13px] select-none hover:bg-muted group/row"
+
+/** 行尾菜单按钮：hover 才现身，与 `+` 按钮共用一套观感。 */
+const MENU_BUTTON =
+  "grid size-5 shrink-0 place-items-center rounded text-muted-foreground opacity-0 hover:bg-muted-strong hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100"
 
 /** 落点用描边环而不是填充：与 hover 的底色分属两层，叠加时仍能分辨。 */
 const DROP_TARGET = "ring-1 ring-selection-foreground ring-inset"
@@ -82,7 +89,7 @@ function startDrag(event: DragEvent) {
             <button
               type="button"
               draggable="false"
-              class="grid size-5 shrink-0 place-items-center rounded text-muted-foreground opacity-0 hover:bg-muted-strong hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100"
+              :class="MENU_BUTTON"
               aria-label="新建"
               @click.stop
             >
@@ -102,6 +109,15 @@ function startDrag(event: DragEvent) {
               <FolderPlusIcon class="size-3.5 text-muted-foreground" />
               <span>新建文件夹</span>
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('rename', fullPath, 'folder')">
+              <PencilIcon class="size-3.5 text-muted-foreground" />
+              <span>重命名</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('remove', fullPath, 'folder')">
+              <TrashIcon class="size-3.5 text-muted-foreground" />
+              <span>删除</span>
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -114,6 +130,8 @@ function startDrag(event: DragEvent) {
         :depth="depth + 1"
         :parent-path="fullPath"
         @create="(parent, kind) => emit('create', parent, kind)"
+        @rename="(path, kind) => emit('rename', path, kind)"
+        @remove="(path, kind) => emit('remove', path, kind)"
       />
     </CollapsibleContent>
   </Collapsible>
@@ -143,5 +161,30 @@ function startDrag(event: DragEvent) {
       :class="cn('size-3.5 shrink-0', isActive ? 'text-selection-foreground' : 'text-muted-foreground')"
     />
     <span class="min-w-0 flex-1 truncate">{{ node.name }}</span>
+    <DropdownMenu>
+      <DropdownMenuTrigger as-child>
+        <!-- `draggable=false` 与文件夹行的 `+` 同一个坑：不关掉拖拽继承，按住按钮
+             会启动整行拖拽而不是点开菜单。 -->
+        <button
+          type="button"
+          draggable="false"
+          :class="MENU_BUTTON"
+          aria-label="更多操作"
+          @click.stop
+        >
+          <EllipsisIcon class="size-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('rename', fullPath, node.kind)">
+          <PencilIcon class="size-3.5 text-muted-foreground" />
+          <span>重命名</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('remove', fullPath, node.kind)">
+          <TrashIcon class="size-3.5 text-muted-foreground" />
+          <span>删除</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   </div>
 </template>

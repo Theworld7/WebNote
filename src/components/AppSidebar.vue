@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CreateTarget } from "@/types/workspace"
+import type { CreateTarget, TreeTarget } from "@/types/workspace"
 import { FolderIcon, FolderOpenIcon, PlusIcon, RefreshCwIcon, SearchIcon, SlidersHorizontalIcon } from "@lucide/vue"
 import { computed, ref } from "vue"
 import { Button } from "@/components/ui/button"
@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWorkspace } from "@/composables/useWorkspace"
 import CreateDialog from "./CreateDialog.vue"
+import DeleteDialog from "./DeleteDialog.vue"
 import FileTree from "./FileTree.vue"
+import RenameDialog from "./RenameDialog.vue"
 
 defineProps<{ width: number }>()
 
@@ -16,6 +18,10 @@ const { query, rootName, hasRoot, scanning, fsHint, openRoot, refreshTree } = us
 
 /** 挂起的命名对话框目标。null 表示关着。 */
 const createTarget = ref<CreateTarget | null>(null)
+
+/** 挂起的重命名 / 删除目标。null 表示各自关着。 */
+const renameTarget = ref<TreeTarget | null>(null)
+const deleteTarget = ref<TreeTarget | null>(null)
 
 /** 树的根层新建（父目录 = 工作区根，路径为空串）。空库时这里是唯一的入口。 */
 function requestCreate(kind: CreateTarget["kind"]) {
@@ -131,7 +137,11 @@ function setQuery(value: string | number) {
       </div>
     </div>
 
-    <FileTree @create="(parentPath, kind) => (createTarget = { parentPath, kind })" />
+    <FileTree
+      @create="(parentPath, kind) => (createTarget = { parentPath, kind })"
+      @rename="(path, kind) => (renameTarget = { path, kind })"
+      @remove="(path, kind) => (deleteTarget = { path, kind })"
+    />
 
     <div class="flex h-[38px] flex-none items-center gap-2 px-3.5 text-muted-foreground">
       <Button
@@ -145,5 +155,7 @@ function setQuery(value: string | number) {
     </div>
 
     <CreateDialog :target="createTarget" @close="createTarget = null" />
+    <RenameDialog :target="renameTarget" @close="renameTarget = null" />
+    <DeleteDialog :target="deleteTarget" @close="deleteTarget = null" />
   </aside>
 </template>

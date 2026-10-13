@@ -105,10 +105,9 @@ async function writeFileAt(
 }
 
 /**
- * 删掉一个文件或**空**目录。
+ * 删掉一个文件或目录（目录递归删除）。
  *
- * 只给 `move` 内部用，不暴露到 `WorkspaceFs` 上 —— 独立的删除动作另有一堆问题
- * （开着的标签、未保存的编辑、确认框），等它自己被要求时再决定（见 ADR-0004）。
+ * `move` 与 `rename` 的收尾都靠它，`WorkspaceFs.remove` 也直接落在它上面。
  */
 async function removeAt(root: FileSystemDirectoryHandle, path: string): Promise<void> {
   const { parent, name } = await parentOf(root, path)
@@ -119,6 +118,44 @@ async function removeAt(root: FileSystemDirectoryHandle, path: string): Promise<
     // 目录句柄要显式 `recursive`，文件句柄则已经在上面删掉了。
   }
   await parent.removeEntry(name, { recursive: true })
+}
+
+/** 目录判定：能按段下沉到它，它就是目录。文件与不存在的路径都会抛。 */
+async function isDirectoryAt(root: FileSystemDirectoryHandle, path: string): Promise<boolean> {
+  try {
+    await descend(root, toSegments(path))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 把一个目录的全部内容复制进另一个**已存在**的目录。
+ *
+ * 只给目录改名用：File System Access API 没有原生改名（见 ADR-0004），文件可以读→写→删，
+ * 目录只能整棵子树搬。失败模式与 `move` 同一个选择 —— 先复制后删源，中途失败留下两份，
+ * 不会只剩零份。
+ */
+async function copyTree(
+  source: FileSystemDirectoryHandle,
+  target: FileSystemDirectoryHandle,
+): Promise<void> {
+  for await (const [name, handle] of source.entries()) {
+    if (handle.kind === "file") {
+      const file = await handle.getFile()
+      const stream = await (await target.getFileHandle(name, { create: true })).createWritable()
+      try {
+        await stream.write(file)
+        await stream.close()
+      } catch (error) {
+        await stream.abort()
+        throw error
+      }
+      continue
+    }
+    await copyTree(handle, await target.getDirectoryHandle(name, { create: true }))
+  }
 }
 
 /** 看一个路径在不在。文件与目录都算；任一层不是目录就直接「不存在」。 */
@@ -250,6 +287,27 @@ export function createBrowserFs(): WorkspaceFs {
       if (parent !== directory) await ensureDir(directory, toSegments(to).slice(0, -1))
       await writeFileAt(directory, to, await readFileAt(directory, from))
       await removeAt(directory, from)
+    },
+
+    /**
+     * 改名与 `move` 同构：文件走读→写→删；目录没有原生改名，先整棵复制再删源。
+     * 删源放在最后 —— 失败模式是重复而非丢失，与 `move` 同一条底线。
+     */
+    async rename(root, from, to) {
+      const directory = rootOf(root)
+      if (await existsAt(directory, to)) throw new Error(`已存在同名文件：${to}`)
+      if (await isDirectoryAt(directory, from)) {
+        const source = await descend(directory, toSegments(from))
+        await ensureDir(directory, toSegments(to))
+        await copyTree(source, await descend(directory, toSegments(to)))
+      } else {
+        await writeFileAt(directory, to, await readFileAt(directory, from))
+      }
+      await removeAt(directory, from)
+    },
+
+    async remove(root, path) {
+      await removeAt(rootOf(root), path)
     },
   }
 }

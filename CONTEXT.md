@@ -207,6 +207,20 @@ order, so the tree's sequence is always recomputed from names and a Move can nev
 "put this above that".
 _Avoid_: Drag-and-drop, reorder, relocate
 
+**Rename**:
+Changing a Note's, a Data table file's, or a Folder's name in place — the path changes, the
+parent does not. The new name passes the same checks a Create does (including the collision
+refusal), the disk is touched first, and every path-keyed state is rekeyed afterwards, so a
+failed Rename leaves the workspace exactly as it was.
+_Avoid_: Edit name, modify
+
+**Delete**:
+Removing a Note, a Data table file, or a Folder — with everything under it — from disk. It
+asks for an explicit confirmation and it refuses to run while an affected Data table still
+holds unsaved changes: a later save must never be able to write a deleted file back into
+existence.
+_Avoid_: Remove (that is the adapter-level primitive), erase, destroy
+
 **Tab**:
 An open Note within the editing session. Tabs are few and each has a dirty flag; a note can
 be open or not, but a Note is never "half-open".
