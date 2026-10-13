@@ -1,5 +1,5 @@
-import type { Block, BookmarkBlock, GalleryBlock, ImageBlock, InlineRun, LayoutBlock, LayoutMode, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
-import { createBookmarkBlock, createGalleryBlock, createImageBlock, createLayoutBlock, createMermaidBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
+import type { Block, BookmarkBlock, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
+import { createBookmarkBlock, createGalleryBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createMermaidBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
 import { textToRuns, trimRuns } from "@/lib/inline"
 import { isTableAlign } from "@/lib/table"
 import { runsFromNodes } from "./runs-dom"
@@ -142,8 +142,14 @@ function parseBlockElement(element: Element, state: ParseState, depth: number): 
       break
     case "TABLE":
       if (element instanceof HTMLTableElement) {
-        // 带指针的快照（ADR-0006）还原成活的画册块：路径与设置都在属性里，
-        // 内容是快照 —— 活数据从 `.tbl` 来，这里丢弃。没有指针就走普通表格。
+        // 带指针的快照(ADR-0006 / ADR-0008)还原成活的引用块:看板/画册的路径与设置都在
+        // 属性里,内容是快照 —— 活数据从 `.tbl` 来,这里丢弃。先判看板再判画册(一个 table
+        // 不会同时有两个指针),都没有就走普通表格。
+        const kanban = parseKanban(element)
+        if (kanban !== null) {
+          state.blocks.push(kanban)
+          return
+        }
         const gallery = parseGallery(element)
         if (gallery !== null) state.blocks.push(gallery)
         else state.blocks.push(parseTable(element))
@@ -333,6 +339,26 @@ function parseGallery(table: HTMLTableElement): GalleryBlock | null {
   const groupOrder = order === "" ? [] : order.split(",").filter((item) => item !== "")
 
   return createGalleryBlock(path, columns, fit, hiddenFields, ratio, group, groupBy, groupOrder, width)
+}
+
+/**
+ * `<table data-kanban="…">` → 看板块。没有 `data-kanban` 返回 null,调用方回落到
+ * 画册或普通表格 —— 与画册同一立场:被第三方编辑器剥掉属性后,剩下的就是一张
+ * 无主快照,按表格读是「正确的读法」。
+ *
+ * 属性**宽容**读取:`data-group` / `data-fields` 的列 id 原样收下,不校验列还存在
+ * —— 指向的列被删后渲染时自然退化为「未分组」一列 / 全显,与画册 hiddenFields
+ * 残留 id 的立场一致。路径没有默认值可落,留空串走「读不到」提示态。
+ */
+function parseKanban(table: HTMLTableElement): KanbanBlock | null {
+  const path = table.getAttribute("data-kanban")
+  if (path === null) return null
+
+  const groupColumnId = table.getAttribute("data-group") ?? ""
+  const fields = table.getAttribute("data-fields") ?? ""
+  const displayColumnIds = fields === "" ? [] : fields.split(",").filter((id) => id !== "")
+
+  return createKanbanBlock(path, groupColumnId, displayColumnIds)
 }
 
 /**

@@ -30,6 +30,7 @@ import MermaidBlockView from "./MermaidBlockView.vue"
 import TableBlockView from "./TableBlockView.vue"
 import DataTableBlockView from "./DataTableBlockView.vue"
 import GalleryBlockView from "./GalleryBlockView.vue"
+import KanbanBlockView from "./KanbanBlockView.vue"
 import { CELL_EXCLUDED_TYPES } from "@/lib/blocks"
 
 const props = defineProps<{
@@ -422,6 +423,8 @@ const bodyClass = computed(() => {
     <GalleryBlockView v-else-if="block.type === 'gallery'" :block="block" />
 
     <BookmarkBlockView v-else-if="block.type === 'bookmark'" :block="block" />
+
+    <KanbanBlockView v-else-if="block.type === 'kanban'" :block="block" />
 
     <LayoutBlockView v-else-if="block.type === 'layout'" :block="block" />
 

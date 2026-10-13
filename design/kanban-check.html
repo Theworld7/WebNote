@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>看板块自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; }
+  .fail { color: #b42318; }
+</style>
+</head>
+<body>
+<h1>看板块：登记、快照+指针往返、宽容解析、与画册不混淆</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { BLOCK_TYPES, createBlock, createKanbanBlock, createGalleryBlock, blockText, cloneBlock, retypeBlock } from "../src/lib/blocks.ts"
+import { blocksToHtml } from "../src/lib/html/serialize.ts"
+import { parseHtml } from "../src/lib/html/parse.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+let step = "块类型登记"
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  document.getElementById("out").textContent = `running: ${step}\n${lines.join("\n")}`
+}
+
+function note(next) {
+  step = next
+  document.getElementById("out").textContent = `running: ${step}\n${lines.join("\n")}`
+}
+note(step)
+
+// ---------- 一、块类型登记 ----------
+
+const kanbanMeta = BLOCK_TYPES.find((m) => m.type === "kanban")
+const bookmarkIdx = BLOCK_TYPES.findIndex((m) => m.type === "bookmark")
+const kanbanIdx = BLOCK_TYPES.findIndex((m) => m.type === "kanban")
+
+check("BLOCK_TYPES 里有 kanban", kanbanMeta !== undefined)
+check("kanban marker 是 ☰", kanbanMeta?.marker === "☰", `实际 ${kanbanMeta?.marker}`)
+check("kanban label 是 看板", kanbanMeta?.label === "看板", `实际 ${kanbanMeta?.label}`)
+check("kanban 紧挨 bookmark（在它后面）", kanbanIdx === bookmarkIdx + 1, `bookmark=${bookmarkIdx} kanban=${kanbanIdx}`)
+
+// ---------- 二、工厂与投影 ----------
+
+note("工厂与投影")
+const empty = createKanbanBlock()
+check("createKanbanBlock 默认：type/path/groupColumnId/displayColumnIds",
+  empty.type === "kanban" && empty.path === "" && empty.groupColumnId === "" && empty.displayColumnIds.length === 0,
+  JSON.stringify(empty))
+
+const made = createBlock("kanban")
+check("createBlock(\"kanban\") 出 kanban", made.type === "kanban", made.type)
+check("blockText(kanban) 返回 path",
+  blockText(createKanbanBlock("看板.tbl")) === "看板.tbl")
+
+const orig = createKanbanBlock("x.tbl", "c2", ["c1", "c3"])
+const copy = cloneBlock(orig, "newid")
+check("cloneBlock 换 id", copy.id === "newid")
+check("cloneBlock 深拷 displayColumnIds（改副本不动原）",
+  (copy.displayColumnIds.push("c9"), orig.displayColumnIds.length === 2),
+  `原 ${orig.displayColumnIds.length}`)
+
+const retyped = retypeBlock({ id: "b", type: "text", runs: [], depth: 0 }, "kanban")
+check("retypeBlock(text → kanban) 出空 kanban", retyped.type === "kanban" && retyped.groupColumnId === "", JSON.stringify(retyped))
+
+// ---------- 三、序列化：快照 + 指针 ----------
+
+note("序列化与往返")
+const table = {
+  version: 1,
+  columns: [
+    { id: "c1", name: "名称", type: "text", options: [] },
+    { id: "c2", name: "状态", type: "select", options: [{ id: "o1", name: "进行中" }, { id: "o2", name: "已完成" }] },
+    { id: "c3", name: "负责", type: "text", options: [] },
+  ],
+  rows: [
+    { id: "r1", values: { c1: "任务A", c2: "o1", c3: "阿飞" } },
+    { id: "r2", values: { c1: "任务B", c2: "o2", c3: "" } },
+  ],
+}
+const lookup = () => table
+
+const full = createKanbanBlock("看板.tbl", "c2", ["c1", "c3"])
+const html = blocksToHtml([full], lookup)
+
+check("写 data-kanban", html.includes('data-kanban="看板.tbl"'), html.slice(0, 80))
+check("非空 groupColumnId 写 data-group", html.includes('data-group="c2"'))
+check("非空 displayColumnIds 写 data-fields", html.includes('data-fields="c1,c3"'))
+check("快照写出表头（名称/状态/负责）", html.includes("名称") && html.includes("状态") && html.includes("负责"))
+check("快照写出行值（任务A）", html.includes("任务A"))
+
+// ---------- 四、解析往返 ----------
+
+note("解析往返")
+const round = parseHtml(html)
+check("往返出 1 个块", round.length === 1, `出 ${round.length}`)
+const r0 = round[0]
+check("往返是 kanban", r0.type === "kanban", r0.type)
+check("往返 path 一致", r0.type === "kanban" && r0.path === "看板.tbl")
+check("往返 groupColumnId 一致", r0.type === "kanban" && r0.groupColumnId === "c2")
+check("往返 displayColumnIds 一致", r0.type === "kanban" && r0.displayColumnIds.join(",") === "c1,c3")
+check("往返丢弃快照行（块不带 rows）", r0.type === "kanban" && !("rows" in r0))
+
+// ---------- 五、缺省不落存储 ----------
+
+note("缺省不落存储")
+const bare = createKanbanBlock("空.tbl")
+const bareHtml = blocksToHtml([bare], lookup)
+check("空 groupColumnId 不写 data-group", !bareHtml.includes("data-group="))
+check("空 displayColumnIds 不写 data-fields", !bareHtml.includes("data-fields="))
+check("但恒写 data-kanban", bareHtml.includes('data-kanban="空.tbl"'))
+
+// ---------- 六、宽容解析 ----------
+
+note("宽容解析")
+const handMissing = `<table data-kanban="手改.tbl"></table>`
+const hm = parseHtml(handMissing)
+check("缺 data-group 落空串", hm.length === 1 && hm[0].type === "kanban" && hm[0].groupColumnId === "")
+check("缺 data-fields 落空数组", hm.length === 1 && hm[0].type === "kanban" && hm[0].displayColumnIds.length === 0)
+
+const plain = `<table><thead><tr><th>x</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table>`
+const pt = parseHtml(plain)
+check("无 data-kanban 走普通表格（不出 kanban）", pt.length === 1 && pt[0].type === "table", pt[0]?.type)
+
+// ---------- 七、与画册不混淆 ----------
+
+note("与画册不混淆")
+const gal = createGalleryBlock("画.tbl")
+const galHtml = blocksToHtml([gal], lookup)
+const galParsed = parseHtml(galHtml)
+check("data-gallery 不被当 kanban", galParsed.length === 1 && galParsed[0].type === "gallery", galParsed[0]?.type)
+
+const kbHtml = blocksToHtml([full], lookup)
+const kbParsed = parseHtml(kbHtml)
+check("data-kanban 不被当 gallery", kbParsed.length === 1 && kbParsed[0].type === "kanban", kbParsed[0]?.type)
+
+// ---------- 收尾 ----------
+
+note("收尾")
+document.getElementById("app").innerHTML =
+  `<p>共 ${passed + failed} 项，<span class="${failed === 0 ? "ok" : "fail"}">${passed} 通过</span>，<span class="${failed === 0 ? "ok" : "fail"}">${failed} 失败</span></p>`
+document.getElementById("out").textContent = lines.join("\n") + `\n\n${failed === 0 ? "ALL OK" : "HAS FAIL"}`
+</script>
+</body>
+</html>

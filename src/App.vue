@@ -20,7 +20,7 @@ const tables = provideTables(fs, root)
 attachTableLookup((path) => tables.peek(path))
 attachTablePreload((blocks) => {
   const paths = blocks
-    .filter((block) => block.type === "datatable")
+    .filter((block) => block.type === "datatable" || block.type === "kanban")
     .map((block) => block.path)
     .filter((path) => path !== "")
   return tables.preload(paths)

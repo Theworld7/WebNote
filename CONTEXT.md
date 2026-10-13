@@ -149,6 +149,21 @@ stored. On disk it travels as a snapshot **with** a pointer, on the same terms a
 Gallery block.
 _Avoid_: Link block (a Link is a run; a Bookmark block is a Block), card grid, favorites
 
+**Kanban block**:
+A structural Block that renders a Data table as a set of columns — one per distinct value of a
+chosen group column — with each row as a sticky-note card under its column. Cards drag across
+columns, and dropping one onto a column rewrites that row's group-column value to that column's
+value (see ADR-0008). It points at the same `.tbl` a Data table block would, but adds
+**presentation settings** (the group column, and an ordered list of card-display columns) that
+belong to the block: two Notes boarding one table can group by different columns and show
+different fields. On disk it travels as a snapshot **with** a pointer (`data-kanban` +
+`data-group` / `data-fields` on a `<table>`), on the same terms as the Gallery block — so its
+settings survive a reopen while the export still opens on its own. The card background colour is
+a fixed tint hashed from the row id; it is view state, not written to the `.tbl` or the snapshot.
+_Avoid_: Board view (a board is the concept; the Block is a Kanban block), swimlane, column
+(switch (the board's) to Group), sticky (switch to Card), status column (the group column is any
+column, not necessarily a status)
+
 **Missing Data table**:
 The state of a Data table block whose path no longer resolves. It is a normal, recoverable
 state — the file may have been moved, renamed or deleted, and the user may want to point the

@@ -24,7 +24,7 @@ pnpm icon          # 重算应用图标（改 design/icon/icon.tokens.json 之�
 
 ## 现在能做什么
 
-- **块模型编辑**：文本、H1–H3、待办、无序 / 有序列表、引用、代码块、标注、分割线、图片、表格、数据表引用块
+- **块模型编辑**：文本、H1–H3、待办、无序 / 有序列表、引用、代码块、标注、分割线、图片、表格、数据表引用块、看板块
 - **行内格式**：加粗、高亮 —— 选中文字浮出格式条，键盘走 `Cmd/Ctrl+B` 与 `Cmd/Ctrl+Shift+H`
 - **文件侧**：左侧目录树、标签栏、未保存标记、关标签时拦截确认，新建笔记 / 文件夹 / 数据表，拖动笔记进出文件夹
 - **数据表**：`.tbl` 文件（标准 JSON）是一份**独立文档**，有自己的标签页，能被**任意多篇笔记同时引用**
@@ -80,6 +80,7 @@ pnpm icon          # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | `table-align-check.html` | 表格：列对齐模型（整列一起写、插行列继承）、编辑器与导出的对齐一致、外框/内线/四角内弧的几何 |
 | `data-table-check.html` | 数据表：`.tbl` schema 往返（列顺序 / 原生值 / `null` 空值 / `select` 选项）、宽容解析（认不出的列类型退回 `text`、对不上列的键丢掉、version 超范围抛错）、引用块 → 快照 `<table>` 导出（含无 lookup 的提示态与「读回来是普通表格块」这个有意的不精确往返）、注册表（同路径同一对象、`missing` vs `failed`、preload / 引用计数 / mutate 落盘）、引用块与数据表编辑器的真实渲染 |
 | `gallery-check.html` | 画册块：登记表（紧挨数据表、工厂默认值、cloneBlock 深拷 `hiddenFields`）、快照+指针导出（`data-gallery` 恒写、非默认设置才写 `data-columns`/`data-ratio`/`data-fit`/`data-fields`、图片格 `<img>` 内联、表读不到仍带指针的空表）、宽容解析（缺属性/非法列数/非法与越界比例落回默认、无 `data-gallery` 退化成普通表格块） |
+| `kanban-check.html` | 看板块：登记表（紧挨 bookmark、marker ☰、工厂默认值、cloneBlock 深拷 `displayColumnIds`）、快照+指针导出（`data-kanban` 恒写、非空才写 `data-group`/`data-fields`、缺省不落存储、表头表体快照、`data-fields` 存显示列正向语义）、解析往返（path/groupColumnId/displayColumnIds 一致、快照行丢弃）、宽容解析（缺 `data-group` 落空、缺 `data-fields` 落空数组、无 `data-kanban` 走普通表格）、与画册不混淆（`data-gallery`/`data-kanban` 各按其块认领） |
 | `layout-check.html` | 布局块：格子内块 HTML 的递归往返（grid 缺省与三列 / flex / 行内标记 / 多块格子 / 空格子 / 零格子）、宽容解析（非法 `data-layout` 回退 grid、`data-columns` 越界与非数字落回缺省、非 section 子元素忽略）、序列化形态（缺省列数不落存储、flex 不认列数）、`blockText` 投影、导出 CSS 的 grid/flex 规则 |
 
 页面会把每个用例输出成 `OK` / `FAIL` 行，便于用无头浏览器 `--dump-dom` 抠出来做回归。

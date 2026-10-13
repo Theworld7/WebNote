@@ -11,8 +11,8 @@ import { fileName } from "@/lib/paths"
 /**
  * 插引用块前的「选表」对话框(插入与转换共用)。
  *
- * 画册块和书签块与数据表引用块一样,**先有文件才能插** —— 指向不存在的 `.tbl` 就是
- * 插一个永远读不到的提示态。区别在于数据表块是自动撞名/新建,这两个块把选择权交给
+ * 画册块、书签块和看板块与数据表引用块一样,**先有文件才能插** —— 指向不存在的 `.tbl` 就是
+ * 插一个永远读不到的提示态。区别在于数据表块是自动撞名/新建,这些块把选择权交给
  * 用户:列出工作区全部表挑一张,或点名新建一张。
  *
  * `kind` 决定确认后落哪种块,文案跟着换 —— 对话框本身对两者是同一个交互。
@@ -25,7 +25,7 @@ import { fileName } from "@/lib/paths"
  */
 const props = defineProps<{
   /** 落哪种引用块。 */
-  kind: "gallery" | "bookmark"
+  kind: "gallery" | "bookmark" | "kanban"
   /** 插入位置(插入模式)。null 表示不是插入模式。与 `retypeId` 同时为 null 即关闭。 */
   index: number | null
   /** 转换模式:待转换的块 id。null 表示不是转换模式。 */
@@ -34,7 +34,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ close: [] }>()
 
-const { tablePaths, insertGalleryBlock, insertBookmarkBlock, convertBlockToFileType, activePath } = useWorkspace()
+const { tablePaths, insertGalleryBlock, insertBookmarkBlock, insertKanbanBlock, convertBlockToFileType, activePath } = useWorkspace()
 
 const NEW = "__new__"
 
@@ -65,7 +65,7 @@ const tableOptions = computed(() =>
   tablePaths.value.map((path) => ({ path, label: fileName(path).replace(/\.tbl$/i, "") })),
 )
 
-const KIND_LABEL = { gallery: "画册", bookmark: "书签" } as const
+const KIND_LABEL = { gallery: "画册", bookmark: "书签", kanban: "看板" } as const
 
 /** 确认。插入落了块、或转换真的换了块,才关。 */
 async function confirm() {
@@ -79,8 +79,8 @@ async function confirm() {
   }
 
   if (props.index === null) return
-  const blockId =
-    props.kind === "gallery" ? await insertGalleryBlock(props.index, target, stem) : await insertBookmarkBlock(props.index, target, stem)
+  const insert = props.kind === "gallery" ? insertGalleryBlock : props.kind === "bookmark" ? insertBookmarkBlock : insertKanbanBlock
+  const blockId = await insert(props.index, target, stem)
   if (blockId !== "") emit("close")
 }
 </script>

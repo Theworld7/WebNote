@@ -7,6 +7,7 @@ import type {
   GalleryBlock,
   ImageBlock,
   InlineRun,
+  KanbanBlock,
   LayoutBlock,
   LayoutMode,
   MermaidBlock,
@@ -52,7 +53,9 @@ export const BLOCK_TYPES = [
   { type: "gallery", marker: "▦", label: "画册" },
   // 紧挨 gallery：书签块同样吃数据表的数据，渲染成链接卡片宫格。
   { type: "bookmark", marker: "⚑", label: "书签" },
-  // 压轴：容器块是「版面级」的重结构，跟在内容块族的最后。
+  // 紧挨 bookmark：看板块同样吃数据表的数据,按某列分组铺成几列,卡片可拖拽改值。
+  { type: "kanban", marker: "☰", label: "看板" },
+  // 压轴：容器块是「版面级」的重结构,跟在内容块族的最后。
   { type: "layout", marker: "⬚", label: "布局" },
 ] satisfies readonly BlockTypeMeta[]
 
@@ -123,6 +126,7 @@ export function isTextualBlock(block: Block): block is TextualBlock {
     block.type !== "datatable" &&
     block.type !== "gallery" &&
     block.type !== "bookmark" &&
+    block.type !== "kanban" &&
     block.type !== "layout"
   )
 }
@@ -130,10 +134,10 @@ export function isTextualBlock(block: Block): block is TextualBlock {
 /**
  * 格子内插入/转换菜单要滤掉的类型：容器块本身（一层容器）与引用块。
  *
- * 引用块（数据表/画册/书签）要「先有文件才能指」，那条异步分流与选表对话框都长在顶层
+ * 引用块（数据表/画册/书签/看板）要「先有文件才能指」，那条异步分流与选表对话框都长在顶层
  * 编辑器上，格子内不值得为此再铺一条路 —— 引用块放进布局格子的场景也足够边缘。
  */
-export const CELL_EXCLUDED_TYPES: readonly BlockType[] = ["layout", "datatable", "gallery", "bookmark"]
+export const CELL_EXCLUDED_TYPES: readonly BlockType[] = ["layout", "datatable", "gallery", "bookmark", "kanban"]
 
 /** 布局块网格模式的列数档位与缺省值。缺省即 2 不落存储，解析也以它兜底。 */
 export const LAYOUT_COLUMNS = [2, 3, 4] as const
@@ -224,6 +228,19 @@ export function createBookmarkBlock(
 }
 
 /**
+ * 造看板块。缺省不带分组列与显示字段 —— 视图显示提示态引导去选分组列;选好后分组
+ * 铺成几列、卡片显示分组列以外的全部字段。带全参数的调用来自解析器 —— 盘上属性
+ * 宽容读取后的值在这里收口成合法类型。
+ */
+export function createKanbanBlock(
+  path = "",
+  groupColumnId = "",
+  displayColumnIds: string[] = [],
+): KanbanBlock {
+  return { id: createBlockId(), type: "kanban", path, groupColumnId, displayColumnIds }
+}
+
+/**
  * 造布局块。`cells` 缺省为空 = 「尚未选择布局方式」，视图显示网格/弹性选择器；
  * 选择后由操作层初始化两个格子（各含一个空文本块，光标有处落）。
  * 带全参数的调用来自解析器 —— 盘上属性宽容读取后的值在这里收口成合法类型。
@@ -240,6 +257,7 @@ export function createBlock(type: BlockType, text = ""): Block {
   if (type === "datatable") return createDataTableBlock()
   if (type === "gallery") return createGalleryBlock()
   if (type === "bookmark") return createBookmarkBlock()
+  if (type === "kanban") return createKanbanBlock()
   if (type === "layout") return createLayoutBlock()
   return createTextualBlock(type, textToRuns(text))
 }
@@ -251,7 +269,7 @@ export function createBlock(type: BlockType, text = ""): Block {
  * 数据若不同步清空，切走标签再切回来又会把旧内容渲染出来（`/` 触发转换时尤其明显）。
  */
 export function retypeBlock(block: Block, type: BlockType): Block {
-  if (type === "image" || type === "table" || type === "mermaid" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "layout") {
+  if (type === "image" || type === "table" || type === "mermaid" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "layout") {
     return createBlock(type)
   }
   if (!isTextualBlock(block)) return createTextualBlock(type)
@@ -275,6 +293,10 @@ export function cloneBlock(block: Block, id: string): Block {
   // 画册的 hiddenFields 是数组：更新总以整体替换发生，但拷贝不该共享同一份。
   if (block.type === "gallery") {
     return { ...block, id, hiddenFields: [...block.hiddenFields] }
+  }
+  // 看板的 displayColumnIds 同理：整体替换,但拷贝要独立。
+  if (block.type === "kanban") {
+    return { ...block, id, displayColumnIds: [...block.displayColumnIds] }
   }
   if (block.type === "table") {
     return { ...block, id, rows: block.rows.map((row) => row.map(cloneCell)) }
@@ -303,6 +325,8 @@ export function blockText(block: Block): string {
   if (block.type === "gallery") return block.path
   // 书签块只带路径 —— 名称列 / 链接列 / 列数是展示设置，不是文本。
   if (block.type === "bookmark") return block.path
+  // 看板块只带路径 —— 分组列 / 显示列是展示设置,不是文本。
+  if (block.type === "kanban") return block.path
   // 布局块把格子里的块递归拼起来 —— 字数统计因此覆盖容器内的内容。
   if (block.type === "layout") {
     return block.cells.map((cell) => cell.map((item) => blockText(item)).join(" ")).join(" ")

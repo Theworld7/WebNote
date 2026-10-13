@@ -1,4 +1,4 @@
-import type { Block, BookmarkBlock, DataTableBlock, GalleryBlock, ImageBlock, LayoutBlock, MermaidBlock, TableCell, TextualBlock } from "@/types/workspace"
+import type { Block, BookmarkBlock, DataTableBlock, GalleryBlock, ImageBlock, KanbanBlock, LayoutBlock, MermaidBlock, TableCell, TextualBlock } from "@/types/workspace"
 import type { DataTable } from "@/types/data-table"
 import { GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT, LAYOUT_COLUMNS_DEFAULT, isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
@@ -76,6 +76,10 @@ export function blocksToHtml(blocks: readonly Block[], lookupTables?: DataTableL
     }
     if (block.type === "bookmark") {
       out.push(bookmarkHtml(block, lookup(block.path)))
+      continue
+    }
+    if (block.type === "kanban") {
+      out.push(kanbanHtml(block, lookup(block.path)))
       continue
     }
     if (block.type === "layout") {
@@ -316,6 +320,51 @@ function galleryHtml(block: GalleryBlock, table: DataTable | null): string {
 
   // 没有内容可写（表读不到 / 空表）就留一张带属性的空表 —— 表格骨架是
   // 「这是一个画册块」的最小形态，浏览器渲染出来也只是什么都没有，不会坏。
+  if (table === null || table.rows.length === 0) {
+    return `<table ${attrs.join(" ")}></table>`
+  }
+
+  const headLine = `      <tr>${table.columns.map((column) => wrap("th", escapeTextToHtml(column.name))).join("")}</tr>`
+  const bodyLines = table.rows.map((row) => {
+    const cells = table.columns
+      .map((column) => {
+        const value = cellValue(row, column)
+        if (column.type === "image" && typeof value === "string") {
+          return wrap("td", `<img src="${escapeHtml(value)}" alt="">`)
+        }
+        return wrap("td", escapeTextToHtml(valueText(value, column)))
+      })
+      .join("")
+    return `      <tr>${cells}</tr>`
+  })
+
+  const parts = [`<table ${attrs.join(" ")}>`, "  <thead>", headLine, "  </thead>"]
+  if (bodyLines.length > 0) parts.push("  <tbody>", ...bodyLines, "  </tbody>")
+  parts.push("</table>")
+
+  return parts.join("\n")
+}
+
+/**
+ * 看板块 → **快照 + 指针**(与画册同一条 ADR-0006 立场,详见 ADR-0008)。
+ *
+ * 内容与 `galleryHtml` 同源同构:一张快照表格,图片格照旧内联 data URI ——
+ * 双击可读全数据,「不带 .tbl 也能读」的承诺不变。差别只有一层 `data-*` 属性:
+ * 看板的分组列、卡片显示列是**块的设置**,丢了要重新配,所以随快照一并写进文件,
+ * 编辑器据此把它还原成活的看板块;第三方编辑器剥掉属性后剩下的就是一张普通表格。
+ *
+ * `data-fields` 存的是**显示列** id(正向,看板块独有语义),与画册 `data-fields`
+ * 存**隐藏列** id(反向)语义相反 —— 两者分属不同的块类型属性,解析端各按其块认领,
+ * 不会混淆。空显示列(默认全显)不写出,与画册空隐藏列不写出同一口径。
+ *
+ * 表读不到时仍写出带属性的空表:设置跟着笔记走,不因一次读盘失败蒸发;重开时
+ * 块自己走「读不到」的提示态。
+ */
+function kanbanHtml(block: KanbanBlock, table: DataTable | null): string {
+  const attrs = [`data-kanban="${escapeHtml(block.path)}"`]
+  if (block.groupColumnId !== "") attrs.push(`data-group="${escapeHtml(block.groupColumnId)}"`)
+  if (block.displayColumnIds.length > 0) attrs.push(`data-fields="${escapeHtml(block.displayColumnIds.join(","))}"`)
+
   if (table === null || table.rows.length === 0) {
     return `<table ${attrs.join(" ")}></table>`
   }

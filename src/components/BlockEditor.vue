@@ -28,7 +28,7 @@ const {
  * 与数据表块一样「先有文件才能插」,但选表交给用户,确认后再落块。
  * 两种块共用一个对话框(同一套「挑表或新建」交互),用 kind 区分落块。
  */
-const dialogKind = ref<"gallery" | "bookmark">("gallery")
+const dialogKind = ref<"gallery" | "bookmark" | "kanban">("gallery")
 const fileInsertIndex = ref<number | null>(null)
 
 /**
@@ -44,7 +44,7 @@ function closeFileInsert() {
 }
 
 /** 打开选表对话框(插入模式),记下落点。 */
-function openInsertDialog(kind: "gallery" | "bookmark", id: string) {
+function openInsertDialog(kind: "gallery" | "bookmark" | "kanban", id: string) {
   const blocks = activeDocument.value
   const index = blocks.findIndex((item) => item.id === id)
   dialogKind.value = kind
@@ -70,8 +70,8 @@ function handleInsertAfter(id: string, type: BlockType) {
     })
     return
   }
-  // 画册 / 书签块同样先有文件,但选哪张交给用户:记下落点与落块种类,打开对话框。
-  if (type === "gallery" || type === "bookmark") {
+  // 画册 / 书签 / 看板块同样先有文件,但选哪张交给用户:记下落点与落块种类,打开对话框。
+  if (type === "gallery" || type === "bookmark" || type === "kanban") {
     openInsertDialog(type, id)
     return
   }
@@ -82,7 +82,7 @@ function handleRetype(id: string, type: BlockType) {
   // 转换成引用块同样**先有文件**:数据表自动同名解析(与插入同一套规则),画册与书签
   // 交给对话框挑表。不接这条规则,落下的就是空路径的引用块 —— 视图永远停在「正在读取」。
   // 解析失败就不转换,原块保持原样。
-  if (type === "gallery" || type === "bookmark") {
+  if (type === "gallery" || type === "bookmark" || type === "kanban") {
     dialogKind.value = type
     fileRetypeId.value = id
     return

@@ -216,6 +216,7 @@ export const BLOCK_SPACING: Readonly<Record<BlockType, BlockSpacing>> = {
   datatable: { top: 16, bottom: 16 },
   gallery: { top: 16, bottom: 16 },
   bookmark: { top: 16, bottom: 16 },
+  kanban: { top: 16, bottom: 16 },
   layout: { top: 16, bottom: 16 },
 }
 

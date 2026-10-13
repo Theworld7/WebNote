@@ -1,8 +1,8 @@
 import type { InjectionKey } from "vue"
-import type { Block, BlockType, BookmarkBlock, CloseStrategy, CreateTarget, FileNode, GalleryBlock, InlineRun, LayoutMode, OpenTab, TableAlign, TableCell } from "@/types/workspace"
+import type { Block, BlockType, BookmarkBlock, CloseStrategy, CreateTarget, FileNode, GalleryBlock, InlineRun, KanbanBlock, LayoutMode, OpenTab, TableAlign, TableCell } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref } from "vue"
-import { cloneBlock, countChars, createBlock, createBlockId, createBookmarkBlock, createDataTableBlock, createGalleryBlock, isTextualBlock, retypeBlock } from "@/lib/blocks"
+import { cloneBlock, countChars, createBlock, createBlockId, createBookmarkBlock, createDataTableBlock, createGalleryBlock, createKanbanBlock, isTextualBlock, retypeBlock } from "@/lib/blocks"
 import { describeError } from "@/lib/errors"
 import { parseHtml, serializeHtml } from "@/lib/html"
 import type { DataTableLookup } from "@/lib/html"
@@ -891,6 +891,18 @@ function createWorkspace() {
     markDirty()
   }
 
+  /**
+   * 更新看板块的展示设置(分组列 / 卡片显示列)。与 `updateGalleryBlock` 同一立场:
+   * 改的是笔记文档里的块属性,与 `.tbl` 无关 —— 同一张表在两篇笔记里可以按不同列
+   * 分组、显示不同字段。
+   */
+  function updateKanbanBlock(id: string, patch: Partial<Pick<KanbanBlock, "groupColumnId" | "displayColumnIds">>) {
+    const block = activeBlock(id)
+    if (block === undefined || block.type !== "kanban") return
+    Object.assign(block, patch)
+    markDirty()
+  }
+
   function toggleBlockChecked(id: string) {
     const block = activeBlock(id)
     if (block === undefined || block.type !== "todo") return
@@ -991,6 +1003,27 @@ function createWorkspace() {
   }
 
   /**
+   * 在当前笔记里插入一个看板块。与 `insertBookmarkBlock` 完全同构:
+   * 先有表才有块,`target` 为空时按 `stem` 新建、撞名直接引用。
+   */
+  async function insertKanbanBlock(index: number, target = "", stem = ""): Promise<string> {
+    const blocks = activeDocument.value
+    const notePath = activePath.value
+
+    let path = target
+    if (path === "") {
+      path = await resolveDataTableForNote(notePath, stem)
+      if (path === "") return ""
+    }
+
+    const block = createKanbanBlock(path)
+    const at = Math.min(Math.max(index, 0), blocks.length)
+    blocks.splice(at, 0, block)
+    markDirty()
+    return block.id
+  }
+
+  /**
    * 把已有块**原地转换**成数据表引用块或画册块,返回新块 id(失败返回空串)。
    *
    * 转换与插入遵守同一条规则:**先有文件才能指**。`/` 菜单与手柄的「转换为」走的是
@@ -999,7 +1032,7 @@ function createWorkspace() {
    */
   async function convertBlockToFileType(
     id: string,
-    type: "datatable" | "gallery" | "bookmark",
+    type: "datatable" | "gallery" | "bookmark" | "kanban",
     target = "",
     stem = "",
   ): Promise<string> {
@@ -1014,7 +1047,7 @@ function createWorkspace() {
     }
 
     const block =
-      type === "gallery" ? createGalleryBlock(path) : type === "bookmark" ? createBookmarkBlock(path) : createDataTableBlock(path)
+      type === "gallery" ? createGalleryBlock(path) : type === "bookmark" ? createBookmarkBlock(path) : type === "kanban" ? createKanbanBlock(path) : createDataTableBlock(path)
     blocks[index] = block
     markDirty()
     return block.id
@@ -1324,9 +1357,11 @@ function createWorkspace() {
     insertDataTableBlock,
     insertGalleryBlock,
     insertBookmarkBlock,
+    insertKanbanBlock,
     convertBlockToFileType,
     updateGalleryBlock,
     updateBookmarkBlock,
+    updateKanbanBlock,
     tablePaths,
     appendBlock,
     changeBlockType,

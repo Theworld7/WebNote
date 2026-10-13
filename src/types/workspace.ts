@@ -55,8 +55,8 @@ export type TextualBlockType =
   | "callout"
   | "divider"
 
-/** 全部块类型 = 正文类 + 结构类。派生而非常量列表，避免两处维护。 */
-export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "layout"
+/** 全部块类型 = 正文类 + 结构类。派生而常量列表，避免两处维护。 */
+export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "kanban" | "layout"
 
 /** 正文块。块之间是平铺列表；列表的嵌套层级用 `depth` 表达，不建树。 */
 export interface TextualBlock {
@@ -197,6 +197,34 @@ export interface BookmarkBlock {
 }
 
 /**
+ * 看板块:把一张数据表按某列的值分成若干列(分组),每行渲染成一张便签贴纸卡,
+ * 卡片可以跨列拖拽 —— 拖到哪一列就把该行的分组列值改成那一列的值(见 ADR-0008)。
+ *
+ * 与画册块 / 书签块同源:数据只在 `.tbl` 里(ADR-0005),块上只带引用路径与一组
+ * **展示设置**。设置跟着笔记走,同一张表在两篇笔记里可以有两套不同的看板外观
+ * (不同的分组列、不同的卡片字段),正如画册的列数与比例是块的属性。
+ *
+ * 导出形态与画册同一条 ADR-0006 立场:快照 + 指针 —— 内容写成一张普通快照表格
+ * (双击可读全数据),`data-kanban` / `data-group` / `data-fields` 把路径与设置一并写进,
+ * 编辑器据此还原成活的看板块;第三方编辑器剥掉属性后剩下的就是一张普通表格,
+ * 按表格读是「正确的读法」(与数据表引用块的快照例外同一立场)。
+ *
+ * 拖拽改值只动**分组列**:这是看板的核心交互,其余字段的编辑去数据表编辑页或
+ * 画册/书签块。卡片背景色由行 id 哈希出固定浅色(同卡每次同色,导出 HTML 不带颜色
+ * —— 颜色是视图态,不进 `.tbl` 也不进笔记)。
+ */
+export interface KanbanBlock {
+  id: string
+  type: "kanban"
+  /** 被引用的 `.tbl` 文件的工作区路径。 */
+  path: string
+  /** 分组列的列 id。空 = 尚未选分组列(视图显示提示态引导去设);列被删后渲染时自然退化为「未分组」一列,无需清洗。 */
+  groupColumnId: string
+  /** 卡片上显示的列 id(有序)。空 = 全显(分组列本身除外);删列后残留的 id 在渲染时按当前列过滤,无需清洗。 */
+  displayColumnIds: string[]
+}
+
+/**
  * 布局块:笔记里唯一的**容器块** —— 把若干格子按网格或弹性方式排开,每个格子各持有
  * 一份独立的块列表(Notion 式)。顶层文档仍是扁平列表;布局块是唯一一层受控的嵌套,
  * 且**格子内不再出现布局块**(一层容器原则,UI 的插入/转换菜单在格子内会把它滤掉)。
@@ -218,7 +246,7 @@ export interface LayoutBlock {
 /** 布局块的排布方式。 */
 export type LayoutMode = "grid" | "flex"
 
-export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | LayoutBlock
+export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | LayoutBlock
 
 /** 块类型元数据：菜单标记 + 中文名。菜单渲染直接消费。 */
 export interface BlockTypeMeta {
