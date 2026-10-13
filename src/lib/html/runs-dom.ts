@@ -1,4 +1,4 @@
-import type { InlineMark, InlineRun } from "@/types/workspace"
+import type { InlineMark, InlineRun, LinkShape } from "@/types/workspace"
 import { TAG_MARKS, normalizeRuns } from "@/lib/inline"
 import { BLOCK_TAGS, IMAGE_TAG, SKIPPED_TAGS } from "./tags"
 
@@ -30,11 +30,13 @@ export interface RunsFromNodeOptions {
 interface RunContext {
   marks: InlineMark[]
   href: string | undefined
+  linkShape: LinkShape | undefined
 }
 
 function makeRun(context: RunContext, text: string): InlineRun {
   const run: InlineRun = { text, marks: [...context.marks] }
   if (context.href !== undefined && context.href !== "") run.href = context.href
+  if (run.href !== undefined && context.linkShape === "card") run.linkShape = "card"
   return run
 }
 
@@ -75,6 +77,10 @@ function walk(node: Node, context: RunContext, out: InlineRun[], collapse: boole
     marks: mark !== undefined && !context.marks.includes(mark) ? [...context.marks, mark] : context.marks,
     // 嵌套链接取最内层的 href：`<a href="x"><a href="y">` 不会出现，但 `<a><span>` 会。
     href: tag === LINK_TAG ? node.getAttribute("href") ?? context.href : context.href,
+    // 形态与 href 同源同生命周期。data-icon 不读 —— 图标是 href 的派生（见 linkIcon），
+    // 读回时重算，文件被手改也不会两份事实漂移。
+    linkShape:
+      tag === LINK_TAG && node.getAttribute("data-link-shape") === "card" ? "card" : context.linkShape,
   }
 
   for (const child of node.childNodes) walk(child, next, out, collapse)
@@ -103,7 +109,7 @@ function collapseBoundaries(runs: InlineRun[]): InlineRun[] {
 export function runsFromNodes(nodes: Iterable<Node>, options: RunsFromNodeOptions = {}): InlineRun[] {
   const collapse = options.collapseWhitespace === true
   const out: InlineRun[] = []
-  const context: RunContext = { marks: [], href: undefined }
+  const context: RunContext = { marks: [], href: undefined, linkShape: undefined }
 
   for (const node of nodes) walk(node, context, out, collapse)
 

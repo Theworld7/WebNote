@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { DataColumn } from "@/types/data-table"
 import type { DataRow } from "@/types/data-table"
-import type { DataCellValue, DataColumnType, DataTable } from "@/types/data-table"
+import type { DataCellValue, DataColumnType, DataSelectOption, DataTable } from "@/types/data-table"
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue"
 import { ImagePlusIcon, PlusIcon, Trash2Icon, XIcon } from "@lucide/vue"
 import { isFileDrag, isImageFile, pickImageFile, readImageFile } from "@/lib/image"
@@ -122,6 +122,50 @@ function toggleCheck(row: DataRow, column: DataColumn, event: Event): void {
   const target = event.target
   if (!(target instanceof HTMLInputElement)) return
   void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, target.checked)))
+}
+
+// ---- select 选项 ----
+
+/**
+ * 格子的原始值（选项 id）。不能用 `displayOf` —— 它给的是选项**名字**，而 select
+ * 元素的选中项要按 id 对上，名字只是显示。
+ */
+function optionIdOf(row: DataRow, column: DataColumn): string {
+  const value = dt.cellValue(row, column)
+  return typeof value === "string" ? value : ""
+}
+
+function commitOption(row: DataRow, column: DataColumn, event: Event): void {
+  const target = event.target
+  if (!(target instanceof HTMLSelectElement)) return
+  const next = target.value === "" ? null : target.value
+  if (next === dt.cellValue(row, column)) return
+  void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, next)))
+}
+
+function addColumnOption(column: DataColumn, event: Event): void {
+  const target = event.target
+  if (!(target instanceof HTMLInputElement)) return
+  const name = target.value.trim()
+  target.value = ""
+  if (name === "") return
+  void change((current) => dt.addOption(current, column.id, name))
+}
+
+function renameColumnOption(column: DataColumn, option: DataSelectOption, event: Event): void {
+  const target = event.target
+  if (!(target instanceof HTMLInputElement)) return
+  const name = target.value.trim()
+  // 名字清空不算删除（删除是隔壁那个 ✕），退回原名。
+  if (name === "" || name === option.name) {
+    target.value = option.name
+    return
+  }
+  void change((current) => dt.renameOption(current, column.id, option.id, name))
+}
+
+function removeColumnOption(column: DataColumn, optionId: string): void {
+  void change((current) => dt.removeOption(current, column.id, optionId))
 }
 
 // ---- 图片列 ----
@@ -307,6 +351,44 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
                       <span :class="MARKER">{{ column.type === item.type ? "✓" : "" }}</span>
                       <span>{{ item.label }}</span>
                     </DropdownMenuItem>
+                    <template v-if="column.type === 'select'">
+                      <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
+                      <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+                        选项
+                      </DropdownMenuLabel>
+                      <!-- 选项维护就地下拉里做:改名的格子存的是 id,改名不动任何一行;
+                           删除会把引用它的格子清空(见 lib/data-table 的 removeOption)。
+                           输入框上的 @keydown.stop 是**必须**的:不挡住冒泡,菜单的 typeahead
+                           会把这些按键当成「跳到匹配项」。代价是 Esc 关不掉这个菜单,
+                           点外部仍可关。 -->
+                      <div class="max-h-44 space-y-0.5 overflow-y-auto px-2 pb-1">
+                        <div v-for="option in column.options" :key="option.id" class="flex items-center gap-1">
+                          <input
+                            class="min-w-0 flex-1 rounded border border-line bg-transparent px-1.5 py-0.5 text-[12px] outline-none"
+                            :value="option.name"
+                            @click.stop
+                            @keydown.stop
+                            @keydown.enter.prevent="renameColumnOption(column, option, $event)"
+                            @blur="(event: Event) => renameColumnOption(column, option, event)"
+                          >
+                          <button
+                            type="button"
+                            class="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive"
+                            aria-label="删除该选项"
+                            @click.stop="removeColumnOption(column, option.id)"
+                          >
+                            <XIcon class="size-3" />
+                          </button>
+                        </div>
+                        <input
+                          class="w-full rounded border border-dashed border-line bg-transparent px-1.5 py-0.5 text-[12px] outline-none placeholder:text-muted-foreground/50"
+                          placeholder="新增选项，回车确认"
+                          @click.stop
+                          @keydown.stop
+                          @keydown.enter.prevent="addColumnOption(column, $event)"
+                        >
+                      </div>
+                    </template>
                     <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
                     <DropdownMenuItem
                       variant="destructive"
@@ -385,6 +467,17 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
                 :checked="dt.cellValue(row, column) === true"
                 @change="(event: Event) => toggleCheck(row, column, event)"
               >
+              <!-- 单选格：下拉选已有选项。空项给「—」，选中即清空该格。
+                   选项在列头菜单里维护 —— 名字可改，格子存的是 id，改名不动数据。 -->
+              <select
+                v-else-if="column.type === 'select'"
+                class="w-full cursor-pointer bg-transparent outline-none"
+                :value="optionIdOf(row, column)"
+                @change="(event: Event) => commitOption(row, column, event)"
+              >
+                <option value="">—</option>
+                <option v-for="option in column.options" :key="option.id" :value="option.id">{{ option.name }}</option>
+              </select>
               <input
                 v-else
                 class="w-full bg-transparent outline-none placeholder:text-muted-foreground/40"

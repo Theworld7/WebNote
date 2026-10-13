@@ -2,6 +2,7 @@ import type {
   Block,
   BlockType,
   BlockTypeMeta,
+  BookmarkBlock,
   DataTableBlock,
   GalleryBlock,
   ImageBlock,
@@ -49,6 +50,8 @@ export const BLOCK_TYPES = [
   { type: "datatable", marker: "▤", label: "数据表" },
   // 紧挨 datatable：画册展示的就是数据表的数据，只是换了一身衣服。
   { type: "gallery", marker: "▦", label: "画册" },
+  // 紧挨 gallery：书签块同样吃数据表的数据，渲染成链接卡片宫格。
+  { type: "bookmark", marker: "⚑", label: "书签" },
   // 压轴：容器块是「版面级」的重结构，跟在内容块族的最后。
   { type: "layout", marker: "⬚", label: "布局" },
 ] satisfies readonly BlockTypeMeta[]
@@ -119,6 +122,7 @@ export function isTextualBlock(block: Block): block is TextualBlock {
     block.type !== "mermaid" &&
     block.type !== "datatable" &&
     block.type !== "gallery" &&
+    block.type !== "bookmark" &&
     block.type !== "layout"
   )
 }
@@ -126,10 +130,10 @@ export function isTextualBlock(block: Block): block is TextualBlock {
 /**
  * 格子内插入/转换菜单要滤掉的类型：容器块本身（一层容器）与引用块。
  *
- * 引用块（数据表/画册）要「先有文件才能指」，那条异步分流与选表对话框都长在顶层
+ * 引用块（数据表/画册/书签）要「先有文件才能指」，那条异步分流与选表对话框都长在顶层
  * 编辑器上，格子内不值得为此再铺一条路 —— 引用块放进布局格子的场景也足够边缘。
  */
-export const CELL_EXCLUDED_TYPES: readonly BlockType[] = ["layout", "datatable", "gallery"]
+export const CELL_EXCLUDED_TYPES: readonly BlockType[] = ["layout", "datatable", "gallery", "bookmark"]
 
 /** 布局块网格模式的列数档位与缺省值。缺省即 2 不落存储，解析也以它兜底。 */
 export const LAYOUT_COLUMNS = [2, 3, 4] as const
@@ -201,6 +205,25 @@ export function createGalleryBlock(
 }
 
 /**
+ * 造书签块。名称列 / 链接列缺省为空 = 「尚未挑选字段」，视图显示提示态引导去
+ * 悬浮条里选；带全参数的调用来自解析器 —— 盘上属性宽容读取后的值在这里收口。
+ */
+export function createBookmarkBlock(
+  path = "",
+  nameColumn = "",
+  urlColumn = "",
+  columns: "auto" | number = "auto",
+  iconColumn = "",
+  groupBy = "",
+): BookmarkBlock {
+  const block: BookmarkBlock = { id: createBlockId(), type: "bookmark", path, nameColumn, urlColumn, columns }
+  // 缺省不落盘:不设图标列/分组字段时字段干脆不存在,与 linkShape 缺省不写同一立场。
+  if (iconColumn !== "") block.iconColumn = iconColumn
+  if (groupBy !== "") block.groupBy = groupBy
+  return block
+}
+
+/**
  * 造布局块。`cells` 缺省为空 = 「尚未选择布局方式」，视图显示网格/弹性选择器；
  * 选择后由操作层初始化两个格子（各含一个空文本块，光标有处落）。
  * 带全参数的调用来自解析器 —— 盘上属性宽容读取后的值在这里收口成合法类型。
@@ -216,6 +239,7 @@ export function createBlock(type: BlockType, text = ""): Block {
   if (type === "mermaid") return createMermaidBlock()
   if (type === "datatable") return createDataTableBlock()
   if (type === "gallery") return createGalleryBlock()
+  if (type === "bookmark") return createBookmarkBlock()
   if (type === "layout") return createLayoutBlock()
   return createTextualBlock(type, textToRuns(text))
 }
@@ -227,7 +251,7 @@ export function createBlock(type: BlockType, text = ""): Block {
  * 数据若不同步清空，切走标签再切回来又会把旧内容渲染出来（`/` 触发转换时尤其明显）。
  */
 export function retypeBlock(block: Block, type: BlockType): Block {
-  if (type === "image" || type === "table" || type === "mermaid" || type === "datatable" || type === "gallery" || type === "layout") {
+  if (type === "image" || type === "table" || type === "mermaid" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "layout") {
     return createBlock(type)
   }
   if (!isTextualBlock(block)) return createTextualBlock(type)
@@ -245,7 +269,7 @@ export function retypeBlock(block: Block, type: BlockType): Block {
  * `source` 是字符串，图片块那种平坦形态浅拷即可。
  */
 export function cloneBlock(block: Block, id: string): Block {
-  if (block.type === "image" || block.type === "mermaid" || block.type === "datatable") {
+  if (block.type === "image" || block.type === "mermaid" || block.type === "datatable" || block.type === "bookmark") {
     return { ...block, id }
   }
   // 画册的 hiddenFields 是数组：更新总以整体替换发生，但拷贝不该共享同一份。
@@ -277,6 +301,8 @@ export function blockText(block: Block): string {
   if (block.type === "datatable") return block.path
   // 画册同样只带路径 —— 设置（列数、填充、字段显隐）不是文本，不进投影。
   if (block.type === "gallery") return block.path
+  // 书签块只带路径 —— 名称列 / 链接列 / 列数是展示设置，不是文本。
+  if (block.type === "bookmark") return block.path
   // 布局块把格子里的块递归拼起来 —— 字数统计因此覆盖容器内的内容。
   if (block.type === "layout") {
     return block.cells.map((cell) => cell.map((item) => blockText(item)).join(" ")).join(" ")

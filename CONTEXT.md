@@ -59,6 +59,14 @@ A run's `href`. It is a property of the run, not one of its marks — so "a run 
 link but holding no address" cannot be represented.
 _Avoid_: Anchor, hyperlink mark
 
+**Link shape**:
+A link run's display form: `text` — the default, a plain inline text link — or `card`, a
+bookmark card (icon block above, name below). The shape travels with the `href` as
+`data-link-shape` on the `<a>`; the default never lands in the file, and the card's icon
+character is derived from the address (`data-icon`), never read back from it.
+_Avoid_: Bookmark (a card is one shape of a Link, not a separate thing), icon bookmark,
+style
+
 **Canonical run form**:
 The normalised shape every run list must be in: text non-empty, marks deduplicated and
 ordered, adjacent runs with identical marks and href already merged. Runs that leave the
@@ -106,6 +114,15 @@ document (see ADR-0005), and a folder of attachments next to it would break that
 is paid in file size, on purpose.
 _Avoid_: Attachment, thumbnail, photo, file path
 
+**Select option**:
+One choice of a `select` column: an id plus a display name. A Data row holds the option's
+**id**; the name is a display projection and never the stored value. Files written before
+select cells had a picker hold the name instead — `cellValue` folds such a value onto its
+option's id, so a name-valued cell is the same value, and lands in the same group, as an
+id-valued one. A value matching neither an id nor a name is left alone: there is no option
+to fold it into.
+_Avoid_: Tag, label, enum, status
+
 **Data table block**:
 A Block inside a Note that points at a Data table by workspace path. It carries the path and
 nothing else — the records stay in the `.tbl` file, so the same table seen from two Notes is
@@ -121,6 +138,16 @@ differently.
 On disk it travels as a snapshot **with** a pointer (`data-gallery` + settings on a `<table>`,
 see ADR-0006) so its settings survive a reopen while the export still opens on its own.
 _Avoid_: Card view, Grid, Poster, Database view
+
+**Bookmark block**:
+A structural Block that renders a Data table as a grid of bookmark cards — one card per
+row, the same card a card-shaped inline Link wears (icon above, name below). Which column
+names the card and which column holds the address are **block settings** (`data-name` /
+`data-url` on the exported `<ul class="note-bookmarks">`), so two Notes can point at one
+table and pick different fields. The icon character is derived from the address, never
+stored. On disk it travels as a snapshot **with** a pointer, on the same terms as the
+Gallery block.
+_Avoid_: Link block (a Link is a run; a Bookmark block is a Block), card grid, favorites
 
 **Missing Data table**:
 The state of a Data table block whose path no longer resolves. It is a normal, recoverable

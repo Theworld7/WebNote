@@ -36,6 +36,22 @@ const lines = []
 let passed = 0
 let failed = 0
 
+/**
+ * 断言里抛出的异常若不接住，整页脚本会**静默中断** —— 后面所有断言都不跑，
+ * 输出停在中途，而外层看到的是一个「没报错」的页面（本轮就踩过：`addOption`
+ * 改了签名，页面在第 144 行断掉，后面 90 多条断言从没执行过）。这里把错误
+ * 显式打进输出，截断不再伪装成通过。
+ */
+window.addEventListener("error", (event) => {
+  const box = document.getElementById("out")
+  if (box !== null) box.textContent += `\n\n脚本中断（其后的断言没跑）：${event.message}`
+})
+window.addEventListener("unhandledrejection", (event) => {
+  const box = document.getElementById("out")
+  const reason = event.reason
+  if (box !== null) box.textContent += `\n\n脚本中断（其后的断言没跑）：${reason instanceof Error ? reason.message : String(reason)}`
+})
+
 function check(name, ok, detail = "") {
   if (ok) { passed += 1; lines.push(`OK   ${name}`) }
   else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
@@ -57,7 +73,7 @@ check(
   BLOCK_TYPES.findIndex((m) => m.type === "datatable") ===
     BLOCK_TYPES.findIndex((m) => m.type === "table") + 1,
 )
-check("BLOCK_TYPES 共 19 种", BLOCK_TYPES.length === 19, `实际 ${BLOCK_TYPES.length}`)
+check("BLOCK_TYPES 共 21 种", BLOCK_TYPES.length === 21, `实际 ${BLOCK_TYPES.length}`)
 
 const refBlock = createDataTableBlock("客户.tbl")
 check("引用块是 datatable 且带路径", refBlock.type === "datatable" && refBlock.path === "客户.tbl")
@@ -140,9 +156,12 @@ check("checkbox 的空值是 false 而不是 null", dt.emptyValueOf("checkbox") 
 
 // select：行里存选项 id，投影成名字。
 let pick = dt.createEmptyTable(["状态"])
+pick = dt.setColumnType(pick, pick.columns[0].id, "select")
+// `addOption` 是**表变换**（与 removeOption / renameOption 对称）：返回改了列的新表，
+// 不再是返回选项数组 —— 传 options 数组的那版签名会在这里静默抛错、把整页断言砍断。
+pick = dt.addOption(pick, pick.columns[0].id, "进行中")
 const statusColumn = pick.columns[0]
-pick = { version: pick.version, columns: [{ ...statusColumn, type: "select", options: dt.addOption(statusColumn, "进行中") }], rows: pick.rows }
-const option = pick.columns[0].options[0]
+const option = statusColumn.options[0]
 pick = dt.replaceRow(pick, dt.setCell(pick.rows[0], pick.columns[0].id, option.id))
 check("select 存的是选项 id", dt.cellValue(pick.rows[0], pick.columns[0]) === option.id)
 check("valueText 把选项 id 翻成名字（不漏 id 给用户）", dt.valueText(dt.cellValue(pick.rows[0], pick.columns[0]), pick.columns[0]) === "进行中")
@@ -154,6 +173,28 @@ check(
     const back = dt.tableFromJson(dt.tableToJson(removed))
     return dt.cellValue(back.rows[0], back.columns[0]) === null
   })(),
+)
+// 历史遗留：早期 select 格的编辑入口是纯文本框，存进去的是**选项名**而不是 id。
+// 这类值按 id 查不到选项 —— 显示为空，分节还会把一个组劈成两节标题相同的节
+// （画册 / 书签的分节都按 `cellValue` 建桶）。`cellValue` 是唯一的读口，名字与某个
+// 选项完全相同就认它，于是两种写法在**读出来之后**是同一个值、同一个桶。
+const legacy = dt.replaceRow(pick, dt.setCell(pick.rows[0], pick.columns[0].id, "进行中"))
+check("遗留写法（值=选项名）读出来归一到选项 id", dt.cellValue(legacy.rows[0], legacy.columns[0]) === option.id)
+check(
+  "归一之后两种写法是同一个分组键（不会劈成两节）",
+  dt.cellValue(legacy.rows[0], legacy.columns[0]) === dt.cellValue(pick.rows[0], pick.columns[0]),
+)
+check(
+  "归一是无损的：遗留格投影出同一个名字",
+  dt.valueText(dt.cellValue(legacy.rows[0], legacy.columns[0]), legacy.columns[0]) === "进行中",
+)
+check(
+  "认不出的值原样留着（不硬塞进某个选项）",
+  dt.cellValue(dt.replaceRow(pick, dt.setCell(pick.rows[0], pick.columns[0].id, "编外")).rows[0], pick.columns[0]) === "编外",
+)
+check(
+  "只对 select 列归一：同样的字符串放进文本列就原样返回",
+  dt.cellValue(legacy.rows[0], { ...statusColumn, type: "text" }) === "进行中",
 )
 check("valueText 对勾选是 ✓ / 空", dt.valueText(true, statusColumn) === "✓" && dt.valueText(false, statusColumn) === "")
 
@@ -500,12 +541,19 @@ check("渲染出表格格子（表头 + 一行）", renderedCells.length === 2, 
 // 列头是一个下拉菜单（改类型 / 删列），所以它的 textContent 是「列名 + 类型名」两段。
 check("表头带上了列名", renderedCells[0].startsWith("状态"), renderedCells.join(" | "))
 check("表头带上了列类型（列有类型是数据表与内嵌表格的分别）", renderedCells[0].includes("单选"), renderedCells.join(" | "))
-// 单元格是 `<input :value>`，textContent 为空 —— 要读 input 的 value 而不是格子文本。
-const renderedValues = [...document.querySelectorAll("#host td input")].map((input) => input.value)
+// select 列的格子在引用块里是**下拉**（不是文本框）：显示的是选项名，元素的 `value`
+// 却是选项 id —— 两个都要对。显示漏 id 给用户是错，值绑错则一改就写坏数据。
+const renderedSelects = [...document.querySelectorAll("#host td select")]
+const renderedSelectText = renderedSelects.map((select) => select.selectedOptions[0]?.textContent?.trim() ?? "")
 check(
   "单元格显示的是选项名（不是内部 id）",
-  renderedValues[0] === "进行中",
-  `实际 ${JSON.stringify(renderedValues)}`,
+  renderedSelects.length === 1 && renderedSelectText[0] === "进行中",
+  `实际 ${JSON.stringify(renderedSelectText)}`,
+)
+check(
+  "下拉绑的是选项 id（显示名、值是 id）",
+  renderedSelects.length === 1 && renderedSelects[0].value === option.id,
+  `实际 ${JSON.stringify(renderedSelects.map((select) => select.value))}`,
 )
 
 // 悬空引用：注册表里读不到 → 提示态，文案里带路径。
@@ -608,10 +656,17 @@ const editorInputs = [...editorHost.querySelectorAll("input")].map((input) => in
 check("编辑器渲染出列名（列名是可编辑的输入框）", editorInputs.includes("状态"), JSON.stringify(editorInputs))
 check("编辑器里有加行入口", editorText.includes("行"), editorText.slice(0, 200))
 check("编辑器里有加列入口", editorText.includes("列"), editorText.slice(0, 200))
+// 单元格的当前值走**下拉**（select 列的格子只有这一个编辑入口）：显示名字、绑 id。
+const editorCellSelects = [...editorHost.querySelectorAll("td select")]
 check(
   "编辑器里格子的当前值被渲染出来",
-  editorInputs.includes("进行中"),
-  JSON.stringify(editorInputs),
+  editorCellSelects.length === 1 && editorCellSelects[0].selectedOptions[0]?.textContent?.trim() === "进行中",
+  JSON.stringify(editorCellSelects.map((select) => select.selectedOptions[0]?.textContent?.trim() ?? "")),
+)
+check(
+  "编辑器下拉绑的是选项 id（点一次不会把名字写进数据）",
+  editorCellSelects.length === 1 && editorCellSelects[0].value === option.id,
+  JSON.stringify(editorCellSelects.map((select) => select.value)),
 )
 check(
   "编辑器显示了统计（几列几行）",
@@ -619,8 +674,10 @@ check(
   editorText.slice(0, 200),
 )
 
-// 直接在编辑器里改一个格子的值 → 只进内存并记脏（标签变脏、表记到标签名下）,
+// 直接在编辑器里改一个字段 → 只进内存并记脏（标签变脏、表记到标签名下）,
 // 落盘交给统一保存 —— 与笔记编辑同一套语义。
+// 这里改的是**列名输入框**：它是编辑器里唯一还是 `<input>` 的字段（select 列的格子
+// 已经换成下拉，值域封闭，写不进「随便什么文本」）。
 const firstInput = editorHost.querySelector("input")
 if (firstInput !== null) {
   firstInput.value = "已改"

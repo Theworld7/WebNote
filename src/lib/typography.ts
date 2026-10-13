@@ -215,6 +215,7 @@ export const BLOCK_SPACING: Readonly<Record<BlockType, BlockSpacing>> = {
   mermaid: { top: 16, bottom: 16 },
   datatable: { top: 16, bottom: 16 },
   gallery: { top: 16, bottom: 16 },
+  bookmark: { top: 16, bottom: 16 },
   layout: { top: 16, bottom: 16 },
 }
 
@@ -403,7 +404,23 @@ ${headingRules}
     .note-layout[data-layout="flex"] > section { flex: 1 1 0; min-width: 8rem; }
     .note-layout > section > :first-child { margin-top: 0; }
     .note-layout > section > :last-child { margin-bottom: 0; }
+    .note-bookmarks { margin: ${BLOCK_SPACING.table.top}px 0; padding: 0; list-style: none;
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
+    .note-bookmarks[data-columns="1"] { grid-template-columns: repeat(1, 1fr); }
+    .note-bookmarks[data-columns="2"] { grid-template-columns: repeat(2, 1fr); }
+    .note-bookmarks[data-columns="3"] { grid-template-columns: repeat(3, 1fr); }
+    .note-bookmarks[data-columns="4"] { grid-template-columns: repeat(4, 1fr); }
+    .note-bookmarks[data-columns="5"] { grid-template-columns: repeat(5, 1fr); }
+    .note-bookmarks[data-columns="6"] { grid-template-columns: repeat(6, 1fr); }
+    .note-bookmarks li { display: flex; justify-content: center; margin: 0; }
     mark { background-color: var(--mark-bg); color: inherit; }
+    a[data-link-shape="card"] { display: inline-flex; flex-direction: column; align-items: center; gap: 6px;
+      width: 96px; margin: 2px 6px; padding: 12px 8px 10px; vertical-align: middle;
+      border: 1px solid var(--line); border-radius: 8px; background: var(--bg-soft);
+      color: var(--fg); text-decoration: none; text-align: center; word-break: break-all; line-height: 1.4; }
+    a[data-link-shape="card"]::before { content: attr(data-icon); display: inline-flex; align-items: center;
+      justify-content: center; width: 28px; height: 28px; border-radius: 6px; flex: none;
+      background: var(--accent-bg); color: var(--accent-fg); font-weight: 600; }
     body > :first-child { margin-top: 0; } body > :last-child { margin-bottom: 0; }`
 }
 

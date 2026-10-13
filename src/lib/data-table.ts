@@ -118,10 +118,34 @@ export function cloneTable(table: DataTable): DataTable {
 /**
  * 某一格的值。**永不返回 `undefined`**：列被删掉之后行里可能还留着那个键，
  * 但调用方不该因此拿到一个未定义的值 —— 对不上列的格就是空。
+ *
+ * 同时是 select 值的**归一读口**：格子里存的应当永远是选项 id，盘上却可能留着
+ * 选项**名**（早期 select 格的编辑入口是纯文本框，把显示名当值存了下来）。见
+ * `resolveSelectValue`。归一放在这一个读口上，是为了让下游全部自动一致 ——
+ * 分节建桶（画册 / 书签）、单元格显示、导出快照都只经 `cellValue`，不必各自
+ * 再认一遍名字。
  */
 export function cellValue(row: DataRow, column: DataColumn): DataCellValue {
   const value = row.values[column.id]
-  return value === undefined ? emptyValueOf(column.type) : value
+  return resolveSelectValue(column, value === undefined ? emptyValueOf(column.type) : value)
+}
+
+/**
+ * select 列的值 → 选项 id。
+ *
+ * 只认「名字与某个选项**完全相同**」这一种情况：存进来的名字没有别的解释，
+ * 且这是**逐字段无损**的 —— 归一前后显示出来的名字一模一样，改的只是内部标识。
+ *
+ * 不做的事：
+ * - 不认 id 之外的模糊匹配（不做大小写 / 空格折叠）。名字对不上就不动它，
+ *   硬塞进某个选项才是真的改数据；
+ * - 只对 `select` 列生效。文本列里的 `"工作"` 就是文本，不是选项名。
+ */
+function resolveSelectValue(column: DataColumn, value: DataCellValue): DataCellValue {
+  if (column.type !== "select" || typeof value !== "string") return value
+  if (column.options.some((option) => option.id === value)) return value
+  const option = column.options.find((item) => item.name === value)
+  return option === undefined ? value : option.id
 }
 
 /**
@@ -292,8 +316,38 @@ export function replaceRow(table: DataTable, row: DataRow): DataTable {
 
 // ---- select 选项 ----
 
-export function addOption(column: DataColumn, name: string): DataSelectOption[] {
-  return [...column.options, { id: createOptionId(), name }]
+/**
+ * 加一个选项。值仍是新生成的 id —— 格子里存的永远是 id,名字只是显示投影。
+ * （原签名返回选项数组,与 `removeOption` 不对称,且全项目无调用者 —— 一并收口成表变换。）
+ */
+export function addOption(table: DataTable, columnId: string, name: string): DataTable {
+  return {
+    version: table.version,
+    columns: table.columns.map((column) =>
+      column.id === columnId
+        ? { id: column.id, name: column.name, type: column.type, options: [...column.options, { id: createOptionId(), name }] }
+        : column,
+    ),
+    rows: table.rows,
+  }
+}
+
+/** 改选项名。格子里存的是 id,所以改名一行都不用动。 */
+export function renameOption(table: DataTable, columnId: string, optionId: string, name: string): DataTable {
+  return {
+    version: table.version,
+    columns: table.columns.map((column) =>
+      column.id === columnId
+        ? {
+            id: column.id,
+            name: column.name,
+            type: column.type,
+            options: column.options.map((option) => (option.id === optionId ? { id: option.id, name } : option)),
+          }
+        : column,
+    ),
+    rows: table.rows,
+  }
 }
 
 /** 删选项。引用它的格子会被清空 —— 保留一个指向不存在选项的 id 等于留一个空显示。 */

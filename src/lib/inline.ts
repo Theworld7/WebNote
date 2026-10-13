@@ -1,4 +1,4 @@
-import type { InlineMark, InlineRun } from "@/types/workspace"
+import type { InlineMark, InlineRun, LinkShape } from "@/types/workspace"
 
 /**
  * 行内内容的纯字符串层（不碰 DOM）。
@@ -96,8 +96,9 @@ function sortMarks(marks: readonly InlineMark[]): InlineMark[] {
 }
 
 /** 两个 run 的格式是否相同（文本之外的部分）。 */
-function sameFormat(run: InlineRun, marks: readonly InlineMark[], href: string | undefined): boolean {
+function sameFormat(run: InlineRun, marks: readonly InlineMark[], href: string | undefined, shape: LinkShape | undefined): boolean {
   if ((run.href ?? "") !== (href ?? "")) return false
+  if ((run.linkShape ?? "text") !== (shape ?? "text")) return false
   if (run.marks.length !== marks.length) return false
   return run.marks.every((mark, index) => mark === marks[index])
 }
@@ -115,12 +116,16 @@ export function normalizeRuns(runs: readonly InlineRun[]): InlineRun[] {
   for (const run of runs) {
     if (run.text === "") continue
     const marks = sortMarks(run.marks)
-    if (previous !== null && sameFormat(previous, marks, run.href)) {
+    if (previous !== null && sameFormat(previous, marks, run.href, run.linkShape)) {
       previous.text += run.text
       continue
     }
     const next: InlineRun = { text: run.text, marks }
     if (run.href !== undefined && run.href !== "") next.href = run.href
+    // 形态跟着链接走：没有 href 的形态是非法态（与「link 标记却没地址」同一条立场）。
+    if (next.href !== undefined && run.linkShape !== undefined && run.linkShape !== "text") {
+      next.linkShape = run.linkShape
+    }
     result.push(next)
     previous = next
   }
@@ -146,6 +151,25 @@ export function trimRuns(runs: readonly InlineRun[]): InlineRun[] {
   return result.filter((run) => run.text !== "")
 }
 
+/**
+ * 书签卡片的图标字符：取站点域名的首字母。
+ *
+ * 图标是 href 的**派生**而非存储：盘上只写派生结果（`data-icon`），读回时不认它 ——
+ * 避免手改文件后「图标与地址」两份事实漂移。解析不出域名（相对路径、垃圾串）时
+ * 退回地址首字符，再不行就是问号。
+ */
+export function linkIcon(href: string): string {
+  const source = (() => {
+    try {
+      return new URL(href).host
+    } catch {
+      return href
+    }
+  })()
+  const first = source.trim().charAt(0)
+  return first === "" ? "?" : first.toUpperCase()
+}
+
 /** 单个 run → HTML 片段。 */
 export function runToHtml(run: InlineRun): string {
   let html = escapeTextToHtml(run.text)
@@ -160,8 +184,14 @@ export function runToHtml(run: InlineRun): string {
   }
 
   // 链接永远是最外层：`<a>` 里套 `<code>` 合法，反过来在语义上也说得通但更难读。
+  // 卡片形态的属性只写非默认值：图标字符是伪元素的内容源（见 linkIcon），DOM 里
+  // 不占节点，读回时 textContent 不受污染。
   if (run.href !== undefined && run.href !== "") {
-    html = `<a href="${escapeHtml(run.href)}">${html}</a>`
+    let attributes = ` href="${escapeHtml(run.href)}"`
+    if (run.linkShape === "card") {
+      attributes += ` data-link-shape="card" data-icon="${escapeHtml(linkIcon(run.href))}"`
+    }
+    html = `<a${attributes}>${html}</a>`
   }
 
   return html

@@ -1,5 +1,5 @@
-import type { Block, GalleryBlock, ImageBlock, InlineRun, LayoutBlock, LayoutMode, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
-import { createGalleryBlock, createImageBlock, createLayoutBlock, createMermaidBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
+import type { Block, BookmarkBlock, GalleryBlock, ImageBlock, InlineRun, LayoutBlock, LayoutMode, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
+import { createBookmarkBlock, createGalleryBlock, createImageBlock, createLayoutBlock, createMermaidBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
 import { textToRuns, trimRuns } from "@/lib/inline"
 import { isTableAlign } from "@/lib/table"
 import { runsFromNodes } from "./runs-dom"
@@ -112,6 +112,11 @@ function parseBlockElement(element: Element, state: ParseState, depth: number): 
   switch (element.tagName) {
     case "UL":
     case "OL":
+      // 书签块也是 <ul>,靠指针认领:没有 data-bookmark 就照普通列表解析。
+      if (element.tagName === "UL" && element.hasAttribute("data-bookmark")) {
+        state.blocks.push(parseBookmark(element))
+        return
+      }
       parseList(element, state, depth)
       return
     case "PRE":
@@ -328,6 +333,31 @@ function parseGallery(table: HTMLTableElement): GalleryBlock | null {
   const groupOrder = order === "" ? [] : order.split(",").filter((item) => item !== "")
 
   return createGalleryBlock(path, columns, fit, hiddenFields, ratio, group, groupBy, groupOrder, width)
+}
+
+/**
+ * `<ul data-bookmark="…">` → 书签块。没有指针的 `<ul>` 走普通列表解析 ——
+ * 与画册块同一立场:被第三方编辑器剥掉属性后,剩下的就是一份普通内容快照,
+ * 按普通内容读是「正确的读法」。
+ *
+ * 属性**宽容**读取:名称列 / 链接列的列 id 原样收下、不校验列还存在(指向的列被删后
+ * 渲染时退化为「未设置」提示,与画册 hiddenFields 残留 id 的立场一致);列数只认
+ * 1..12 的整数,其余落回响应式。路径没有默认值可落,留空串走「读不到」提示态。
+ */
+function parseBookmark(list: Element): BookmarkBlock {
+  const path = list.getAttribute("data-bookmark") ?? ""
+
+  const rawColumns = Number(list.getAttribute("data-columns"))
+  const columns = Number.isInteger(rawColumns) && rawColumns >= 1 && rawColumns <= 12 ? rawColumns : "auto"
+
+  return createBookmarkBlock(
+    path,
+    list.getAttribute("data-name") ?? "",
+    list.getAttribute("data-url") ?? "",
+    columns,
+    list.getAttribute("data-icon-column") ?? "",
+    list.getAttribute("data-group-by") ?? "",
+  )
 }
 
 /**

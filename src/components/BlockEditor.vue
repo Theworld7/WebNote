@@ -24,21 +24,31 @@ const {
 } = useWorkspace()
 
 /**
- * 画册块插入对话框的状态:待插入的位置,null 表示关着。
+ * 画册 / 书签块的插入对话框状态:待插入的位置 + 落哪种块,null 表示关着。
  * 与数据表块一样「先有文件才能插」,但选表交给用户,确认后再落块。
+ * 两种块共用一个对话框(同一套「挑表或新建」交互),用 kind 区分落块。
  */
-const galleryInsertIndex = ref<number | null>(null)
+const dialogKind = ref<"gallery" | "bookmark">("gallery")
+const fileInsertIndex = ref<number | null>(null)
 
 /**
- * 画册块**转换**模式:待转换的块 id,null 表示不是转换。
+ * 画册 / 书签块**转换**模式:待转换的块 id,null 表示不是转换。
  * `/` 菜单与手柄的「转换为」不插新块,但同样要先挑表 —— 转换与插入共用一个对话框。
  */
-const galleryRetypeId = ref<string | null>(null)
+const fileRetypeId = ref<string | null>(null)
 
 /** 对话框关闭:两个模式的状态一起归零。 */
-function closeGalleryInsert() {
-  galleryInsertIndex.value = null
-  galleryRetypeId.value = null
+function closeFileInsert() {
+  fileInsertIndex.value = null
+  fileRetypeId.value = null
+}
+
+/** 打开选表对话框(插入模式),记下落点。 */
+function openInsertDialog(kind: "gallery" | "bookmark", id: string) {
+  const blocks = activeDocument.value
+  const index = blocks.findIndex((item) => item.id === id)
+  dialogKind.value = kind
+  fileInsertIndex.value = index === -1 ? blocks.length : index + 1
 }
 
 /**
@@ -60,22 +70,21 @@ function handleInsertAfter(id: string, type: BlockType) {
     })
     return
   }
-  // 画册块同样先有文件,但选哪张交给用户:记下落点,打开对话框,确认后落块。
-  if (type === "gallery") {
-    const blocks = activeDocument.value
-    const index = blocks.findIndex((item) => item.id === id)
-    galleryInsertIndex.value = index === -1 ? blocks.length : index + 1
+  // 画册 / 书签块同样先有文件,但选哪张交给用户:记下落点与落块种类,打开对话框。
+  if (type === "gallery" || type === "bookmark") {
+    openInsertDialog(type, id)
     return
   }
   void focusBlockById(insertBlockAfter(id, type))
 }
 
 function handleRetype(id: string, type: BlockType) {
-  // 转换成引用块同样**先有文件**:数据表自动同名解析(与插入同一套规则),画册交给
-  // 对话框挑表。不接这条规则,落下的就是空路径的引用块 —— 视图永远停在「正在读取」。
+  // 转换成引用块同样**先有文件**:数据表自动同名解析(与插入同一套规则),画册与书签
+  // 交给对话框挑表。不接这条规则,落下的就是空路径的引用块 —— 视图永远停在「正在读取」。
   // 解析失败就不转换,原块保持原样。
-  if (type === "gallery") {
-    galleryRetypeId.value = id
+  if (type === "gallery" || type === "bookmark") {
+    dialogKind.value = type
+    fileRetypeId.value = id
     return
   }
   if (type === "datatable") {
@@ -297,5 +306,5 @@ function edgeOf(index: number, to: number): BlockDropEdge {
     </div>
   </ScrollArea>
 
-  <GalleryInsertDialog :index="galleryInsertIndex" :retype-id="galleryRetypeId" @close="closeGalleryInsert" />
+  <GalleryInsertDialog :kind="dialogKind" :index="fileInsertIndex" :retype-id="fileRetypeId" @close="closeFileInsert" />
 </template>

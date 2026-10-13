@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Block, BlockDropEdge, BlockMenuKind, BlockType, InlineMark, InlineRun } from "@/types/workspace"
+import type { Block, BlockDropEdge, BlockMenuKind, BlockType, InlineMark, InlineRun, LinkShape } from "@/types/workspace"
 import type { OffsetRange } from "@/lib/marks"
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -8,7 +8,7 @@ import { hasLeadingMarker, isListType, isTextualBlock } from "@/lib/blocks"
 import { focusEditable } from "@/lib/dom"
 import { runsFromNode } from "@/lib/html"
 import { runsText, runsToHtml } from "@/lib/inline"
-import { marksAt, offsetRangeIn, paintRuns, shortcutMark, toggleMarkAt } from "@/lib/marks"
+import { applyLinkAt, linkAt, marksAt, offsetRangeIn, paintRuns, shortcutMark, toggleMarkAt } from "@/lib/marks"
 import {
   BODY_TEXT_CLASS,
   CHECKBOX_TOP,
@@ -21,9 +21,11 @@ import {
 } from "@/lib/typography"
 import { cn } from "@/lib/utils"
 import BlockToolbar from "./BlockToolbar.vue"
+import BookmarkBlockView from "./BookmarkBlockView.vue"
 import ImageBlockView from "./ImageBlockView.vue"
 import InlineToolbar from "./InlineToolbar.vue"
 import LayoutBlockView from "./LayoutBlockView.vue"
+import LinkPopover from "./LinkPopover.vue"
 import MermaidBlockView from "./MermaidBlockView.vue"
 import TableBlockView from "./TableBlockView.vue"
 import DataTableBlockView from "./DataTableBlockView.vue"
@@ -53,7 +55,12 @@ const { setBlockRuns, toggleBlockChecked } = useWorkspace()
 
 const bodyRef = ref<HTMLElement | null>(null)
 /** 行内格式条的显示状态，null 表示不显示。坐标是视口坐标。 */
-const toolbar = ref<{ marks: InlineMark[]; top: number; left: number } | null>(null)
+const toolbar = ref<{ marks: InlineMark[]; link: boolean; top: number; left: number } | null>(null)
+/**
+ * 链接浮层的编辑状态。range 是打开那一刻的选区快照 —— 浮层里的输入框会拿走焦点，
+ * 真正的选区早没了，确认时按这份快照改 runs。
+ */
+const linkEdit = ref<{ range: OffsetRange; href: string; shape: LinkShape; top: number; left: number } | null>(null)
 const openMenu = ref<BlockMenuKind>("")
 const typeMenuMode = ref<"insert" | "convert">("insert")
 
@@ -96,6 +103,7 @@ onBeforeUnmount(() => {
  */
 function hideToolbar() {
   toolbar.value = null
+  linkEdit.value = null
 }
 
 // 转换类型时清空内容（与原型一致）。块对象被替换但 id 未变，组件实例复用，需手动清。
@@ -137,6 +145,7 @@ function refreshToolbar() {
 
   toolbar.value = {
     marks: marksAt(block.runs, range.start),
+    link: linkAt(block.runs, range.start) !== null,
     top: rect.top - 8,
     left: rect.left + rect.width / 2,
   }
@@ -166,6 +175,37 @@ function applyMark(mark: InlineMark) {
   const runs = toggleMarkAt(block.runs, range, mark)
   setBlockRuns(block.id, runs)
   paint(runs, range)
+}
+
+/** 打开链接浮层：记下选区快照与回显值。 */
+function openLink() {
+  const element = bodyRef.value
+  const block = textual.value
+  if (element === null || block === null || toolbar.value === null) return
+
+  const range = offsetRangeIn(element)
+  if (range === null) return
+
+  const current = linkAt(block.runs, range.start)
+  linkEdit.value = {
+    range,
+    href: current?.href ?? "",
+    shape: current?.shape ?? "text",
+    top: toolbar.value.top,
+    left: toolbar.value.left,
+  }
+}
+
+/** 浮层确认。空地址表示移除链接；改完把焦点与选区还给正文。 */
+function applyLink(href: string, shape: LinkShape) {
+  const block = textual.value
+  const edit = linkEdit.value
+  if (block === null || edit === null) return
+
+  const runs = applyLinkAt(block.runs, edit.range, href === "" ? null : href, shape)
+  setBlockRuns(block.id, runs)
+  linkEdit.value = null
+  paint(runs, edit.range)
 }
 
 function onInput() {
@@ -282,8 +322,9 @@ const DROP_BEFORE =
 const DROP_AFTER =
   "after:pointer-events-none after:absolute after:inset-x-0 after:-bottom-px after:h-[2px] after:rounded-full after:bg-selection-foreground after:content-['']"
 
-/** 空块占位。divider 没有正文，不参与。 */
+/** 空块占位。divider 没有正文，不参与。格子内空间窄，占位再降一号。 */
 const PLACEHOLDER = "empty:before:content-['输入内容，或按_/_唤起块类型'] empty:before:text-muted-foreground"
+const PLACEHOLDER_IN_CELL = "empty:before:text-[11px]"
 
 const bodyClass = computed(() => {
   const block = textual.value
@@ -333,7 +374,9 @@ const bodyClass = computed(() => {
         // naive 的 :first-child / :last-child 归零：首块不额外下压、末块不留尾。
         'first:mt-0 last:mb-0',
         // 格子内行首留出手柄位：手柄贴左缘悬浮（left-0），内容统一右缩让开它。
-        inCell === true && 'pl-7',
+        // 缩进按「把手 + 加号」两个按钮的总宽（约 46px）留足，hover 时才不压字。
+        inCell === true && 'pl-12',
+        inCell === true && PLACEHOLDER_IN_CELL,
         dragging && 'opacity-40',
         dropEdge === 'before' && DROP_BEFORE,
         dropEdge === 'after' && DROP_AFTER,
@@ -378,6 +421,8 @@ const bodyClass = computed(() => {
 
     <GalleryBlockView v-else-if="block.type === 'gallery'" :block="block" />
 
+    <BookmarkBlockView v-else-if="block.type === 'bookmark'" :block="block" />
+
     <LayoutBlockView v-else-if="block.type === 'layout'" :block="block" />
 
     <div v-else-if="block.type === 'divider'" class="h-px bg-line" />
@@ -397,10 +442,20 @@ const bodyClass = computed(() => {
          （滚动容器、后续可能的动效）就会改成相对那个祖先定位，位置会漂。 -->
     <Teleport to="body">
       <InlineToolbar
-        v-if="toolbar !== null"
+        v-if="toolbar !== null && linkEdit === null"
         :marks="toolbar.marks"
+        :link="toolbar.link"
         :anchor="{ top: toolbar.top, left: toolbar.left }"
         @toggle="applyMark"
+        @link="openLink"
+      />
+      <LinkPopover
+        v-if="linkEdit !== null"
+        :href="linkEdit.href"
+        :shape="linkEdit.shape"
+        :anchor="{ top: linkEdit.top, left: linkEdit.left }"
+        @apply="applyLink"
+        @close="linkEdit = null"
       />
     </Teleport>
   </div>

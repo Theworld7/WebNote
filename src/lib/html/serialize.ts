@@ -1,9 +1,9 @@
-import type { Block, DataTableBlock, GalleryBlock, ImageBlock, LayoutBlock, MermaidBlock, TableCell, TextualBlock } from "@/types/workspace"
+import type { Block, BookmarkBlock, DataTableBlock, GalleryBlock, ImageBlock, LayoutBlock, MermaidBlock, TableCell, TextualBlock } from "@/types/workspace"
 import type { DataTable } from "@/types/data-table"
 import { GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT, LAYOUT_COLUMNS_DEFAULT, isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
 import { cellValue, valueText } from "@/lib/data-table"
-import { escapeHtml, escapeTextToHtml, runsText, runsToHtml } from "@/lib/inline"
+import { escapeHtml, escapeTextToHtml, linkIcon, runsText, runsToHtml } from "@/lib/inline"
 import { docStyle } from "@/lib/typography"
 
 /**
@@ -72,6 +72,10 @@ export function blocksToHtml(blocks: readonly Block[], lookupTables?: DataTableL
     }
     if (block.type === "gallery") {
       out.push(galleryHtml(block, lookup(block.path)))
+      continue
+    }
+    if (block.type === "bookmark") {
+      out.push(bookmarkHtml(block, lookup(block.path)))
       continue
     }
     if (block.type === "layout") {
@@ -335,6 +339,50 @@ function galleryHtml(block: GalleryBlock, table: DataTable | null): string {
   parts.push("</table>")
 
   return parts.join("\n")
+}
+
+/**
+ * 书签块 → **快照 + 指针**（与画册同一条 ADR-0006 立场）。
+ *
+ * 写出的是当前内容：每行一张 `<li>`，里面一枚 `<a data-link-shape="card">` ——
+ * 与行内链接的书签卡片同一套标记与样式，导出文件双击就能看，指针（`data-bookmark`
+ * 与字段选择）让它回编辑器后还是一块活的书签。名称列 / 链接列指向的列被删后,
+ * 渲染态走「未设置 / 读不到」提示,快照保持最后见过的样子。
+ *
+ * 表读不到时仍写出带属性的空列表:指针跟着笔记走,重开时块自己走提示态。
+ */
+function bookmarkHtml(block: BookmarkBlock, table: DataTable | null): string {
+  const attrs = [`data-bookmark="${escapeHtml(block.path)}"`]
+  if (block.nameColumn !== "") attrs.push(`data-name="${escapeHtml(block.nameColumn)}"`)
+  if (block.urlColumn !== "") attrs.push(`data-url="${escapeHtml(block.urlColumn)}"`)
+  // 图标列只写非默认值:没设时读回端按链接派生,两边的缺省语义一致。
+  if (block.iconColumn !== undefined && block.iconColumn !== "") attrs.push(`data-icon-column="${escapeHtml(block.iconColumn)}"`)
+  // 分组字段只写指针:快照仍是平铺的卡片清单(与画册快照不画节标题同一立场),
+  // 回编辑器后由活数据重新分节。
+  if (block.groupBy !== undefined && block.groupBy !== "") attrs.push(`data-group-by="${escapeHtml(block.groupBy)}"`)
+  if (block.columns !== "auto") attrs.push(`data-columns="${block.columns}"`)
+
+  if (table === null) return `<ul class="note-bookmarks" ${attrs.join(" ")}></ul>`
+
+  const nameColumn = table.columns.find((column) => column.id === block.nameColumn)
+  const urlColumn = table.columns.find((column) => column.id === block.urlColumn)
+  // 图标列设了就以列值为准(快照固化派生结果),空值逐行回退到链接派生。
+  const iconColumn =
+    block.iconColumn === undefined || block.iconColumn === "" ? undefined : table.columns.find((column) => column.id === block.iconColumn)
+  const items = table.rows.map((row) => {
+    const name = nameColumn === undefined ? "" : valueText(cellValue(row, nameColumn), nameColumn)
+    const url = urlColumn === undefined ? "" : valueText(cellValue(row, urlColumn), urlColumn)
+    const icon =
+      iconColumn === undefined ? "" : valueText(cellValue(row, iconColumn), iconColumn).trim().charAt(0).toUpperCase()
+    const card =
+      url === ""
+        ? escapeHtml(name)
+        : `<a href="${escapeHtml(url)}" data-link-shape="card" data-icon="${escapeHtml(icon === "" ? linkIcon(url) : icon)}">${escapeHtml(name)}</a>`
+    return `    <li>${card}</li>`
+  })
+  const inner = items.length === 0 ? "" : `\n${items.join("\n")}\n`
+
+  return `<ul class="note-bookmarks" ${attrs.join(" ")}>${inner}</ul>`
 }
 
 // ---- 嵌套列表 ----

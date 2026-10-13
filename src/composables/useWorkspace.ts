@@ -1,8 +1,8 @@
 import type { InjectionKey } from "vue"
-import type { Block, BlockType, CloseStrategy, CreateTarget, FileNode, GalleryBlock, InlineRun, LayoutMode, OpenTab, TableAlign, TableCell } from "@/types/workspace"
+import type { Block, BlockType, BookmarkBlock, CloseStrategy, CreateTarget, FileNode, GalleryBlock, InlineRun, LayoutMode, OpenTab, TableAlign, TableCell } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref } from "vue"
-import { cloneBlock, countChars, createBlock, createBlockId, createDataTableBlock, createGalleryBlock, isTextualBlock, retypeBlock } from "@/lib/blocks"
+import { cloneBlock, countChars, createBlock, createBlockId, createBookmarkBlock, createDataTableBlock, createGalleryBlock, isTextualBlock, retypeBlock } from "@/lib/blocks"
 import { describeError } from "@/lib/errors"
 import { parseHtml, serializeHtml } from "@/lib/html"
 import type { DataTableLookup } from "@/lib/html"
@@ -755,6 +755,17 @@ function createWorkspace() {
     markDirty()
   }
 
+  /**
+   * 更新书签块的展示设置（名称列 / 链接列 / 列数）。与 `updateGalleryBlock` 同一立场：
+   * 改的是笔记文档里的块属性，与 `.tbl` 无关。
+   */
+  function updateBookmarkBlock(id: string, patch: Partial<Pick<BookmarkBlock, "nameColumn" | "urlColumn" | "iconColumn" | "groupBy" | "columns">>) {
+    const block = activeBlock(id)
+    if (block === undefined || block.type !== "bookmark") return
+    Object.assign(block, patch)
+    markDirty()
+  }
+
   function toggleBlockChecked(id: string) {
     const block = activeBlock(id)
     if (block === undefined || block.type !== "todo") return
@@ -834,6 +845,27 @@ function createWorkspace() {
   }
 
   /**
+   * 在当前笔记里插入一个书签块。与 `insertGalleryBlock` 完全同构：
+   * 先有表才有块，`target` 为空时按 `stem` 新建、撞名直接引用。
+   */
+  async function insertBookmarkBlock(index: number, target = "", stem = ""): Promise<string> {
+    const blocks = activeDocument.value
+    const notePath = activePath.value
+
+    let path = target
+    if (path === "") {
+      path = await resolveDataTableForNote(notePath, stem)
+      if (path === "") return ""
+    }
+
+    const block = createBookmarkBlock(path)
+    const at = Math.min(Math.max(index, 0), blocks.length)
+    blocks.splice(at, 0, block)
+    markDirty()
+    return block.id
+  }
+
+  /**
    * 把已有块**原地转换**成数据表引用块或画册块,返回新块 id(失败返回空串)。
    *
    * 转换与插入遵守同一条规则:**先有文件才能指**。`/` 菜单与手柄的「转换为」走的是
@@ -842,7 +874,7 @@ function createWorkspace() {
    */
   async function convertBlockToFileType(
     id: string,
-    type: "datatable" | "gallery",
+    type: "datatable" | "gallery" | "bookmark",
     target = "",
     stem = "",
   ): Promise<string> {
@@ -856,7 +888,8 @@ function createWorkspace() {
       if (path === "") return ""
     }
 
-    const block = type === "gallery" ? createGalleryBlock(path) : createDataTableBlock(path)
+    const block =
+      type === "gallery" ? createGalleryBlock(path) : type === "bookmark" ? createBookmarkBlock(path) : createDataTableBlock(path)
     blocks[index] = block
     markDirty()
     return block.id
@@ -1163,8 +1196,10 @@ function createWorkspace() {
     insertBlockAt,
     insertDataTableBlock,
     insertGalleryBlock,
+    insertBookmarkBlock,
     convertBlockToFileType,
     updateGalleryBlock,
+    updateBookmarkBlock,
     tablePaths,
     appendBlock,
     changeBlockType,

@@ -18,6 +18,9 @@
 /** 行内标记。链接不在此列 —— 它由 `InlineRun.href` 表达，避免「有 link 标记却没地址」的非法态。 */
 export type InlineMark = "bold" | "highlight" | "italic" | "underline" | "strike" | "code"
 
+/** 链接的展示形态。缺省 `text`（普通文字链接）；`card` 渲染为上图标下名称的书签卡片。 */
+export type LinkShape = "text" | "card"
+
 /**
  * 块内一段连续文本及其生效的行内标记。
  *
@@ -31,6 +34,8 @@ export interface InlineRun {
   marks: InlineMark[]
   /** 有值即为链接（解析自 `<a href>`）。空串按无链接处理。 */
   href?: string
+  /** 仅链接使用。缺省即 `text`，缺省态不落盘（对齐其它「非默认值才写出」的属性立场）。 */
+  linkShape?: LinkShape
 }
 
 /** 可承载正文的块类型。`divider` 也在内 —— 它只是正文恒为空。 */
@@ -51,7 +56,7 @@ export type TextualBlockType =
   | "divider"
 
 /** 全部块类型 = 正文类 + 结构类。派生而非常量列表，避免两处维护。 */
-export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "layout"
+export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "layout"
 
 /** 正文块。块之间是平铺列表；列表的嵌套层级用 `depth` 表达，不建树。 */
 export interface TextualBlock {
@@ -163,6 +168,35 @@ export interface GalleryBlock {
 }
 
 /**
+ * 书签块:把一张数据表的每一行渲染成一张书签卡片(上图标下名称,与行内链接的
+ * 书签卡片形态同一套视觉)。展示设置是块的属性 —— 名称列、链接列、列数,
+ * 指向同一张 `.tbl` 的多个书签块可以各挑各的字段。
+ */
+export interface BookmarkBlock {
+  id: string
+  type: "bookmark"
+  /** 被引用的 `.tbl` 文件的工作区路径。 */
+  path: string
+  /** 名称列的列 id。列被删后值为空,渲染时退化为「未设置」提示态,无需清洗。 */
+  nameColumn: string
+  /** 链接列的列 id。链接就存在文本列的值里 —— 数据表的值模型没有链接类型。 */
+  urlColumn: string
+  /**
+   * 图标列的列 id。缺省(未设置)按链接派生图标(见 `linkIcon`);设了就把该列的值
+   * 当图标:能加载成图片(data URI / URL)且加载成功展示图片,否则取文本首字符,
+   * 再不行回退链接派生。缺省不落盘,与 linkShape 同一立场。
+   */
+  iconColumn?: string
+  /**
+   * 分组字段的列 id。缺省(未设置)平铺展示;设了按该列的值分节,节序跟值首次出现序,
+   * 空值行收进末尾的「未分组」节,与画册块的分组同一套口径。缺省不落盘。
+   */
+  groupBy?: string
+  /** 列数:`"auto"` 响应式(容器多宽就放几列),数字为固定列数(1..12)。 */
+  columns: "auto" | number
+}
+
+/**
  * 布局块:笔记里唯一的**容器块** —— 把若干格子按网格或弹性方式排开,每个格子各持有
  * 一份独立的块列表(Notion 式)。顶层文档仍是扁平列表;布局块是唯一一层受控的嵌套,
  * 且**格子内不再出现布局块**(一层容器原则,UI 的插入/转换菜单在格子内会把它滤掉)。
@@ -184,7 +218,7 @@ export interface LayoutBlock {
 /** 布局块的排布方式。 */
 export type LayoutMode = "grid" | "flex"
 
-export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | LayoutBlock
+export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | LayoutBlock
 
 /** 块类型元数据：菜单标记 + 中文名。菜单渲染直接消费。 */
 export interface BlockTypeMeta {

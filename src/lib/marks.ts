@@ -1,4 +1,4 @@
-import type { InlineMark, InlineRun } from "@/types/workspace"
+import type { InlineMark, InlineRun, LinkShape } from "@/types/workspace"
 import { MARK_REGISTRY, normalizeRuns, runsToHtml } from "./inline"
 
 /**
@@ -134,6 +134,7 @@ export function rangeForOffsets(root: Node, range: OffsetRange): Range | null {
 function copyRun(run: InlineRun, text?: string): InlineRun {
   const next: InlineRun = { text: text ?? run.text, marks: [...run.marks] }
   if (run.href !== undefined && run.href !== "") next.href = run.href
+  if (next.href !== undefined && run.linkShape === "card") next.linkShape = "card"
   return next
 }
 
@@ -206,6 +207,51 @@ export function marksAt(runs: readonly InlineRun[], offset: number): InlineMark[
   }
   const last = runs[runs.length - 1]
   return last === undefined ? [] : [...last.marks]
+}
+
+/** 偏移处生效的链接：地址与形态。不在链接上时返回 null —— 浮层的回显与按钮激活态都靠它。 */
+export function linkAt(runs: readonly InlineRun[], offset: number): { href: string; shape: LinkShape } | null {
+  let cursor = 0
+  for (const run of runs) {
+    const next = cursor + run.text.length
+    if (offset < next) {
+      if (run.href === undefined || run.href === "") return null
+      return { href: run.href, shape: run.linkShape ?? "text" }
+    }
+    cursor = next
+  }
+  return null
+}
+
+/**
+ * 在区间上设置 / 移除链接。
+ *
+ * `href` 为 null 即移除：地址与形态一起清 —— 没有 href 的形态是非法态（与
+ * 「link 标记却没地址」同一条立场）。设置时形态总是显式给定，选区跨多段也统一
+ * 成同一个链接 —— 「我圈了一段，想把它们指向同一个地址」。
+ */
+export function applyLinkAt(
+  runs: readonly InlineRun[],
+  range: OffsetRange,
+  href: string | null,
+  shape: LinkShape = "text",
+): InlineRun[] {
+  const pieces = slice(runs, range)
+  const touched = pieces.filter((piece) => piece.inside)
+  if (touched.length === 0) return runs.map((run) => copyRun(run))
+
+  for (const piece of touched) {
+    if (href === null || href.trim() === "") {
+      delete piece.run.href
+      delete piece.run.linkShape
+      continue
+    }
+    piece.run.href = href.trim()
+    if (shape === "card") piece.run.linkShape = "card"
+    else delete piece.run.linkShape
+  }
+
+  return normalizeRuns(pieces.map((piece) => piece.run))
 }
 
 /**

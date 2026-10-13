@@ -9,19 +9,23 @@ import { fileStem } from "@/lib/fs/policy"
 import { fileName } from "@/lib/paths"
 
 /**
- * 插画册块前的「选表」对话框(插入与转换共用)。
+ * 插引用块前的「选表」对话框(插入与转换共用)。
  *
- * 画册块和数据表引用块一样,**先有文件才能插** —— 指向不存在的 `.tbl` 就是插一个
- * 永远读不到的提示态。区别在于数据表块是自动撞名/新建,画册块把选择权交给用户:
- * 列出工作区全部表挑一张,或点名新建一张。
+ * 画册块和书签块与数据表引用块一样,**先有文件才能插** —— 指向不存在的 `.tbl` 就是
+ * 插一个永远读不到的提示态。区别在于数据表块是自动撞名/新建,这两个块把选择权交给
+ * 用户:列出工作区全部表挑一张,或点名新建一张。
  *
- * `retypeId` 非空时是**转换模式**:不插新块,把那个块原地转成画册并指向所选的表
+ * `kind` 决定确认后落哪种块,文案跟着换 —— 对话框本身对两者是同一个交互。
+ *
+ * `retypeId` 非空时是**转换模式**:不插新块,把那个块原地转换并指向所选的表
  * (`/` 菜单与手柄的「转换为」从这条路进来,同样必须先挑表)。
  *
  * 确认**不自动关**:新建撞名会直接引用已有文件(与 `resolveDataTableForNote` 同一条
  * 规则),路径解析失败也不关 —— 原因已写进 `fsError`,对话框留着让人换一个名字。
  */
 const props = defineProps<{
+  /** 落哪种引用块。 */
+  kind: "gallery" | "bookmark"
   /** 插入位置(插入模式)。null 表示不是插入模式。与 `retypeId` 同时为 null 即关闭。 */
   index: number | null
   /** 转换模式:待转换的块 id。null 表示不是转换模式。 */
@@ -30,7 +34,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ close: [] }>()
 
-const { tablePaths, insertGalleryBlock, convertBlockToFileType, activePath } = useWorkspace()
+const { tablePaths, insertGalleryBlock, insertBookmarkBlock, convertBlockToFileType, activePath } = useWorkspace()
 
 const NEW = "__new__"
 
@@ -40,7 +44,7 @@ const newName = ref("")
 
 const nameInput = ref<InstanceType<typeof Input> | null>(null)
 
-/** 新建表的名字默认跟笔记同名主干:插画册最常见的意图就是「给这篇笔记配图集」。 */
+/** 新建表的名字默认跟笔记同名主干:最常见的意图就是「给这篇笔记配一批链接」。 */
 const defaultName = computed(() => {
   const path = activePath.value
   return path === "" ? "" : fileStem(fileName(path))
@@ -61,19 +65,22 @@ const tableOptions = computed(() =>
   tablePaths.value.map((path) => ({ path, label: fileName(path).replace(/\.tbl$/i, "") })),
 )
 
+const KIND_LABEL = { gallery: "画册", bookmark: "书签" } as const
+
 /** 确认。插入落了块、或转换真的换了块,才关。 */
 async function confirm() {
   const target = selection.value === NEW ? "" : selection.value
   const stem = newName.value.trim()
 
   if (props.retypeId !== null) {
-    const converted = await convertBlockToFileType(props.retypeId, "gallery", target, stem)
+    const converted = await convertBlockToFileType(props.retypeId, props.kind, target, stem)
     if (converted !== "") emit("close")
     return
   }
 
   if (props.index === null) return
-  const blockId = await insertGalleryBlock(props.index, target, stem)
+  const blockId =
+    props.kind === "gallery" ? await insertGalleryBlock(props.index, target, stem) : await insertBookmarkBlock(props.index, target, stem)
   if (blockId !== "") emit("close")
 }
 </script>
@@ -86,7 +93,7 @@ async function confirm() {
           选择数据表
         </AlertDialogTitle>
         <AlertDialogDescription class="text-[12px]">
-          画册展示一张数据表的数据 —— 挑工作区里已有的,或新建一张。
+          {{ KIND_LABEL[kind] }}展示一张数据表的数据 —— 挑工作区里已有的,或新建一张。
         </AlertDialogDescription>
       </AlertDialogHeader>
 
@@ -98,7 +105,7 @@ async function confirm() {
           :class="selection === option.path && 'bg-muted'"
           @click="selection = option.path"
         >
-          <input v-model="selection" type="radio" name="gallery-table" :value="option.path" class="accent-foreground">
+          <input v-model="selection" type="radio" name="file-block-table" :value="option.path" class="accent-foreground">
           <DatabaseIcon class="size-3.5 shrink-0 text-muted-foreground" />
           <span class="truncate">{{ option.label }}</span>
         </label>
@@ -108,7 +115,7 @@ async function confirm() {
           :class="selection === NEW && 'bg-muted'"
           @click="selection = NEW"
         >
-          <input v-model="selection" type="radio" name="gallery-table" :value="NEW" class="accent-foreground">
+          <input v-model="selection" type="radio" name="file-block-table" :value="NEW" class="accent-foreground">
           <PlusIcon class="size-3.5 shrink-0 text-muted-foreground" />
           <span>新建数据表…</span>
         </label>

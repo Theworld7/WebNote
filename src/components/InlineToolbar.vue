@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Component } from "vue"
 import type { InlineMark } from "@/types/workspace"
-import { BoldIcon, CodeIcon, HighlighterIcon } from "@lucide/vue"
+import { BoldIcon, CodeIcon, HighlighterIcon, LinkIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { MARK_REGISTRY } from "@/lib/inline"
 import { cn } from "@/lib/utils"
@@ -16,6 +16,9 @@ import { cn } from "@/lib/utils"
  * 在 `highlight` 之前才包得对），而按钮怎么排是 UI 决定（加粗 / 高亮 / 行内代码按
  * 使用频率）。两者硬绑在一起会让改序列化顺序意外挪动按钮。
  * 按钮的存废与名字仍由注册表的 `label` 说了算 —— 这里只决定「先给谁」。
+ *
+ * 链接是最后一项，与标记按钮之间留了分隔线：标记是开关，链接要弹浮层输地址，
+ * 交互形态不同，不放同一排。
  */
 const BUTTON_ORDER: readonly InlineMark[] = ["bold", "highlight", "code"]
 
@@ -35,11 +38,16 @@ const ITEMS = BUTTON_ORDER.flatMap((mark) => {
 const props = defineProps<{
   /** 选区起点处生效的标记，用来把对应的按钮标成激活态。 */
   marks: readonly InlineMark[]
+  /** 选区起点处是否已在链接上 —— 「链接」按钮的激活态。 */
+  link: boolean
   /** 视口坐标，浮条以此为底部中心点。 */
   anchor: { top: number; left: number }
 }>()
 
-const emit = defineEmits<{ (event: "toggle", mark: InlineMark): void }>()
+const emit = defineEmits<{
+  (event: "toggle", mark: InlineMark): void
+  (event: "link"): void
+}>()
 
 /** 24px 见方的图标按钮，与块左侧手柄同规格。 */
 const TOOL = "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foreground"
@@ -73,6 +81,19 @@ function keepSelection(event: MouseEvent) {
       @click="emit('toggle', item.mark)"
     >
       <component :is="item.icon" class="size-[14px]" />
+    </Button>
+
+    <span class="mx-0.5 h-4 w-px bg-line" aria-hidden="true" />
+
+    <Button
+      variant="ghost"
+      :class="cn(TOOL, props.link && ACTIVE)"
+      aria-label="链接"
+      :aria-pressed="props.link"
+      title="链接"
+      @click="emit('link')"
+    >
+      <LinkIcon class="size-[14px]" />
     </Button>
   </div>
 </template>

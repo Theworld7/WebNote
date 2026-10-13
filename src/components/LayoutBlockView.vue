@@ -9,7 +9,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { MinusIcon, PlusIcon } from "@lucide/vue"
+import { ChevronDownIcon, MinusIcon, PlusIcon } from "@lucide/vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { LAYOUT_COLUMNS, orderedIndexes as orderedIndexesOf } from "@/lib/blocks"
 import { focusBlockById } from "@/lib/dom"
@@ -79,7 +79,7 @@ function pickMode(value: string) {
 <template>
   <!-- 未选布局方式：先挑形态。与空表格「先挑尺寸」同一套交互。 -->
   <div v-if="block.cells.length === 0" class="my-1 rounded-lg bg-muted p-3">
-    <div class="mb-2 text-[12px] text-muted-foreground">选择布局方式</div>
+    <div class="mb-2 text-[11px] text-muted-foreground">选择布局方式</div>
     <div class="flex gap-2">
       <Button
         variant="outline"
@@ -87,7 +87,7 @@ function pickMode(value: string) {
         @click="setLayoutMode(block.id, 'grid')"
       >
         <span class="text-sm font-medium">网格</span>
-        <span class="text-[12px] font-normal text-muted-foreground">按行列均分，规整对齐</span>
+        <span class="text-[11px] font-normal text-muted-foreground">按行列均分，规整对齐</span>
       </Button>
       <Button
         variant="outline"
@@ -95,7 +95,7 @@ function pickMode(value: string) {
         @click="setLayoutMode(block.id, 'flex')"
       >
         <span class="text-sm font-medium">弹性</span>
-        <span class="text-[12px] font-normal text-muted-foreground">横向排开、自动换行</span>
+        <span class="text-[11px] font-normal text-muted-foreground">横向排开、自动换行</span>
       </Button>
     </div>
   </div>
@@ -124,12 +124,22 @@ function pickMode(value: string) {
       </section>
     </div>
 
-    <!-- 悬浮工具条：加/删格子、换布局方式、网格列数。样式与表格块的悬浮条同一套。 -->
+    <!--
+      悬浮工具条，三组功能用分隔线隔开：加/删格子｜布局方式｜列数（仅网格）。
+      下拉触发器带 ChevronDown，与纯文字的「格子」区分「点了直接生效」和「点了弹菜单」。
+    -->
     <div
-      class="absolute -bottom-3.5 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-full bg-background p-0.5 opacity-0 shadow-island transition-opacity group-hover/layout:opacity-100 focus-within:opacity-100"
+      class="absolute -bottom-3.5 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-full bg-background p-0.5 shadow-island opacity-0 transition-opacity group-hover/layout:opacity-100 focus-within:opacity-100"
     >
-      <Button variant="ghost" size="sm" :class="TOOL_BUTTON" @click="addLayoutCell(block.id)">
-        <PlusIcon class="size-3" />格子
+      <Button
+        variant="ghost"
+        size="sm"
+        :class="TOOL_BUTTON"
+        aria-label="添加格子"
+        title="添加格子"
+        @click="addLayoutCell(block.id)"
+      >
+        <PlusIcon class="size-3" />
       </Button>
       <Button
         variant="ghost"
@@ -137,15 +147,19 @@ function pickMode(value: string) {
         :class="TOOL_BUTTON"
         :disabled="block.cells.length <= 1"
         aria-label="删除末尾格子"
+        title="删除末尾格子"
         @click="removeLayoutCell(block.id)"
       >
         <MinusIcon class="size-3" />
       </Button>
 
+      <span class="mx-0.5 h-4 w-px bg-line" aria-hidden="true" />
+
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
           <Button variant="ghost" size="sm" :class="TOOL_BUTTON">
             {{ isGrid ? "网格" : "弹性" }}
+            <ChevronDownIcon class="size-3 text-muted-foreground/70" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent :class="MENU" :side-offset="6">
@@ -169,7 +183,10 @@ function pickMode(value: string) {
 
       <DropdownMenu v-if="isGrid">
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" :class="TOOL_BUTTON">{{ block.columns ?? 2 }} 列</Button>
+          <Button variant="ghost" size="sm" :class="TOOL_BUTTON">
+            {{ block.columns ?? 2 }} 列
+            <ChevronDownIcon class="size-3 text-muted-foreground/70" />
+          </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent :class="MENU" :side-offset="6">
           <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
