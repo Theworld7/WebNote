@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>表格块自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>表格块：单元格渲染、行内格式浮条、盘上往返</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { createBlock } from "../src/lib/blocks.ts"
+import { textToRuns } from "../src/lib/inline.ts"
+import { blocksToHtml } from "../src/lib/html/serialize.ts"
+import { parseHtml } from "../src/lib/html/parse.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function step(name) {
+  document.getElementById("out").textContent = `running: ${name}\n${lines.join("\n")}`
+}
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+
+window.addEventListener("error", (event) => {
+  const box = document.getElementById("out")
+  if (box !== null) box.textContent += `\n\n脚本中断（其后的断言没跑）：${event.message}`
+})
+window.addEventListener("unhandledrejection", (event) => {
+  const box = document.getElementById("out")
+  const reason = event.reason
+  if (box !== null) box.textContent += `\n\n脚本中断（其后的断言没跑）：${reason instanceof Error ? reason.message : String(reason)}`
+})
+
+/** 等一拍真实时间再等渲染：读盘是真 I/O，selectionchange 也是异步派发。 */
+async function settle(times = 1) {
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  for (let i = 0; i < times; i += 1) await nextTick()
+}
+
+/** 把选区设到某元素的全部内容上，并让焦点落在它身上。 */
+function selectAll(el) {
+  el.focus()
+  const selection = window.getSelection()
+  selection.removeAllRanges()
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  selection.addRange(range)
+}
+
+step("opfs")
+/** OPFS 当工作目录，预置一篇带表格的笔记，避开原生目录对话框。 */
+const tableBlock = Object.assign(createBlock("table"), {
+  rows: [
+    [
+      { runs: textToRuns("名称"), header: true, align: "left" },
+      { runs: textToRuns("数量"), header: true, align: "center" },
+    ],
+    [
+      { runs: [...textToRuns("杯子"), { ...textToRuns("重点")[0], marks: ["bold"] }], header: false, align: "left" },
+      { runs: textToRuns("12"), header: false, align: "left" },
+    ],
+  ],
+})
+const blocks = [
+  Object.assign(createBlock("h1"), { runs: textToRuns("表格检查") }),
+  tableBlock,
+  Object.assign(createBlock("text"), { runs: textToRuns("正文一段，对照正文块的浮条。") }),
+]
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("table-probe", { create: true })
+const file = await dir.getFileHandle("表.html", { create: true })
+const writable = await file.createWritable()
+await writable.write(blocksToHtml(blocks))
+await writable.close()
+window.showDirectoryPicker = async () => dir
+
+step("mount")
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    provideSettings()
+    return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+
+step("bootstrap")
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+const note = workspace.tree.value.find((node) => node.kind === "note")
+check("扫到了预置笔记", note !== undefined, JSON.stringify(workspace.tree.value.map((n) => n.name)))
+if (note === undefined) throw new Error("没有笔记可打开")
+
+step("openFile")
+workspace.openFile(note.id)
+for (let i = 0; i < 60 && workspace.activeDocument.value.length < 3; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 50))
+}
+await nextTick()
+
+step("render")
+const doc = workspace.activeDocument.value
+check("文档解析出 3 个块", doc.length === 3, `实际 ${doc.length}`)
+const tableInDoc = doc.find((block) => block.type === "table")
+check("表格块带着行列", tableInDoc !== undefined && tableInDoc.rows.length === 2 && tableInDoc.rows[0].length === 2,
+  JSON.stringify(tableInDoc?.rows ?? null))
+
+const ths = [...document.querySelectorAll("#app table th")]
+const tds = [...document.querySelectorAll("#app table td")]
+check("表头两格渲染出来", ths.length === 2, `实际 ${ths.length}`)
+check("数据两格渲染出来（内容不丢）", tds.length === 2, `实际 ${tds.length}`)
+check("格子文本与数据一致", tds[0]?.textContent === "杯子重点" && tds[1]?.textContent === "12",
+  `td1=${tds[0]?.textContent} td2=${tds[1]?.textContent}`)
+check("加粗 run 画成 strong", tds[0]?.querySelector("strong")?.textContent === "重点")
+check("表头有底色", ths.every((th) => th.className.includes("bg-muted")), ths[0]?.className)
+check("第二列表头居中", ths[1]?.className.includes("text-center"), ths[1]?.className)
+
+step("toolbar")
+/** 浮条要焦点 + 选区两个条件同时成立；selectionchange 异步派发，等一拍。 */
+selectAll(tds[0])
+await settle(2)
+const cellToolbar = document.body.querySelector("[data-inline-toolbar]")
+check("选中单元格文本出现浮条", cellToolbar !== null)
+
+/** 快捷键与浮条按钮共用同一条 applyMark —— 这里从数据与 DOM 两侧验证。
+ * toggleMarkAt 对混合选区的语义：按选区起点的激活态统一取反 —— 起点「杯子」
+ * 无粗，Ctrl+B 后整格统一加粗并合并成单 run。 */
+tds[0].dispatchEvent(new KeyboardEvent("keydown", { key: "b", ctrlKey: true, bubbles: true }))
+await settle(1)
+const afterToggle = tableInDoc.rows[1][0].runs
+check("Ctrl+B 混合选区统一加粗并合并", afterToggle.length === 1 && afterToggle[0].text === "杯子重点" && afterToggle[0].marks.includes("bold"),
+  JSON.stringify(afterToggle))
+check("重画后整格都是 strong", document.querySelector("#app table td strong")?.textContent === "杯子重点")
+
+tds[0].dispatchEvent(new KeyboardEvent("keydown", { key: "b", ctrlKey: true, bubbles: true }))
+await settle(1)
+check("再按一次整格去粗", tableInDoc.rows[1][0].runs.length === 1 && !tableInDoc.rows[1][0].runs[0].marks.includes("bold"),
+  JSON.stringify(tableInDoc.rows[1][0].runs))
+check("去粗后 DOM 不再有 strong", document.querySelector("#app table td strong") === null)
+
+tds[0].dispatchEvent(new KeyboardEvent("keydown", { key: "b", ctrlKey: true, bubbles: true }))
+await settle(1)
+check("第三次恢复整格加粗（供往返用）", tableInDoc.rows[1][0].runs[0].marks.includes("bold") === true)
+
+check("单元格浮条没有链接按钮", cellToolbar?.querySelector('[aria-label="链接"]') === null)
+
+step("body toolbar")
+const textBlock = doc.find((block) => block.type === "text")
+const bodyCell = document.querySelector(`#app [data-editable="${textBlock.id}"]`)
+selectAll(bodyCell)
+await settle(2)
+const toolbars = [...document.body.querySelectorAll("[data-inline-toolbar]")]
+check("正文块选区出现浮条", toolbars.length === 1, `body 里 ${toolbars.length} 个浮条`)
+check(
+  "正文块浮条有链接按钮",
+  toolbars.length === 1 && toolbars[0].querySelector('[aria-label="链接"]') !== null,
+  JSON.stringify({
+    focus: document.activeElement?.getAttribute("data-editable") ?? String(document.activeElement?.tagName),
+    html: toolbars.map((bar) => [...bar.querySelectorAll("button")].map((btn) => btn.getAttribute("aria-label"))),
+  }),
+)
+
+step("round-trip")
+const parsed = parseHtml(blocksToHtml(doc))
+const roundTable = parsed.find((block) => block.type === "table")
+check("往返后仍是表格块", roundTable !== undefined)
+check("往返后行列不丢", roundTable?.rows.length === 2 && roundTable.rows[0].length === 2,
+  JSON.stringify(roundTable?.rows ?? null))
+const roundCell = roundTable?.rows[1][0]
+check("往返后文本不丢", roundCell !== undefined && roundCell.runs.map((run) => run.text).join("") === "杯子重点",
+  JSON.stringify(roundCell?.runs ?? null))
+check("往返后加粗保住", roundCell?.runs.find((run) => run.text === "重点")?.marks.includes("bold") === true
+  || roundCell?.runs.every((run) => run.marks.includes("bold")) === true,
+  JSON.stringify(roundCell?.runs ?? null))
+check("往返后表头保住", roundTable?.rows.every((row) => row.every((cell) => cell.header === (row === roundTable.rows[0]))) === true)
+check("往返后对齐保住", roundTable?.rows[0][1].align === "center", String(roundTable?.rows[0][1].align))
+
+lines.push(`自检 ${passed}/${passed + failed}`)
+document.getElementById("out").textContent = lines.join("\n")
+</script>
+</body>
+</html>

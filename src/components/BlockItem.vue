@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import type { Block, BlockDropEdge, BlockMenuKind, BlockType, InlineMark, InlineRun, LinkShape } from "@/types/workspace"
-import type { OffsetRange } from "@/lib/marks"
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import type { Block, BlockDropEdge, BlockMenuKind, BlockType } from "@/types/workspace"
+import { computed, nextTick, onMounted, ref, watch } from "vue"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useWorkspace } from "@/composables/useWorkspace"
-import { hasLeadingMarker, isListType, isTextualBlock } from "@/lib/blocks"
+import { useInlineToolbar } from "@/composables/useInlineToolbar"
+import { blockText, hasLeadingMarker, isListType, isTextualBlock, tableToTsv } from "@/lib/blocks"
+import { tableHtml } from "@/lib/html/serialize"
 import { focusEditable } from "@/lib/dom"
 import { highlightCode } from "@/lib/highlight"
 import { runsFromNode } from "@/lib/html"
 import { runsText, runsToHtml } from "@/lib/inline"
-import { applyLinkAt, linkAt, marksAt, offsetRangeIn, paintRuns, shortcutMark, toggleMarkAt } from "@/lib/marks"
+import { shortcutMark } from "@/lib/marks"
 import {
   BODY_TEXT_CLASS,
   CHECKBOX_TOP,
@@ -58,18 +59,18 @@ const emit = defineEmits<{
 const { setBlockRuns, toggleBlockChecked } = useWorkspace()
 
 const bodyRef = ref<HTMLElement | null>(null)
-/** 行内格式条的显示状态，null 表示不显示。坐标是视口坐标。 */
-const toolbar = ref<{ marks: InlineMark[]; link: boolean; top: number; left: number } | null>(null)
-/**
- * 链接浮层的编辑状态。range 是打开那一刻的选区快照 —— 浮层里的输入框会拿走焦点，
- * 真正的选区早没了，确认时按这份快照改 runs。
- */
-const linkEdit = ref<{ range: OffsetRange; href: string; shape: LinkShape; top: number; left: number } | null>(null)
 const openMenu = ref<BlockMenuKind>("")
 const typeMenuMode = ref<"insert" | "convert">("insert")
 
 /** 承载 runs 的正文块才走下面那套 contenteditable；图片 / 表格 / mermaid 各有自己的视图组件。 */
 const textual = computed(() => (isTextualBlock(props.block) ? props.block : null))
+
+// 浮条与链接浮层的编排收在 composable 里，与表格单元格共用同一套（见 useInlineToolbar）。
+const { toolbar, linkEdit, applyMark, openLink, applyLink } = useInlineToolbar({
+  target: () => bodyRef.value,
+  getRuns: () => textual.value?.runs ?? [],
+  commit: (runs) => setBlockRuns(props.block.id, runs),
+})
 
 /**
  * 菜单选中项会触发插入 / 删除，焦点该落在新块或上一块上（由 BlockEditor 决定）。
@@ -90,129 +91,23 @@ onMounted(() => {
   if (element === null || block === null) return
   element.innerHTML = runsToHtml(block.runs)
   updateHighlight()
-  document.addEventListener("selectionchange", refreshToolbar)
-  // 捕获阶段：滚动发生在内层滚动容器里，不冒泡到 document。
-  document.addEventListener("scroll", hideToolbar, true)
 })
 
-onBeforeUnmount(() => {
-  document.removeEventListener("selectionchange", refreshToolbar)
-  document.removeEventListener("scroll", hideToolbar, true)
-})
-
-/**
- * 收起格式条。
- *
- * 滚动会让浮条跟选区脱节 —— 它是 fixed 定位，而文字跟着内容走。与其追着重算位置，
- * 不如照惯例收起来，等下一次选区变化（用户松手、再选）自然会回来。
- */
-function hideToolbar() {
-  toolbar.value = null
-  linkEdit.value = null
-}
-
-// 转换类型时清空内容（与原型一致）。块对象被替换但 id 未变，组件实例复用，需手动清。
+// 转换类型时按数据重画正文(转换会带着 runs 走)。块对象被替换但 id 未变,组件实例
+// 复用;结构性块进出时正文层整个换挂载,所以等 DOM 落地后统一按 runs 重画 ——
+// 空 runs 自然就是清空,`/` 触发的转换走同一条路。
 watch(
   () => props.block.type,
   () => {
-    const element = bodyRef.value
-    if (element) element.innerHTML = ""
-    updateHighlight()
+    void nextTick(() => {
+      const element = bodyRef.value
+      const block = textual.value
+      if (element === null) return
+      element.innerHTML = block === null ? "" : runsToHtml(block.runs)
+      updateHighlight()
+    })
   },
 )
-
-/**
- * 选区变化时决定格式条露不露面。
- *
- * document 级的 selectionchange 每个块都会收到，所以开头几道判断要尽量便宜：焦点不在
- * 本块就立刻返回。跨块选区由 `offsetRangeIn` 里的 contains 挡掉 —— 两端不可能同时落在
- * 同一个可编辑体里。
- */
-function refreshToolbar() {
-  const element = bodyRef.value
-  const block = textual.value
-  if (element === null || block === null || document.activeElement !== element) {
-    toolbar.value = null
-    return
-  }
-
-  const range = offsetRangeIn(element)
-  const selection = window.getSelection()
-  if (range === null || selection === null || selection.rangeCount === 0) {
-    toolbar.value = null
-    return
-  }
-
-  const rect = selection.getRangeAt(0).getBoundingClientRect()
-  if (rect.width === 0 && rect.height === 0) {
-    toolbar.value = null
-    return
-  }
-
-  toolbar.value = {
-    marks: marksAt(block.runs, range.start),
-    link: linkAt(block.runs, range.start) !== null,
-    top: rect.top - 8,
-    left: rect.left + rect.width / 2,
-  }
-}
-
-/**
- * 把新的 runs 画回 DOM、复原选区，再刷新格式条的激活态。
- *
- * 正文块特有的只有最后那步：选区回到同一段文字上，哪几个格式亮着可能已经变了。
- */
-function paint(runs: InlineRun[], range: OffsetRange) {
-  const element = bodyRef.value
-  if (element === null) return
-  paintRuns(element, runs, range)
-  refreshToolbar()
-}
-
-/** 对当前选区切换一个行内标记。格式条与快捷键共用这一条路。 */
-function applyMark(mark: InlineMark) {
-  const element = bodyRef.value
-  const block = textual.value
-  if (element === null || block === null) return
-
-  const range = offsetRangeIn(element)
-  if (range === null) return
-
-  const runs = toggleMarkAt(block.runs, range, mark)
-  setBlockRuns(block.id, runs)
-  paint(runs, range)
-}
-
-/** 打开链接浮层：记下选区快照与回显值。 */
-function openLink() {
-  const element = bodyRef.value
-  const block = textual.value
-  if (element === null || block === null || toolbar.value === null) return
-
-  const range = offsetRangeIn(element)
-  if (range === null) return
-
-  const current = linkAt(block.runs, range.start)
-  linkEdit.value = {
-    range,
-    href: current?.href ?? "",
-    shape: current?.shape ?? "text",
-    top: toolbar.value.top,
-    left: toolbar.value.left,
-  }
-}
-
-/** 浮层确认。空地址表示移除链接；改完把焦点与选区还给正文。 */
-function applyLink(href: string, shape: LinkShape) {
-  const block = textual.value
-  const edit = linkEdit.value
-  if (block === null || edit === null) return
-
-  const runs = applyLinkAt(block.runs, edit.range, href === "" ? null : href, shape)
-  setBlockRuns(block.id, runs)
-  linkEdit.value = null
-  paint(runs, edit.range)
-}
 
 function onInput() {
   const element = bodyRef.value
@@ -355,6 +250,58 @@ async function copyCode() {
 }
 
 /**
+ * 手柄菜单「复制内容」:表格同时写 text/html(在线表格只认 HTML 网格)与
+ * text/plain(TSV,给不支持 HTML flavor 的接收方兜底),其余块走纯文本投影。
+ */
+async function copyContent() {
+  const block = props.block
+  if (block.type !== "table") {
+    await navigator.clipboard.writeText(blockText(block))
+    return
+  }
+  const tsv = tableToTsv(block.rows)
+  const html = tableHtml(block.rows)
+  if (typeof ClipboardItem !== "undefined") {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/plain": new Blob([tsv], { type: "text/plain" }),
+          "text/html": new Blob([html], { type: "text/html" }),
+        }),
+      ])
+      return
+    } catch {
+      // WebView 不支持多 flavor 写入时落到下面的老路。
+    }
+  }
+  copyHtmlViaCommand(html)
+}
+
+/**
+ * 兜底:把 HTML 选进一个离屏节点再 execCommand("copy"),webview 会顺手产出
+ * text/html + text/plain 两种 flavor。execCommand 虽废弃,但这是唯一不依赖
+ * ClipboardItem 的多 flavor 复制路。
+ */
+function copyHtmlViaCommand(html: string) {
+  const host = document.createElement("div")
+  host.contentEditable = "true"
+  host.style.position = "fixed"
+  host.style.opacity = "0"
+  host.innerHTML = html
+  document.body.appendChild(host)
+  const selection = window.getSelection()
+  if (selection !== null) {
+    const range = document.createRange()
+    range.selectNodeContents(host)
+    selection.removeAllRanges()
+    selection.addRange(range)
+    document.execCommand("copy")
+    selection.removeAllRanges()
+  }
+  host.remove()
+}
+
+/**
  * 落点指示线：2px 圆角短横线，压在块的上下沿上。
  * 用伪元素而不是真 DOM —— 线不参与布局，拖拽过程中不会把下面的块推来推去。
  */
@@ -435,6 +382,7 @@ const bodyClass = computed(() => {
       @insert="(type: BlockType) => emit('insert-after', block.id, type)"
       @retype="(type: BlockType) => emit('retype', block.id, type)"
       @duplicate="emit('duplicate', block.id)"
+      @copy-content="copyContent"
       @remove="emit('remove', block.id)"
     />
 

@@ -333,17 +333,23 @@ export function createBlock(type: BlockType, text = ""): Block {
 }
 
 /**
- * 块类型切换。
+ * 块类型切换 —— 内容尽可能跟着走。
  *
- * 内容一并清空 —— 与原型行为一致，而且必须这么做：切换时 DOM 会被清掉，
- * 数据若不同步清空，切走标签再切回来又会把旧内容渲染出来（`/` 触发转换时尤其明显）。
+ * - 正文族之间:`runs` 原样带过去,换标题 / 待办 / 引用不该丢字(缩进与勾选态同程保留)。
+ * - 转成 mermaid:内容压成纯文本收进源码 —— mermaid 的心智来源就是「用代码块写图」。
+ * - 结构块转回正文:取纯文本投影,字至少还在。
+ * - 转成其余结构块(图片 / 表格 / 聊天 / 布局):目标形态没有正文的自然落点,只能空着起步。
+ *   DOM 层的配套在 BlockItem:类型变化时按新 `runs` 重画正文,不再无脑清空。
  */
 export function retypeBlock(block: Block, type: BlockType): Block {
-  if (type === "image" || type === "table" || type === "mermaid" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "chat" || type === "layout") {
+  if (type === "mermaid") {
+    return { ...createMermaidBlock(), source: isTextualBlock(block) ? runsText(block.runs) : blockText(block) }
+  }
+  if (type === "image" || type === "table" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "chat" || type === "layout") {
     return createBlock(type)
   }
-  if (!isTextualBlock(block)) return createTextualBlock(type)
-  return createTextualBlock(type, [], { depth: block.depth, checked: block.checked })
+  if (!isTextualBlock(block)) return createTextualBlock(type, textToRuns(blockText(block)))
+  return createTextualBlock(type, cloneRuns(block.runs), { depth: block.depth, checked: block.checked })
 }
 
 /**
@@ -413,6 +419,19 @@ export function blockText(block: Block): string {
     return block.rows.map((row) => row.map((cell) => runsText(cell.runs)).join(" ")).join("\n")
   }
   return runsText(block.runs)
+}
+
+/**
+ * 表格块的 TSV 投影:格间 `\t`、行间 `\n`,粘进 Excel 按网格落格。
+ *
+ * 单元格内的制表符与换行会把一格拉成多格多行,统一压成空格 —— 保住网格优先于保住
+ * 单元格内的排版。与 `blockText` 的空格拼接并存而不合并:字数统计要的是连续文本,
+ * 剪贴板要的是网格,两种投影口径不同。
+ */
+export function tableToTsv(rows: readonly (readonly TableCell[])[]): string {
+  return rows
+    .map((row) => row.map((cell) => runsText(cell.runs).replace(/[\t\n\r]+/g, " ")).join("\t"))
+    .join("\n")
 }
 
 /** 字数统计口径：去掉所有空白后的字符数（与原型一致）。 */

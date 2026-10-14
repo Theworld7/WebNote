@@ -38,10 +38,15 @@ const ITEMS = BUTTON_ORDER.flatMap((mark) => {
 const props = defineProps<{
   /** 选区起点处生效的标记，用来把对应的按钮标成激活态。 */
   marks: readonly InlineMark[]
-  /** 选区起点处是否已在链接上 —— 「链接」按钮的激活态。 */
-  link: boolean
+  /** 选区起点处是否已在链接上 —— 「链接」按钮的激活态。不放链接按钮时可省。 */
+  link?: boolean
   /** 视口坐标，浮条以此为底部中心点。 */
   anchor: { top: number; left: number }
+  /** 是否隐藏「链接」按钮。表格单元格里关掉：链接浮层（w-72）会盖住相邻格，
+   * 且「内联样式」不含链接 —— 链接不是 mark（见 CONTEXT.md），浮层形态也不同。
+   * 用否定式而非 withLink 默认 true：可选 boolean 不传时 Vue 会 cast 成 false，
+   * 「不传 = 显示」这个默认方向表达不出来（与 inCell 等既有 prop 同一惯例）。 */
+  noLink?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -67,6 +72,7 @@ function keepSelection(event: MouseEvent) {
 
 <template>
   <div
+    data-inline-toolbar
     class="fixed z-50 flex items-center gap-0.5 rounded-island border border-line bg-background p-1 shadow-pop"
     :style="{ top: `${anchor.top}px`, left: `${anchor.left}px`, transform: 'translate(-50%, -100%)' }"
     @mousedown="keepSelection"
@@ -83,17 +89,19 @@ function keepSelection(event: MouseEvent) {
       <component :is="item.icon" class="size-[14px]" />
     </Button>
 
-    <span class="mx-0.5 h-4 w-px bg-line" aria-hidden="true" />
+    <template v-if="!props.noLink">
+      <span class="mx-0.5 h-4 w-px bg-line" aria-hidden="true" />
 
-    <Button
-      variant="ghost"
-      :class="cn(TOOL, props.link && ACTIVE)"
-      aria-label="链接"
-      :aria-pressed="props.link"
-      title="链接"
-      @click="emit('link')"
-    >
-      <LinkIcon class="size-[14px]" />
-    </Button>
+      <Button
+        variant="ghost"
+        :class="cn(TOOL, props.link && ACTIVE)"
+        aria-label="链接"
+        :aria-pressed="props.link"
+        title="链接"
+        @click="emit('link')"
+      >
+        <LinkIcon class="size-[14px]" />
+      </Button>
+    </template>
   </div>
 </template>

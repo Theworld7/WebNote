@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import type { TableAlign, TableCell } from "@/types/workspace"
-import { computed, onMounted } from "vue"
+import { computed, onMounted, ref } from "vue"
 import { useWorkspace } from "@/composables/useWorkspace"
-import { findTableCell } from "@/lib/dom"
+import { useInlineToolbar } from "@/composables/useInlineToolbar"
 import { runsFromNode } from "@/lib/html"
 import { runsText, runsToHtml } from "@/lib/inline"
-import { offsetRangeIn, paintRuns, shortcutMark, toggleMarkAt } from "@/lib/marks"
+import { shortcutMark } from "@/lib/marks"
 import { cn } from "@/lib/utils"
+import InlineToolbar from "./InlineToolbar.vue"
 
 /**
  * 一个表格单元格。
@@ -30,6 +31,16 @@ const props = defineProps<{
 const emit = defineEmits<{ (event: "focus"): void }>()
 
 const { setTableCellRuns } = useWorkspace()
+
+/** 本格子的根元素。浮条的目标，也是挂载时写入初始 HTML 的地方。 */
+const cellRef = ref<HTMLElement | null>(null)
+
+// 浮条与快捷键共用同一条标记切换路（见 useInlineToolbar）；数据出口按行列定位到本格。
+const { applyMark, toolbar } = useInlineToolbar({
+  target: () => cellRef.value,
+  getRuns: () => props.cell.runs,
+  commit: (runs) => setTableCellRuns(props.blockId, props.row, props.column, runs),
+})
 
 /** 单元格的 `data-editable` 记成 `块id/行/列`，加行加列后要按它把焦点送到新格子。 */
 const editableKey = computed(() => `${props.blockId}/${props.row}/${props.column}`)
@@ -65,7 +76,7 @@ const cellClass = computed(() =>
 )
 
 onMounted(() => {
-  const el = findTableCell(props.blockId, props.row, props.column)
+  const el = cellRef.value
   if (el === null) return
   el.innerHTML = runsToHtml(props.cell.runs)
 })
@@ -86,10 +97,8 @@ function onInput(event: Event) {
 }
 
 /**
- * 行内格式快捷键。
- *
- * 单元格里不放浮动的格式条：格子本身窄，浮条会盖住相邻单元格，位置也没地方摆。
- * 框选一段再点按钮在这里远不如键盘顺手，所以只留快捷键这一条路。
+ * 行内格式快捷键。与浮条按钮共用同一条切换路（composable 的 `applyMark`）：
+ * 接管而不是放给浏览器的原生 execCommand，理由与正文块相同（见 BlockItem）。
  */
 function onKeydown(event: KeyboardEvent) {
   if (event.isComposing) return
@@ -97,16 +106,8 @@ function onKeydown(event: KeyboardEvent) {
   const mark = shortcutMark(event)
   if (mark === null) return
 
-  const el = findTableCell(props.blockId, props.row, props.column)
-  if (el === null) return
-
-  const range = offsetRangeIn(el)
-  if (range === null) return
-
   event.preventDefault()
-  const runs = toggleMarkAt(props.cell.runs, range, mark)
-  setTableCellRuns(props.blockId, props.row, props.column, runs)
-  paintRuns(el, runs, range)
+  applyMark(mark)
 }
 
 const tag = computed(() => (props.cell.header ? "th" : "td"))
@@ -115,6 +116,7 @@ const tag = computed(() => (props.cell.header ? "th" : "td"))
 <template>
   <component
     :is="tag"
+    ref="cellRef"
     contenteditable="true"
     spellcheck="false"
     :data-editable="editableKey"
@@ -123,4 +125,16 @@ const tag = computed(() => (props.cell.header ? "th" : "td"))
     @keydown="onKeydown"
     @focus="emit('focus')"
   />
+
+  <!-- 单元格的格式条：与正文块同一套（useInlineToolbar），但不放链接按钮 ——
+       链接浮层太宽，会盖住相邻格（理由见 InlineToolbar 的 noLink）。 -->
+  <Teleport to="body">
+    <InlineToolbar
+      v-if="toolbar !== null"
+      :marks="toolbar.marks"
+      no-link
+      :anchor="{ top: toolbar.top, left: toolbar.left }"
+      @toggle="applyMark"
+    />
+  </Teleport>
 </template>

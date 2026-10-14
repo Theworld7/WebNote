@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { BlockDropEdge, BlockType } from "@/types/workspace"
-import { computed, ref } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref } from "vue"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useSettings, CONTENT_WIDTH_PX } from "@/composables/useSettings"
 import { useWorkspace } from "@/composables/useWorkspace"
@@ -22,6 +22,9 @@ const {
   removeBlock,
   moveBlock,
   setImageSource,
+  undo,
+  redo,
+  restoreTick,
 } = useWorkspace()
 
 /**
@@ -266,6 +269,32 @@ function resetDrag() {
   fileDropIndex.value = null
 }
 
+// ---- 撤销 / 重做 ----
+
+/**
+ * 全局接管 Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y,走文档级历史(`useWorkspace`)。
+ *
+ * 不指望浏览器原生撤销:块级操作(插入 / 删除 / 拖拽 / 转换)压根不进 contenteditable
+ * 的撤销栈,文本编辑的原生栈又会在数据驱动重渲染后失效。所以正文里的 Ctrl+Z 一律
+ * preventDefault,换成整文档快照回退。
+ *
+ * 输入框(设置面板等)放过原生行为 —— 那是表单,原生撤销才是对的;输入法组字中的
+ * 快捷键也要放过,组字确认键不能同时撤销。
+ */
+function onKeyDown(event: KeyboardEvent) {
+  if (!(event.ctrlKey || event.metaKey) || event.isComposing) return
+  const key = event.key.toLowerCase()
+  if (key !== "z" && key !== "y") return
+  const target = event.target
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return
+  event.preventDefault()
+  if (key === "y" || event.shiftKey) redo()
+  else undo()
+}
+
+onMounted(() => document.addEventListener("keydown", onKeyDown))
+onBeforeUnmount(() => document.removeEventListener("keydown", onKeyDown))
+
 /** 每个块的落点标记。同一时刻只画一条线：先判 before，末尾再特判 after。 */
 function dropEdgeAt(index: number): BlockDropEdge {
   // 文件拖入不存在「拖回原处」这种空操作，落点永远有效。
@@ -302,7 +331,7 @@ function edgeOf(index: number, to: number): BlockDropEdge {
     >
       <BlockItem
         v-for="(block, index) in activeDocument"
-        :key="block.id"
+        :key="`${restoreTick}:${block.id}`"
         :block="block"
         :ordered-index="orderedIndexes.get(block.id) ?? 0"
         :dragging="dragId === block.id"

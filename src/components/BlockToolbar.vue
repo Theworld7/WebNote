@@ -32,6 +32,7 @@ const emit = defineEmits<{
   (event: "insert", type: BlockType): void
   (event: "retype", type: BlockType): void
   (event: "duplicate"): void
+  (event: "copy-content"): void
   (event: "remove"): void
 }>()
 
@@ -112,6 +113,11 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
         <DropdownMenuItem :class="ITEM" @select="emit('duplicate')">
           <span :class="MARKER">⧉</span>
           <span>复制块</span>
+        </DropdownMenuItem>
+
+        <DropdownMenuItem :class="ITEM" @select="emit('copy-content')">
+          <span :class="MARKER">⎘</span>
+          <span>复制内容</span>
         </DropdownMenuItem>
 
         <DropdownMenuSub>

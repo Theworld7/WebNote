@@ -212,7 +212,11 @@ function alignAttribute(cell: TableCell): string {
   return ` style="text-align:${align}"`
 }
 
-function tableHtml(rows: readonly TableCell[][]): string {
+/**
+ * 表格块 → HTML。盘上 `.html` 与剪贴板的「复制内容」共用这一个函数 ——
+ * 两处的表格形态必须逐字同源,导出去的笔记和粘到 Excel 的网格才不会长成两张表。
+ */
+export function tableHtml(rows: readonly TableCell[][]): string {
   if (rows.length === 0) return "<table></table>"
 
   const head: string[] = []

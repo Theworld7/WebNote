@@ -1,7 +1,7 @@
 import type { InjectionKey } from "vue"
 import type { Block, BlockSettingsPatch, BlockType, ChatMessage, CloseStrategy, CreateTarget, FileNode, InlineRun, LayoutMode, OpenTab, TableAlign, TableCell } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
-import { computed, inject, provide, ref } from "vue"
+import { computed, inject, provide, ref, watch } from "vue"
 import { cloneBlock, countChars, createBlock, createBlockId, createBookmarkBlock, createDataTableBlock, createGalleryBlock, createKanbanBlock, isReferenceBlock, isTextualBlock, retypeBlock } from "@/lib/blocks"
 import { describeError } from "@/lib/errors"
 import { parseHtml, serializeHtml } from "@/lib/html"
@@ -199,6 +199,7 @@ function createWorkspace() {
     tabs.value = []
     activePath.value = ""
     documents.value = {}
+    history.clear()
     loadedPaths.value = new Set()
     loadingPaths.value = new Set()
     expandedIds.value = new Set()
@@ -369,9 +370,15 @@ function createWorkspace() {
     loadingPaths.value = withFlag(loadingPaths.value, path, true)
     try {
       const source = await driver.readNote(current, path)
+      // 重新读盘 = 语境重开，旧历史对新内容是错位的，必须一并作废；基线随即定格 ——
+      // 不等静默窗口，否则「打开即改」的头一笔编辑会并进读盘事件里，撤销不到它。
+      history.delete(path)
       documents.value[path] = parseHtml(source)
+      historyOf(path)
     } catch (error) {
+      history.delete(path)
       documents.value[path] = [createBlock("text")]
+      historyOf(path)
       fsError.value = `打开「${fileName(path)}」失败：${describeError(error)}`
     } finally {
       loadedPaths.value = withFlag(loadedPaths.value, path, true)
@@ -434,6 +441,12 @@ function createWorkspace() {
       // 保存都会把它们无声写出去 —— 「不保存」就不能只是不保存笔记那份。
       const tab = tabs.value.find((item) => item.path === path)
       for (const tablePath of tab?.dirtyTables ?? []) await reloadTable.value(tablePath)
+      // 笔记正文同样要退回盘上真相：documents 里还挂着带未保存修改的块，缓存不清，
+      // 重新打开只会读到内存这份 —— 「丢弃」对正文就成了空话。历史一并作废：
+      // 重读盘 = 语境重开，旧历史对新内容是错位的（同 loadDocument）。
+      loadedPaths.value = withFlag(loadedPaths.value, path, false)
+      delete documents.value[path]
+      history.delete(path)
     }
     closeTab(path)
   }
@@ -822,6 +835,99 @@ function createWorkspace() {
     if (tab === null) return
     if (!tab.dirtyTables.includes(tablePath)) tab.dirtyTables.push(tablePath)
     tab.dirty = true
+  }
+
+  // ---- 撤销 / 重做 ----
+
+  /**
+   * 文档级历史，按路径各记一份。快照存深拷贝而不是 JSON 字符串 —— 恢复时直接把
+   * `Block[]` 塞回 `documents`，不经 `JSON.parse` 的 any，类型门不破。
+   *
+   * 记录走「基线推进」：基线是上一次定格的状态，深观察等到编辑静默（500ms 无新改动）
+   * 后把基线压进 `past`、基线换成现状。连续打字因此合并成一步；块级操作（插入 / 删除 /
+   * 拖拽 / 转换）各自落在自己的静默段里，天然各成一步。上限 100 步，够回溯一段工作流。
+   *
+   * 撤销 / 重做把块整体换回旧快照，但块 id 不变 —— BlockItem 的 contenteditable 是
+   * 非受控的，props 原地换对象不会重画 DOM。`restoreTick` 供编辑器拼进 `:key`，
+   * 撤销后整表重挂，强制按数据重画。
+   */
+  type DocHistory = { past: Block[][]; future: Block[][]; baseline: Block[] }
+
+  const history = new Map<string, DocHistory>()
+  const restoreTick = ref(0)
+  const HISTORY_LIMIT = 100
+  let historyTimer: number | undefined
+
+  /** 当前文档的独立深拷。 */
+  function snapshotOf(path: string): Block[] {
+    return (documents.value[path] ?? []).map((block) => cloneBlock(block, block.id))
+  }
+
+  /** 取路径的历史，没有就现开一份 —— 基线取当下的快照，首笔改动从它起算。 */
+  function historyOf(path: string): DocHistory {
+    const existing = history.get(path)
+    if (existing !== undefined) return existing
+    const fresh: DocHistory = { past: [], future: [], baseline: snapshotOf(path) }
+    history.set(path, fresh)
+    return fresh
+  }
+
+  /** 把「当前相对基线的变化」定格成一步。相同则不动（撤销回写、无变化触发）。 */
+  function recordHistory(path: string) {
+    const entry = historyOf(path)
+    const current = snapshotOf(path)
+    if (JSON.stringify(current) === JSON.stringify(entry.baseline)) return
+    entry.past.push(entry.baseline)
+    if (entry.past.length > HISTORY_LIMIT) entry.past.shift()
+    entry.baseline = current
+    entry.future = []
+  }
+
+  watch(
+    () => documents.value[activePath.value],
+    () => {
+      // 带上触发那一刻的路径：定时器到点时用户可能已切走标签，记错文档就乱套了。
+      const path = activePath.value
+      if (path === "") return
+      window.clearTimeout(historyTimer)
+      historyTimer = window.setTimeout(() => recordHistory(path), 500)
+    },
+    { deep: true },
+  )
+
+  function undo() {
+    // 静默计时还没到就按撤销：先把手里这段编辑定格，否则它会整段被跳过。
+    window.clearTimeout(historyTimer)
+    historyTimer = undefined
+    const path = activePath.value
+    if (path === "") return
+    recordHistory(path)
+    const entry = history.get(path)
+    if (entry === undefined || entry.past.length === 0) return
+    const previous = entry.past.pop()
+    if (previous === undefined) return
+    entry.future.push(snapshotOf(path))
+    entry.baseline = previous.map((block) => cloneBlock(block, block.id))
+    documents.value[path] = previous
+    markDirty()
+    restoreTick.value += 1
+  }
+
+  function redo() {
+    window.clearTimeout(historyTimer)
+    historyTimer = undefined
+    const path = activePath.value
+    if (path === "") return
+    recordHistory(path)
+    const entry = history.get(path)
+    if (entry === undefined || entry.future.length === 0) return
+    const next = entry.future.pop()
+    if (next === undefined) return
+    entry.past.push(snapshotOf(path))
+    entry.baseline = next.map((block) => cloneBlock(block, block.id))
+    documents.value[path] = next
+    markDirty()
+    restoreTick.value += 1
   }
 
   // ---- 块级操作。全部收敛在这里，组件只负责触发与聚焦 ----
@@ -1383,6 +1489,10 @@ function createWorkspace() {
     removeTableColumn,
     setTableHeaderRow,
     setTableColumnAlign,
+    // undo / redo
+    undo,
+    redo,
+    restoreTick,
   }
 }
 

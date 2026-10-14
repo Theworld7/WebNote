@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>撤销 / 重做自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; display: flex; height: 420px; }
+  pre { margin: 0 0 8px; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>撤销 / 重做：文本编辑、块级操作、静默合并、输入框放行</h1>
+<!-- 脚本里有顶层 await（要等真实读盘），抓结果用 CDP 驱动跑：
+     node design/cdp-dump.mjs http://localhost:1420/design/undo-check.html -->
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+
+const out = document.querySelector("#out")
+const lines = []
+let passed = 0
+let failed = 0
+
+addEventListener("error", (event) => {
+  out.textContent = `ERROR ${event.message}\n${lines.join("\n")}`
+})
+addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason
+  out.textContent = `REJECT ${reason instanceof Error ? reason.message : String(reason)}\n${lines.join("\n")}`
+})
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  out.textContent = `running: ${lines.join("\n")}`
+}
+
+/** 等历史记账的静默窗口过去。 */
+const quiet = () => new Promise((resolve) => setTimeout(resolve, 600))
+
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("undo-probe", { create: true })
+const file = await dir.getFileHandle("a.html", { create: true })
+const writable = await file.createWritable()
+await writable.write("<p>原始文字</p>")
+await writable.close()
+window.showDirectoryPicker = async () => dir
+
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    provideSettings()
+    return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+const note = workspace.tree.value.find((node) => node.kind === "note")
+check("扫到了预置笔记", note !== null)
+if (note === undefined) {
+  lines.push(`自检 ${passed}/${passed + failed}`)
+  out.textContent = lines.join("\n")
+} else {
+  workspace.openFile(note.id)
+  for (let i = 0; i < 60 && workspace.activeDocument.value.length < 1; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  await nextTick()
+  await run()
+}
+
+function rows() { return [...document.querySelectorAll("[data-block-id]")] }
+function bodies() { return rows().map((row) => row.querySelector("[contenteditable]")) }
+function storeTexts() { return workspace.activeDocument.value.map((b) => b.runs.map((r) => r.text).join("")) }
+function domTexts() { return bodies().map((body) => body.innerText) }
+
+/** 往第 index 块的正文里写一段文字，走真实的 input 事件链路。 */
+async function typeInto(index, text) {
+  const body = bodies()[index]
+  body.focus()
+  body.innerText = text
+  body.dispatchEvent(new Event("input", { bubbles: true }))
+  await nextTick()
+}
+
+function press(key, opts = {}) {
+  const event = new KeyboardEvent("keydown", { key, cancelable: true, bubbles: true, ...opts })
+  document.dispatchEvent(event)
+  return event
+}
+
+async function undoKey() {
+  const event = press("z", { ctrlKey: true })
+  await nextTick()
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  return event.defaultPrevented
+}
+
+async function redoKey() {
+  const event = press("z", { ctrlKey: true, shiftKey: true })
+  await nextTick()
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  return event.defaultPrevented
+}
+
+async function run() {
+  check("文档渲染出 1 个块", rows().length === 1, `实际 ${rows().length}`)
+  check("块内容是预置文字", storeTexts()[0] === "原始文字", JSON.stringify(storeTexts()))
+
+  // ---- 文本编辑：撤销 / 重做 ----
+  await typeInto(0, "原始文字追加")
+  await quiet()
+  check("编辑后 store 跟上", storeTexts()[0] === "原始文字追加", JSON.stringify(storeTexts()))
+
+  const prevented = await undoKey()
+  check("Ctrl+Z 被接管（preventDefault）", prevented === true)
+  await nextTick()
+  check("撤销后 store 回到原文", storeTexts()[0] === "原始文字", JSON.stringify(storeTexts()))
+  check("撤销后 DOM 按数据重画（非受控正文也被换掉）", domTexts()[0] === "原始文字", JSON.stringify(domTexts()))
+  check("撤销后块 id 不变（没重造块）", rows()[0].dataset.blockId === workspace.activeDocument.value[0].id)
+  check("撤销后标签标脏（会被保存）", workspace.isDirty.value === true, `tabs=${JSON.stringify(workspace.tabs.value)}`)
+
+  await redoKey()
+  check("Ctrl+Shift+Z 重做回来", storeTexts()[0] === "原始文字追加" && domTexts()[0] === "原始文字追加", JSON.stringify(storeTexts()))
+
+  await undoKey()
+  check("再撤销回到原文", storeTexts()[0] === "原始文字", JSON.stringify(storeTexts()))
+
+  // 撤销到底：past 空时按烂也不报错
+  const extra = await undoKey()
+  check("没有历史可退时安全无操作", storeTexts()[0] === "原始文字" && rows().length === 1, JSON.stringify(storeTexts()))
+
+  // ---- 块级操作：Enter 插块 → 撤销 ----
+  bodies()[0].focus()
+  bodies()[0].dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
+  await nextTick()
+  check("Enter 插出新块", rows().length === 2, `实际 ${rows().length}`)
+  await quiet()
+
+  await undoKey()
+  check("撤销块级操作（插块）", rows().length === 1 && storeTexts().length === 1, `实际 ${rows().length}`)
+
+  await redoKey()
+  check("重做插块", rows().length === 2, `实际 ${rows().length}`)
+
+  // ---- 静默合并：500ms 内的连续打字算一步 ----
+  await typeInto(0, "合并甲")
+  await new Promise((resolve) => setTimeout(resolve, 80))
+  await typeInto(0, "合并甲乙")
+  await undoKey()
+  check("静默窗口内的连续打字合并为一步撤销", storeTexts()[0] === "原始文字", JSON.stringify(storeTexts()))
+  check("合并步撤销后 DOM 同步", domTexts()[0] === "原始文字", JSON.stringify(domTexts()))
+
+  // ---- 跨步：静默之后再打字是独立一步 ----
+  await typeInto(0, "第一步")
+  await quiet()
+  await typeInto(0, "第一步第二步")
+  await quiet()
+  await undoKey()
+  check("第二次静默后是独立一步", storeTexts()[0] === "第一步", JSON.stringify(storeTexts()))
+  await undoKey()
+  check("再退一步回到原文", storeTexts()[0] === "原始文字", JSON.stringify(storeTexts()))
+
+  // ---- 输入框放行：Ctrl+Z 不该被编辑器接管 ----
+  const field = document.createElement("input")
+  document.querySelector("#app").appendChild(field)
+  const fieldEvent = new KeyboardEvent("keydown", { key: "z", ctrlKey: true, cancelable: true, bubbles: true })
+  field.dispatchEvent(fieldEvent)
+  check("输入框里的 Ctrl+Z 放行原生行为", fieldEvent.defaultPrevented === false)
+  field.remove()
+
+  lines.push(`自检 ${passed}/${passed + failed}`)
+  out.textContent = lines.join("\n")
+}
+</script>
+</body>
+</html>
