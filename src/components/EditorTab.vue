@@ -22,7 +22,7 @@ const label = computed(() => fileName(props.tab.path))
   <button
     type="button"
     :class="cn(
-      'group/tab flex h-7 max-w-[230px] items-center gap-1.5 rounded-[9px] pr-2 pl-3 text-xs transition-colors',
+      'group/tab flex h-7 max-w-[230px] shrink-0 items-center gap-1.5 rounded-[9px] pr-2 pl-3 text-xs transition-colors',
       active
         ? 'bg-selection font-medium text-selection-foreground'
         : 'text-muted-foreground hover:bg-muted',

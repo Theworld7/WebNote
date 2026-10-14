@@ -23,6 +23,7 @@ import { createApp, defineComponent, h, nextTick } from "vue"
 import "../src/style.css"
 import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
 import EditorTabBar from "../src/components/EditorTabBar.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
 import { provideWorkspace } from "../src/composables/useWorkspace.ts"
 
 const lines = []
@@ -61,6 +62,8 @@ function dotIn(button) {
 let workspace = null
 const Root = defineComponent({
   setup() {
+    // 设置抽屉并进 EditorTabBar 后，它 setup 里会 useSettings —— 不 provide 就当场抛。
+    provideSettings()
     workspace = provideWorkspace()
     return () => h(TooltipProvider, null, { default: () => h(EditorTabBar, { sidebarCollapsed: false }) })
   },
@@ -130,8 +133,8 @@ workspace.tabs.value = []
 workspace.activePath.value = ""
 await nextTick()
 check(
-  "未打开文件时动作组只剩「折叠侧栏」",
-  JSON.stringify(actionLabels()) === JSON.stringify(["折叠侧栏"]),
+  "未打开文件时动作组只剩「折叠侧栏 + 设置」",
+  JSON.stringify(actionLabels()) === JSON.stringify(["折叠侧栏", "设置"]),
   JSON.stringify(actionLabels()),
 )
 check("未打开文件时不显示「在目录中定位」", !hasLocate())
@@ -142,8 +145,8 @@ workspace.activePath.value = "a.html"
 await nextTick()
 check("打开文件后出现「在目录中定位」", hasLocate())
 check(
-  "动作组为「定位 + 折叠侧栏」",
-  JSON.stringify(actionLabels()) === JSON.stringify(["在目录中定位", "折叠侧栏"]),
+  "动作组为「定位 + 折叠侧栏 + 设置」",
+  JSON.stringify(actionLabels()) === JSON.stringify(["在目录中定位", "折叠侧栏", "设置"]),
   JSON.stringify(actionLabels()),
 )
 
@@ -179,8 +182,8 @@ await nextTick()
 
 const strip = stripOf()
 check(
-  "有标签时标签条存在且仍是收缩容器",
-  strip !== null && (strip.getAttribute("class") ?? "").includes("overflow-hidden"),
+  "有标签时标签条存在且是横向滚动容器（超出滚动而非截断）",
+  strip !== null && strip.querySelector('[class*="overflow-x-auto"]') !== null,
 )
 check(
   "标签条左缘距浮岛左缘 4px",
@@ -208,6 +211,24 @@ check(
   `实际 ${stripGap().toFixed(1)}`,
 )
 check("此时右缘仍留 4px（= 浮岛 p-1）", Math.abs(rightOf(island) - rightOf(actions) - 4) < EPS)
+
+// ---- 滚动行为 ----
+//
+// 类名断言防不住「滚动链断了」：外层一旦不可收缩（flex-none），滚动容器永远不溢出、
+// 类名原样挂着却滚不动。这里塞够多的标签，断言溢出真实发生、scrollLeft 真的能动。
+workspace.tabs.value = Array.from({ length: 12 }, (_, i) => ({ path: `第${i}章.html`, dirty: false, dirtyTables: [] }))
+workspace.activePath.value = "第11章.html"
+await nextTick()
+
+const scroller = stripOf()?.querySelector('[class*="overflow-x-auto"]')
+check(
+  "标签多到放不下时滚动区真的溢出",
+  scroller !== null && scroller.scrollWidth > scroller.clientWidth,
+  scroller === null ? "滚动容器缺失" : `scrollWidth ${scroller.scrollWidth} vs clientWidth ${scroller.clientWidth}`,
+)
+scroller.scrollLeft = 9999
+await nextTick()
+check("滚动容器能实际滚动（scrollLeft 生效）", scroller.scrollLeft > 0, `scrollLeft ${scroller.scrollLeft}`)
 
 lines.push(`自检 ${passed}/${passed + failed}`)
 document.getElementById("out").textContent = lines.join("\n")

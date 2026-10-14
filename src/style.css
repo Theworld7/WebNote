@@ -286,3 +286,15 @@
     background-color: var(--color-muted-strong);
   }
 }
+
+/*
+ * 标签条横向滚动：原生滚动条整个隐藏 —— 它哪怕压到 6px 也占布局高度，
+ * 在标签条这种常驻窄条里没有「不挤内容」的摆法。滚动能力保留（滚轮 / 触控板 /
+ * 程序化 scrollLeft 都照常），视觉指示由 EditorTabBar 自绘的悬浮进度条承担
+ * （hover 才显形，绝对定位不占空间）。
+ */
+@utility tab-scrollbar {
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
