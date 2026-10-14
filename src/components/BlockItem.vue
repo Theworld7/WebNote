@@ -23,6 +23,7 @@ import {
 import { cn } from "@/lib/utils"
 import BlockToolbar from "./BlockToolbar.vue"
 import BookmarkBlockView from "./BookmarkBlockView.vue"
+import ChatBlockView from "./ChatBlockView.vue"
 import ImageBlockView from "./ImageBlockView.vue"
 import InlineToolbar from "./InlineToolbar.vue"
 import LayoutBlockView from "./LayoutBlockView.vue"
@@ -466,6 +467,8 @@ const bodyClass = computed(() => {
     <BookmarkBlockView v-else-if="block.type === 'bookmark'" :block="block" />
 
     <KanbanBlockView v-else-if="block.type === 'kanban'" :block="block" />
+
+    <ChatBlockView v-else-if="block.type === 'chat'" :block="block" />
 
     <LayoutBlockView v-else-if="block.type === 'layout'" :block="block" />
 

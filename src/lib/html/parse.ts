@@ -1,6 +1,6 @@
-import type { Block, BookmarkBlock, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
-import { createBookmarkBlock, createGalleryBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createMermaidBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
-import { textToRuns, trimRuns } from "@/lib/inline"
+import type { Block, BookmarkBlock, ChatMessage, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
+import { createBookmarkBlock, createChatBlock, createGalleryBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createMermaidBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
+import { runsText, textToRuns, trimRuns } from "@/lib/inline"
 import { isTableAlign } from "@/lib/table"
 import { runsFromNodes } from "./runs-dom"
 import { BLOCK_TAGS, IMAGE_TAG, SKIPPED_TAGS } from "./tags"
@@ -133,6 +133,11 @@ function parseBlockElement(element: Element, state: ParseState, depth: number): 
       state.blocks.push(createTextualBlock("divider"))
       return
     case "DIV":
+      // 聊天记录块以 data-chat 指针认领（见 parseChat）；没有指针的 div 照旧穿透。
+      if (element.hasAttribute("data-chat")) {
+        state.blocks.push(parseChat(element))
+        return
+      }
       // 布局块（ADR-0007）以 data-layout 指针认领；没有指针的 div 照旧穿透 ——
       // 剪藏来的页面满地都是 div，不能因为新增了容器块就改变它们的去处。
       if (element.hasAttribute("data-layout")) {
@@ -261,6 +266,21 @@ function languageOf(code: Element | null): string | null {
   if (code === null) return null
   const match = /\blanguage-([\w#+.-]+)/.exec(code.className)
   return match === null ? null : match[1]
+}
+
+/**
+ * 聊天记录：`<p data-role>` 一条消息，角色只认字面 "you"，其余（含缺失）都归
+ * agent —— 宽容读取不猜。换行从 `<br>` 收回（借 runs 采集的那条路），空消息
+ * 照收：编辑器里「加了还没打字」的消息是正常状态，丢弃它往返就不精确了。
+ */
+function parseChat(element: Element): Block {
+  const messages: ChatMessage[] = []
+  for (const child of element.children) {
+    if (child.tagName !== "P") continue
+    const text = runsText(runsFromNodes([child], { collapseWhitespace: false }))
+    messages.push({ role: child.getAttribute("data-role") === "you" ? "you" : "agent", text })
+  }
+  return createChatBlock(messages)
 }
 
 function parseTable(table: HTMLTableElement): TableBlock {

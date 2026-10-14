@@ -1,4 +1,4 @@
-import type { Block, BookmarkBlock, DataTableBlock, GalleryBlock, ImageBlock, KanbanBlock, LayoutBlock, MermaidBlock, TableCell, TextualBlock } from "@/types/workspace"
+import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, ImageBlock, KanbanBlock, LayoutBlock, MermaidBlock, TableCell, TextualBlock } from "@/types/workspace"
 import type { DataTable } from "@/types/data-table"
 import { GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT, LAYOUT_COLUMNS_DEFAULT, isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
@@ -80,6 +80,10 @@ export function blocksToHtml(blocks: readonly Block[], lookupTables?: DataTableL
     }
     if (block.type === "kanban") {
       out.push(kanbanHtml(block, lookup(block.path)))
+      continue
+    }
+    if (block.type === "chat") {
+      out.push(chatHtml(block))
       continue
     }
     if (block.type === "layout") {
@@ -434,6 +438,22 @@ function bookmarkHtml(block: BookmarkBlock, table: DataTable | null): string {
   const inner = items.length === 0 ? "" : `\n${items.join("\n")}\n`
 
   return `<ul class="note-bookmarks" ${attrs.join(" ")}>${inner}</ul>`
+}
+
+/**
+ * 聊天记录块 → `<div data-chat>` 包若干 `<p data-role>`。
+ *
+ * 消息一条一个段落、角色挂在 `data-role` 上 —— 双击打开时就是一段带说话方的对话，
+ * 语义自明；解析端凭 `data-chat` 认领回聊天记录块，剥掉指针后剩下的段落也只是
+ * 普通正文，与快照块的「正确的读法」同一立场。文本走 `escapeTextToHtml`（换行
+ * 变 `<br>`），解析端再把 `<br>` 收回换行。
+ */
+function chatHtml(block: ChatBlock): string {
+  const lines = block.messages.map((message) =>
+    `  <p data-role="${message.role}">${escapeTextToHtml(message.text)}</p>`,
+  )
+  const inner = lines.length === 0 ? "" : `\n${lines.join("\n")}\n`
+  return `<div data-chat>${inner}</div>`
 }
 
 // ---- 嵌套列表 ----

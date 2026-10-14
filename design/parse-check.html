@@ -64,6 +64,7 @@ function texts(blocks) {
       if (block.type === "image") return `[img:${block.alt}]`
       if (block.type === "table") return `[table:${block.rows.length}x${block.rows[0] ? block.rows[0].length : 0}]`
       if (block.type === "mermaid") return `[mermaid:${block.source}]`
+      if (block.type === "chat") return `[chat:${block.messages.map((m) => m.role + ":" + m.text).join("；")}]`
       return block.runs.map((run) => run.text).join("")
     })
     .join(" | ")
@@ -108,7 +109,13 @@ const BUILTIN = [
     // 源码里带 `&` `<` `>` `"`，专门压转义那一环：序列化时全部转成实体，
     // 再解析回来必须逐字符还原，图源多一个 `&amp;` 都会让 mermaid 认不出语法。
     "内置：mermaid 图（转义往返）",
-    '<pre><code class="language-mermaid">graph TD\n  A["a &amp; b"] --&gt; B{x &lt; 1}\n  B --&gt; C</code></pre>',
+      '<pre><code class="language-mermaid">graph TD\n  A["a &amp; b"] --&gt; B{x &lt; 1}\n  B --&gt; C</code></pre>',
+  ],
+  [
+    // 文本里的换行走 `<br>`（escapeTextToHtml 的产物），解析端要一根不少地收回来；
+    // 空消息也要照收 —— 编辑器里「加了还没打字」的消息是正常状态。
+    "内置：聊天记录（换行与空消息往返）",
+    '<div data-chat>\n  <p data-role="you">你好，我叫小明</p>\n  <p data-role="agent">你好！第一行<br>第二行</p>\n  <p data-role="you"></p>\n</div>',
   ],
 ]
 

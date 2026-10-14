@@ -3,6 +3,8 @@ import type {
   BlockType,
   BlockTypeMeta,
   BookmarkBlock,
+  ChatBlock,
+  ChatMessage,
   DataTableBlock,
   GalleryBlock,
   ImageBlock,
@@ -55,6 +57,8 @@ export const BLOCK_TYPES = [
   { type: "bookmark", marker: "⚑", label: "书签" },
   // 紧挨 bookmark：看板块同样吃数据表的数据,按某列分组铺成几列,卡片可拖拽改值。
   { type: "kanban", marker: "☰", label: "看板" },
+  // 紧挨 kanban 之后、布局压轴之前:聊天记录是内容块,不是版面级重结构。
+  { type: "chat", marker: "◌", label: "聊天记录" },
   // 压轴：容器块是「版面级」的重结构,跟在内容块族的最后。
   { type: "layout", marker: "⬚", label: "布局" },
 ] satisfies readonly BlockTypeMeta[]
@@ -127,6 +131,7 @@ export function isTextualBlock(block: Block): block is TextualBlock {
     block.type !== "gallery" &&
     block.type !== "bookmark" &&
     block.type !== "kanban" &&
+    block.type !== "chat" &&
     block.type !== "layout"
   )
 }
@@ -242,6 +247,11 @@ export function createKanbanBlock(
   return { id: createBlockId(), type: "kanban", path, groupColumnId, displayColumnIds, groupOrder, showEmptyGroups }
 }
 
+/** 造聊天记录块。缺省空消息列表 = 空白记录，视图给出「添加消息」入口。 */
+export function createChatBlock(messages: ChatMessage[] = []): ChatBlock {
+  return { id: createBlockId(), type: "chat", messages }
+}
+
 /**
  * 造布局块。`cells` 缺省为空 = 「尚未选择布局方式」，视图显示网格/弹性选择器；
  * 选择后由操作层初始化两个格子（各含一个空文本块，光标有处落）。
@@ -260,6 +270,7 @@ export function createBlock(type: BlockType, text = ""): Block {
   if (type === "gallery") return createGalleryBlock()
   if (type === "bookmark") return createBookmarkBlock()
   if (type === "kanban") return createKanbanBlock()
+  if (type === "chat") return createChatBlock()
   if (type === "layout") return createLayoutBlock()
   return createTextualBlock(type, textToRuns(text))
 }
@@ -271,7 +282,7 @@ export function createBlock(type: BlockType, text = ""): Block {
  * 数据若不同步清空，切走标签再切回来又会把旧内容渲染出来（`/` 触发转换时尤其明显）。
  */
 export function retypeBlock(block: Block, type: BlockType): Block {
-  if (type === "image" || type === "table" || type === "mermaid" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "layout") {
+  if (type === "image" || type === "table" || type === "mermaid" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "chat" || type === "layout") {
     return createBlock(type)
   }
   if (!isTextualBlock(block)) return createTextualBlock(type)
@@ -299,6 +310,10 @@ export function cloneBlock(block: Block, id: string): Block {
   // 看板的 displayColumnIds / groupOrder 是数组：整体替换,但拷贝要独立。
   if (block.type === "kanban") {
     return { ...block, id, displayColumnIds: [...block.displayColumnIds], groupOrder: [...block.groupOrder] }
+  }
+  // 聊天记录的消息是对象数组：拷贝不得共享同一批消息对象。
+  if (block.type === "chat") {
+    return { ...block, id, messages: block.messages.map((message) => ({ ...message })) }
   }
   if (block.type === "table") {
     return { ...block, id, rows: block.rows.map((row) => row.map(cloneCell)) }
@@ -332,6 +347,10 @@ export function blockText(block: Block): string {
   // 布局块把格子里的块递归拼起来 —— 字数统计因此覆盖容器内的内容。
   if (block.type === "layout") {
     return block.cells.map((cell) => cell.map((item) => blockText(item)).join(" ")).join(" ")
+  }
+  // 聊天记录把每条消息拼起来 —— 字数统计因此覆盖整段对话。
+  if (block.type === "chat") {
+    return block.messages.map((message) => message.text).join("\n")
   }
   if (block.type === "table") {
     return block.rows.map((row) => row.map((cell) => runsText(cell.runs)).join(" ")).join("\n")

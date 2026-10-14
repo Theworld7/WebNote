@@ -22,9 +22,9 @@ The atomic unit a Note is made of. Blocks are a flat list, not a tree.
 _Avoid_: Element, node, item, paragraph
 
 **Block type**:
-One of twenty identifiers. Fourteen are *textual* — they carry body content. Six are
+One of twenty-three identifiers. Fourteen are *textual* — they carry body content. Nine are
 *structural* and carry their own fields: `image`, `table`, `mermaid`, `datatable`,
-`gallery`, `layout`.
+`gallery`, `bookmark`, `kanban`, `chat`, `layout`.
 _Avoid_: Kind, variant, tag
 
 **Textual block**:
@@ -33,9 +33,17 @@ all textual blocks — `divider` included, though its body is always empty.
 _Avoid_: Rich block, text block
 
 **Structural block**:
-A Block that is not textual: an Image, a Table, a Mermaid diagram, or a Data table block.
-Each owns its own fields instead of a run list.
+A Block that is not textual: an Image, a Table, a Mermaid diagram, a Data table block, a
+Bookmark, a Kanban, a Chat record, or a Layout. Each owns its own fields instead of a run
+list.
 _Avoid_: Widget, embed, special block
+
+**Chat record**:
+A structural block holding a transcript as an ordered list of messages. Each message has a
+role — `you` (the note's owner, bubble on the right) or `agent` (the other side, bubble on
+the left) — and plain text: no runs, no inline marks, same stance as a Mermaid diagram's
+source.
+_Avoid_: Conversation, dialogue, message block (the block is the whole transcript)
 
 **Depth**:
 A textual block's nesting level, starting at 0. Nesting is expressed as a number on a flat

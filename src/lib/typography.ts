@@ -217,6 +217,7 @@ export const BLOCK_SPACING: Readonly<Record<BlockType, BlockSpacing>> = {
   gallery: { top: 16, bottom: 16 },
   bookmark: { top: 16, bottom: 16 },
   kanban: { top: 16, bottom: 16 },
+  chat: { top: 16, bottom: 16 },
   layout: { top: 16, bottom: 16 },
 }
 

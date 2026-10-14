@@ -56,7 +56,7 @@ export type TextualBlockType =
   | "divider"
 
 /** 全部块类型 = 正文类 + 结构类。派生而常量列表，避免两处维护。 */
-export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "kanban" | "layout"
+export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "kanban" | "chat" | "layout"
 
 /** 正文块。块之间是平铺列表；列表的嵌套层级用 `depth` 表达，不建树。 */
 export interface TextualBlock {
@@ -250,7 +250,28 @@ export interface LayoutBlock {
 /** 布局块的排布方式。 */
 export type LayoutMode = "grid" | "flex"
 
-export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | LayoutBlock
+/**
+ * 聊天记录块的说话方。只有两方：`you` 是笔记主人（气泡靠右），`agent` 是对面
+ * （气泡靠左）。不做成开放字符串 —— 渲染与序列化都按这两档分叉，第三种值只会
+ * 变成「谁也说不清归谁」的气泡。
+ */
+export type ChatRole = "you" | "agent"
+
+/** 聊天记录的一条消息。文本是**纯字符串**而不是 `InlineRun[]` —— 聊天记录是从
+ * 对话里整段摘进来的，不存在加粗 / 链接这类行内格式（与 mermaid source 同一立场）。 */
+export interface ChatMessage {
+  role: ChatRole
+  text: string
+}
+
+/** 聊天记录块：一串按序排列的对话消息，渲染成气泡列表。整块原子，不拆成多个正文块。 */
+export interface ChatBlock {
+  id: string
+  type: "chat"
+  messages: ChatMessage[]
+}
+
+export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | ChatBlock | LayoutBlock
 
 /** 块类型元数据：菜单标记 + 中文名。菜单渲染直接消费。 */
 export interface BlockTypeMeta {

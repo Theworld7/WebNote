@@ -1,5 +1,5 @@
 import type { InjectionKey } from "vue"
-import type { Block, BlockType, BookmarkBlock, CloseStrategy, CreateTarget, FileNode, GalleryBlock, InlineRun, KanbanBlock, LayoutMode, OpenTab, TableAlign, TableCell } from "@/types/workspace"
+import type { Block, BlockType, BookmarkBlock, ChatMessage, CloseStrategy, CreateTarget, FileNode, GalleryBlock, InlineRun, KanbanBlock, LayoutMode, OpenTab, TableAlign, TableCell } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref } from "vue"
 import { cloneBlock, countChars, createBlock, createBlockId, createBookmarkBlock, createDataTableBlock, createGalleryBlock, createKanbanBlock, isTextualBlock, retypeBlock } from "@/lib/blocks"
@@ -1154,6 +1154,21 @@ function createWorkspace() {
     markDirty()
   }
 
+  // ---- 聊天记录 ----
+
+  /**
+   * 整体替换聊天记录块的消息列表。
+   *
+   * 消息没有单独的「改一条」通道 —— 编辑以气泡为粒度（改文本 / 换角色 / 删除 /
+   * 追加），每次都从视图算出完整的新列表交回来，与表格几何操作「整体回写」同一立场。
+   */
+  function setChatMessages(id: string, messages: ChatMessage[]) {
+    const block = activeBlock(id)
+    if (block === undefined || block.type !== "chat") return
+    block.messages = messages
+    markDirty()
+  }
+
   // ---- 表格 ----
 
   /**
@@ -1377,6 +1392,8 @@ function createWorkspace() {
     setImageSource,
     // mermaid actions
     setMermaidSource,
+    // chat actions
+    setChatMessages,
     // table actions
     defineTable,
     setTableCellRuns,
