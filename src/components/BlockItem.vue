@@ -6,6 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { hasLeadingMarker, isListType, isTextualBlock } from "@/lib/blocks"
 import { focusEditable } from "@/lib/dom"
+import { highlightCode } from "@/lib/highlight"
 import { runsFromNode } from "@/lib/html"
 import { runsText, runsToHtml } from "@/lib/inline"
 import { applyLinkAt, linkAt, marksAt, offsetRangeIn, paintRuns, shortcutMark, toggleMarkAt } from "@/lib/marks"
@@ -31,6 +32,7 @@ import TableBlockView from "./TableBlockView.vue"
 import DataTableBlockView from "./DataTableBlockView.vue"
 import GalleryBlockView from "./GalleryBlockView.vue"
 import KanbanBlockView from "./KanbanBlockView.vue"
+import { CheckIcon, CopyIcon } from "@lucide/vue"
 import { CELL_EXCLUDED_TYPES } from "@/lib/blocks"
 
 const props = defineProps<{
@@ -86,6 +88,7 @@ onMounted(() => {
   const block = textual.value
   if (element === null || block === null) return
   element.innerHTML = runsToHtml(block.runs)
+  updateHighlight()
   document.addEventListener("selectionchange", refreshToolbar)
   // 捕获阶段：滚动发生在内层滚动容器里，不冒泡到 document。
   document.addEventListener("scroll", hideToolbar, true)
@@ -113,6 +116,7 @@ watch(
   () => {
     const element = bodyRef.value
     if (element) element.innerHTML = ""
+    updateHighlight()
   },
 )
 
@@ -221,10 +225,12 @@ function onInput() {
   if (text === "") {
     element.innerHTML = ""
     setBlockRuns(props.block.id, [])
+    updateHighlight()
     return
   }
 
   setBlockRuns(props.block.id, runs)
+  updateHighlight()
 
   // 空行输入 `/` 唤起类型菜单（convert 模式）。触发字符被吃掉，不留在内容里。
   if (openMenu.value === "" && text.trim() === "/") {
@@ -315,6 +321,39 @@ const rowStyle = computed(() => {
 const BODY_BASE = "min-h-6 outline-none whitespace-pre-wrap break-words"
 
 /**
+ * 代码块的排版常量。正文（contenteditable）与高亮层必须逐项一致 ——
+ * 两层是靠「同样的字体、字号、行距、内边距、换行规则画出同样的字形」对齐的，
+ * 任何一项漂了高亮就会错位。改动时两层一起改。
+ */
+const CODE_TEXT = "px-3.5 py-2.5 font-mono text-[12.5px] leading-[1.7] whitespace-pre-wrap break-words"
+
+/** 高亮层的 HTML。非代码块为空串，模板里就不渲染该层。 */
+const highlighted = ref("")
+
+/** 由当前 runs 重画高亮层。挂载、输入、类型变更三条路都会走到。 */
+function updateHighlight() {
+  const block = textual.value
+  if (block === null || block.type !== "code") {
+    highlighted.value = ""
+    return
+  }
+  highlighted.value = highlightCode(runsText(block.runs), block.lang ?? "")
+}
+
+/** 代码块复制按钮的反馈态：点完短暂变 ✓，提示已进剪贴板。 */
+const copied = ref(false)
+let copiedTimer: number | undefined
+
+async function copyCode() {
+  const block = textual.value
+  if (block === null) return
+  await navigator.clipboard.writeText(runsText(block.runs))
+  copied.value = true
+  window.clearTimeout(copiedTimer)
+  copiedTimer = window.setTimeout(() => (copied.value = false), 1500)
+}
+
+/**
  * 落点指示线：2px 圆角短横线，压在块的上下沿上。
  * 用伪元素而不是真 DOM —— 线不参与布局，拖拽过程中不会把下面的块推来推去。
  */
@@ -346,10 +385,12 @@ const bodyClass = computed(() => {
     case "quote":
       return cn(BODY_BASE, PLACEHOLDER, "border-l-4 border-line pl-3", BODY_TEXT_CLASS)
     case "code":
+      // 文字本体透明，颜色由下方的高亮层承担（见模板双层结构）；caret 单独上色。
       return cn(
         BODY_BASE,
         PLACEHOLDER,
-        "rounded-lg bg-muted-strong px-3.5 py-2.5 font-mono text-[12.5px] leading-[1.7] text-[oklch(0.3_0_0)]",
+        CODE_TEXT,
+        "relative rounded-lg bg-muted-strong text-transparent caret-[oklch(0.3_0_0)]",
       )
     case "callout":
       return cn(
@@ -430,16 +471,41 @@ const bodyClass = computed(() => {
 
     <div v-else-if="block.type === 'divider'" class="h-px bg-line" />
 
-    <div
-      v-else
-      ref="bodyRef"
-      :data-editable="block.id"
-      contenteditable="true"
-      spellcheck="false"
-      :class="bodyClass"
-      @input="onInput"
-      @keydown="onKeydown"
-    />
+    <div v-else class="relative">
+      <div
+        ref="bodyRef"
+        :data-editable="block.id"
+        contenteditable="true"
+        spellcheck="false"
+        :class="bodyClass"
+        @input="onInput"
+        @keydown="onKeydown"
+      />
+
+      <!-- 代码块高亮层：与正文同排版地画一份着色文字，正文本体透明。
+           必须排在编辑层之后 —— 编辑层带着色背景，画在下面会被整层盖住。
+           两层对齐靠排版常量逐项一致（见 CODE_TEXT），高亮只是显示，不进 runs。 -->
+      <div
+        v-if="highlighted !== ''"
+        aria-hidden="true"
+        class="pointer-events-none absolute inset-0 rounded-lg text-[oklch(0.3_0_0)]"
+        :class="CODE_TEXT"
+        v-html="highlighted"
+      />
+    </div>
+
+    <!-- 代码块右上角的复制按钮：hover 才出现，点完短暂变 ✓。 -->
+    <button
+      v-if="block.type === 'code'"
+      type="button"
+      class="absolute right-1.5 top-1.5 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
+      :title="copied ? '已复制' : '复制'"
+      @mousedown.prevent
+      @click="copyCode"
+    >
+      <CheckIcon v-if="copied" class="size-3.5" />
+      <CopyIcon v-else class="size-3.5" />
+    </button>
 
     <!-- 传送到 body：格式条用 fixed 定位，留在块里的话，祖先一旦有 transform
          （滚动容器、后续可能的动效）就会改成相对那个祖先定位，位置会漂。 -->
