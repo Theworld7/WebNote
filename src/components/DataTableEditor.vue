@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { DataColumn } from "@/types/data-table"
 import type { DataRow } from "@/types/data-table"
-import type { DataCellValue, DataColumnType, DataSelectOption, DataTable } from "@/types/data-table"
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue"
+import type { DataCellValue, DataColumnType, DataSelectOption } from "@/types/data-table"
+import { computed, ref } from "vue"
 import { ImagePlusIcon, PlusIcon, Trash2Icon, XIcon } from "@lucide/vue"
 import { isFileDrag, isImageFile, pickImageFile, readImageFile } from "@/lib/image"
 import { Button } from "@/components/ui/button"
@@ -14,9 +14,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import type { TableEntry } from "@/composables/useTables"
-import { useTables } from "@/composables/useTables"
 import { useWorkspace } from "@/composables/useWorkspace"
+import { useTableEntry } from "@/composables/useTableEntry"
 import * as dt from "@/lib/data-table"
 import { MAX_DATA_TABLE_COLUMNS } from "@/types/data-table"
 
@@ -35,54 +34,20 @@ import { MAX_DATA_TABLE_COLUMNS } from "@/types/data-table"
  *
  * 单元格用朴素 `input` 而不是 `contenteditable`：格子装的是**数据**，不是正文 ——
  * 富文本、行内标记、非受控 DOM 那一整套在这里没有意义，而它会带来一堆复杂度。
- */
-const { activePath, markTableDirty } = useWorkspace()
-const tables = useTables()
-
-const mounted = ref(false)
-
-/**
- * 当前正在编辑的那张表。
  *
- * **必须是 `shallowRef`**：`ref()` 会深度解包嵌套 ref，而 `TableEntry` 的字段本身
- * 就是 `Ref` —— 用 `ref` 装它会让 `entry.value.table` 退化成 `DataTable | null`，
- * 于是 `entry.value.table.value` 读到 `undefined`，编辑器永远空白。
- * 与引用块里的 `entry` 同一条理由。
+ * 取数与改表走 `useTableEntry` 共用 seam（与四个引用块同一条）。编辑器按路径换实例
+ * （EditorSurface 给了 key），所以路径在实例生命周期内不变，watch 只是闲着；
+ * 「卸载时释放挂载那一刻的路径」的口径由 seam 内部保证。
  */
-const entry = shallowRef<TableEntry | null>(null)
+const { activePath } = useWorkspace()
 
-const table = computed(() => entry.value?.table.value ?? null)
-const columns = computed<readonly DataColumn[]>(() => table.value?.columns ?? [])
-const rows = computed<readonly DataRow[]>(() => table.value?.rows ?? [])
-
-/** 本实例挂载时读的是哪个文件。编辑器按路径换实例(EditorSurface 给了 key),
- * 卸载时释放的就是挂载那一刻的路径 —— 不能读 activePath,那时可能已经切到别的表。 */
-let mountedPath = ""
-
-onMounted(async () => {
-  const path = activePath.value
-  if (path === "") return
-  mountedPath = path
-  entry.value = await tables.use(path)
-  mounted.value = true
-})
-
-onBeforeUnmount(() => {
-  if (mountedPath !== "") tables.release(mountedPath)
-})
+const { state, table, columns, rows, change } = useTableEntry(() => activePath.value)
 
 /** 单行统计，给状态栏用。 */
 const summary = computed(() => {
   if (table.value === null) return ""
   return `${columns.value.length} 列 · ${rows.value.length} 行`
 })
-
-/** 所有编辑动作走这一条：算出新表 → 进内存记脏。落盘在标签的统一保存，与笔记同一条出口。 */
-async function change(next: (current: DataTable) => DataTable): Promise<void> {
-  if (activePath.value === "") return
-  const ok = await tables.mutate(activePath.value, next)
-  if (ok) markTableDirty(activePath.value)
-}
 
 // ---- 单元格 ----
 
@@ -271,7 +236,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
 
 <template>
   <!-- 读不到。文件被删或移走 —— 与引用块同一个立场：说明白，不喊错。 -->
-  <div v-if="mounted && table === null" class="flex flex-1 items-center justify-center p-8">
+  <div v-if="state !== 'loading' && table === null" class="flex flex-1 items-center justify-center p-8">
     <div class="max-w-sm text-center">
       <p class="text-[13px] text-foreground/80">这个数据表读不到</p>
       <p class="mt-1.5 font-mono text-[11.5px] text-muted-foreground">{{ activePath }}</p>
@@ -507,7 +472,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
     </div>
   </div>
 
-  <!-- mount 完成前 entry 还没回来（读盘 + 解析的等待期）：给一句提示而不是空白，
+  <!-- 读盘 + 解析的等待期（state 停在 loading）：给一句提示而不是空白，
        否则大表打开时界面像死了。读不到的分支在上面已经截走，走到这里的都还在读。 -->
   <div v-else class="flex flex-1 items-center justify-center p-8">
     <p class="text-[12px] text-muted-foreground">正在读取数据表…</p>

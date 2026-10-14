@@ -2,7 +2,7 @@
 import type { BookmarkBlock } from "@/types/workspace"
 import type { DataColumn, DataRow } from "@/types/data-table"
 import type { ComponentPublicInstance } from "vue"
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue"
+import { computed, nextTick, ref, watch } from "vue"
 import { DatabaseIcon, Settings2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
@@ -13,9 +13,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import type { TableEntry } from "@/composables/useTables"
-import { useTables } from "@/composables/useTables"
+import TableRefNotice from "@/components/TableRefNotice.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
+import { useTableEntry } from "@/composables/useTableEntry"
 import { linkIcon } from "@/lib/inline"
 import * as dt from "@/lib/data-table"
 
@@ -24,44 +24,15 @@ import * as dt from "@/lib/data-table"
  * 书签卡片形态(`data-link-shape="card"`)同一套标记与样式,视觉由那一处 CSS 负责,
  * 这里只负责喂属性。
  *
- * 数据链路与 `GalleryBlockView` 完全同源 —— 注册表取数、读不到是提示态不是错误,
+ * 数据链路与 `GalleryBlockView` 完全同源,取数与改表走 `useTableEntry` 共用 seam,
  * 这里不再复述。不同的只有展示设置:名称列、链接列、列数,都是**块的属性**,
  * 同一张表在两篇笔记里可以各挑各的字段。
  */
 const props = defineProps<{ block: BookmarkBlock }>()
 
-const { openFile, updateBookmarkBlock } = useWorkspace()
-const tables = useTables()
+const { openFile, updateBlockSettings } = useWorkspace()
 
-/** 与 gallery 同一条铁律:必须 `shallowRef`,否则 `TableEntry` 里的 `Ref` 字段被压扁。 */
-const entry = shallowRef<TableEntry | null>(null)
-
-const state = computed(() => entry.value?.state.value ?? "loading")
-const table = computed(() => entry.value?.table.value ?? null)
-const columns = computed<readonly DataColumn[]>(() => table.value?.columns ?? [])
-const rows = computed<readonly DataRow[]>(() => table.value?.rows ?? [])
-
-onMounted(() => {
-  void mount()
-})
-
-watch(
-  () => props.block.path,
-  () => void mount(),
-)
-
-async function mount(): Promise<void> {
-  const path = props.block.path
-  if (path === "") {
-    entry.value = null
-    return
-  }
-  entry.value = await tables.use(path)
-}
-
-onBeforeUnmount(() => {
-  if (props.block.path !== "") tables.release(props.block.path)
-})
+const { state, table, columns, rows } = useTableEntry(() => props.block.path)
 
 /** 指向的列被删后这里落空,整块退化为「未设置」提示态,无需清洗块属性。 */
 const nameColumn = computed<DataColumn | null>(() => columns.value.find((column) => column.id === props.block.nameColumn) ?? null)
@@ -140,34 +111,20 @@ interface BookmarkSection {
 }
 
 /**
- * 分组规则与画册同一套:节序跟值的首次出现序,空值行收进末尾的「未分组」节
- * ——「没有这一项」的行互相无关,混进第一个组是错的。标题走文本投影:select
- * 列的原始值是选项 id,直接显示等于把内部标识漏给用户。
+ * 分组规则收在 `dt.groupRows`(与看板列 / 画册节同一套):节序跟值的首次出现序,
+ * 空值行收进末尾的「未分组」节 ——「没有这一项」的行互相无关,混进第一个组是错的。
+ * 标题走文本投影:select 列的原始值是选项 id,直接显示等于把内部标识漏给用户。
  */
 const sections = computed<readonly BookmarkSection[]>(() => {
   const column = groupByColumn.value
   if (column === null) return [{ key: "all", title: null, rows: rows.value }]
 
-  const buckets = new Map<string, DataRow[]>()
-  const loose: DataRow[] = []
-  for (const row of rows.value) {
-    const value = dt.cellValue(row, column)
-    if (value === null || value === "") {
-      loose.push(row)
-      continue
-    }
-    const key = String(value)
-    const bucket = buckets.get(key)
-    if (bucket === undefined) buckets.set(key, [row])
-    else bucket.push(row)
-  }
-
-  const out: BookmarkSection[] = []
-  for (const [key, bucket] of buckets) {
-    const [first] = bucket
-    if (first === undefined) continue
-    out.push({ key: `g:${key}`, title: dt.valueText(dt.cellValue(first, column), column) || key, rows: bucket })
-  }
+  const { groups: bucketed, loose } = dt.groupRows(rows.value, column)
+  const out: BookmarkSection[] = bucketed.map((bucket) => ({
+    key: `g:${bucket.key}`,
+    title: bucket.title,
+    rows: bucket.rows,
+  }))
   if (loose.length > 0) out.push({ key: "g:", title: "未分组", rows: loose })
   return out
 })
@@ -206,7 +163,7 @@ const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent 
 const COLUMN_COUNTS = [1, 2, 3, 4, 5, 6] as const
 
 function setColumns(value: "auto" | number) {
-  updateBookmarkBlock(props.block.id, { columns: value })
+  updateBlockSettings(props.block.id, { columns: value })
 }
 
 /**
@@ -218,23 +175,23 @@ function setColumns(value: "auto" | number) {
  */
 const nameSelection = computed({
   get: () => props.block.nameColumn,
-  set: (value: string) => updateBookmarkBlock(props.block.id, { nameColumn: value }),
+  set: (value: string) => updateBlockSettings(props.block.id, { nameColumn: value }),
 })
 
 const urlSelection = computed({
   get: () => props.block.urlColumn,
-  set: (value: string) => updateBookmarkBlock(props.block.id, { urlColumn: value }),
+  set: (value: string) => updateBlockSettings(props.block.id, { urlColumn: value }),
 })
 
 const iconSelection = computed({
   get: () => props.block.iconColumn ?? "",
-  set: (value: string) => updateBookmarkBlock(props.block.id, { iconColumn: value }),
+  set: (value: string) => updateBlockSettings(props.block.id, { iconColumn: value }),
 })
 
 /** 分组字段的下拉选择:空串 = 不分组(平铺)。图片列的值是 data URI,分组无意义,不列。 */
 const groupSelection = computed({
   get: () => props.block.groupBy ?? "",
-  set: (value: string) => updateBookmarkBlock(props.block.id, { groupBy: value }),
+  set: (value: string) => updateBlockSettings(props.block.id, { groupBy: value }),
 })
 
 /** 列数的下拉选择:select 的值是字符串,"auto" 之外的映回数字。 */
@@ -246,35 +203,18 @@ const columnsSelection = computed({
 
 <template>
   <!-- 空指针:如实说没指定,而不是永远转圈。 -->
-  <div
-    v-if="props.block.path === ''"
-    class="my-4 flex items-center gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
-  >
-    <DatabaseIcon class="size-3.5 shrink-0 text-muted-foreground" />
-    <span class="text-[12px] text-muted-foreground">
-      书签未指定数据表 —— 删掉这个块,用 / 菜单重新插入。
-    </span>
-  </div>
+  <TableRefNotice v-if="props.block.path === ''" kind="unset" label="书签" />
 
-  <!-- 引用的文件读不到:提示态,不是错误态。与画册块同一套观感。 -->
-  <div
+  <!-- 引用的文件读不到:提示态,不是错误态。 -->
+  <TableRefNotice
     v-else-if="state === 'missing' || state === 'failed'"
-    class="my-4 flex items-center gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
-  >
-    <DatabaseIcon class="size-3.5 shrink-0 text-muted-foreground" />
-    <span class="text-[12px] text-muted-foreground">
-      书签引用的数据表不存在:<span class="font-mono">{{ props.block.path }}</span>
-    </span>
-  </div>
+    kind="missing"
+    label="书签"
+    :path="props.block.path"
+  />
 
-  <!-- 还没读完。占位高度避免读盘回来时页面跳一下。 -->
-  <div
-    v-else-if="table === null"
-    class="my-4 flex items-center gap-2.5 rounded-lg border border-line bg-muted/30 px-3 py-2.5"
-  >
-    <DatabaseIcon class="size-3.5 shrink-0 animate-pulse text-muted-foreground" />
-    <span class="text-[12px] text-muted-foreground">正在读取数据表…</span>
-  </div>
+  <!-- 还没读完。 -->
+  <TableRefNotice v-else-if="table === null" kind="loading" label="书签" />
 
   <div v-else class="group/bookmark relative my-4">
     <!-- 块操作入口:右上角,悬停浮现。与画册的入口同一套。 -->

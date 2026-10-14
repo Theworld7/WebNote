@@ -367,6 +367,104 @@ export function removeOption(table: DataTable, columnId: string, optionId: strin
   }
 }
 
+// ---- 分组 ----
+
+/** 按某列归出来的一组行。看板列 / 画册节 / 书签节共用这一个形状。 */
+export interface RowGroup {
+  /** 稳定 key:原始值的字符串形式(select 即选项 id)。 */
+  key: string
+  /** 组的原始值。看板拖拽落位把它直接写回分组列。 */
+  value: DataCellValue
+  /** 组标题:文本投影(select 翻选项名);投影为空回退到 key,列头不留空白。 */
+  title: string
+  rows: DataRow[]
+}
+
+export interface RowGroups {
+  groups: RowGroup[]
+  /** 空值(null / "")行。**不归组** ——「没有这一项」的行互相无关,混进第一个组是错的;
+   * 放哪一端(看板最左的「未分组」列 / 画册书签末尾的「未分组」节)是各视图的展示决策。 */
+  loose: DataRow[]
+}
+
+/**
+ * 按某列的值把行归组 —— 看板列、画册分节、书签分节共用的唯一真源。
+ *
+ * 曾经是三份逐字平行的实现(连手排的 rank 比较器都逐字相同),而三个块可以指向
+ * 同一张表,规则一漂移用户直接看见「画册和看板分组不一致」。规则收在这里:
+ *
+ * - 归桶按 `cellValue`(select 值经它归一成选项 id),组序跟值的首次出现序;
+ * - `manualOrder` 手排:记录过的组按记录序靠前,没记录的跟首现序排在后面
+ *   (JS sort 稳定,同为未记录的组之间保持原相对顺序);
+ * - `emptySelectGroups`:select 列里没有行落在其上的选项也占一组 —— 空组正是
+ *   拖拽归组的落点(看板);其余类型的值来自行本身,凭空造不出「还没有行」的值。
+ */
+export function groupRows(
+  rows: readonly DataRow[],
+  column: DataColumn,
+  opts: { manualOrder?: readonly string[]; emptySelectGroups?: boolean } = {},
+): RowGroups {
+  const buckets = new Map<string, { value: DataCellValue; title: string; rows: DataRow[] }>()
+  const loose: DataRow[] = []
+
+  if (opts.emptySelectGroups === true && column.type === "select") {
+    for (const option of column.options) {
+      buckets.set(option.id, { value: option.id, title: option.name, rows: [] })
+    }
+  }
+
+  for (const row of rows) {
+    const value = cellValue(row, column)
+    if (value === null || value === "") {
+      loose.push(row)
+      continue
+    }
+    const key = String(value)
+    const bucket = buckets.get(key)
+    if (bucket === undefined) buckets.set(key, { value, title: "", rows: [row] })
+    else bucket.rows.push(row)
+  }
+
+  const out: RowGroup[] = []
+  for (const [key, bucket] of buckets) {
+    // 行内推导不出标题的空组带着选项名进来;行内组标题走文本投影,空投影回退到键。
+    const title = bucket.title === "" ? valueText(bucket.value, column) || key : bucket.title
+    out.push({ key, value: bucket.value, title, rows: bucket.rows })
+  }
+
+  const order = opts.manualOrder ?? []
+  if (order.length === 0) return { groups: out, loose }
+  return {
+    groups: out
+      .map((group, index) => ({ group, index, rank: order.indexOf(group.key) }))
+      .sort((a, b) => {
+        const ra = a.rank === -1 ? order.length + a.index : a.rank
+        const rb = b.rank === -1 ? order.length + b.index : b.rank
+        return ra - rb
+      })
+      .map((item) => item.group),
+    loose,
+  }
+}
+
+/**
+ * 手排清单里的相邻交换(上移 / 下移)。返回交换后的**新**清单;找不到该值或越界
+ * 返回 `null` —— 调用方原样不动,不产生一次假写入。之后传回 `manualOrder` 的就是
+ * 全量清单:后续新增的组值不在列表里,照常按首现序排在末尾,无需清洗。
+ */
+export function swapInOrder(values: readonly string[], value: string, dir: -1 | 1): string[] | null {
+  const i = values.indexOf(value)
+  const j = i + dir
+  if (i === -1 || j < 0 || j >= values.length) return null
+  const a = values[i]
+  const b = values[j]
+  if (a === undefined || b === undefined) return null
+  const next = [...values]
+  next[i] = b
+  next[j] = a
+  return next
+}
+
 // ---- 序列化 ----
 
 /**

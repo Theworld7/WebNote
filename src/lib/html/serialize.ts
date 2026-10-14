@@ -253,6 +253,40 @@ function layoutHtml(block: LayoutBlock, lookup: DataTableLookup): string {
 }
 
 /**
+ * 快照表格的唯一真源:表头 + 表体 + `thead`/`tbody` 骨架。
+ *
+ * 三个引用块（数据表 / 画册 / 看板）的快照内容**逐行同构** —— 曾经是三份逐字
+ * 复制,每修一个快照 bug 要三处同步。现在口径只此一份:图片格导出成真正的 `<img>`
+ * （与 `imageHtml` 同款转义,快照的价值是「双击就能看」,一格 base64 文本不是看;
+ * data URI 内联,导出的单文件依旧自包含。回读时 td 里的 img 会被丢掉、格子变空
+ * —— Snapshot exception 的既有范围,不再另行处理）;其余格子走 `valueText`
+ * 文本投影。`attributes` 是引用块各自的指针 / 设置属性,画册与看板传自己的那串,
+ * 数据表引用块不传（纯快照,引用不进文件,见 ADR-0005）。
+ */
+function snapshotTableHtml(table: DataTable, attributes = ""): string {
+  const openTag = attributes === "" ? "<table>" : `<table ${attributes}>`
+  const headLine = `      <tr>${table.columns.map((column) => wrap("th", escapeTextToHtml(column.name))).join("")}</tr>`
+  const bodyLines = table.rows.map((row) => {
+    const cells = table.columns
+      .map((column) => {
+        const value = cellValue(row, column)
+        if (column.type === "image" && typeof value === "string") {
+          return wrap("td", `<img src="${escapeHtml(value)}" alt="">`)
+        }
+        return wrap("td", escapeTextToHtml(valueText(value, column)))
+      })
+      .join("")
+    return `      <tr>${cells}</tr>`
+  })
+
+  const parts = [openTag, "  <thead>", headLine, "  </thead>"]
+  if (bodyLines.length > 0) parts.push("  <tbody>", ...bodyLines, "  </tbody>")
+  parts.push("</table>")
+
+  return parts.join("\n")
+}
+
+/**
  * 数据表引用块 → **快照表格**（见 ADR-0005 的「An exported Note writes the table's
  * contents, not a pointer」）。
  *
@@ -270,37 +304,15 @@ function dataTableHtml(block: DataTableBlock, table: DataTable | null): string {
   if (table === null) {
     return `<p><em>（引用的数据表读不到：${escapeHtml(block.path)}）</em></p>`
   }
-
-  const headLine = `      <tr>${table.columns.map((column) => wrap("th", escapeTextToHtml(column.name))).join("")}</tr>`
-  const bodyLines = table.rows.map((row) => {
-    const cells = table.columns
-      .map((column) => {
-        const value = cellValue(row, column)
-        // 图片格导出成真正的 `<img>`（与 imageHtml 同款转义）：快照的价值是「双击就能看」，
-        // 一格 base64 文本不是看。data URI 内联，导出的单文件依旧自包含。回读时 td 里的
-        // img 会被丢掉、格子变空 —— Snapshot exception 的既有范围，不再另行处理。
-        if (column.type === "image" && typeof value === "string") {
-          return wrap("td", `<img src="${escapeHtml(value)}" alt="">`)
-        }
-        return wrap("td", escapeTextToHtml(valueText(value, column)))
-      })
-      .join("")
-    return `      <tr>${cells}</tr>`
-  })
-
-  const parts = ["<table>", "  <thead>", headLine, "  </thead>"]
-  if (bodyLines.length > 0) parts.push("  <tbody>", ...bodyLines, "  </tbody>")
-  parts.push("</table>")
-
-  return parts.join("\n")
+  return snapshotTableHtml(table)
 }
 
 /**
  * 画册块 → **快照 + 指针**（ADR-0006）。
  *
- * 内容与 `dataTableHtml` 同源同构：一张快照表格，图片格照旧内联 data URI ——
+ * 内容就是 `snapshotTableHtml` 那一份快照表格,图片格照旧内联 data URI ——
  * 拿到导出文件的人双击就能看全全部内容，「不带 .tbl 也能读」的承诺不变。
- * 与它的差别只有一层 `data-*` 属性：画册的列数、填充、字段显隐是**块的设置**，
+ * 与数据表引用块的差别只有一层 `data-*` 属性：画册的列数、填充、字段显隐是**块的设置**，
  * 丢了要重新配，所以随快照一并写进文件，编辑器据此把它还原成活的画册块；
  * 第三方编辑器剥掉这些属性也无妨，剩下的就是一张普通表格（与数据表引用块的
  * 现状等价）。
@@ -328,31 +340,13 @@ function galleryHtml(block: GalleryBlock, table: DataTable | null): string {
     return `<table ${attrs.join(" ")}></table>`
   }
 
-  const headLine = `      <tr>${table.columns.map((column) => wrap("th", escapeTextToHtml(column.name))).join("")}</tr>`
-  const bodyLines = table.rows.map((row) => {
-    const cells = table.columns
-      .map((column) => {
-        const value = cellValue(row, column)
-        if (column.type === "image" && typeof value === "string") {
-          return wrap("td", `<img src="${escapeHtml(value)}" alt="">`)
-        }
-        return wrap("td", escapeTextToHtml(valueText(value, column)))
-      })
-      .join("")
-    return `      <tr>${cells}</tr>`
-  })
-
-  const parts = [`<table ${attrs.join(" ")}>`, "  <thead>", headLine, "  </thead>"]
-  if (bodyLines.length > 0) parts.push("  <tbody>", ...bodyLines, "  </tbody>")
-  parts.push("</table>")
-
-  return parts.join("\n")
+  return snapshotTableHtml(table, attrs.join(" "))
 }
 
 /**
  * 看板块 → **快照 + 指针**(与画册同一条 ADR-0006 立场,详见 ADR-0008)。
  *
- * 内容与 `galleryHtml` 同源同构:一张快照表格,图片格照旧内联 data URI ——
+ * 内容就是 `snapshotTableHtml` 那一份快照表格,图片格照旧内联 data URI ——
  * 双击可读全数据,「不带 .tbl 也能读」的承诺不变。差别只有一层 `data-*` 属性:
  * 看板的分组列、卡片显示列、组序是**块的设置**,丢了要重新配,所以随快照一并写进文件,
  * 编辑器据此把它还原成活的看板块;第三方编辑器剥掉属性后剩下的就是一张普通表格。
@@ -375,25 +369,7 @@ function kanbanHtml(block: KanbanBlock, table: DataTable | null): string {
     return `<table ${attrs.join(" ")}></table>`
   }
 
-  const headLine = `      <tr>${table.columns.map((column) => wrap("th", escapeTextToHtml(column.name))).join("")}</tr>`
-  const bodyLines = table.rows.map((row) => {
-    const cells = table.columns
-      .map((column) => {
-        const value = cellValue(row, column)
-        if (column.type === "image" && typeof value === "string") {
-          return wrap("td", `<img src="${escapeHtml(value)}" alt="">`)
-        }
-        return wrap("td", escapeTextToHtml(valueText(value, column)))
-      })
-      .join("")
-    return `      <tr>${cells}</tr>`
-  })
-
-  const parts = [`<table ${attrs.join(" ")}>`, "  <thead>", headLine, "  </thead>"]
-  if (bodyLines.length > 0) parts.push("  <tbody>", ...bodyLines, "  </tbody>")
-  parts.push("</table>")
-
-  return parts.join("\n")
+  return snapshotTableHtml(table, attrs.join(" "))
 }
 
 /**

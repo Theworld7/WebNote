@@ -1,8 +1,8 @@
 import type { InjectionKey } from "vue"
-import type { Block, BlockType, BookmarkBlock, ChatMessage, CloseStrategy, CreateTarget, FileNode, GalleryBlock, InlineRun, KanbanBlock, LayoutMode, OpenTab, TableAlign, TableCell } from "@/types/workspace"
+import type { Block, BlockSettingsPatch, BlockType, ChatMessage, CloseStrategy, CreateTarget, FileNode, InlineRun, LayoutMode, OpenTab, TableAlign, TableCell } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref } from "vue"
-import { cloneBlock, countChars, createBlock, createBlockId, createBookmarkBlock, createDataTableBlock, createGalleryBlock, createKanbanBlock, isTextualBlock, retypeBlock } from "@/lib/blocks"
+import { cloneBlock, countChars, createBlock, createBlockId, createBookmarkBlock, createDataTableBlock, createGalleryBlock, createKanbanBlock, isReferenceBlock, isTextualBlock, retypeBlock } from "@/lib/blocks"
 import { describeError } from "@/lib/errors"
 import { parseHtml, serializeHtml } from "@/lib/html"
 import type { DataTableLookup } from "@/lib/html"
@@ -869,36 +869,18 @@ function createWorkspace() {
   }
 
   /**
-   * 更新画册块的展示设置。改动的是**笔记文档**（块属性随笔记保存，ADR-0006），
-   * 不是 `.tbl` —— 多篇笔记引用同一张表时，各自的画册设置互不相干。
-   * patch 只带改动的键：菜单里每档设置各管各的，不必整包重建。
+   * 更新引用块(画册 / 书签 / 看板)的展示设置。改动的是**笔记文档**
+   * （块属性随笔记保存，ADR-0006），不是 `.tbl` —— 多篇笔记引用同一张表时，
+   * 各自的展示设置互不相干。patch 只带改动的键：菜单里每档设置各管各的，
+   * 不必整包重建。
+   *
+   * 曾经每种引用块一个逐字相同的 update 函数,每加一种块就多一个名字进公共
+   * interface;现在一个函数收口,patch 形状见 `BlockSettingsPatch`,
+   * `isReferenceBlock` 守卫保证设置写不进别的块。
    */
-  function updateGalleryBlock(id: string, patch: Partial<Pick<GalleryBlock, "columns" | "ratio" | "width" | "fit" | "hiddenFields" | "group" | "groupBy" | "groupOrder">>) {
+  function updateBlockSettings(id: string, patch: BlockSettingsPatch) {
     const block = activeBlock(id)
-    if (block === undefined || block.type !== "gallery") return
-    Object.assign(block, patch)
-    markDirty()
-  }
-
-  /**
-   * 更新书签块的展示设置（名称列 / 链接列 / 列数）。与 `updateGalleryBlock` 同一立场：
-   * 改的是笔记文档里的块属性，与 `.tbl` 无关。
-   */
-  function updateBookmarkBlock(id: string, patch: Partial<Pick<BookmarkBlock, "nameColumn" | "urlColumn" | "iconColumn" | "groupBy" | "columns">>) {
-    const block = activeBlock(id)
-    if (block === undefined || block.type !== "bookmark") return
-    Object.assign(block, patch)
-    markDirty()
-  }
-
-  /**
-   * 更新看板块的展示设置(分组列 / 卡片显示列)。与 `updateGalleryBlock` 同一立场:
-   * 改的是笔记文档里的块属性,与 `.tbl` 无关 —— 同一张表在两篇笔记里可以按不同列
-   * 分组、显示不同字段。
-   */
-  function updateKanbanBlock(id: string, patch: Partial<Pick<KanbanBlock, "groupColumnId" | "displayColumnIds" | "groupOrder" | "showEmptyGroups">>) {
-    const block = activeBlock(id)
-    if (block === undefined || block.type !== "kanban") return
+    if (block === undefined || !isReferenceBlock(block)) return
     Object.assign(block, patch)
     markDirty()
   }
@@ -1374,9 +1356,7 @@ function createWorkspace() {
     insertBookmarkBlock,
     insertKanbanBlock,
     convertBlockToFileType,
-    updateGalleryBlock,
-    updateBookmarkBlock,
-    updateKanbanBlock,
+    updateBlockSettings,
     tablePaths,
     appendBlock,
     changeBlockType,

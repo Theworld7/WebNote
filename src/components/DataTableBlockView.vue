@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import type { DataTableBlock } from "@/types/workspace"
-import type { DataColumn, DataColumnType, DataRow, DataTable } from "@/types/data-table"
+import type { DataColumn, DataColumnType, DataRow } from "@/types/data-table"
 import type { TableEffectClasses } from "@/lib/typography"
-import { computed, onBeforeUnmount, onMounted, shallowRef, watch } from "vue"
-import { DatabaseIcon, ExternalLinkIcon, PlusIcon } from "@lucide/vue"
+import { computed } from "vue"
+import { ExternalLinkIcon, PlusIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -13,9 +13,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import TableRefNotice from "@/components/TableRefNotice.vue"
 import { useSettings } from "@/composables/useSettings"
-import type { TableEntry } from "@/composables/useTables"
-import { useTables } from "@/composables/useTables"
+import { useTableEntry } from "@/composables/useTableEntry"
 import { useWorkspace } from "@/composables/useWorkspace"
 import * as dt from "@/lib/data-table"
 import { tableEffectClasses } from "@/lib/typography"
@@ -32,70 +32,22 @@ import { tableEffectClasses } from "@/lib/typography"
  *    引用块的数据从来就不属于这篇笔记，把它算成笔记的改动是错的。
  * 3. **读不到是正常状态**，不是错误（见 `CONTEXT.md` 的「Missing Data table」）。
  *    文件可能被移走或改名，用户也许正准备去找回来，所以给提示 + 重指定入口,而不是报错。
+ *
+ * 取数与改表走 `useTableEntry` 这条共用 seam —— 认领、释放、记脏的口径收在那边。
  */
 const props = defineProps<{ block: DataTableBlock }>()
 
-const { openFile, markTableDirty } = useWorkspace()
-const tables = useTables()
+const { openFile } = useWorkspace()
 const { tableEffect } = useSettings()
 
 /** 表格效果对引用块生效（它是笔记里的一张表），数据表**编辑视图**则不受它影响。 */
 const frame = computed<TableEffectClasses>(() => tableEffectClasses(tableEffect.value))
 
-/**
- * 当前这张表的条目。
- *
- * **必须是 `shallowRef`**：`ref()` 会深度解包嵌套的 ref，而 `TableEntry` 的三个字段
- * 本身就是 `Ref` —— 用 `ref` 装它，`entry.value.table` 会退化成 `DataTable | null`
- * 而不是 `Ref<DataTable | null>`，于是 `entry.value.table.value` 读到 `undefined`，
- * 视图永远停在「正在读取」。`shallowRef` 只做浅层响应，字段原样是 ref，
- * 而字段内部的更新由字段自己通知（这正是我们要的）。
- */
-const entry = shallowRef<TableEntry | null>(null)
-
-const state = computed(() => entry.value?.state.value ?? "loading")
-const table = computed(() => entry.value?.table.value ?? null)
-const columns = computed<readonly DataColumn[]>(() => table.value?.columns ?? [])
-const rows = computed<readonly DataRow[]>(() => table.value?.rows ?? [])
-
-onMounted(() => {
-  void mount()
-})
-
-/**
- * 路径变了要换一张表：引用块可以被「重新指定」到另一个文件。
- * 先释放旧路径的引用，再认领新的。
- */
-watch(
-  () => props.block.path,
-  () => void mount(),
-)
-
-async function mount(): Promise<void> {
-  const path = props.block.path
-  if (path === "") {
-    entry.value = null
-    return
-  }
-  entry.value = await tables.use(path)
-}
-
-onBeforeUnmount(() => {
-  if (props.block.path !== "") tables.release(props.block.path)
-})
-
-/** 所有编辑动作都走这一条：算出新表 → 进内存记脏，随所在笔记统一保存。 */
-async function change(next: (table: DataTable) => DataTable): Promise<void> {
-  const ok = await tables.mutate(props.block.path, next)
-  if (ok) markTableDirty(props.block.path)
-}
+const { state, table, columns, rows, change } = useTableEntry(() => props.block.path)
 
 function cellOf(row: DataRow, column: DataColumn): string {
   return dt.valueText(dt.cellValue(row, column), column)
 }
-
-/** 提示态里显示的那个路径。 */
-const pathLabel = computed(() => props.block.path)
 
 /** 打开数据表本身：切到它的标签页。引用块的「深潜」入口。 */
 function openTable() {
@@ -182,36 +134,27 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
 
 <template>
   <!-- 空指针(转换流程修好前的遗留块 / 手工编辑):如实说没指定,而不是永远转圈。 -->
-  <div
-    v-if="pathLabel === ''"
-    class="my-4 flex items-center gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
-  >
-    <DatabaseIcon class="size-3.5 shrink-0 text-muted-foreground" />
-    <span class="text-[12px] text-muted-foreground">
-      引用块未指定数据表 —— 删掉这个块,用 / 菜单重新插入。
-    </span>
-  </div>
+  <TableRefNotice
+    v-if="props.block.path === ''"
+    kind="unset"
+    label="引用块"
+  />
 
   <!-- 引用的文件读不到：提示态，不是错误态。给「重新指定」的入口（下一轮做，
        现在先给「打开」——文件若还在树下，点开它自己就能确认）。 -->
-  <div
+  <TableRefNotice
     v-else-if="state === 'missing' || state === 'failed'"
-    class="my-4 flex items-center gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
-  >
-    <DatabaseIcon class="size-3.5 shrink-0 text-muted-foreground" />
-    <span class="text-[12px] text-muted-foreground">
-      引用的数据表不存在：<span class="font-mono">{{ pathLabel }}</span>
-    </span>
-  </div>
+    kind="missing"
+    label="引用块"
+    :path="props.block.path"
+  />
 
-  <!-- 还没读完。占位高度避免读盘回来时页面跳一下。 -->
-  <div
+  <!-- 还没读完。 -->
+  <TableRefNotice
     v-else-if="table === null"
-    class="my-4 flex items-center gap-2.5 rounded-lg border border-line bg-muted/30 px-3 py-2.5"
-  >
-    <DatabaseIcon class="size-3.5 shrink-0 animate-pulse text-muted-foreground" />
-    <span class="text-[12px] text-muted-foreground">正在读取数据表…</span>
-  </div>
+    kind="loading"
+    label="引用块"
+  />
 
   <div v-else class="group/ref relative my-4">
     <div :class="frame.container">

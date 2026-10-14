@@ -137,12 +137,55 @@ export function isTextualBlock(block: Block): block is TextualBlock {
 }
 
 /**
+ * 引用块族：带 `path` 指针、指向一张 `.tbl` 的结构块 —— 数据是别人的（ADR-0005）。
+ *
+ * 「哪些块带 path」只在这里说一次：保存前的 preload 收集、布局格子的插入过滤都从
+ * 这张表派生。serialize / parse 各自的读写分派虽仍逐块列出（编译器靠穷尽性兜住），
+ * 但**凡是凭「有没有 path」区分的行为**都必须走这张表，不再各持一份会腐烂的清单。
+ */
+export const REFERENCE_BLOCK_TYPES = ["datatable", "gallery", "bookmark", "kanban"] as const
+export type ReferenceBlockType = (typeof REFERENCE_BLOCK_TYPES)[number]
+
+/** 是否是引用块。命中时收窄到四种带 `path` 的结构块。 */
+export function isReferenceBlock(block: Block): block is Extract<Block, { path: string }> {
+  return REFERENCE_BLOCK_TYPES.some((type) => block.type === type)
+}
+
+/**
+ * 收集块列表（含布局格子内）引用的全部 `.tbl` 路径，去重保序。
+ *
+ * 保存前的 preload 用它：先把引用到的表读进内存，serialize 才能同步取值拼快照。
+ * 这份知识只此一份 —— 它曾经在 App.vue 里是一行手写的 type filter，
+ * gallery / bookmark 就是从那份拷贝里漏掉的（快照被写成空的现行 bug）。
+ * 布局格子要递归：serialize 那边对格子同样递归 lookup，两边口径必须一致。
+ */
+export function refPathsOf(blocks: readonly Block[]): string[] {
+  const paths: string[] = []
+  const seen = new Set<string>()
+  const visit = (list: readonly Block[]): void => {
+    for (const block of list) {
+      if (block.type === "layout") {
+        for (const cell of block.cells) visit(cell)
+        continue
+      }
+      if (!isReferenceBlock(block)) continue
+      if (block.path === "" || seen.has(block.path)) continue
+      seen.add(block.path)
+      paths.push(block.path)
+    }
+  }
+  visit(blocks)
+  return paths
+}
+
+/**
  * 格子内插入/转换菜单要滤掉的类型：容器块本身（一层容器）与引用块。
  *
  * 引用块（数据表/画册/书签/看板）要「先有文件才能指」，那条异步分流与选表对话框都长在顶层
  * 编辑器上，格子内不值得为此再铺一条路 —— 引用块放进布局格子的场景也足够边缘。
+ * 名单从 `REFERENCE_BLOCK_TYPES` 派生，不另立清单。
  */
-export const CELL_EXCLUDED_TYPES: readonly BlockType[] = ["layout", "datatable", "gallery", "bookmark", "kanban"]
+export const CELL_EXCLUDED_TYPES: readonly BlockType[] = ["layout", ...REFERENCE_BLOCK_TYPES]
 
 /** 布局块网格模式的列数档位与缺省值。缺省即 2 不落存储，解析也以它兜底。 */
 export const LAYOUT_COLUMNS = [2, 3, 4] as const

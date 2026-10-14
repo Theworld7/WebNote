@@ -5,6 +5,7 @@ import { provideWorkspace } from "@/composables/useWorkspace"
 import { provideTables } from "@/composables/useTables"
 import { provideSettings } from "@/composables/useSettings"
 import { useResizableWidth } from "@/composables/useResizableWidth"
+import { refPathsOf } from "@/lib/blocks"
 import AppSidebar from "@/components/AppSidebar.vue"
 import EditorSurface from "@/components/EditorSurface.vue"
 import EditorTabBar from "@/components/EditorTabBar.vue"
@@ -18,13 +19,9 @@ const tables = provideTables(fs, root)
 // 保存笔记时要把引用块写成快照：先把引用到的表读进内存，再同步取值拼 HTML
 // （见 attachTableLookup / attachTablePreload 的注释）。
 attachTableLookup((path) => tables.peek(path))
-attachTablePreload((blocks) => {
-  const paths = blocks
-    .filter((block) => block.type === "datatable" || block.type === "kanban")
-    .map((block) => block.path)
-    .filter((path) => path !== "")
-  return tables.preload(paths)
-})
+// 哪些块带 path 由 refPathsOf 唯一裁决 —— 它曾经是一行手写的 type filter，
+// gallery / bookmark 就是从那份拷贝里漏掉的（快照被写成空）。
+attachTablePreload((blocks) => tables.preload(refPathsOf(blocks)))
 // 数据表编辑只进内存记脏，落盘发生在标签的统一保存（与笔记同一条出口）；
 // 丢弃标签则把改过的表退回盘上真相。两个动作都是注册表的能力，这里接上。
 attachTableFlush((path) => tables.flush(path))

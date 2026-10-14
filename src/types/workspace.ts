@@ -273,6 +273,17 @@ export interface ChatBlock {
 
 export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | ChatBlock | LayoutBlock
 
+/**
+ * 引用块展示设置的 patch 形状:三种引用块设置字段的并集,id / type / path 不在内
+ * —— 设置改动只动「怎么展示」,不动「指哪张表」(换引用是块的重新指定,另一条路)。
+ * `updateBlockSettings` 消费它;块类型守卫保证画册的 patch 写不进书签块。
+ */
+export type BlockSettingsPatch = Partial<
+  Omit<GalleryBlock, "id" | "type" | "path"> &
+  Omit<BookmarkBlock, "id" | "type" | "path"> &
+  Omit<KanbanBlock, "id" | "type" | "path">
+>
+
 /** 块类型元数据：菜单标记 + 中文名。菜单渲染直接消费。 */
 export interface BlockTypeMeta {
   type: BlockType

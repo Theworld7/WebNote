@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { GalleryBlock } from "@/types/workspace"
-import type { DataColumn, DataRow, DataTable } from "@/types/data-table"
+import type { DataColumn, DataRow } from "@/types/data-table"
 import { GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue"
+import { computed, ref, watch } from "vue"
 import {
   ChevronDownIcon,
   ChevronUpIcon,
@@ -21,16 +21,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import type { TableEntry } from "@/composables/useTables"
-import { useTables } from "@/composables/useTables"
+import TableRefNotice from "@/components/TableRefNotice.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
+import { useTableEntry } from "@/composables/useTableEntry"
 import * as dt from "@/lib/data-table"
 
 /**
  * 画册块:把一张数据表渲染成海报卡片宫格。
  *
- * 数据链路与 `DataTableBlockView` 完全同源 —— 注册表取数、编辑直接写 `.tbl`、
- * 读不到是提示态不是错误(见那边注释的三条,这里不再复述)。不同的只有**展示**:
+ * 数据链路与 `DataTableBlockView` 完全同源,取数与改表走 `useTableEntry` 共用 seam
+ * (注册表共享、编辑直接写 `.tbl`、读不到是提示态不是错误,见那边注释的三条,这里不再复述)。
+ * 不同的只有**展示**:
  *
  * 1. 每行一张卡片:上方是该行第一个非空图片格(海报位),下方是其余字段的值。
  * 2. 展示设置(列数、图片比例、图片填充、字段显隐)是**块的属性**,改动走笔记的保存流程,
@@ -40,47 +41,9 @@ import * as dt from "@/lib/data-table"
  */
 const props = defineProps<{ block: GalleryBlock }>()
 
-const { openFile, updateGalleryBlock, markTableDirty } = useWorkspace()
-const tables = useTables()
+const { openFile, updateBlockSettings } = useWorkspace()
 
-/**
- * 当前这张表的条目。**必须是 `shallowRef`**,理由见 `DataTableBlockView` ——
- * `ref` 的深度解包会把 `TableEntry` 里的 `Ref` 字段压扁,视图永远停在「正在读取」。
- */
-const entry = shallowRef<TableEntry | null>(null)
-
-const state = computed(() => entry.value?.state.value ?? "loading")
-const table = computed(() => entry.value?.table.value ?? null)
-const columns = computed<readonly DataColumn[]>(() => table.value?.columns ?? [])
-const rows = computed<readonly DataRow[]>(() => table.value?.rows ?? [])
-
-onMounted(() => {
-  void mount()
-})
-
-watch(
-  () => props.block.path,
-  () => void mount(),
-)
-
-async function mount(): Promise<void> {
-  const path = props.block.path
-  if (path === "") {
-    entry.value = null
-    return
-  }
-  entry.value = await tables.use(path)
-}
-
-onBeforeUnmount(() => {
-  if (props.block.path !== "") tables.release(props.block.path)
-})
-
-/** 所有数据编辑都走这一条:算出新表 → 进内存记脏,随所在笔记统一保存。 */
-async function change(next: (table: DataTable) => DataTable): Promise<void> {
-  const ok = await tables.mutate(props.block.path, next)
-  if (ok) markTableDirty(props.block.path)
-}
+const { state, table, columns, rows, change } = useTableEntry(() => props.block.path)
 
 /**
  * 卡片上的字段:排除图片列(它已经是海报位)和被块设置隐藏的列。
@@ -220,55 +183,26 @@ const sections = computed<readonly GallerySection[]>(() => {
   // 节内聚合列:与分组同字段时退化为平铺(同一列又分节又堆叠没有读法)。
   const aggCol = props.block.group === props.block.groupBy ? null : groupColumn.value
 
-  const buckets = new Map<string, DataRow[]>()
-  const loose: DataRow[] = []
-  for (const row of rows.value) {
-    const value = dt.cellValue(row, col)
-    if (value === null || value === "") {
-      loose.push(row)
-      continue
-    }
-    const key = String(value)
-    const bucket = buckets.get(key)
-    if (bucket === undefined) buckets.set(key, [row])
-    else bucket.push(row)
-  }
+  // 归桶、手排与看板列同一套口径,规则收在 `dt.groupRows` 一处。
+  const { groups: bucketed, loose } = dt.groupRows(rows.value, col, { manualOrder: props.block.groupOrder })
 
-  const out: GallerySection[] = []
-  for (const [key, bucket] of buckets) {
-    const [first] = bucket
-    if (first === undefined) continue
-    // 标题走文本投影:select 列的原始值是选项 id,直接显示等于把内部标识漏给用户。
-    const title = dt.valueText(dt.cellValue(first, col), col) || key
-    out.push({
-      key: `g:${key}`,
-      value: key,
-      title,
-      units: buildUnits(bucket, aggCol),
-    })
-  }
+  const out: GallerySection[] = bucketed.map((bucket) => ({
+    key: `g:${bucket.key}`,
+    value: bucket.key,
+    title: bucket.title,
+    units: buildUnits(bucket.rows, aggCol),
+  }))
 
-  // 手排:groupOrder 里记录的组按记录序靠前,没记录的跟首现序排在后面(JS sort 稳定,
-  // 同为未记录的组之间保持原相对顺序)。
-  const recorded = props.block.groupOrder
-  const sorted = out
-    .map((sec, index) => ({ sec, index, rank: recorded.indexOf(sec.value) }))
-    .sort((a, b) => {
-      const ra = a.rank === -1 ? recorded.length + a.index : a.rank
-      const rb = b.rank === -1 ? recorded.length + b.index : b.rank
-      return ra - rb
-    })
-    .map((item) => item.sec)
-
+  // 「未分组」节恒在末尾:没有这一项的行互相无关,不参与手排。
   if (loose.length > 0) {
-    sorted.push({
+    out.push({
       key: "g:",
       value: "",
       title: "未分组",
       units: buildUnits(loose, aggCol),
     })
   }
-  return sorted
+  return out
 })
 
 /** 聚合 ↔ 展开的切换。只动运行时态,不碰块属性。整体换新 Set 保证响应触发。 */
@@ -327,15 +261,15 @@ function toggleCheck(row: DataRow, column: DataColumn, event: Event): void {
 
 /** 展示设置的改动走块属性(笔记文档),不碰 `.tbl`。patch 只带改动的键。 */
 function setColumns(value: "auto" | number) {
-  updateGalleryBlock(props.block.id, { columns: value })
+  updateBlockSettings(props.block.id, { columns: value })
 }
 
 function setFit(value: "cover" | "contain") {
-  updateGalleryBlock(props.block.id, { fit: value })
+  updateBlockSettings(props.block.id, { fit: value })
 }
 
 function setRatio(value: string) {
-  updateGalleryBlock(props.block.id, { ratio: value })
+  updateBlockSettings(props.block.id, { ratio: value })
 }
 
 /** 图片比例的下拉选择:把块的 ratio 字段映成 select 值。 */
@@ -345,7 +279,7 @@ const ratioSelection = computed({
 })
 
 function setWidth(value: number) {
-  updateGalleryBlock(props.block.id, { width: value })
+  updateBlockSettings(props.block.id, { width: value })
 }
 
 /** 图片宽度的下拉选择:select 的值是字符串,映回数字。 */
@@ -356,7 +290,7 @@ const widthSelection = computed({
 
 /** 聚合参考字段:空串 = 关闭聚合。与分组可叠加(不同字段),仅当撞上分组的同一字段时把分组关掉 —— 后设的赢。 */
 function setGroup(value: string) {
-  updateGalleryBlock(props.block.id, {
+  updateBlockSettings(props.block.id, {
     group: value,
     groupBy: value === props.block.groupBy ? "" : props.block.groupBy,
   })
@@ -364,7 +298,7 @@ function setGroup(value: string) {
 
 /** 分组展示的依据字段:空串 = 关闭分组。与聚合可叠加(不同字段),仅当撞上聚合的同一字段时把聚合关掉 —— 后设的赢。 */
 function setGroupBy(value: string) {
-  updateGalleryBlock(props.block.id, {
+  updateBlockSettings(props.block.id, {
     groupBy: value,
     group: value === props.block.group ? "" : props.block.group,
   })
@@ -383,27 +317,21 @@ const groupBySelection = computed({
 })
 
 /**
- * 上移/下移分组节:按当前生效顺序整体重写 groupOrder。之后它就是全量清单 ——
- * 后续新增的组值不在列表里,照常按首现序排在末尾,无需清洗。
+ * 上移/下移分组节:按当前生效顺序整体重写 groupOrder(交换口径在 `dt.swapInOrder`)。
+ * 之后它就是全量清单 —— 后续新增的组值不在列表里,照常按首现序排在末尾,无需清洗。
  */
 function moveGroup(value: string, dir: -1 | 1): void {
   const values = sections.value.filter((sec) => sec.value !== "").map((sec) => sec.value)
-  const i = values.indexOf(value)
-  const j = i + dir
-  if (i === -1 || j < 0 || j >= values.length) return
-  const a = values[i]
-  const b = values[j]
-  if (a === undefined || b === undefined) return
-  values[i] = b
-  values[j] = a
-  updateGalleryBlock(props.block.id, { groupOrder: values })
+  const next = dt.swapInOrder(values, value, dir)
+  if (next === null) return
+  updateBlockSettings(props.block.id, { groupOrder: next })
 }
 
 function toggleField(columnId: string, checked: boolean) {
   const next = checked
     ? props.block.hiddenFields.filter((id) => id !== columnId)
     : [...props.block.hiddenFields, columnId]
-  updateGalleryBlock(props.block.id, { hiddenFields: next })
+  updateBlockSettings(props.block.id, { hiddenFields: next })
 }
 
 /** 自定义列数输入 → 1..12,非法输入退回 6(宫格在常见宽度下最不难看的列数)。 */
@@ -458,35 +386,18 @@ function focusOnMount(el: unknown): void {
 
 <template>
   <!-- 空指针(转换流程修好前的遗留块 / 手工编辑):如实说没指定,而不是永远转圈。 -->
-  <div
-    v-if="props.block.path === ''"
-    class="my-4 flex items-center gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
-  >
-    <DatabaseIcon class="size-3.5 shrink-0 text-muted-foreground" />
-    <span class="text-[12px] text-muted-foreground">
-      画册未指定数据表 —— 删掉这个块,用 / 菜单重新插入。
-    </span>
-  </div>
+  <TableRefNotice v-if="props.block.path === ''" kind="unset" label="画册" />
 
-  <!-- 引用的文件读不到:提示态,不是错误态。与数据表引用块同一套观感。 -->
-  <div
+  <!-- 引用的文件读不到:提示态,不是错误态。 -->
+  <TableRefNotice
     v-else-if="state === 'missing' || state === 'failed'"
-    class="my-4 flex items-center gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
-  >
-    <DatabaseIcon class="size-3.5 shrink-0 text-muted-foreground" />
-    <span class="text-[12px] text-muted-foreground">
-      画册引用的数据表不存在:<span class="font-mono">{{ props.block.path }}</span>
-    </span>
-  </div>
+    kind="missing"
+    label="画册"
+    :path="props.block.path"
+  />
 
-  <!-- 还没读完。占位高度避免读盘回来时页面跳一下。 -->
-  <div
-    v-else-if="table === null"
-    class="my-4 flex items-center gap-2.5 rounded-lg border border-line bg-muted/30 px-3 py-2.5"
-  >
-    <DatabaseIcon class="size-3.5 shrink-0 animate-pulse text-muted-foreground" />
-    <span class="text-[12px] text-muted-foreground">正在读取数据表…</span>
-  </div>
+  <!-- 还没读完。 -->
+  <TableRefNotice v-else-if="table === null" kind="loading" label="画册" />
 
   <div v-else class="group/gallery relative my-4">
     <!-- 块操作入口:右上角,悬停浮现。z-20 压过聚合卡的 z-10,否则首行最右的卡会盖住它。 -->

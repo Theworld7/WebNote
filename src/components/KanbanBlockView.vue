@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import type { KanbanBlock } from "@/types/workspace"
-import type { DataColumn, DataRow, DataTable, DataCellValue } from "@/types/data-table"
-import type { TableEntry } from "@/composables/useTables"
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue"
+import type { DataColumn, DataRow, DataCellValue } from "@/types/data-table"
+import { computed, ref } from "vue"
 import { ChevronDownIcon, ChevronUpIcon, DatabaseIcon, Settings2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
@@ -13,16 +12,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useTables } from "@/composables/useTables"
+import TableRefNotice from "@/components/TableRefNotice.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
+import { useTableEntry } from "@/composables/useTableEntry"
 import * as dt from "@/lib/data-table"
 
 /**
  * 看板块:把一张数据表按某列的值分成若干列,每行一张便签贴纸卡,卡片可跨列拖拽
  * —— 拖到哪一列就把该行的分组列值改成那一列的值(ADR-0008)。
  *
- * 数据链路与画册 / 书签块完全同源 —— 注册表取数、拖拽改值直接写 `.tbl`、读不到
- * 是提示态不是错误。差别的只有**展示**:横向几列分组、便签卡片、拖拽改值。
+ * 数据链路与画册 / 书签块完全同源,取数与改表走 `useTableEntry` 共用 seam,
+ * 这里不再复述。差别的只有**展示**:横向几列分组、便签卡片、拖拽改值。
  *
  * 卡片背景色由行 id 哈希出固定浅色(同卡每次同色),不进 `.tbl` 也不进笔记 ——
  * 它是视图态,导出快照是普通表格不带颜色(与画册图片填充是块设置、但快照只存
@@ -30,44 +30,9 @@ import * as dt from "@/lib/data-table"
  */
 const props = defineProps<{ block: KanbanBlock }>()
 
-const { openFile, updateKanbanBlock, markTableDirty } = useWorkspace()
-const tables = useTables()
+const { openFile, updateBlockSettings } = useWorkspace()
 
-/** 当前这张表的条目。**必须是 `shallowRef`**,理由同画册块 —— `ref` 深度解包会把 `TableEntry` 压扁。 */
-const entry = shallowRef<TableEntry | null>(null)
-
-const state = computed(() => entry.value?.state.value ?? "loading")
-const table = computed(() => entry.value?.table.value ?? null)
-const columns = computed<readonly DataColumn[]>(() => table.value?.columns ?? [])
-const rows = computed<readonly DataRow[]>(() => table.value?.rows ?? [])
-
-onMounted(() => {
-  void mount()
-})
-
-watch(
-  () => props.block.path,
-  () => void mount(),
-)
-
-async function mount(): Promise<void> {
-  const path = props.block.path
-  if (path === "") {
-    entry.value = null
-    return
-  }
-  entry.value = await tables.use(path)
-}
-
-onBeforeUnmount(() => {
-  if (props.block.path !== "") tables.release(props.block.path)
-})
-
-/** 所有数据编辑都走这一条:算出新表 → 进内存记脏,随所在笔记统一保存。 */
-async function change(next: (table: DataTable) => DataTable): Promise<void> {
-  const ok = await tables.mutate(props.block.path, next)
-  if (ok) markTableDirty(props.block.path)
-}
+const { state, table, columns, rows, change } = useTableEntry(() => props.block.path)
 
 // ---- 分组 ----
 
@@ -76,7 +41,9 @@ const groupColumn = computed<DataColumn | null>(() =>
   columns.value.find((column) => column.id === props.block.groupColumnId) ?? null,
 )
 
-/** 一个看板分组的描述。`value` 是分组列的原生值,拖拽落位时直接写回该列。 */
+/**
+ * 一个看板分组的描述。`value` 是分组列的原生值,拖拽落位时直接写回该列。
+ */
 interface KanbanGroup {
   /** 稳定 key:未分组固定 "__ungrouped__",其余为 String(原生值)。 */
   key: string
@@ -88,58 +55,25 @@ interface KanbanGroup {
 }
 
 /**
- * 按分组列的值归组。空值(null / "")行收进最左的「未分组」列;其余组按 groupOrder
- * 手排,没记录的跟值首次出现序排在后面(JS sort 稳定,同为未记录的组之间保持原
- * 相对顺序)。一个值自成一组(即便只有一行)—— 看板的列就是分组的可视化,合并
- * 单行组会让「这一列为什么没有卡片」变成谜题。
+ * 分组规则收在 `dt.groupRows`(与画册节 / 书签节同一套):归桶、手排、空 select 组
+ * 都在那边。视图只决定两件展示层的事:「未分组」列恒在最左(拖回 null 值是清空,
+ * 是看板的落点语义),其余组按手排序跟上。
  */
 const groups = computed<readonly KanbanGroup[]>(() => {
   const col = groupColumn.value
   if (col === null) return []
 
-  const buckets = new Map<string, { value: DataCellValue; label: string; rows: DataRow[] }>()
-  const ungrouped: DataRow[] = []
-  for (const row of rows.value) {
-    const v = dt.cellValue(row, col)
-    if (v === null || v === "") {
-      ungrouped.push(row)
-      continue
-    }
-    const key = String(v)
-    const bucket = buckets.get(key)
-    if (bucket === undefined) buckets.set(key, { value: v, label: dt.valueText(v, col), rows: [row] })
-    else bucket.rows.push(row)
-  }
-
-  // 显示空分组:select 列里没有行落在其上的选项也占一列 —— 空列正是拖卡归组的落点。
-  // 只对 select 有意义:其余类型的值来自行本身,凭空造不出「还没有行」的值。
-  if (props.block.showEmptyGroups && col.type === "select") {
-    for (const option of col.options) {
-      if (!buckets.has(option.id)) buckets.set(option.id, { value: option.id, label: option.name, rows: [] })
-    }
-  }
-
-  // 手排:groupOrder 里记录的组按记录序靠前,没记录的跟首现序排在后面。
-  const recorded = props.block.groupOrder
-  const ordered = [...buckets.values()]
-    .map((bucket, index) => ({ bucket, index, rank: recorded.indexOf(String(bucket.value)) }))
-    .sort((a, b) => {
-      const ra = a.rank === -1 ? recorded.length + a.index : a.rank
-      const rb = b.rank === -1 ? recorded.length + b.index : b.rank
-      return ra - rb
-    })
+  const { groups: bucketed, loose } = dt.groupRows(rows.value, col, {
+    manualOrder: props.block.groupOrder,
+    emptySelectGroups: props.block.showEmptyGroups,
+  })
 
   const out: KanbanGroup[] = []
-  if (ungrouped.length > 0 || props.block.showEmptyGroups) {
-    out.push({ key: "__ungrouped__", value: null, label: "未分组", rows: ungrouped })
+  if (loose.length > 0 || props.block.showEmptyGroups) {
+    out.push({ key: "__ungrouped__", value: null, label: "未分组", rows: loose })
   }
-  for (const { bucket } of ordered) {
-    out.push({
-      key: String(bucket.value),
-      value: bucket.value,
-      label: bucket.label === "" ? String(bucket.value) : bucket.label,
-      rows: bucket.rows,
-    })
+  for (const group of bucketed) {
+    out.push({ key: group.key, value: group.value, label: group.title, rows: group.rows })
   }
   return out
 })
@@ -275,24 +209,18 @@ function onColumnDrop(event: DragEvent, target: KanbanGroup): void {
 /** 分组列的下拉选择:空 = 关闭(提示态)。 */
 const groupSelection = computed({
   get: () => props.block.groupColumnId,
-  set: (value: string) => updateKanbanBlock(props.block.id, { groupColumnId: value }),
+  set: (value: string) => updateBlockSettings(props.block.id, { groupColumnId: value }),
 })
 
 /**
- * 上移/下移分组列:按当前生效顺序整体重写 groupOrder。之后它就是全量清单 ——
- * 后续新增的组值不在列表里,照常按首现序排在末尾,无需清洗。「未分组」列不参与。
+ * 上移/下移分组列:按当前生效顺序整体重写 groupOrder(交换口径在 `dt.swapInOrder`)。
+ * 「未分组」列不参与。
  */
 function moveGroup(value: string, dir: -1 | 1): void {
   const values = groups.value.filter((group) => group.value !== null).map((group) => String(group.value))
-  const i = values.indexOf(value)
-  const j = i + dir
-  if (i === -1 || j < 0 || j >= values.length) return
-  const a = values[i]
-  const b = values[j]
-  if (a === undefined || b === undefined) return
-  values[i] = b
-  values[j] = a
-  updateKanbanBlock(props.block.id, { groupOrder: values })
+  const next = dt.swapInOrder(values, value, dir)
+  if (next === null) return
+  updateBlockSettings(props.block.id, { groupOrder: next })
 }
 
 /** 该列是否在卡片上显示。全显模式(displayColumnIds 空)下分组列由列头表达、不上卡片,其余列全显。 */
@@ -311,13 +239,13 @@ function toggleField(column: DataColumn, checked: boolean): void {
   if (current.length === 0) {
     // 全显模式:非分组列本来就显示,只有勾上分组列才需要进显式模式。
     if (!checked || column.id !== props.block.groupColumnId) return
-    updateKanbanBlock(props.block.id, { displayColumnIds: columns.value.map((item) => item.id) })
+    updateBlockSettings(props.block.id, { displayColumnIds: columns.value.map((item) => item.id) })
     return
   }
   const next = checked ? [...current, column.id] : current.filter((id) => id !== column.id)
   const base = columns.value.filter((item) => item.id !== props.block.groupColumnId)
   const collapsesToAll = !next.includes(props.block.groupColumnId) && base.every((item) => next.includes(item.id))
-  updateKanbanBlock(props.block.id, { displayColumnIds: collapsesToAll ? [] : next })
+  updateBlockSettings(props.block.id, { displayColumnIds: collapsesToAll ? [] : next })
 }
 
 const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-0"
@@ -331,35 +259,18 @@ function openTable() {
 
 <template>
   <!-- 空指针:如实说没指定,而不是永远转圈。 -->
-  <div
-    v-if="props.block.path === ''"
-    class="my-4 flex items-center gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
-  >
-    <DatabaseIcon class="size-3.5 shrink-0 text-muted-foreground" />
-    <span class="text-[12px] text-muted-foreground">
-      看板未指定数据表 —— 删掉这个块,用 / 菜单重新插入。
-    </span>
-  </div>
+  <TableRefNotice v-if="props.block.path === ''" kind="unset" label="看板" />
 
   <!-- 引用的文件读不到:提示态,不是错误态。 -->
-  <div
+  <TableRefNotice
     v-else-if="state === 'missing' || state === 'failed'"
-    class="my-4 flex items-center gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
-  >
-    <DatabaseIcon class="size-3.5 shrink-0 text-muted-foreground" />
-    <span class="text-[12px] text-muted-foreground">
-      看板引用的数据表不存在:<span class="font-mono">{{ props.block.path }}</span>
-    </span>
-  </div>
+    kind="missing"
+    label="看板"
+    :path="props.block.path"
+  />
 
   <!-- 还没读完。 -->
-  <div
-    v-else-if="table === null"
-    class="my-4 flex items-center gap-2.5 rounded-lg border border-line bg-muted/30 px-3 py-2.5"
-  >
-    <DatabaseIcon class="size-3.5 shrink-0 animate-pulse text-muted-foreground" />
-    <span class="text-[12px] text-muted-foreground">正在读取数据表…</span>
-  </div>
+  <TableRefNotice v-else-if="table === null" kind="loading" label="看板" />
 
   <div v-else class="group/kanban relative my-4">
     <!-- 块操作入口:右上角,悬停浮现。 -->
@@ -421,7 +332,7 @@ function openTable() {
             <DropdownMenuCheckboxItem
               :class="ITEM"
               :model-value="props.block.showEmptyGroups"
-              @update:model-value="(checked: boolean) => updateKanbanBlock(props.block.id, { showEmptyGroups: checked })"
+              @update:model-value="(checked: boolean) => updateBlockSettings(props.block.id, { showEmptyGroups: checked })"
               @select.prevent
             >
               <span class="truncate">显示空分组</span>
