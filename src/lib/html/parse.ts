@@ -112,7 +112,8 @@ function parseBlockElement(element: Element, state: ParseState, depth: number): 
   switch (element.tagName) {
     case "UL":
     case "OL":
-      // 书签块也是 <ul>,靠指针认领:没有 data-bookmark 就照普通列表解析。
+      // 旧版书签导出是 <ul>,靠指针认领:没有 data-bookmark 就照普通列表解析。
+      // 新版导出是 div 容器(见 DIV 分支),这里只兜历史文件。
       if (element.tagName === "UL" && element.hasAttribute("data-bookmark")) {
         state.blocks.push(parseBookmark(element))
         return
@@ -144,12 +145,28 @@ function parseBlockElement(element: Element, state: ParseState, depth: number): 
         state.blocks.push(parseLayout(element))
         return
       }
+      // 画册 / 看板 / 书签的展示快照容器(导出规范形态)。指针在容器上,内容是静态卡片,
+      // 活数据从 `.tbl` 来,这里丢弃。先画册后看板:一个容器不会同时有两个指针。
+      if (element.hasAttribute("data-gallery")) {
+        const gallery = parseGallery(element)
+        if (gallery !== null) state.blocks.push(gallery)
+        return
+      }
+      if (element.hasAttribute("data-kanban")) {
+        const kanban = parseKanban(element)
+        if (kanban !== null) state.blocks.push(kanban)
+        return
+      }
+      if (element.hasAttribute("data-bookmark")) {
+        state.blocks.push(parseBookmark(element))
+        return
+      }
       break
     case "TABLE":
       if (element instanceof HTMLTableElement) {
-        // 带指针的快照(ADR-0006 / ADR-0008)还原成活的引用块:看板/画册的路径与设置都在
-        // 属性里,内容是快照 —— 活数据从 `.tbl` 来,这里丢弃。先判看板再判画册(一个 table
-        // 不会同时有两个指针),都没有就走普通表格。
+        // 旧版导出(ADR-0006 初版 / ADR-0008 初版)把指针挂在 <table> 快照上,同样认领:
+      // 看板/画册的路径与设置都在属性里,快照内容丢弃,活数据从 `.tbl` 来。先判看板
+      // 再判画册(一个 table 不会同时有两个指针),都没有就走普通表格。
         const kanban = parseKanban(element)
         if (kanban !== null) {
           state.blocks.push(kanban)
@@ -330,63 +347,66 @@ function parseLayoutColumns(raw: string | null): number | undefined {
 }
 
 /**
- * `<table data-gallery="…">` → 画册块。没有 `data-gallery` 返回 null,调用方回落到
- * 普通表格 —— 画册块被第三方编辑器动过之后,剩下的就是一张无主快照,按表格读是
- * 「正确的读法」(与数据表引用块的快照例外同一立场)。
+ * `data-gallery` 容器 → 画册块。规范形态是 `<div class="note-gallery" data-gallery=…>`
+ * (展示快照,与编辑器视图同构);旧版写法 `<table data-gallery>` 同样认 —— 属性读取
+ * 只认 `data-*`,两种载体无差别。没有 `data-gallery` 返回 null,调用方回落到普通内容
+ * —— 画册块被第三方编辑器剥掉属性之后,剩下的就是一份无主静态卡片,按正文读是
+ * 「正确的读法」。
  *
  * 属性**宽容**读取:这是自家导出的写法,但文件可能被人手工编辑过 —— 缺失或非法的
  * 设置一律落回默认值(响应式 / 海报比例 / 裁剪填充 / 全显),而不是拒读整篇笔记。路径是唯一
  * 没有「默认值」可落的:留空串,块自己渲染成「读不到」的提示态。
  */
-function parseGallery(table: HTMLTableElement): GalleryBlock | null {
-  const path = table.getAttribute("data-gallery")
+function parseGallery(container: Element): GalleryBlock | null {
+  const path = container.getAttribute("data-gallery")
   if (path === null) return null
 
-  const rawColumns = Number(table.getAttribute("data-columns"))
+  const rawColumns = Number(container.getAttribute("data-columns"))
   const columns =
     Number.isInteger(rawColumns) && rawColumns >= 1 && rawColumns <= 12 ? rawColumns : "auto"
 
-  const ratio = parseGalleryRatio(table.getAttribute("data-ratio"))
-  const width = parseGalleryWidth(table.getAttribute("data-width"))
-  const fit = table.getAttribute("data-fit") === "contain" ? "contain" : "cover"
-  const fields = table.getAttribute("data-fields") ?? ""
+  const ratio = parseGalleryRatio(container.getAttribute("data-ratio"))
+  const width = parseGalleryWidth(container.getAttribute("data-width"))
+  const fit = container.getAttribute("data-fit") === "contain" ? "contain" : "cover"
+  const fields = container.getAttribute("data-fields") ?? ""
   const hiddenFields = fields === "" ? [] : fields.split(",").filter((id) => id !== "")
   // 聚合参考列 id 原样收下,不校验列还存在 —— 指向的列被删后渲染时自然退化为平铺,
   // 与 hiddenFields 里残留 id 的立场一致。
-  const group = table.getAttribute("data-group") ?? ""
-  const groupBy = table.getAttribute("data-group-by") ?? ""
-  const order = table.getAttribute("data-group-order") ?? ""
+  const group = container.getAttribute("data-group") ?? ""
+  const groupBy = container.getAttribute("data-group-by") ?? ""
+  const order = container.getAttribute("data-group-order") ?? ""
   const groupOrder = order === "" ? [] : order.split(",").filter((item) => item !== "")
 
   return createGalleryBlock(path, columns, fit, hiddenFields, ratio, group, groupBy, groupOrder, width)
 }
 
 /**
- * `<table data-kanban="…">` → 看板块。没有 `data-kanban` 返回 null,调用方回落到
- * 画册或普通表格 —— 与画册同一立场:被第三方编辑器剥掉属性后,剩下的就是一张
- * 无主快照,按表格读是「正确的读法」。
+ * `data-kanban` 容器 → 看板块。没有 `data-kanban` 返回 null,调用方回落到画册或普通
+ * 内容 —— 与画册同一立场:被第三方编辑器剥掉属性后,剩下的就是一份无主静态卡片,
+ * 按正文读是「正确的读法」。
  *
  * 属性**宽容**读取:`data-group` / `data-fields` / `data-group-order` 的列 id 原样收下,
  * 不校验列还存在 —— 指向的列被删后渲染时自然退化为「未分组」一列 / 全显,与画册
  * hiddenFields 残留 id 的立场一致。`data-show-empty` 只认字面 "true"。
  * 路径没有默认值可落,留空串走「读不到」提示态。
  */
-function parseKanban(table: HTMLTableElement): KanbanBlock | null {
-  const path = table.getAttribute("data-kanban")
+function parseKanban(container: Element): KanbanBlock | null {
+  const path = container.getAttribute("data-kanban")
   if (path === null) return null
 
-  const groupColumnId = table.getAttribute("data-group") ?? ""
-  const fields = table.getAttribute("data-fields") ?? ""
+  const groupColumnId = container.getAttribute("data-group") ?? ""
+  const fields = container.getAttribute("data-fields") ?? ""
   const displayColumnIds = fields === "" ? [] : fields.split(",").filter((id) => id !== "")
-  const order = table.getAttribute("data-group-order") ?? ""
+  const order = container.getAttribute("data-group-order") ?? ""
   const groupOrder = order === "" ? [] : order.split(",").filter((item) => item !== "")
-  const showEmptyGroups = table.getAttribute("data-show-empty") === "true"
+  const showEmptyGroups = container.getAttribute("data-show-empty") === "true"
 
   return createKanbanBlock(path, groupColumnId, displayColumnIds, groupOrder, showEmptyGroups)
 }
 
 /**
- * `<ul data-bookmark="…">` → 书签块。没有指针的 `<ul>` 走普通列表解析 ——
+ * `data-bookmark` 容器 → 书签块。规范形态是 `<div class="note-bookmark" data-bookmark=…>`
+ * (分节宫格快照);旧版写法 `<ul data-bookmark>` 同样认。没有指针的元素走普通内容解析 ——
  * 与画册块同一立场:被第三方编辑器剥掉属性后,剩下的就是一份普通内容快照,
  * 按普通内容读是「正确的读法」。
  *
@@ -394,19 +414,19 @@ function parseKanban(table: HTMLTableElement): KanbanBlock | null {
  * 渲染时退化为「未设置」提示,与画册 hiddenFields 残留 id 的立场一致);列数只认
  * 1..12 的整数,其余落回响应式。路径没有默认值可落,留空串走「读不到」提示态。
  */
-function parseBookmark(list: Element): BookmarkBlock {
-  const path = list.getAttribute("data-bookmark") ?? ""
+function parseBookmark(container: Element): BookmarkBlock {
+  const path = container.getAttribute("data-bookmark") ?? ""
 
-  const rawColumns = Number(list.getAttribute("data-columns"))
+  const rawColumns = Number(container.getAttribute("data-columns"))
   const columns = Number.isInteger(rawColumns) && rawColumns >= 1 && rawColumns <= 12 ? rawColumns : "auto"
 
   return createBookmarkBlock(
     path,
-    list.getAttribute("data-name") ?? "",
-    list.getAttribute("data-url") ?? "",
+    container.getAttribute("data-name") ?? "",
+    container.getAttribute("data-url") ?? "",
     columns,
-    list.getAttribute("data-icon-column") ?? "",
-    list.getAttribute("data-group-by") ?? "",
+    container.getAttribute("data-icon-column") ?? "",
+    container.getAttribute("data-group-by") ?? "",
   )
 }
 

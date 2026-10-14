@@ -1,8 +1,8 @@
 import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, ImageBlock, KanbanBlock, LayoutBlock, MermaidBlock, TableCell, TextualBlock } from "@/types/workspace"
-import type { DataTable } from "@/types/data-table"
+import type { DataColumn, DataTable, DataRow } from "@/types/data-table"
 import { GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT, LAYOUT_COLUMNS_DEFAULT, isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
-import { cellValue, valueText } from "@/lib/data-table"
+import { cellValue, groupRows, kanbanCardColor, valueText } from "@/lib/data-table"
 import { escapeHtml, escapeTextToHtml, linkIcon, runsText, runsToHtml } from "@/lib/inline"
 import { docStyle } from "@/lib/typography"
 
@@ -257,18 +257,16 @@ function layoutHtml(block: LayoutBlock, lookup: DataTableLookup): string {
 }
 
 /**
- * 快照表格的唯一真源:表头 + 表体 + `thead`/`tbody` 骨架。
+ * 数据表引用块快照表格的唯一真源:表头 + 表体 + `thead`/`tbody` 骨架。
  *
- * 三个引用块（数据表 / 画册 / 看板）的快照内容**逐行同构** —— 曾经是三份逐字
- * 复制,每修一个快照 bug 要三处同步。现在口径只此一份:图片格导出成真正的 `<img>`
- * （与 `imageHtml` 同款转义,快照的价值是「双击就能看」,一格 base64 文本不是看;
- * data URI 内联,导出的单文件依旧自包含。回读时 td 里的 img 会被丢掉、格子变空
- * —— Snapshot exception 的既有范围,不再另行处理）;其余格子走 `valueText`
- * 文本投影。`attributes` 是引用块各自的指针 / 设置属性,画册与看板传自己的那串,
- * 数据表引用块不传（纯快照,引用不进文件,见 ADR-0005）。
+ * 只剩数据表引用块一个消费者 —— 画册 / 看板 / 书签的导出已换成展示快照
+ * (卡片 / 看板列 / 书签宫格,与编辑器视图同构),不再落表格形态。
+ * 图片格导出成真正的 `<img>`（与 `imageHtml` 同款转义,快照的价值是「双击就能看」,
+ * 一格 base64 文本不是看;data URI 内联,导出的单文件依旧自包含。回读时 td 里的
+ * img 会被丢掉、格子变空 —— Snapshot exception 的既有范围,不再另行处理）;
+ * 其余格子走 `valueText` 文本投影。
  */
-function snapshotTableHtml(table: DataTable, attributes = ""): string {
-  const openTag = attributes === "" ? "<table>" : `<table ${attributes}>`
+function snapshotTableHtml(table: DataTable): string {
   const headLine = `      <tr>${table.columns.map((column) => wrap("th", escapeTextToHtml(column.name))).join("")}</tr>`
   const bodyLines = table.rows.map((row) => {
     const cells = table.columns
@@ -283,7 +281,7 @@ function snapshotTableHtml(table: DataTable, attributes = ""): string {
     return `      <tr>${cells}</tr>`
   })
 
-  const parts = [openTag, "  <thead>", headLine, "  </thead>"]
+  const parts = ["<table>", "  <thead>", headLine, "  </thead>"]
   if (bodyLines.length > 0) parts.push("  <tbody>", ...bodyLines, "  </tbody>")
   parts.push("</table>")
 
@@ -312,20 +310,19 @@ function dataTableHtml(block: DataTableBlock, table: DataTable | null): string {
 }
 
 /**
- * 画册块 → **快照 + 指针**（ADR-0006）。
+ * 画册块 → **展示快照 + 指针**（ADR-0006）。
  *
- * 内容就是 `snapshotTableHtml` 那一份快照表格,图片格照旧内联 data URI ——
- * 拿到导出文件的人双击就能看全全部内容，「不带 .tbl 也能读」的承诺不变。
- * 与数据表引用块的差别只有一层 `data-*` 属性：画册的列数、填充、字段显隐是**块的设置**，
- * 丢了要重新配，所以随快照一并写进文件，编辑器据此把它还原成活的画册块；
- * 第三方编辑器剥掉这些属性也无妨，剩下的就是一张普通表格（与数据表引用块的
- * 现状等价）。
+ * 导出的不是数据表快照表格，而是**与编辑器默认视图同构**的卡片 HTML：分节
+ * （`data-group-by`）、聚合叠卡（`data-group`，按应用打开时的默认态画成折叠）、
+ * 海报卡（列数 / 比例 / 宽度 / 填充 / 字段显隐）全部按当前设置呈现 ——
+ * 「编辑器里看到什么，双击打开就是什么」由这里兑现；菜单按钮与展开交互不导出。
  *
- * 表读不到时**仍然写出**带属性的空表：设置跟着笔记走，不因一次读盘失败蒸发；
+ * 指针属性原样挂在容器 `div` 上，解析端凭它认领回活的画册块（内容仍从 `.tbl` 来，
+ * 静态卡片只是快照）。旧版写法（`<table data-gallery>`）解析端继续认，老文件不受影响；
+ * 剥掉属性后剩下的是一份静态卡片，按正文读是「正确的读法」。
+ *
+ * 表读不到时**仍然写出**带属性的空容器：设置跟着笔记走，不因一次读盘失败蒸发；
  * 重开时块自己走「读不到」的提示态。
- *
- * 属性只写非默认值（对齐 `TableBlock` 对齐属性的缺省立场）：默认配置的画册块
- * 在盘上与数据表快照仅差一个 `data-gallery`，人类直接读文件也不觉得吵。
  */
 function galleryHtml(block: GalleryBlock, table: DataTable | null): string {
   const attrs = [`data-gallery="${escapeHtml(block.path)}"`]
@@ -338,29 +335,149 @@ function galleryHtml(block: GalleryBlock, table: DataTable | null): string {
   if (block.groupBy !== "") attrs.push(`data-group-by="${escapeHtml(block.groupBy)}"`)
   if (block.groupOrder.length > 0) attrs.push(`data-group-order="${escapeHtml(block.groupOrder.join(","))}"`)
 
-  // 没有内容可写（表读不到 / 空表）就留一张带属性的空表 —— 表格骨架是
-  // 「这是一个画册块」的最小形态，浏览器渲染出来也只是什么都没有，不会坏。
-  if (table === null || table.rows.length === 0) {
-    return `<table ${attrs.join(" ")}></table>`
-  }
+  const openTag = `<div class="note-gallery" ${attrs.join(" ")}>`
+  if (table === null || table.rows.length === 0) return openTag + "</div>"
 
-  return snapshotTableHtml(table, attrs.join(" "))
+  const posterStyle = galleryPosterStyle(block)
+  const sections = gallerySections(block, table).map((section) => {
+    const title = section.title === null ? "" : `  <p class="note-sec-title">${escapeHtml(section.title)}</p>\n`
+    const cards = section.units.map((unit) => galleryUnitHtml(unit, table, block, posterStyle)).join("\n")
+    return `${title}  <div class="note-gallery-grid"${gridAttribute(block.columns)}>\n${cards}\n  </div>`
+  })
+  return `${openTag}\n${sections.join("\n")}\n</div>`
+}
+
+/** 自定义列数写内联 grid 声明（响应式交给浏览器，与编辑器同一口径）。 */
+function gridAttribute(columns: "auto" | number): string {
+  return columns === "auto" ? "" : ` style="grid-template-columns:repeat(${columns},minmax(0,1fr))"`
+}
+
+/** 海报区的内联样式：比例与宽度百分比，与编辑器 `posterStyle` 同一几何。 */
+function galleryPosterStyle(block: GalleryBlock): string {
+  const parts = block.ratio.split(":")
+  let style = `aspect-ratio:${parts[0] ?? 2} / ${parts[1] ?? 3}`
+  if (block.width !== GALLERY_WIDTH_DEFAULT) style += `;width:${block.width}%;margin-inline:auto`
+  return style
+}
+
+/** ---- 画册视图逻辑的静态镜像（默认态 = 聚合全部折叠），与 GalleryBlockView 对齐 ---- */
+
+interface GalleryUnit {
+  /** true = 聚合态,画成叠卡(代表卡 + 骨架);false = 逐行平铺。 */
+  stacked: boolean
+  lead: DataRow
+  rows: readonly DataRow[]
+}
+
+interface GallerySection {
+  /** 节标题;null = 不画标题行(未开分组)。 */
+  title: string | null
+  units: GalleryUnit[]
+}
+
+/** 分节(分组列 + 手排)与节内聚合(聚合列归桶,≥2 行折叠),规则口径见 `dt.groupRows`。 */
+function gallerySections(block: GalleryBlock, table: DataTable): GallerySection[] {
+  const byColumn = block.groupBy === "" ? null : table.columns.find((column) => column.id === block.groupBy) ?? null
+  // 聚合列与分组列撞字段时退化为平铺 —— 同一列又分节又堆叠没有读法(编辑器同款规则)。
+  const aggColumn = block.group === block.groupBy ? null : table.columns.find((column) => column.id === block.group) ?? null
+  if (byColumn === null) return [{ title: null, units: galleryUnits(table.rows, aggColumn) }]
+
+  const { groups: bucketed, loose } = groupRows(table.rows, byColumn, { manualOrder: block.groupOrder })
+  const out: GallerySection[] = bucketed.map((bucket) => ({ title: bucket.title, units: galleryUnits(bucket.rows, aggColumn) }))
+  if (loose.length > 0) out.push({ title: "未分组", units: galleryUnits(loose, aggColumn) })
+  return out
 }
 
 /**
- * 看板块 → **快照 + 指针**(与画册同一条 ADR-0006 立场,详见 ADR-0008)。
+ * 聚合归桶:空值行不聚合、按首现序出组、单行组平铺 —— 与编辑器 `buildUnits` 同一套,
+ * 差别只有聚合态恒为折叠(静态文件没有「展开」这层交互)。
+ */
+function galleryUnits(rows: readonly DataRow[], column: DataColumn | null): GalleryUnit[] {
+  if (column === null) return rows.map((row) => ({ stacked: false, lead: row, rows: [row] }))
+
+  const buckets = new Map<string, DataRow[]>()
+  for (const row of rows) {
+    const value = cellValue(row, column)
+    if (value === null || value === "") continue
+    const key = String(value)
+    const bucket = buckets.get(key)
+    if (bucket === undefined) buckets.set(key, [row])
+    else bucket.push(row)
+  }
+
+  const seen = new Set<string>()
+  const out: GalleryUnit[] = []
+  for (const row of rows) {
+    const value = cellValue(row, column)
+    if (value === null || value === "") {
+      out.push({ stacked: false, lead: row, rows: [row] })
+      continue
+    }
+    const key = String(value)
+    if (seen.has(key)) continue
+    seen.add(key)
+    const bucket = buckets.get(key)
+    const lead = bucket?.[0]
+    if (bucket === undefined || lead === undefined) continue
+    out.push({ stacked: bucket.length >= 2, lead, rows: bucket })
+  }
+  return out
+}
+
+function galleryUnitHtml(unit: GalleryUnit, table: DataTable, block: GalleryBlock, posterStyle: string): string {
+  const card = galleryCardHtml(unit.lead, table, block, posterStyle)
+  if (!unit.stacked) return card
+  // 叠卡:骨架两叠垫在代表卡后面,几何由 `.note-gstack` 的伪元素负责。
+  return `<div class="note-gstack">\n${card}\n</div>`
+}
+
+/** 海报 = 第一个图片列的值(可空,落占位块),与编辑器 `posterOf` 同一取法。 */
+function galleryPosterOf(row: DataRow, columns: readonly DataColumn[]): string {
+  for (const column of columns) {
+    if (column.type !== "image") continue
+    const value = cellValue(row, column)
+    if (typeof value === "string") return value
+  }
+  return ""
+}
+
+function galleryCardHtml(row: DataRow, table: DataTable, block: GalleryBlock, posterStyle: string): string {
+  const poster = galleryPosterOf(row, table.columns)
+  const style = posterStyle === "" ? "" : ` style="${escapeHtml(posterStyle)}"`
+  const media =
+    poster === ""
+      ? `  <div class="note-gposter"${style}></div>`
+      : `  <img src="${escapeHtml(poster)}" alt=""${style}>`
+  // 字段 = 非图片列 − 被隐藏的列(海报位只认图片列,与编辑器 `visibleColumns` 一致)。
+  const fields = table.columns
+    .filter((column) => column.type !== "image" && !block.hiddenFields.includes(column.id))
+    .map((column) => galleryFieldHtml(row, column))
+    .join("")
+  return `<figure class="note-gcard">\n${media}\n  <figcaption>${fields}</figcaption>\n</figure>`
+}
+
+function galleryFieldHtml(row: DataRow, column: DataColumn): string {
+  const text = valueText(cellValue(row, column), column)
+  const value =
+    text === "" ? '<span class="v note-empty">空</span>' : `<span class="v">${escapeHtml(text)}</span>`
+  return `<span class="note-gfield"><span class="k">${escapeHtml(column.name)}</span>${value}</span>`
+}
+
+/**
+ * 看板块 → **展示快照 + 指针**(与画册同一条 ADR-0006 立场,详见 ADR-0008)。
  *
- * 内容就是 `snapshotTableHtml` 那一份快照表格,图片格照旧内联 data URI ——
- * 双击可读全数据,「不带 .tbl 也能读」的承诺不变。差别只有一层 `data-*` 属性:
- * 看板的分组列、卡片显示列、组序是**块的设置**,丢了要重新配,所以随快照一并写进文件,
- * 编辑器据此把它还原成活的看板块;第三方编辑器剥掉属性后剩下的就是一张普通表格。
+ * 导出的不是数据表快照表格,而是**与编辑器默认视图同构**的看板 HTML:按分组列
+ * 分列、「未分组」列恒在最左、便签卡带行 id 哈希出的固定浅色(`dt.kanbanCardColor`,
+ * 与编辑器同一真源)。静态文件没有拖拽与就地编辑,卡片是纯展示 —— 菜单按钮不导出。
  *
- * `data-fields` 存的是**显示列** id(正向,看板块独有语义),与画册 `data-fields`
- * 存**隐藏列** id(反向)语义相反 —— 两者分属不同的块类型属性,解析端各按其块认领,
- * 不会混淆。空显示列(默认全显)不写出,与画册空隐藏列不写出同一口径。
+ * 指针属性(`data-group` / `data-fields` / `data-group-order` / `data-show-empty`)
+ * 原样挂在容器 `div` 上,解析端凭它认领回活的看板块;旧版写法
+ * (`<table data-kanban>`)继续认。`data-fields` 存**显示列** id(正向,看板块独有
+ * 语义),与画册 `data-fields` 存**隐藏列** id(反向)语义相反 —— 两者分属不同的
+ * 块类型属性,解析端各按其块认领。
  *
- * 表读不到时仍写出带属性的空表:设置跟着笔记走,不因一次读盘失败蒸发;重开时
- * 块自己走「读不到」的提示态。
+ * 未选分组列(或指向的列被删)时编辑器走「请选分组列」提示态,静态按同一立场
+ * 只写空容器:设置不蒸发,内容不瞎猜。表读不到同理。
  */
 function kanbanHtml(block: KanbanBlock, table: DataTable | null): string {
   const attrs = [`data-kanban="${escapeHtml(block.path)}"`]
@@ -369,22 +486,70 @@ function kanbanHtml(block: KanbanBlock, table: DataTable | null): string {
   if (block.groupOrder.length > 0) attrs.push(`data-group-order="${escapeHtml(block.groupOrder.join(","))}"`)
   if (block.showEmptyGroups) attrs.push(`data-show-empty="true"`)
 
-  if (table === null || table.rows.length === 0) {
-    return `<table ${attrs.join(" ")}></table>`
-  }
+  const openTag = `<div class="note-kanban" ${attrs.join(" ")}>`
+  if (table === null || table.rows.length === 0) return openTag + "</div>"
 
-  return snapshotTableHtml(table, attrs.join(" "))
+  const groupColumn = table.columns.find((column) => column.id === block.groupColumnId) ?? null
+  if (groupColumn === null) return openTag + "</div>"
+
+  const { groups: bucketed, loose } = groupRows(table.rows, groupColumn, {
+    manualOrder: block.groupOrder,
+    emptySelectGroups: block.showEmptyGroups,
+  })
+  const lanes: { title: string; rows: readonly DataRow[] }[] = []
+  if (loose.length > 0 || block.showEmptyGroups) lanes.push({ title: "未分组", rows: loose })
+  for (const group of bucketed) lanes.push({ title: group.title, rows: group.rows })
+
+  // 卡片字段:全显模式(记录为空)下分组列由列头表达、不上卡片;显式清单按序过滤失效 id。
+  const fields =
+    block.displayColumnIds.length === 0
+      ? table.columns.filter((column) => column.id !== block.groupColumnId)
+      : block.displayColumnIds
+          .map((id) => table.columns.find((column) => column.id === id))
+          .filter((column): column is DataColumn => column !== undefined)
+
+  const sections = lanes.map((lane) => {
+    const cards = lane.rows.map((row) => kanbanCardHtml(row, fields)).join("\n")
+    const inner = cards === "" ? "" : `\n${cards}\n  `
+    return `  <section class="note-kcol">\n    <header><span class="t">${escapeHtml(lane.title)}</span><span class="n">${lane.rows.length}</span></header>\n    ${inner}</section>`
+  })
+  return `${openTag}\n${sections.join("\n")}\n</div>`
+}
+
+function kanbanCardHtml(row: DataRow, fields: readonly DataColumn[]): string {
+  const cells = fields.map((column) => kanbanFieldHtml(row, column)).join("")
+  return `<article class="note-kcard" style="background:${kanbanCardColor(row.id)}">${cells}</article>`
+}
+
+/** 卡片上一格:图片列显示「[图片]」占位(卡片小,不内联渲染图),勾选画出复选框,其余走文本投影。 */
+function kanbanFieldHtml(row: DataRow, column: DataColumn): string {
+  const label = `<span class="k">${escapeHtml(column.name)}</span>`
+  if (column.type === "image") {
+    const value = cellValue(row, column)
+    const text = typeof value === "string" && value !== "" ? "[图片]" : ""
+    return `<span class="note-kfield">${label}<span class="v${text === "" ? " note-empty" : ""}">${text === "" ? "空" : text}</span></span>`
+  }
+  if (column.type === "checkbox") {
+    return `<span class="note-kfield">${label}<input type="checkbox"${cellValue(row, column) === true ? " checked" : ""}></span>`
+  }
+  const text = valueText(cellValue(row, column), column)
+  const value =
+    text === "" ? '<span class="v note-empty">空</span>' : `<span class="v">${escapeHtml(text)}</span>`
+  return `<span class="note-kfield">${label}${value}</span>`
 }
 
 /**
- * 书签块 → **快照 + 指针**（与画册同一条 ADR-0006 立场）。
+ * 书签块 → **展示快照 + 指针**（与画册同一条 ADR-0006 立场）。
  *
- * 写出的是当前内容：每行一张 `<li>`，里面一枚 `<a data-link-shape="card">` ——
- * 与行内链接的书签卡片同一套标记与样式，导出文件双击就能看，指针（`data-bookmark`
- * 与字段选择）让它回编辑器后还是一块活的书签。名称列 / 链接列指向的列被删后,
- * 渲染态走「未设置 / 读不到」提示,快照保持最后见过的样子。
+ * 导出与编辑器同一构：`data-group-by` 分节（节标题 + 卡片宫格），每行一枚
+ * `<a data-link-shape="card">` —— 与行内链接的书签卡片同一套标记与样式，指针
+ * （`data-bookmark` 与字段选择）挂在容器 `div` 上让编辑器认领回活的块。旧版写法
+ * （`<ul data-bookmark>`）解析端继续认。名称列 / 链接列指向的列被删后,渲染态走
+ * 「未设置」提示,静态按同一立场只写空容器（与看板未选分组列的处理一致）。
  *
- * 表读不到时仍写出带属性的空列表:指针跟着笔记走,重开时块自己走提示态。
+ * 表读不到时仍写出带属性的空容器:指针跟着笔记走,重开时块自己走提示态。
+ * 图标保持字符派生(`data-icon`):图片图标的「加载成功才显示」靠运行时探测,
+ * 静态文件做不到,退回与行内链接卡片同一的字符形态。
  */
 function bookmarkHtml(block: BookmarkBlock, table: DataTable | null): string {
   const attrs = [`data-bookmark="${escapeHtml(block.path)}"`]
@@ -397,27 +562,51 @@ function bookmarkHtml(block: BookmarkBlock, table: DataTable | null): string {
   if (block.groupBy !== undefined && block.groupBy !== "") attrs.push(`data-group-by="${escapeHtml(block.groupBy)}"`)
   if (block.columns !== "auto") attrs.push(`data-columns="${block.columns}"`)
 
-  if (table === null) return `<ul class="note-bookmarks" ${attrs.join(" ")}></ul>`
+  const openTag = `<div class="note-bookmark" ${attrs.join(" ")}>`
+  if (table === null) return openTag + "</div>"
 
   const nameColumn = table.columns.find((column) => column.id === block.nameColumn)
   const urlColumn = table.columns.find((column) => column.id === block.urlColumn)
+  // 名称或链接列未设置:编辑器画「去设置」引导,静态同构地只留容器。
+  if (nameColumn === undefined || urlColumn === undefined) return openTag + "</div>"
   // 图标列设了就以列值为准(快照固化派生结果),空值逐行回退到链接派生。
   const iconColumn =
     block.iconColumn === undefined || block.iconColumn === "" ? undefined : table.columns.find((column) => column.id === block.iconColumn)
-  const items = table.rows.map((row) => {
-    const name = nameColumn === undefined ? "" : valueText(cellValue(row, nameColumn), nameColumn)
-    const url = urlColumn === undefined ? "" : valueText(cellValue(row, urlColumn), urlColumn)
-    const icon =
-      iconColumn === undefined ? "" : valueText(cellValue(row, iconColumn), iconColumn).trim().charAt(0).toUpperCase()
-    const card =
-      url === ""
-        ? escapeHtml(name)
-        : `<a href="${escapeHtml(url)}" data-link-shape="card" data-icon="${escapeHtml(icon === "" ? linkIcon(url) : icon)}">${escapeHtml(name)}</a>`
-    return `    <li>${card}</li>`
-  })
-  const inner = items.length === 0 ? "" : `\n${items.join("\n")}\n`
 
-  return `<ul class="note-bookmarks" ${attrs.join(" ")}>${inner}</ul>`
+  const byColumn =
+    block.groupBy === undefined || block.groupBy === ""
+      ? null
+      : table.columns.find((column) => column.id === block.groupBy) ?? null
+  const sections: { title: string | null; rows: readonly DataRow[] }[] = []
+  if (byColumn === null) sections.push({ title: null, rows: table.rows })
+  else {
+    const { groups: bucketed, loose } = groupRows(table.rows, byColumn)
+    for (const bucket of bucketed) sections.push({ title: bucket.title, rows: bucket.rows })
+    if (loose.length > 0) sections.push({ title: "未分组", rows: loose })
+  }
+
+  const itemsOf = (rows: readonly DataRow[]): string =>
+    rows
+      .map((row) => {
+        const name = valueText(cellValue(row, nameColumn), nameColumn)
+        const url = valueText(cellValue(row, urlColumn), urlColumn)
+        const icon =
+          iconColumn === undefined ? "" : valueText(cellValue(row, iconColumn), iconColumn).trim().charAt(0).toUpperCase()
+        const card =
+          url === ""
+            ? escapeHtml(name)
+            : `<a href="${escapeHtml(url)}" data-link-shape="card" data-icon="${escapeHtml(icon === "" ? linkIcon(url) : icon)}">${escapeHtml(name)}</a>`
+        return `    <li>${card}</li>`
+      })
+      .join("\n")
+
+  const nodes = sections.map((section) => {
+    const title = section.title === null ? "" : `  <p class="note-sec-title">${escapeHtml(section.title)}</p>\n`
+    const items = itemsOf(section.rows)
+    const inner = items === "" ? "" : `\n${items}\n  `
+    return `${title}  <ul class="note-bookmarks">${inner}</ul>`
+  })
+  return `${openTag}\n${nodes.join("\n")}\n</div>`
 }
 
 /**

@@ -406,14 +406,48 @@ ${headingRules}
     .note-layout[data-layout="flex"] > section { flex: 1 1 0; min-width: 8rem; }
     .note-layout > section > :first-child { margin-top: 0; }
     .note-layout > section > :last-child { margin-bottom: 0; }
-    .note-bookmarks { margin: ${BLOCK_SPACING.table.top}px 0; padding: 0; list-style: none;
+    .note-bookmark, .note-gallery, .note-kanban { margin: ${BLOCK_SPACING.gallery.top}px 0; }
+    .note-bookmark, .note-gallery { display: flex; flex-direction: column; gap: 12px; }
+    .note-sec-title { margin: 0; padding-bottom: 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
+    .note-gallery-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+    .note-gcard { margin: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: Canvas; }
+    .note-gcard img, .note-gposter { display: block; width: 100%; margin: 0; border-radius: 0; }
+    .note-gcard img { object-fit: cover; }
+    .note-gallery[data-fit="contain"] .note-gcard img { object-fit: contain; }
+    .note-gposter { background: var(--bg-soft); }
+    .note-gcard figcaption { padding: 4px 10px; }
+    .note-gfield { display: flex; align-items: center; gap: 8px; min-height: 24px; padding: 2px 0; }
+    .note-gfield .k, .note-kfield .k { flex: none; font-size: 11px; color: var(--muted); opacity: .7; white-space: nowrap; }
+    .note-gfield .v { min-width: 0; padding: 0 2px; font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .note-gstack { position: relative; padding-bottom: 12px; }
+    .note-gstack::before { content: ""; position: absolute; left: 8px; right: 8px; bottom: 4px; height: 8px;
+      border-radius: 0 0 8px 8px; background: rgba(128,128,128,.2); }
+    .note-gstack::after { content: ""; position: absolute; left: 16px; right: 16px; bottom: 0; height: 4px;
+      border-radius: 0 0 8px 8px; background: rgba(128,128,128,.12); }
+    .note-gstack .note-gcard { position: relative; z-index: 1; }
+    .note-kanban { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; }
+    .note-kcol { flex: none; width: 224px; padding: 8px; border-radius: 8px;
+      background: color-mix(in srgb, var(--bg-soft) 35%, transparent); }
+    .note-kcol header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding: 0 2px; }
+    .note-kcol header .t { font-size: 12px; font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .note-kcol header .n { flex: none; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--bg-soft);
+      font-size: 10px; color: var(--muted); }
+    .note-kcard { margin: 0; padding: 6px 8px; border: 1px solid rgba(0,0,0,.05); border-radius: 6px;
+      box-shadow: 0 1px 2px rgba(0,0,0,.1); color: #1c1c1e; }
+    .note-kcard + .note-kcard { margin-top: 8px; }
+    .note-kfield { display: flex; flex-direction: column; min-height: 16px; padding: 2px 0; }
+    .note-kfield .k { font-size: 10px; line-height: 1.25; color: rgba(0,0,0,.5); }
+    .note-kfield .v { font-size: 12px; line-height: 1.4; overflow-wrap: break-word; }
+    .note-kfield input[type="checkbox"] { width: 14px; height: 14px; margin: 0; accent-color: rgba(0,0,0,.7); }
+    .note-empty { color: var(--muted); opacity: .6; }
+    .note-bookmark .note-bookmarks { margin: 0; padding: 0; list-style: none;
       display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
-    .note-bookmarks[data-columns="1"] { grid-template-columns: repeat(1, 1fr); }
-    .note-bookmarks[data-columns="2"] { grid-template-columns: repeat(2, 1fr); }
-    .note-bookmarks[data-columns="3"] { grid-template-columns: repeat(3, 1fr); }
-    .note-bookmarks[data-columns="4"] { grid-template-columns: repeat(4, 1fr); }
-    .note-bookmarks[data-columns="5"] { grid-template-columns: repeat(5, 1fr); }
-    .note-bookmarks[data-columns="6"] { grid-template-columns: repeat(6, 1fr); }
+    .note-bookmark[data-columns="1"] .note-bookmarks { grid-template-columns: repeat(1, 1fr); }
+    .note-bookmark[data-columns="2"] .note-bookmarks { grid-template-columns: repeat(2, 1fr); }
+    .note-bookmark[data-columns="3"] .note-bookmarks { grid-template-columns: repeat(3, 1fr); }
+    .note-bookmark[data-columns="4"] .note-bookmarks { grid-template-columns: repeat(4, 1fr); }
+    .note-bookmark[data-columns="5"] .note-bookmarks { grid-template-columns: repeat(5, 1fr); }
+    .note-bookmark[data-columns="6"] .note-bookmarks { grid-template-columns: repeat(6, 1fr); }
     .note-bookmarks li { display: flex; justify-content: center; margin: 0; }
     mark { background-color: var(--mark-bg); color: inherit; }
     a[data-link-shape="card"] { display: inline-flex; flex-direction: column; align-items: center; gap: 6px;

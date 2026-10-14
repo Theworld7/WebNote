@@ -25,8 +25,9 @@ import * as dt from "@/lib/data-table"
  * 这里不再复述。差别的只有**展示**:横向几列分组、便签卡片、拖拽改值。
  *
  * 卡片背景色由行 id 哈希出固定浅色(同卡每次同色),不进 `.tbl` 也不进笔记 ——
- * 它是视图态,导出快照是普通表格不带颜色(与画册图片填充是块设置、但快照只存
- * 数据同一立场:颜色不是数据)。
+ * 它是视图态,导出快照不带颜色(与画册图片填充是块设置、但快照只存
+ * 数据同一立场:颜色不是数据)。调色板与哈希在 `dt.kanbanCardColor`,
+ * 导出侧画静态便签卡用同一份,两处观感不漂移。
  */
 const props = defineProps<{ block: KanbanBlock }>()
 
@@ -146,25 +147,6 @@ function toggleCheck(row: DataRow, column: DataColumn, event: Event): void {
   const target = event.target
   if (!(target instanceof HTMLInputElement)) return
   void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, target.checked)))
-}
-
-/** 便签贴纸的浅色调色板:保证黑字可读(背景足够浅)。 */
-const PALETTE = [
-  "#fff4c2",
-  "#ffe0b3",
-  "#ffd6e0",
-  "#d7f0d4",
-  "#d4e8ff",
-  "#e0d4ff",
-  "#d4f0ec",
-  "#f7e0c2",
-] as const
-
-/** 行 id 哈希出固定浅色:同卡每次同色,稳定可复现。 */
-function colorOf(id: string): string {
-  let h = 0
-  for (let i = 0; i < id.length; i += 1) h = (Math.imul(h, 31) + id.charCodeAt(i)) >>> 0
-  return PALETTE[h % PALETTE.length] ?? PALETTE[0]
 }
 
 // ---- 拖拽改值 ----
@@ -385,7 +367,7 @@ function openTable() {
             :key="row.id"
             :draggable="editing === ''"
             class="cursor-grab rounded-md border border-black/5 px-2 py-1.5 text-black shadow-sm transition-shadow hover:shadow-md active:cursor-grabbing"
-            :style="{ backgroundColor: colorOf(row.id) }"
+            :style="{ backgroundColor: dt.kanbanCardColor(row.id) }"
             @dragstart="onCardDragStart($event, row)"
           >
             <div v-for="column in displayColumns" :key="column.id" class="flex min-h-4 flex-col py-0.5">

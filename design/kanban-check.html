@@ -96,8 +96,9 @@ check("写 data-kanban", html.includes('data-kanban="看板.tbl"'), html.slice(0
 check("非空 groupColumnId 写 data-group", html.includes('data-group="c2"'))
 check("非空 displayColumnIds 写 data-fields", html.includes('data-fields="c1,c3"'))
 check("非空 groupOrder 写 data-group-order", html.includes('data-group-order="o2,o1"'))
-check("快照写出表头（名称/状态/负责）", html.includes("名称") && html.includes("状态") && html.includes("负责"))
-check("快照写出行值（任务A）", html.includes("任务A"))
+check("展示快照是看板容器(与编辑器视图同构)", html.includes('<div class="note-kanban"') && html.includes("note-kcol"), html)
+check("组名按组画出(进行中/已完成)", html.includes("进行中") && html.includes("已完成"), html)
+check("卡片写出字段名与值(名称/任务A)", html.includes("名称") && html.includes("任务A"), html)
 
 // ---------- 四、解析往返 ----------
 

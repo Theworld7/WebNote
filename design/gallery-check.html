@@ -82,7 +82,9 @@ check("快照带 data-gallery 指针", html.includes('data-gallery="追剧.tbl"'
 check("默认设置不写属性(对齐缺省立场)",
   !html.includes("data-columns") && !html.includes("data-ratio") && !html.includes("data-width") &&
   !html.includes("data-fit") && !html.includes("data-fields") && !html.includes("data-group"), html)
-check("图片格是真正的 <img>(自包含快照)", html.includes(`<td><img src="${URI}" alt="">`), html)
+check("展示快照是卡片容器(与编辑器视图同构)", html.includes('<div class="note-gallery"') && html.includes("note-gallery-grid"), html)
+check("图片格是真正的 <img>(自包含快照)", html.includes(`<img src="${URI}"`), html)
+check("字段以 label+value 画出", html.includes('class="note-gfield"') && html.includes("集数"), html)
 
 const custom = blocksToHtml([createGalleryBlock("追剧.tbl", 3, "contain", ["c1", "c2"], "9:16", "c9")], lookup)
 check("自定义列数写 data-columns", custom.includes('data-columns="3"'), custom)
@@ -95,9 +97,9 @@ const narrow = blocksToHtml([createGalleryBlock("追剧.tbl", "auto", "cover", [
 check("非默认宽度写 data-width", narrow.includes('data-width="70"'), narrow)
 check("宽度往返还原", parseHtml(`<body>${narrow}</body>`)[0].width === 70)
 
-// 表读不到:设置跟着笔记走,仍然写出带指针的空表。
+// 表读不到:设置跟着笔记走,仍然写出带指针的空容器。
 const missing = blocksToHtml([block], () => null)
-check("表读不到仍写出带指针的空表", missing.includes('data-gallery="追剧.tbl"') && missing.includes("<table"), missing)
+check("表读不到仍写出带指针的空容器", missing.includes('data-gallery="追剧.tbl"') && missing.includes('<div class="note-gallery"'), missing)
 
 // ---------- 四、解析:还原与宽容 ----------
 

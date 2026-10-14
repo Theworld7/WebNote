@@ -465,6 +465,32 @@ export function swapInOrder(values: readonly string[], value: string, dir: -1 | 
   return next
 }
 
+// ---- 看板便签色 ----
+
+/** 便签贴纸的浅色调色板:保证黑字可读(背景足够浅)。 */
+export const KANBAN_PALETTE = [
+  "#fff4c2",
+  "#ffe0b3",
+  "#ffd6e0",
+  "#d7f0d4",
+  "#d4e8ff",
+  "#e0d4ff",
+  "#d4f0ec",
+  "#f7e0c2",
+] as const
+
+/**
+ * 行 id 哈希出固定浅色:同卡每次同色,稳定可复现。
+ *
+ * 编辑器视图与导出快照共用这一个真源 —— 颜色不是数据(不进 `.tbl` 也不进笔记),
+ * 但它是看板观感的一半,两处各写一份迟早漂移。
+ */
+export function kanbanCardColor(id: string): string {
+  let h = 0
+  for (let i = 0; i < id.length; i += 1) h = (Math.imul(h, 31) + id.charCodeAt(i)) >>> 0
+  return KANBAN_PALETTE[h % KANBAN_PALETTE.length] ?? KANBAN_PALETTE[0]
+}
+
 // ---- 序列化 ----
 
 /**
