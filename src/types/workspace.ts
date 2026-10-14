@@ -224,6 +224,8 @@ export interface KanbanBlock {
   displayColumnIds: string[]
   /** 分组列的手排顺序:组原始值(文本列即其文本,select 列即选项 id)的有序列表。「未分组」列不参与手排恒在最左;列表外的组跟首现序排在后面,无需清洗。 */
   groupOrder: string[]
+  /** 是否显示没有卡片的空分组(select 分组列:选项存在但没有行落在它上面;「未分组」列同理)。默认 false —— 空列没有任何可看的,默认不占地方。 */
+  showEmptyGroups: boolean
 }
 
 /**

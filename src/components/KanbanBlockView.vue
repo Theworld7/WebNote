@@ -2,7 +2,7 @@
 import type { KanbanBlock } from "@/types/workspace"
 import type { DataColumn, DataRow, DataTable, DataCellValue } from "@/types/data-table"
 import type { TableEntry } from "@/composables/useTables"
-import { computed, onBeforeUnmount, onMounted, shallowRef, watch } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue"
 import { ChevronDownIcon, ChevronUpIcon, DatabaseIcon, Settings2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
@@ -111,6 +111,14 @@ const groups = computed<readonly KanbanGroup[]>(() => {
     else bucket.rows.push(row)
   }
 
+  // 显示空分组:select 列里没有行落在其上的选项也占一列 —— 空列正是拖卡归组的落点。
+  // 只对 select 有意义:其余类型的值来自行本身,凭空造不出「还没有行」的值。
+  if (props.block.showEmptyGroups && col.type === "select") {
+    for (const option of col.options) {
+      if (!buckets.has(option.id)) buckets.set(option.id, { value: option.id, label: option.name, rows: [] })
+    }
+  }
+
   // 手排:groupOrder 里记录的组按记录序靠前,没记录的跟首现序排在后面。
   const recorded = props.block.groupOrder
   const ordered = [...buckets.values()]
@@ -122,7 +130,7 @@ const groups = computed<readonly KanbanGroup[]>(() => {
     })
 
   const out: KanbanGroup[] = []
-  if (ungrouped.length > 0) {
+  if (ungrouped.length > 0 || props.block.showEmptyGroups) {
     out.push({ key: "__ungrouped__", value: null, label: "未分组", rows: ungrouped })
   }
   for (const { bucket } of ordered) {
@@ -156,6 +164,54 @@ function cellOf(row: DataRow, column: DataColumn): string {
   const v = dt.cellValue(row, column)
   if (column.type === "image") return typeof v === "string" && v !== "" ? "[图片]" : ""
   return dt.valueText(v, column)
+}
+
+// ---- 卡片上的内联编辑 ----
+
+/**
+ * 点击格值 → 就地编辑:文本 / 数字 / 日期是输入框(失焦提交),select 换成下拉,
+ * 勾选直接切换。与画册卡片共用同一套口径(解析走 `dt.parseCellInput`)——
+ * 同一格在表格编辑页 / 画册卡 / 看板卡三个入口编辑,规则必须一致。
+ */
+const editing = ref("")
+
+function cellKey(row: DataRow, column: DataColumn): string {
+  return row.id + ":" + column.id
+}
+
+function focusOnMount(el: unknown): void {
+  if (el instanceof HTMLInputElement) el.focus()
+}
+
+/** Enter 提交:失焦即触发写盘。卡片上按 Enter 的直觉是「这个值填完了」。 */
+function commitOnEnter(event: Event): void {
+  const target = event.target
+  if (target instanceof HTMLInputElement) target.blur()
+}
+
+/** 失焦提交。值没变就不写盘。 */
+function commitOnBlur(row: DataRow, column: DataColumn, event: Event): void {
+  const target = event.target
+  if (!(target instanceof HTMLInputElement)) return
+  const parsed = dt.parseCellInput(target.value, column.type)
+  if (parsed === dt.cellValue(row, column)) return
+  void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, parsed)))
+}
+
+/** select 格:下拉直接换选项(值就是选项 id),空选项 = 清空。 */
+function commitSelect(row: DataRow, column: DataColumn, event: Event): void {
+  const target = event.target
+  if (!(target instanceof HTMLSelectElement)) return
+  const value: DataCellValue = target.value === "" ? null : target.value
+  if (value === dt.cellValue(row, column)) return
+  void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, value)))
+}
+
+/** 勾选格直接切换,不需要「点进编辑」那一层。 */
+function toggleCheck(row: DataRow, column: DataColumn, event: Event): void {
+  const target = event.target
+  if (!(target instanceof HTMLInputElement)) return
+  void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, target.checked)))
 }
 
 /** 便签贴纸的浅色调色板:保证黑字可读(背景足够浅)。 */
@@ -239,37 +295,29 @@ function moveGroup(value: string, dir: -1 | 1): void {
   updateKanbanBlock(props.block.id, { groupOrder: values })
 }
 
-/** 该列是否在卡片上显示。全显模式(displayColumnIds 空)下默认全显。 */
+/** 该列是否在卡片上显示。全显模式(displayColumnIds 空)下分组列由列头表达、不上卡片,其余列全显。 */
 function isFieldShown(column: DataColumn): boolean {
-  return props.block.displayColumnIds.length === 0 || props.block.displayColumnIds.includes(column.id)
+  if (props.block.displayColumnIds.length === 0) return column.id !== props.block.groupColumnId
+  return props.block.displayColumnIds.includes(column.id)
 }
 
 /**
- * 切换某列的显隐。全显模式下取消某列 → 进入显式模式(显示其余全部);显式模式下
- * 勾全 → 恢复全显默认(清空 displayColumnIds,省下存储也与「默认即全显」口径一致)。
- * 分组列本身不参与显隐切换 —— 它由列头表达,在卡片里重复没有读法。
+ * 切换某列的显隐。全显模式下取消某列 → 进入显式模式(显示其余全部);勾上分组列
+ * 同样进入显式模式(全列显式)。显式模式下勾齐「分组列以外的全部」→ 恢复全显默认
+ * (清空 displayColumnIds,省下存储也与「默认即全显」口径一致)。
  */
 function toggleField(column: DataColumn, checked: boolean): void {
-  const allShown = props.block.displayColumnIds.length === 0
-  if (checked) {
-    if (allShown) return
-    const next = [...props.block.displayColumnIds, column.id]
-    const selectable = columns.value.filter((item) => item.id !== props.block.groupColumnId)
-    updateKanbanBlock(
-      props.block.id,
-      next.length === selectable.length ? { displayColumnIds: [] } : { displayColumnIds: next },
-    )
-  } else {
-    if (allShown) {
-      const next = columns.value
-        .filter((item) => item.id !== props.block.groupColumnId && item.id !== column.id)
-        .map((item) => item.id)
-      updateKanbanBlock(props.block.id, { displayColumnIds: next })
-    } else {
-      const next = props.block.displayColumnIds.filter((id) => id !== column.id)
-      updateKanbanBlock(props.block.id, { displayColumnIds: next })
-    }
+  const current = props.block.displayColumnIds
+  if (current.length === 0) {
+    // 全显模式:非分组列本来就显示,只有勾上分组列才需要进显式模式。
+    if (!checked || column.id !== props.block.groupColumnId) return
+    updateKanbanBlock(props.block.id, { displayColumnIds: columns.value.map((item) => item.id) })
+    return
   }
+  const next = checked ? [...current, column.id] : current.filter((id) => id !== column.id)
+  const base = columns.value.filter((item) => item.id !== props.block.groupColumnId)
+  const collapsesToAll = !next.includes(props.block.groupColumnId) && base.every((item) => next.includes(item.id))
+  updateKanbanBlock(props.block.id, { displayColumnIds: collapsesToAll ? [] : next })
 }
 
 const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-0"
@@ -370,13 +418,20 @@ function openTable() {
           </div>
           <template v-if="props.block.groupColumnId !== ''">
             <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
+            <DropdownMenuCheckboxItem
+              :class="ITEM"
+              :model-value="props.block.showEmptyGroups"
+              @update:model-value="(checked: boolean) => updateKanbanBlock(props.block.id, { showEmptyGroups: checked })"
+              @select.prevent
+            >
+              <span class="truncate">显示空分组</span>
+            </DropdownMenuCheckboxItem>
             <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
               卡片显示字段
             </DropdownMenuLabel>
             <DropdownMenuCheckboxItem
               v-for="column in columns"
               :key="column.id"
-              v-show="column.id !== props.block.groupColumnId"
               :class="ITEM"
               :model-value="isFieldShown(column)"
               @update:model-value="(checked: boolean) => toggleField(column, checked)"
@@ -417,14 +472,52 @@ function openTable() {
           <article
             v-for="row in group.rows"
             :key="row.id"
-            draggable="true"
+            :draggable="editing === ''"
             class="cursor-grab rounded-md border border-black/5 px-2 py-1.5 text-black shadow-sm transition-shadow hover:shadow-md active:cursor-grabbing"
             :style="{ backgroundColor: colorOf(row.id) }"
             @dragstart="onCardDragStart($event, row)"
           >
             <div v-for="column in displayColumns" :key="column.id" class="flex min-h-4 flex-col py-0.5">
               <span class="text-[10px] leading-tight text-black/50">{{ column.name }}</span>
-              <span class="break-words text-[12px] leading-snug" :class="cellOf(row, column) === '' && 'text-black/30'">{{ cellOf(row, column) || "空" }}</span>
+              <!-- 图片格不就地编辑:data URI 在卡片上没处看,换图去数据表。 -->
+              <span v-if="column.type === 'image'" class="break-words text-[12px] leading-snug" :class="cellOf(row, column) === '' && 'text-black/30'">{{ cellOf(row, column) || "空" }}</span>
+
+              <input
+                v-else-if="column.type === 'checkbox'"
+                type="checkbox"
+                class="size-3.5 accent-black/70"
+                :checked="dt.cellValue(row, column) === true"
+                @change="(event: Event) => toggleCheck(row, column, event)"
+              >
+
+              <select
+                v-else-if="column.type === 'select'"
+                class="w-full cursor-pointer rounded bg-transparent text-[12px] leading-snug outline-none"
+                :value="String(dt.cellValue(row, column) ?? '')"
+                @change="(event: Event) => commitSelect(row, column, event)"
+              >
+                <option value="">未选择</option>
+                <option v-for="option in column.options" :key="option.id" :value="option.id">{{ option.name }}</option>
+              </select>
+
+              <input
+                v-else-if="editing === cellKey(row, column)"
+                :ref="focusOnMount"
+                class="w-full min-w-0 rounded bg-transparent px-0.5 text-[12px] leading-snug outline-none"
+                :value="cellOf(row, column)"
+                :placeholder="column.type === 'date' ? 'YYYY-MM-DD' : ''"
+                @keydown.enter.prevent="commitOnEnter"
+                @blur="(event: Event) => { commitOnBlur(row, column, event); editing = '' }"
+              >
+
+              <button
+                v-else
+                type="button"
+                class="w-full min-w-0 rounded px-0.5 text-left text-[12px] leading-snug hover:bg-black/5"
+                @click="editing = cellKey(row, column)"
+              >
+                <span class="break-words" :class="cellOf(row, column) === '' && 'text-black/30'">{{ cellOf(row, column) || "空" }}</span>
+              </button>
             </div>
           </article>
         </div>

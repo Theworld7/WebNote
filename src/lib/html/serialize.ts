@@ -365,6 +365,7 @@ function kanbanHtml(block: KanbanBlock, table: DataTable | null): string {
   if (block.groupColumnId !== "") attrs.push(`data-group="${escapeHtml(block.groupColumnId)}"`)
   if (block.displayColumnIds.length > 0) attrs.push(`data-fields="${escapeHtml(block.displayColumnIds.join(","))}"`)
   if (block.groupOrder.length > 0) attrs.push(`data-group-order="${escapeHtml(block.groupOrder.join(","))}"`)
+  if (block.showEmptyGroups) attrs.push(`data-show-empty="true"`)
 
   if (table === null || table.rows.length === 0) {
     return `<table ${attrs.join(" ")}></table>`

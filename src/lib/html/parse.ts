@@ -348,7 +348,8 @@ function parseGallery(table: HTMLTableElement): GalleryBlock | null {
  *
  * 属性**宽容**读取:`data-group` / `data-fields` / `data-group-order` 的列 id 原样收下,
  * 不校验列还存在 —— 指向的列被删后渲染时自然退化为「未分组」一列 / 全显,与画册
- * hiddenFields 残留 id 的立场一致。路径没有默认值可落,留空串走「读不到」提示态。
+ * hiddenFields 残留 id 的立场一致。`data-show-empty` 只认字面 "true"。
+ * 路径没有默认值可落,留空串走「读不到」提示态。
  */
 function parseKanban(table: HTMLTableElement): KanbanBlock | null {
   const path = table.getAttribute("data-kanban")
@@ -359,8 +360,9 @@ function parseKanban(table: HTMLTableElement): KanbanBlock | null {
   const displayColumnIds = fields === "" ? [] : fields.split(",").filter((id) => id !== "")
   const order = table.getAttribute("data-group-order") ?? ""
   const groupOrder = order === "" ? [] : order.split(",").filter((item) => item !== "")
+  const showEmptyGroups = table.getAttribute("data-show-empty") === "true"
 
-  return createKanbanBlock(path, groupColumnId, displayColumnIds, groupOrder)
+  return createKanbanBlock(path, groupColumnId, displayColumnIds, groupOrder, showEmptyGroups)
 }
 
 /**

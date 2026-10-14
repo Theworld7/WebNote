@@ -237,8 +237,9 @@ export function createKanbanBlock(
   groupColumnId = "",
   displayColumnIds: string[] = [],
   groupOrder: string[] = [],
+  showEmptyGroups = false,
 ): KanbanBlock {
-  return { id: createBlockId(), type: "kanban", path, groupColumnId, displayColumnIds, groupOrder }
+  return { id: createBlockId(), type: "kanban", path, groupColumnId, displayColumnIds, groupOrder, showEmptyGroups }
 }
 
 /**

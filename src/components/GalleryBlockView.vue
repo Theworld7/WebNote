@@ -729,7 +729,7 @@ function focusOnMount(el: unknown): void {
                   <input
                     v-else-if="editing === cellKey(row, column)"
                     :ref="focusOnMount"
-                    class="w-full min-w-0 bg-transparent text-[12px] outline-none"
+                    class="w-full min-w-0 rounded bg-transparent px-0.5 text-[12px] outline-none"
                     :value="cellOf(row, column)"
                     :placeholder="column.type === 'date' ? 'YYYY-MM-DD' : ''"
                     @keydown.enter.prevent="commitOnEnter"
