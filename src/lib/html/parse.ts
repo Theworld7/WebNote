@@ -1,5 +1,5 @@
-import type { Block, BookmarkBlock, ChatMessage, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
-import { createBookmarkBlock, createChatBlock, createGalleryBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createMermaidBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
+import type { Block, BookmarkBlock, ChatMessage, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, LedgerBlock, LedgerGroupMode, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
+import { createBookmarkBlock, createChatBlock, createGalleryBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createLedgerBlock, createMermaidBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
 import { runsText, textToRuns, trimRuns } from "@/lib/inline"
 import { isTableAlign } from "@/lib/table"
 import { runsFromNodes } from "./runs-dom"
@@ -159,6 +159,12 @@ function parseBlockElement(element: Element, state: ParseState, depth: number): 
       }
       if (element.hasAttribute("data-bookmark")) {
         state.blocks.push(parseBookmark(element))
+        return
+      }
+      // 账目块的展示快照容器:指针在容器上,内容是带小计合计的静态表格,
+      // 活数据从 `.tbl` 来,这里丢弃。没有指针的 div 照旧穿透。
+      if (element.hasAttribute("data-ledger")) {
+        state.blocks.push(parseLedger(element))
         return
       }
       break
@@ -427,6 +433,31 @@ function parseBookmark(container: Element): BookmarkBlock {
     columns,
     container.getAttribute("data-icon-column") ?? "",
     container.getAttribute("data-group-by") ?? "",
+  )
+}
+
+/**
+ * `data-ledger` 容器 → 账目块。没有 `data-ledger` 不会走到这里(调用方已判),
+ * 手工编辑过的文件按属性**宽容**读取:收入 / 支出列与分组列的列 id 原样收下、
+ * 不校验列还存在(指向的列被删后渲染时退化为未设置,与画册残留 id 的立场一致);
+ * `data-group-mode` 只认 "month" / "column",其余落回 none;`data-balance` 只认
+ * 字面 "false"(缺省即显示余额,与「缺省不落存储」咬合)。路径没有默认值可落,
+ * 留空串走「读不到」提示态。
+ */
+function parseLedger(container: Element): LedgerBlock {
+  const path = container.getAttribute("data-ledger") ?? ""
+  const rawMode = container.getAttribute("data-group-mode")
+  const groupColumnId = container.getAttribute("data-group") ?? ""
+  const groupMode: LedgerGroupMode =
+    groupColumnId === "" ? "none" : rawMode === "month" ? "month" : rawMode === "column" ? "column" : "none"
+
+  return createLedgerBlock(
+    path,
+    container.getAttribute("data-income") ?? "",
+    container.getAttribute("data-expense") ?? "",
+    container.getAttribute("data-balance") !== "false",
+    groupMode,
+    groupColumnId,
   )
 }
 

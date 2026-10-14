@@ -1,4 +1,5 @@
 import type { BlockType, TableEffect } from "@/types/workspace"
+import { LEDGER_EXPENSE_COLOR, LEDGER_INCOME_COLOR } from "@/lib/ledger"
 
 /**
  * 排版规格 —— 视觉常量的唯一真源。
@@ -217,6 +218,7 @@ export const BLOCK_SPACING: Readonly<Record<BlockType, BlockSpacing>> = {
   gallery: { top: 16, bottom: 16 },
   bookmark: { top: 16, bottom: 16 },
   kanban: { top: 16, bottom: 16 },
+  ledger: { top: 16, bottom: 16 },
   chat: { top: 16, bottom: 16 },
   layout: { top: 16, bottom: 16 },
 }
@@ -406,7 +408,16 @@ ${headingRules}
     .note-layout[data-layout="flex"] > section { flex: 1 1 0; min-width: 8rem; }
     .note-layout > section > :first-child { margin-top: 0; }
     .note-layout > section > :last-child { margin-bottom: 0; }
-    .note-bookmark, .note-gallery, .note-kanban { margin: ${BLOCK_SPACING.gallery.top}px 0; }
+    .note-bookmark, .note-gallery, .note-kanban, .note-ledger { margin: ${BLOCK_SPACING.gallery.top}px 0; }
+    .note-ledger table { margin: 0; }
+    .note-ledger th, .note-ledger td { padding: 0.35em 0.7em; }
+    .note-ledger .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .note-ledger .in { color: ${LEDGER_INCOME_COLOR}; }
+    .note-ledger .ex { color: ${LEDGER_EXPENSE_COLOR}; }
+    .note-ledger tr.note-ledger-group th { font-size: 12px; font-weight: 500; color: var(--muted); }
+    .note-ledger tr.note-ledger-group th .s { margin-left: 10px; font-weight: 400; }
+    .note-ledger tfoot td { font-weight: 500; background: var(--bg-soft); }
+    .note-ledger tfoot .lbl, .note-ledger .lbl { color: var(--muted); font-weight: 400; }
     .note-bookmark, .note-gallery { display: flex; flex-direction: column; gap: 12px; }
     .note-sec-title { margin: 0; padding-bottom: 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
     .note-gallery-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }

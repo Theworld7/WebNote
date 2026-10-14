@@ -12,6 +12,8 @@ import type {
   KanbanBlock,
   LayoutBlock,
   LayoutMode,
+  LedgerBlock,
+  LedgerGroupMode,
   MermaidBlock,
   TableBlock,
   TableCell,
@@ -71,6 +73,8 @@ export const BLOCK_TYPES = [
   { type: "bookmark", group: "媒体与数据", marker: "⚑", label: "书签" },
   // 紧挨 bookmark：看板块同样吃数据表的数据,按某列分组铺成几列,卡片可拖拽改值。
   { type: "kanban", group: "媒体与数据", marker: "☰", label: "看板" },
+  // 紧挨 kanban：账目块同样吃数据表的数据,按财务口径渲染成流水账(收入/支出/余额/小计)。
+  { type: "ledger", group: "媒体与数据", marker: "¥", label: "账目" },
   // 紧挨 kanban 之后、布局压轴之前:聊天记录是内容块,不是版面级重结构。
   { type: "chat", group: "媒体与数据", marker: "◌", label: "聊天记录" },
   // 压轴：容器块是「版面级」的重结构,跟在内容块族的最后。
@@ -145,6 +149,7 @@ export function isTextualBlock(block: Block): block is TextualBlock {
     block.type !== "gallery" &&
     block.type !== "bookmark" &&
     block.type !== "kanban" &&
+    block.type !== "ledger" &&
     block.type !== "chat" &&
     block.type !== "layout"
   )
@@ -157,7 +162,7 @@ export function isTextualBlock(block: Block): block is TextualBlock {
  * 这张表派生。serialize / parse 各自的读写分派虽仍逐块列出（编译器靠穷尽性兜住），
  * 但**凡是凭「有没有 path」区分的行为**都必须走这张表，不再各持一份会腐烂的清单。
  */
-export const REFERENCE_BLOCK_TYPES = ["datatable", "gallery", "bookmark", "kanban"] as const
+export const REFERENCE_BLOCK_TYPES = ["datatable", "gallery", "bookmark", "kanban", "ledger"] as const
 export type ReferenceBlockType = (typeof REFERENCE_BLOCK_TYPES)[number]
 
 /** 是否是引用块。命中时收窄到四种带 `path` 的结构块。 */
@@ -304,6 +309,25 @@ export function createKanbanBlock(
   return { id: createBlockId(), type: "kanban", path, groupColumnId, displayColumnIds, groupOrder, showEmptyGroups }
 }
 
+/**
+ * 造账目块。缺省不设收入 / 支出列、不分组 —— 视图显示提示态引导去设置;新建路径
+ * (`useWorkspace.insertLedgerBlock`)会按预置列把收入 / 支出指好,开箱即录。
+ * 带全参数的调用来自解析器 —— 盘上属性宽容读取后的值在这里收口成合法类型。
+ * `showBalance` 缺省 true;`groupMode` 传 month / column 时必须带 `groupColumnId`。
+ */
+export function createLedgerBlock(
+  path = "",
+  incomeColumnId = "",
+  expenseColumnId = "",
+  showBalance = true,
+  groupMode: LedgerGroupMode = "none",
+  groupColumnId = "",
+): LedgerBlock {
+  const block: LedgerBlock = { id: createBlockId(), type: "ledger", path, incomeColumnId, expenseColumnId, showBalance, groupMode, groupColumnId }
+  if (groupMode === "none") block.groupColumnId = ""
+  return block
+}
+
 /** 造聊天记录块。缺省空消息列表 = 空白记录，视图给出「添加消息」入口。 */
 export function createChatBlock(messages: ChatMessage[] = []): ChatBlock {
   return { id: createBlockId(), type: "chat", messages }
@@ -327,6 +351,7 @@ export function createBlock(type: BlockType, text = ""): Block {
   if (type === "gallery") return createGalleryBlock()
   if (type === "bookmark") return createBookmarkBlock()
   if (type === "kanban") return createKanbanBlock()
+  if (type === "ledger") return createLedgerBlock()
   if (type === "chat") return createChatBlock()
   if (type === "layout") return createLayoutBlock()
   return createTextualBlock(type, textToRuns(text))
@@ -345,7 +370,7 @@ export function retypeBlock(block: Block, type: BlockType): Block {
   if (type === "mermaid") {
     return { ...createMermaidBlock(), source: isTextualBlock(block) ? runsText(block.runs) : blockText(block) }
   }
-  if (type === "image" || type === "table" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "chat" || type === "layout") {
+  if (type === "image" || type === "table" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "chat" || type === "layout") {
     return createBlock(type)
   }
   if (!isTextualBlock(block)) return createTextualBlock(type, textToRuns(blockText(block)))
@@ -363,7 +388,8 @@ export function retypeBlock(block: Block, type: BlockType): Block {
  * `source` 是字符串，图片块那种平坦形态浅拷即可。
  */
 export function cloneBlock(block: Block, id: string): Block {
-  if (block.type === "image" || block.type === "mermaid" || block.type === "datatable" || block.type === "bookmark") {
+  // 平坦形态浅拷即可：账目块与数据表 / 书签一样全是原始值字段。
+  if (block.type === "image" || block.type === "mermaid" || block.type === "datatable" || block.type === "bookmark" || block.type === "ledger") {
     return { ...block, id }
   }
   // 画册的 hiddenFields 是数组：更新总以整体替换发生，但拷贝不该共享同一份。
@@ -407,6 +433,8 @@ export function blockText(block: Block): string {
   if (block.type === "bookmark") return block.path
   // 看板块只带路径 —— 分组列 / 显示列是展示设置,不是文本。
   if (block.type === "kanban") return block.path
+  // 账目块只带路径 —— 收入 / 支出列与分组是财务展示设置,不是文本。
+  if (block.type === "ledger") return block.path
   // 布局块把格子里的块递归拼起来 —— 字数统计因此覆盖容器内的内容。
   if (block.type === "layout") {
     return block.cells.map((cell) => cell.map((item) => blockText(item)).join(" ")).join(" ")

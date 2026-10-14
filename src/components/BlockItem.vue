@@ -34,6 +34,7 @@ import TableBlockView from "./TableBlockView.vue"
 import DataTableBlockView from "./DataTableBlockView.vue"
 import GalleryBlockView from "./GalleryBlockView.vue"
 import KanbanBlockView from "./KanbanBlockView.vue"
+import LedgerBlockView from "./LedgerBlockView.vue"
 import { CheckIcon, CopyIcon } from "@lucide/vue"
 import { CELL_EXCLUDED_TYPES } from "@/lib/blocks"
 
@@ -415,6 +416,8 @@ const bodyClass = computed(() => {
     <BookmarkBlockView v-else-if="block.type === 'bookmark'" :block="block" />
 
     <KanbanBlockView v-else-if="block.type === 'kanban'" :block="block" />
+
+    <LedgerBlockView v-else-if="block.type === 'ledger'" :block="block" />
 
     <ChatBlockView v-else-if="block.type === 'chat'" :block="block" />
 

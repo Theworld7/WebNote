@@ -22,9 +22,9 @@ The atomic unit a Note is made of. Blocks are a flat list, not a tree.
 _Avoid_: Element, node, item, paragraph
 
 **Block type**:
-One of twenty-three identifiers. Fourteen are *textual* — they carry body content. Nine are
+One of twenty-four identifiers. Fourteen are *textual* — they carry body content. Ten are
 *structural* and carry their own fields: `image`, `table`, `mermaid`, `datatable`,
-`gallery`, `bookmark`, `kanban`, `chat`, `layout`.
+`gallery`, `bookmark`, `kanban`, `ledger`, `chat`, `layout`.
 _Avoid_: Kind, variant, tag
 
 **Textual block**:
@@ -34,8 +34,8 @@ _Avoid_: Rich block, text block
 
 **Structural block**:
 A Block that is not textual: an Image, a Table, a Mermaid diagram, a Data table block, a
-Bookmark, a Kanban, a Chat record, or a Layout. Each owns its own fields instead of a run
-list.
+Bookmark, a Kanban, a Ledger, a Chat record, or a Layout. Each owns its own fields instead
+of a run list.
 _Avoid_: Widget, embed, special block
 
 **Chat record**:
@@ -171,6 +171,19 @@ a fixed tint hashed from the row id; it is view state, not written to the `.tbl`
 _Avoid_: Board view (a board is the concept; the Block is a Kanban block), swimlane, column
 (switch (the board's) to Group), sticky (switch to Card), status column (the group column is any
 column, not necessarily a status)
+
+**Ledger block**:
+A structural Block that renders a Data table as a running account: an income column and an
+expense column (either may be unset — a gift ledger sets only the income), signed ¥-formatted
+amounts, a derived running-balance column, per-section subtotals and a grand total. Sections
+come from month grouping (a date column folded to YYYY-MM) or plain column grouping. It
+points at the same `.tbl` a Data table block would, but adds **financial settings** (the two
+money columns, the balance toggle, the grouping) that belong to the block. The balance is
+computed over row order every render — never stored. On disk it travels as a snapshot **with**
+a pointer (`data-ledger` + settings on a `<div>` wrapping a totals table), on the same terms
+as the Gallery block. Amounts are plain numbers in the `.tbl`; formatting is the view's job.
+_Avoid_: Account block, bookkeeping view, money column (there is no money column type),
+balance column in the table (it is view-derived, not a Data column)
 
 **Missing Data table**:
 The state of a Data table block whose path no longer resolves. It is a normal, recoverable

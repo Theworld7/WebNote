@@ -2,7 +2,9 @@ import type { InjectionKey } from "vue"
 import type { Block, BlockSettingsPatch, BlockType, ChatMessage, CloseStrategy, CreateTarget, FileNode, InlineRun, LayoutMode, OpenTab, TableAlign, TableCell } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref, watch } from "vue"
-import { cloneBlock, countChars, createBlock, createBlockId, createBookmarkBlock, createDataTableBlock, createGalleryBlock, createKanbanBlock, isReferenceBlock, isTextualBlock, retypeBlock } from "@/lib/blocks"
+import { cloneBlock, countChars, createBlock, createBlockId, createBookmarkBlock, createDataTableBlock, createGalleryBlock, createKanbanBlock, createLedgerBlock, isReferenceBlock, isTextualBlock, retypeBlock } from "@/lib/blocks"
+import { createLedgerPreset } from "@/lib/ledger"
+import type { DataTable } from "@/types/data-table"
 import { describeError } from "@/lib/errors"
 import { parseHtml, serializeHtml } from "@/lib/html"
 import type { DataTableLookup } from "@/lib/html"
@@ -337,11 +339,11 @@ function createWorkspace() {
    * `null` 表示没接上 —— 那时新建数据表会失败并给出一句明确的错，而不是写一个空文件。
    */
   const tableWriter = ref<
-    ((driver: WorkspaceFs, root: FsRoot, path: string) => Promise<void>) | null
+    ((driver: WorkspaceFs, root: FsRoot, path: string, initial?: DataTable) => Promise<void>) | null
   >(null)
 
   function attachTableCreate(
-    writer: (driver: WorkspaceFs, root: FsRoot, path: string) => Promise<void>,
+    writer: (driver: WorkspaceFs, root: FsRoot, path: string, initial?: DataTable) => Promise<void>,
   ) {
     tableWriter.value = writer
   }
@@ -1030,9 +1032,10 @@ function createWorkspace() {
 
     let path = target
     if (path === "") {
-      path = await resolveDataTableForNote(notePath)
+      const resolved = await resolveDataTableForNote(notePath)
       // 解析不出来（没有工作区、用户取消、写盘失败）就不插块 —— 留一个读不到的
       // 引用块比什么都不做更糟，用户会以为已经建好了。
+      path = resolved.path
       if (path === "") return ""
     }
 
@@ -1058,7 +1061,7 @@ function createWorkspace() {
 
     let path = target
     if (path === "") {
-      path = await resolveDataTableForNote(notePath, stem)
+      path = (await resolveDataTableForNote(notePath, stem)).path
       if (path === "") return ""
     }
 
@@ -1079,7 +1082,7 @@ function createWorkspace() {
 
     let path = target
     if (path === "") {
-      path = await resolveDataTableForNote(notePath, stem)
+      path = (await resolveDataTableForNote(notePath, stem)).path
       if (path === "") return ""
     }
 
@@ -1100,11 +1103,38 @@ function createWorkspace() {
 
     let path = target
     if (path === "") {
-      path = await resolveDataTableForNote(notePath, stem)
+      path = (await resolveDataTableForNote(notePath, stem)).path
       if (path === "") return ""
     }
 
     const block = createKanbanBlock(path)
+    const at = Math.min(Math.max(index, 0), blocks.length)
+    blocks.splice(at, 0, block)
+    markDirty()
+    return block.id
+  }
+
+  /**
+   * 在当前笔记里插入一个账目块。与看板块同构(先有表才有块,`target` 为空时按 `stem`
+   * 新建、撞名直接引用),差别在**新建**那一步:预置 `日期 / 摘要 / 收入 / 支出` 四列
+   * 写盘,并把收入 / 支出列指到预置列上 —— 三种记账场景开箱即录,不用先去设置里挑列。
+   * 撞名引用已有表时不指列(id 对不上别人的列),视图走「未设置」提示态让用户自己挑。
+   */
+  async function insertLedgerBlock(index: number, target = "", stem = ""): Promise<string> {
+    const blocks = activeDocument.value
+    const notePath = activePath.value
+
+    let block = createLedgerBlock(target)
+    if (target === "") {
+      const preset = createLedgerPreset()
+      const resolved = await resolveDataTableForNote(notePath, stem, preset.table)
+      if (resolved.path === "") return ""
+      // 只有真的新建才按预置列指好金额列;撞名引用的是别人的表,id 对不上。
+      block = resolved.created
+        ? createLedgerBlock(resolved.path, preset.incomeColumnId, preset.expenseColumnId)
+        : createLedgerBlock(resolved.path)
+    }
+
     const at = Math.min(Math.max(index, 0), blocks.length)
     blocks.splice(at, 0, block)
     markDirty()
@@ -1120,7 +1150,7 @@ function createWorkspace() {
    */
   async function convertBlockToFileType(
     id: string,
-    type: "datatable" | "gallery" | "bookmark" | "kanban",
+    type: "datatable" | "gallery" | "bookmark" | "kanban" | "ledger",
     target = "",
     stem = "",
   ): Promise<string> {
@@ -1130,12 +1160,20 @@ function createWorkspace() {
 
     let path = target
     if (path === "") {
-      path = await resolveDataTableForNote(activePath.value, stem)
+      path = (await resolveDataTableForNote(activePath.value, stem)).path
       if (path === "") return ""
     }
 
     const block =
-      type === "gallery" ? createGalleryBlock(path) : type === "bookmark" ? createBookmarkBlock(path) : type === "kanban" ? createKanbanBlock(path) : createDataTableBlock(path)
+      type === "gallery"
+        ? createGalleryBlock(path)
+        : type === "bookmark"
+          ? createBookmarkBlock(path)
+          : type === "kanban"
+            ? createKanbanBlock(path)
+            : type === "ledger"
+              ? createLedgerBlock(path)
+              : createDataTableBlock(path)
     blocks[index] = block
     markDirty()
     return block.id
@@ -1149,33 +1187,37 @@ function createWorkspace() {
    * 这正是「在 Note 中创建数据表」的一个自然特例。
    *
    * `stem` 可指定名字主干：画册块的「新建表…」允许用户自己起名，不跟笔记同名。
+   *
+   * `initial` 可指定新建时的初始内容（账目块的预置四列从这里来）；撞名引用已有表时
+   * 它被无视 —— 不能往别人已有的表里塞列。返回 `created` 让调用方区分两种落点：
+   * 只有**真的新建**才谈得上「按预置列指好金额列」，撞名引用留给用户自己挑。
    */
-  async function resolveDataTableForNote(notePath: string, stem = ""): Promise<string> {
+  async function resolveDataTableForNote(notePath: string, stem = "", initial?: DataTable): Promise<{ path: string; created: boolean }> {
     const driver = fs.value
     const current = root.value
-    if (driver === null || current === null) return ""
+    if (driver === null || current === null) return { path: "", created: false }
 
     const parent = parentOfPath(notePath)
     const name = stem === "" ? fileStem(fileName(notePath)) : stem
     const candidate = joinPath(parent, `${name}${TABLE_EXTENSION}`)
 
     try {
-      if (await driver.exists(current, candidate)) return candidate
+      if (await driver.exists(current, candidate)) return { path: candidate, created: false }
     } catch (error) {
       fsError.value = `检查数据表失败：${describeError(error)}`
-      return ""
+      return { path: "", created: false }
     }
 
     const write = tableWriter.value
     if (write === null) {
       fsError.value = "数据表写入通道未接上"
-      return ""
+      return { path: "", created: false }
     }
     try {
-      await write(driver, current, candidate)
+      await write(driver, current, candidate, initial)
     } catch (error) {
       fsError.value = `新建数据表「${name}${TABLE_EXTENSION}」失败：${describeError(error)}`
-      return ""
+      return { path: "", created: false }
     }
 
     // 盘上建好了，把它刷进树 —— 不刷的话用户看不到新文件，会以为是失败了。
@@ -1184,7 +1226,7 @@ function createWorkspace() {
     } catch (error) {
       fsError.value = `数据表已建好，但刷新目录失败：${describeError(error)}`
     }
-    return candidate
+    return { path: candidate, created: true }
   }
 
   function insertBlockAfter(id: string, type: BlockType): string {
@@ -1461,6 +1503,7 @@ function createWorkspace() {
     insertGalleryBlock,
     insertBookmarkBlock,
     insertKanbanBlock,
+    insertLedgerBlock,
     convertBlockToFileType,
     updateBlockSettings,
     tablePaths,

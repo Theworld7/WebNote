@@ -24,7 +24,7 @@ pnpm icon          # 重算应用图标（改 design/icon/icon.tokens.json 之�
 
 ## 现在能做什么
 
-- **块模型编辑**：文本、H1–H3、待办、无序 / 有序列表、引用、代码块、标注、分割线、图片、表格、数据表引用块、看板块
+- **块模型编辑**：文本、H1–H3、待办、无序 / 有序列表、引用、代码块、标注、分割线、图片、表格、数据表引用块、看板块、账目块（可就地增删改条目）
 - **行内格式**：加粗、高亮 —— 选中文字浮出格式条，键盘走 `Cmd/Ctrl+B` 与 `Cmd/Ctrl+Shift+H`
 - **文件侧**：左侧目录树、标签栏、未保存标记、关标签时拦截确认，新建笔记 / 文件夹 / 数据表，拖动笔记进出文件夹
 - **数据表**：`.tbl` 文件（标准 JSON）是一份**独立文档**，有自己的标签页，能被**任意多篇笔记同时引用**
@@ -81,6 +81,8 @@ pnpm icon          # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | `data-table-check.html` | 数据表：`.tbl` schema 往返（列顺序 / 原生值 / `null` 空值 / `select` 选项）、宽容解析（认不出的列类型退回 `text`、对不上列的键丢掉、version 超范围抛错）、引用块 → 快照 `<table>` 导出（含无 lookup 的提示态与「读回来是普通表格块」这个有意的不精确往返）、注册表（同路径同一对象、`missing` vs `failed`、preload / 引用计数 / mutate 落盘）、引用块与数据表编辑器的真实渲染 |
 | `gallery-check.html` | 画册块：登记表（紧挨数据表、工厂默认值、cloneBlock 深拷 `hiddenFields`）、快照+指针导出（`data-gallery` 恒写、非默认设置才写 `data-columns`/`data-ratio`/`data-fit`/`data-fields`、图片格 `<img>` 内联、表读不到仍带指针的空表）、宽容解析（缺属性/非法列数/非法与越界比例落回默认、无 `data-gallery` 退化成普通表格块） |
 | `kanban-check.html` | 看板块：登记表（紧挨 bookmark、marker ☰、工厂默认值、cloneBlock 深拷 `displayColumnIds`）、快照+指针导出（`data-kanban` 恒写、非空才写 `data-group`/`data-fields`、缺省不落存储、表头表体快照、`data-fields` 存显示列正向语义）、解析往返（path/groupColumnId/displayColumnIds 一致、快照行丢弃）、宽容解析（缺 `data-group` 落空、缺 `data-fields` 落空数组、无 `data-kanban` 走普通表格）、与画册不混淆（`data-gallery`/`data-kanban` 各按其块认领） |
+| `ledger-check.html` | 账目块：登记表（紧挨 kanban、marker ¥、工厂默认值、cloneBlock 独立）、财务口径纯函数（求和 / 逐行累计余额 / 千分位与带符号金额 / 按月与按列分节 / 预置四列）、快照+指针导出（`data-ledger` 恒写、非空才写 `data-income`/`data-expense`/`data-group-mode`、`data-balance="false"` 才写、节标题行带小计、tfoot 合计带结余、未设列退化为纯表格）、解析往返、宽容解析（缺属性落默认、非法 `data-group-mode` 落 none、无 `data-ledger` 走普通表格）、与画册/看板不混淆 |
+| `ledger-edit-check.html` | 账目块就地增删改：渲染（行号列 = 整表行序、表头 + 余额列、带符号金额、逐行余额、tfoot 合计与结余）、改（点金额格进编辑态给的是**原始数字**、提交后格值与余额与合计一起重算）、回车跳下一行同列、末行回车退出编辑态、增（表底「记一笔」追加到末位并聚焦新行首格）、删（行号列悬停那颗钮，行号重排）、分组下新行落进「未分组」节、保存后读盘核对（数字类型、被删行不在盘上、新增行与空值键、笔记快照的分组设置与重算合计）；**抖动守卫**（进出编辑态前后表格几何逐项相同：表宽 / 行高 / 列宽，编辑框与格值按钮同框，右对齐列里的编辑框仍靠右 —— 理由见下方注） |
 | `layout-check.html` | 布局块：格子内块 HTML 的递归往返（grid 缺省与三列 / flex / 行内标记 / 多块格子 / 空格子 / 零格子）、宽容解析（非法 `data-layout` 回退 grid、`data-columns` 越界与非数字落回缺省、非 section 子元素忽略）、序列化形态（缺省列数不落存储、flex 不认列数）、`blockText` 投影、导出 CSS 的 grid/flex 规则 |
 
 页面会把每个用例输出成 `OK` / `FAIL` 行，便于用无头浏览器 `--dump-dom` 抠出来做回归。
@@ -91,6 +93,16 @@ pnpm icon          # 重算应用图标（改 design/icon/icon.tokens.json 之�
 > 想看排版观感就加个环境变量整页截图：`SHOT=/tmp/x.png node design/cdp-dump.mjs <url>`。
 >
 > `data-table-check.html` 同理（它要挂真实组件、等读盘回来）。
+> `ledger-edit-check.html` 也是（挂真实编辑器 + OPFS，合成事件走一遍增删改，末了真写盘再读回来核对）。
+>
+> 账目块的格值按钮与编辑框为什么一个在流里、一个绝对定位浮在上面（而不是直接二选一渲染）：
+> 表格是 auto 布局，列宽由「格里内容的最大宽度」算出来。`<input>` 自带约 20 字符的
+> intrinsic 宽度（`size` 属性的默认值），而 `w-full` 这类百分比宽度在**算内在尺寸时退化为
+> auto** —— 一旦让输入框顶掉按钮，它就把整列从 ~126px 撑到 ~220px，其余列被挤走，点一下
+> 整张表横向抖一次。让按钮留在流里定住列宽、输入框 `inset-0` 浮上去，几何就一动不动；
+> 顺带把 `text-align` 显式写死（`input` 的计算值是 UA 的 `start`，不继承 `td` 的 `right`，
+> 否则数字一进编辑态就跳到左边）。看板卡没这个问题：卡片宽度被 `w-56 shrink-0` 的列定死，
+> 输入框不参与列宽计算。
 
 > `src/data/notes/**` 是本地私人的测试工作区，已从仓库排除。缺它时 `parse-check.html`
 > 会改跑内置样本，不会因此变红。

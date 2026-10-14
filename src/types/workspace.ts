@@ -56,7 +56,7 @@ export type TextualBlockType =
   | "divider"
 
 /** 全部块类型 = 正文类 + 结构类。派生而常量列表，避免两处维护。 */
-export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "kanban" | "chat" | "layout"
+export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "kanban" | "ledger" | "chat" | "layout"
 
 /** 正文块。块之间是平铺列表；列表的嵌套层级用 `depth` 表达，不建树。 */
 export interface TextualBlock {
@@ -229,6 +229,45 @@ export interface KanbanBlock {
 }
 
 /**
+ * 账目块的分组方式。`none` 平铺;`month` 按日期列派生 YYYY-MM 节;`column` 按某列的值分节。
+ */
+export type LedgerGroupMode = "none" | "month" | "column"
+
+/**
+ * 账目块:把一张数据表按财务口径渲染成流水账 —— 收入列 / 支出列求和、逐行累计的
+ * 余额列、分组节小计与底部合计,金额统一 ¥ 千分位两位小数。
+ *
+ * 与画册 / 书签 / 看板同源:数据只在 `.tbl` 里(ADR-0005),块上只带引用路径与一组
+ * **财务展示设置** —— 同一张表在两篇笔记里可以一套按月记账、一套按类目汇总。
+ * 三种记账场景(礼账 / 日常 / 公司)不需要三种块:礼账只设收入列,日常与公司设
+ * 收入 + 支出,差别全在设置里。
+ *
+ * 收入 / 支出列不限定列类型(与书签的名称列同一立场):指向数字列是常态,指向文本列
+ * 时非数字值在求和里按空处理。余额是**视图计算的派生值**,按行序(即记账发生序)
+ * 逐行累计 Σ收入 − Σ支出,不进 `.tbl` 也不进块 —— 落进存储就是第二份真源。
+ *
+ * 导出形态与画册同一条 ADR-0006 立场:快照 + 指针 —— 内容写成一张带节标题行、
+ * 小计行与合计行的普通表格(双击可读全账),`data-*` 属性把路径与设置一并写进,
+ * 编辑器据此还原成活的账目块。
+ */
+export interface LedgerBlock {
+  id: string
+  type: "ledger"
+  /** 被引用的 `.tbl` 文件的工作区路径。 */
+  path: string
+  /** 收入列的列 id。空 = 未设置;列被删后渲染时退化为未设置,无需清洗。 */
+  incomeColumnId: string
+  /** 支出列的列 id。空 = 未设置(礼账场景只设收入列)。 */
+  expenseColumnId: string
+  /** 是否显示余额列(逐行累计)。默认 true,`false` 才落盘 —— 与「缺省不落存储」同一口径。 */
+  showBalance: boolean
+  /** 分组方式。缺省 `none` 平铺。 */
+  groupMode: LedgerGroupMode
+  /** `month` 模式 = 日期列的列 id;`column` 模式 = 分组列的列 id;`none` 时恒为空串。 */
+  groupColumnId: string
+}
+
+/**
  * 布局块:笔记里唯一的**容器块** —— 把若干格子按网格或弹性方式排开,每个格子各持有
  * 一份独立的块列表(Notion 式)。顶层文档仍是扁平列表;布局块是唯一一层受控的嵌套,
  * 且**格子内不再出现布局块**(一层容器原则,UI 的插入/转换菜单在格子内会把它滤掉)。
@@ -271,17 +310,18 @@ export interface ChatBlock {
   messages: ChatMessage[]
 }
 
-export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | ChatBlock | LayoutBlock
+export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | LedgerBlock | ChatBlock | LayoutBlock
 
 /**
- * 引用块展示设置的 patch 形状:三种引用块设置字段的并集,id / type / path 不在内
+ * 引用块展示设置的 patch 形状:四种引用块设置字段的并集,id / type / path 不在内
  * —— 设置改动只动「怎么展示」,不动「指哪张表」(换引用是块的重新指定,另一条路)。
  * `updateBlockSettings` 消费它;块类型守卫保证画册的 patch 写不进书签块。
  */
 export type BlockSettingsPatch = Partial<
   Omit<GalleryBlock, "id" | "type" | "path"> &
   Omit<BookmarkBlock, "id" | "type" | "path"> &
-  Omit<KanbanBlock, "id" | "type" | "path">
+  Omit<KanbanBlock, "id" | "type" | "path"> &
+  Omit<LedgerBlock, "id" | "type" | "path">
 >
 
 /** 块类型元数据：菜单分组 + 菜单标记 + 中文名。菜单渲染直接消费。 */

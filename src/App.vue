@@ -27,12 +27,13 @@ attachTablePreload((blocks) => tables.preload(refPathsOf(blocks)))
 attachTableFlush((path) => tables.flush(path))
 attachTableReload((path) => tables.reload(path))
 // 新建数据表：写什么内容由注册表这边的知识决定（一张带两列的初始表），
-// 工作区只负责把它写到指定路径。见 attachTableCreate 的注释。
-attachTableCreate(async (fsDriver, fsRoot, path) => {
-  const initial = tables.defaultTable()
-  await fsDriver.createNote(fsRoot, path, tables.toJson(initial))
+// 工作区只负责把它写到指定路径。`initial` 是调用方指定的初始内容（账目块的
+// 预置四列），没指定才落默认表。见 attachTableCreate 的注释。
+attachTableCreate(async (fsDriver, fsRoot, path, initial) => {
+  const start = initial ?? tables.defaultTable()
+  await fsDriver.createNote(fsRoot, path, tables.toJson(start))
   // 盘上建好了，把内存也填上 —— 否则紧接着打开它还要多读一次盘。
-  tables.adopt(path, initial)
+  tables.adopt(path, start)
 })
 // 设置与工作区正交：它只装用户偏好，不参与任何笔记读写，所以在根组件独立 provide 一次。
 // 接上 driver / root 这对引用后，偏好才多落一份到工作区根的 webnote.json（换目录重读）。

@@ -25,7 +25,7 @@ import { fileName } from "@/lib/paths"
  */
 const props = defineProps<{
   /** 落哪种引用块。 */
-  kind: "gallery" | "bookmark" | "kanban"
+  kind: "gallery" | "bookmark" | "kanban" | "ledger"
   /** 插入位置(插入模式)。null 表示不是插入模式。与 `retypeId` 同时为 null 即关闭。 */
   index: number | null
   /** 转换模式:待转换的块 id。null 表示不是转换模式。 */
@@ -34,7 +34,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ close: [] }>()
 
-const { tablePaths, insertGalleryBlock, insertBookmarkBlock, insertKanbanBlock, convertBlockToFileType, activePath } = useWorkspace()
+const { tablePaths, insertGalleryBlock, insertBookmarkBlock, insertKanbanBlock, insertLedgerBlock, convertBlockToFileType, activePath } = useWorkspace()
 
 const NEW = "__new__"
 
@@ -65,7 +65,7 @@ const tableOptions = computed(() =>
   tablePaths.value.map((path) => ({ path, label: fileName(path).replace(/\.tbl$/i, "") })),
 )
 
-const KIND_LABEL = { gallery: "画册", bookmark: "书签", kanban: "看板" } as const
+const KIND_LABEL = { gallery: "画册", bookmark: "书签", kanban: "看板", ledger: "账目" } as const
 
 /** 确认。插入落了块、或转换真的换了块,才关。 */
 async function confirm() {
@@ -79,7 +79,14 @@ async function confirm() {
   }
 
   if (props.index === null) return
-  const insert = props.kind === "gallery" ? insertGalleryBlock : props.kind === "bookmark" ? insertBookmarkBlock : insertKanbanBlock
+  const insert =
+    props.kind === "gallery"
+      ? insertGalleryBlock
+      : props.kind === "bookmark"
+        ? insertBookmarkBlock
+        : props.kind === "kanban"
+          ? insertKanbanBlock
+          : insertLedgerBlock
   const blockId = await insert(props.index, target, stem)
   if (blockId !== "") emit("close")
 }

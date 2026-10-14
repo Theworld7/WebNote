@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>账目块就地增删改自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { height: 520px; display: flex; flex-direction: column; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>账目块就地增删改自检（挂真实编辑器 + OPFS，合成事件走真实 handler，末了读盘核对）</h1>
+<!-- 脚本里有顶层 await（真实读盘、真实写盘），--dump-dom 抓不到结果，用 CDP 驱动跑：
+     node design/cdp-dump.mjs http://localhost:1420/design/ledger-edit-check.html -->
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { provideTables } from "../src/composables/useTables.ts"
+import { createBlock, createLedgerBlock, refPathsOf } from "../src/lib/blocks.ts"
+import { blocksToHtml } from "../src/lib/html/serialize.ts"
+import { tableFromJson } from "../src/lib/data-table.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function report(kind, detail) {
+  document.getElementById("out").textContent = [kind, "", detail, "", ...lines].join("\n")
+}
+window.addEventListener("unhandledrejection", (e) => report("REJECT", e.reason?.stack ?? String(e.reason)))
+window.addEventListener("error", (e) => report("ERROR", e.message))
+function step(name) {
+  document.getElementById("out").textContent = `running: ${name}\n${lines.join("\n")}`
+}
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+
+// ---- 夹具：一张三行礼账 + 一篇指着它的笔记（笔记正文用序列化器自己生成，保证是编辑器产物） ----
+const TABLE = {
+  version: 1,
+  columns: [
+    { id: "c1", name: "人员", type: "text", options: [] },
+    { id: "c2", name: "收入", type: "number", options: [] },
+    { id: "c3", name: "支出", type: "number", options: [] },
+    { id: "c4", name: "备注", type: "text", options: [] },
+  ],
+  rows: [
+    { id: "r1", values: { c1: "赵赫", c2: 200, c3: null, c4: null } },
+    { id: "r2", values: { c1: "王亚帅", c2: 2000, c3: null, c4: null } },
+    { id: "r3", values: { c1: "哥", c2: 5000, c3: 3300, c4: null } },
+  ],
+}
+const TABLE_JSON = JSON.stringify(TABLE, null, 2) + "\n"
+const NOTE_HTML = blocksToHtml(
+  [createBlock("text"), createLedgerBlock("礼账.tbl", "c2", "c3", true, "none", "")],
+  (path) => (path === "礼账.tbl" ? tableFromJson(TABLE_JSON) : null),
+)
+
+step("opfs")
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("ledger-edit-probe", { create: true })
+for (const [name, text] of [["礼账.tbl", TABLE_JSON], ["账.html", NOTE_HTML]]) {
+  const handle = await dir.getFileHandle(name, { create: true })
+  const writable = await handle.createWritable()
+  await writable.write(text)
+  await writable.close()
+}
+window.showDirectoryPicker = async () => dir
+
+async function readFile(name) {
+  const handle = await dir.getFileHandle(name)
+  return (await handle.getFile()).text()
+}
+/** 等真实 I/O 与 Vue 重渲染落地：microtask 轮询等不到读盘。 */
+async function settle() {
+  for (let i = 0; i < 4; i += 1) {
+    await nextTick()
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
+
+step("mount")
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    provideSettings()
+    // 数据表注册表与工作区共用同一对 driver / root（同 App.vue 的接线）：
+    // 引用块取数、快照预读、保存时落盘都靠这几个 attach 点。
+    const tables = provideTables(workspace.fs, workspace.root)
+    workspace.attachTableLookup((path) => tables.peek(path))
+    workspace.attachTablePreload((blocks) => tables.preload(refPathsOf(blocks)))
+    workspace.attachTableFlush((path) => tables.flush(path))
+    workspace.attachTableReload((path) => tables.reload(path))
+    return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+
+step("bootstrap")
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+const note = (function find(nodes) {
+  for (const node of nodes) {
+    if (node.kind === "note") return node
+    const hit = node.children ? find(node.children) : null
+    if (hit) return hit
+  }
+  return null
+})(workspace.tree.value)
+check("扫到了预置笔记", note !== null, JSON.stringify(workspace.tree.value.map((n) => n.name)))
+
+step("openFile")
+if (note !== null) {
+  workspace.openFile(note.id)
+  for (let i = 0; i < 60 && workspace.activeDocument.value.length < 2; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  await settle()
+}
+
+// ---- DOM 取景 ----
+function ledgerRoot() {
+  return [...document.querySelectorAll("[data-block-id]")].find((el) => el.querySelector("table") !== null) ?? null
+}
+/** 数据行 = 带删除钮的行；节标题行与空表提示行没有钮，自然被排除。 */
+function bodyRows() {
+  const root = ledgerRoot()
+  if (root === null) return []
+  return [...root.querySelectorAll("tbody tr")].filter((tr) => tr.querySelector('[aria-label="删除本行"]') !== null)
+}
+function cells(row) { return [...row.querySelectorAll("td")] }
+function cellText(row, index) { return (cells(row)[index]?.textContent ?? "").trim() }
+function cellInput(row, index) {
+  const input = cells(row)[index]?.querySelector("input")
+  return input instanceof HTMLInputElement ? input : null
+}
+function footCells() {
+  const root = ledgerRoot()
+  const row = root?.querySelector("tfoot tr")
+  return row === null || row === undefined ? [] : [...row.querySelectorAll("td")]
+}
+function addButton() { return ledgerRoot()?.querySelector("tfoot tr:last-child button") ?? null }
+function headings() {
+  const root = ledgerRoot()
+  return [...(root?.querySelectorAll("thead th") ?? [])].map((th) => th.textContent.trim()).filter((text) => text !== "")
+}
+/**
+ * 整表几何：表宽 / 各行高 / 首行各列宽。账目块的表是 auto 布局，列宽由格里内容算出 ——
+ * 进出编辑态前后必须**逐项相同**，否则用户看到的就是「点一下整张表抖一下」。
+ */
+function geometry() {
+  const table = ledgerRoot()?.querySelector("table")
+  const rows = bodyRows()
+  if (table === null || table === undefined || rows.length === 0) return null
+  return {
+    tableW: round2(table.getBoundingClientRect().width),
+    rowH: rows.map((row) => round2(row.getBoundingClientRect().height)),
+    colW: cells(rows[0]).map((td) => round2(td.getBoundingClientRect().width)),
+  }
+}
+function round2(value) { return Math.round(value * 100) / 100 }
+function rectOf(element) {
+  const rect = element.getBoundingClientRect()
+  return { left: round2(rect.left), top: round2(rect.top), width: round2(rect.width), height: round2(rect.height) }
+}
+/** 格值按钮：进编辑态后它仍在（隐形，负责定住列宽），所以能拿前后同一个元素对比。 */
+function cellButton(row, index) { return cells(row)[index]?.querySelector("button") ?? null }
+/** 点格值进编辑态，返回那一格的输入框。 */
+async function openCell(row, index) {
+  const button = cells(row)[index]?.querySelector("button")
+  if (button === null || button === undefined) return null
+  button.click()
+  await settle()
+  return cellInput(row, index)
+}
+function type(input, value) {
+  input.value = value
+}
+async function enter(input) {
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
+  await settle()
+}
+
+step("render")
+const rows0 = bodyRows()
+check("账目块渲染出 3 行", rows0.length === 3, `实际 ${rows0.length}`)
+check("行号列是整表行序（1、2、3）", rows0.map((row) => row.querySelector("th")?.textContent.trim()).join(",") === "1,2,3",
+  rows0.map((row) => row.querySelector("th")?.textContent.trim()).join(","))
+check("表头四列 + 余额", headings().join(",") === "人员,收入,支出,备注,余额", headings().join(","))
+check("收入格显示格式化金额 +200.00", cellText(rows0[0], 1) === "+200.00", cellText(rows0[0], 1))
+check("支出格显示 −3,300.00", cellText(rows0[2], 2) === "−3,300.00", cellText(rows0[2], 2))
+check("余额列逐行累计", rows0.map((row) => cellText(row, 4)).join(",") === "200.00,2,200.00,3,900.00",
+  rows0.map((row) => cellText(row, 4)).join(","))
+check("合计行：收入 +7,200.00 / 支出 −3,300.00 / 结余 ¥3,900.00",
+  JSON.stringify(footCells().map((td) => td.textContent.trim())) === JSON.stringify(["", "合计", "+7,200.00", "−3,300.00", "", "结余 ¥3,900.00"]),
+  JSON.stringify(footCells().map((td) => td.textContent.trim())))
+
+step("edit")
+if (rows0.length === 3) {
+  // ---- 抖动守卫：点格值进编辑态，表格几何一项都不许动 ----
+  const geomBefore = geometry()
+  const boxBefore = rectOf(cellButton(rows0[0], 1))
+  const input = await openCell(rows0[0], 1)
+  check("点收入格进编辑态", input !== null)
+  check("进编辑态不动表格几何（列宽 / 行高 / 表宽）",
+    JSON.stringify(geometry()) === JSON.stringify(geomBefore),
+    `${JSON.stringify(geomBefore)} → ${JSON.stringify(geometry())}`)
+  check("编辑框与格值按钮同框（不跳位、不撑列）",
+    input !== null && JSON.stringify(rectOf(input)) === JSON.stringify(boxBefore),
+    `${JSON.stringify(boxBefore)} vs ${input === null ? "无输入框" : JSON.stringify(rectOf(input))}`)
+  check("编辑框在右对齐列里也靠右（数字不跳到左边）",
+    input !== null && getComputedStyle(input).textAlign === "right",
+    input === null ? "无输入框" : getComputedStyle(input).textAlign)
+  check("编辑态给的是原始数字 200（不是 +200.00）", input?.value === "200", String(input?.value))
+  if (input !== null) {
+    type(input, "1234")
+    input.blur()
+    await settle()
+  }
+  check("提交后该格显示 +1,234.00", cellText(bodyRows()[0], 1) === "+1,234.00", cellText(bodyRows()[0], 1))
+  check("余额列跟着重算 1,234.00", cellText(bodyRows()[0], 4) === "1,234.00", cellText(bodyRows()[0], 4))
+  check("合计跟着重算 +8,234.00 / 结余 ¥4,934.00",
+    JSON.stringify(footCells().map((td) => td.textContent.trim())) === JSON.stringify(["", "合计", "+8,234.00", "−3,300.00", "", "结余 ¥4,934.00"]),
+    JSON.stringify(footCells().map((td) => td.textContent.trim())))
+
+  // ---- 回车跳下一行同列 ----
+  const second = await openCell(bodyRows()[1], 1)
+  if (second !== null) {
+    type(second, "7777")
+    await enter(second)
+  }
+  check("第二行收入提交为 +7,777.00", cellText(bodyRows()[1], 1) === "+7,777.00", cellText(bodyRows()[1], 1))
+  const active = document.activeElement
+  check("回车后编辑态落到下一行同列", active instanceof HTMLInputElement && active.value === "5000", String(active?.value ?? active?.tagName))
+
+  // ---- 末行回车退出编辑态 ----
+  const last = cellInput(bodyRows()[2], 1)
+  check("末行的格确实在编辑态", last !== null)
+  if (last !== null) {
+    type(last, "5000")
+    await enter(last)
+  }
+  check("末行回车后退出编辑态（格值回到按钮）", cellInput(bodyRows()[2], 1) === null)
+
+  // ---- 不改值地进出一圈编辑态，几何必须原样回来（「退出」路径同样不能抖） ----
+  const geomIdle = geometry()
+  const idleBox = cellButton(bodyRows()[0], 3)
+  const textCell = await openCell(bodyRows()[0], 3)
+  check("备注格（文本列）也能进编辑态", textCell !== null)
+  check("编辑态里几何仍不变", JSON.stringify(geometry()) === JSON.stringify(geomIdle),
+    `${JSON.stringify(geomIdle)} → ${JSON.stringify(geometry())}`)
+  if (textCell !== null) {
+    textCell.blur()
+    await settle()
+  }
+  check("退出编辑态几何原样回来", JSON.stringify(geometry()) === JSON.stringify(geomIdle),
+    `${JSON.stringify(geomIdle)} → ${JSON.stringify(geometry())}`)
+  const backBox = cellButton(bodyRows()[0], 3)
+  check("退出后格值按钮回到原位（含空格子）",
+    idleBox !== null && backBox !== null && JSON.stringify(rectOf(backBox)) === JSON.stringify(rectOf(idleBox)),
+    `${idleBox === null ? "无按钮" : JSON.stringify(rectOf(idleBox))} vs ${backBox === null ? "无按钮" : JSON.stringify(rectOf(backBox))}`)
+
+  // ---- 增：表底记一笔，追加到末尾并聚焦新行首格 ----
+  addButton()?.click()
+  await settle()
+  const rows1 = bodyRows()
+  check("记一笔后多出一行", rows1.length === 4, `实际 ${rows1.length}`)
+  const added = rows1[3]
+  check("新行落在末位且行号是 4", added?.querySelector("th")?.textContent.trim() === "4", added?.querySelector("th")?.textContent.trim())
+  const fresh = added === undefined ? null : cellInput(added, 0)
+  check("新行首格直接进编辑态并拿到焦点", fresh !== null && document.activeElement === fresh)
+  if (fresh !== null) {
+    type(fresh, "新客")
+    fresh.blur()
+    await settle()
+  }
+  check("新行人员落值", cellText(bodyRows()[3], 0) === "新客", cellText(bodyRows()[3], 0))
+
+  // ---- 删：行号列悬停那颗钮 ----
+  const doomed = bodyRows()[1]
+  const wasName = cellText(doomed, 0)
+  doomed.querySelector('[aria-label="删除本行"]')?.click()
+  await settle()
+  const rows2 = bodyRows()
+  check("删行后只剩 3 行", rows2.length === 3, `实际 ${rows2.length}`)
+  check("被删的那行真的没了", !rows2.some((row) => cellText(row, 0) === wasName), `删的是「${wasName}」`)
+  check("剩下行号重排为（1、2、3）", rows2.map((row) => row.querySelector("th")?.textContent.trim()).join(",") === "1,2,3",
+    rows2.map((row) => row.querySelector("th")?.textContent.trim()).join(","))
+
+  // ---- 分组下新增的行要看得见（落进「未分组」节，这是最容易踩的坑） ----
+  const ledgerBlock = workspace.activeDocument.value.find((b) => b.type === "ledger")
+  if (ledgerBlock !== undefined) {
+    workspace.updateBlockSettings(ledgerBlock.id, { groupMode: "column", groupColumnId: "c1" })
+  }
+  await settle()
+  const root = ledgerRoot()
+  const sections = [...(root?.querySelectorAll("tbody tr") ?? [])]
+    .filter((tr) => tr.querySelector("th[colspan]") !== null)
+    .map((tr) => tr.querySelector("th").textContent.trim())
+  check("分组后按人分出三节（有金额的节带行内小计，零金额的节不画）",
+    sections.length === 3 &&
+      sections[0].includes("收入 ¥1,234.00") &&
+      sections[1].includes("支出 ¥3,300.00") &&
+      sections[2] === "新客",
+    JSON.stringify(sections))
+  addButton()?.click()
+  await settle()
+  const looseTitle = [...(root?.querySelectorAll("tbody tr") ?? [])]
+    .find((tr) => tr.querySelector("th[colspan]")?.textContent.trim().startsWith("未分组"))
+  check("分组下新行落进「未分组」节（不会凭空消失）",
+    looseTitle !== undefined && looseTitle.nextElementSibling?.querySelector('[aria-label="删除本行"]') !== null,
+    JSON.stringify(sections))
+  const focused = document.activeElement
+  if (focused instanceof HTMLInputElement) {
+    focused.blur()
+    await settle()
+  }
+
+  // ---- 保存：真写盘，读回来核对类型与增删结果 ----
+  step("save")
+  await workspace.save()
+  await settle()
+  const saved = JSON.parse(await readFile("礼账.tbl"))
+  check("盘上行数 = 4（删 1 增 2）", saved.rows.length === 4, `实际 ${saved.rows.length}`)
+  check("改过的收入以数字落盘（1234, type number）",
+    saved.rows[0].values.c2 === 1234 && typeof saved.rows[0].values.c2 === "number",
+    JSON.stringify(saved.rows.map((row) => row.values.c2)))
+  check("被删的行连同它改过的值都不在盘上", !saved.rows.some((row) => row.values.c2 === 7777 || row.values.c1 === "王亚帅"),
+    JSON.stringify(saved.rows.map((row) => row.values.c1)))
+  check("支出列原值未被动过", saved.rows.some((row) => row.values.c3 === 3300))
+  check("新增行落盘", saved.rows.some((row) => row.values.c1 === "新客"))
+  check("新增的空行是整行空值（每列都有键）",
+    saved.rows.every((row) => saved.columns.every((column) => column.id in row.values)))
+
+  const noteText = await readFile("账.html")
+  check("笔记快照仍是账目块指针", noteText.includes('class="note-ledger"') && noteText.includes('data-ledger="礼账.tbl"'))
+  check("笔记快照的分组设置跟着落盘", noteText.includes('data-group-mode="column"') && noteText.includes('data-group="c1"'))
+  check("笔记快照的合计跟着重算（结余 ¥2,934.00）", noteText.includes("结余 ¥2,934.00"), "快照 tfoot 里的结余")
+}
+
+lines.push(failed === 0 ? `自检 ${passed}/${passed}` : `自检 ${passed} 过 / ${failed} 败`)
+document.getElementById("out").textContent = lines.join("\n")
+</script>
+</body>
+</html>

@@ -1,8 +1,10 @@
-import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, ImageBlock, KanbanBlock, LayoutBlock, MermaidBlock, TableCell, TextualBlock } from "@/types/workspace"
+import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, ImageBlock, KanbanBlock, LayoutBlock, LedgerBlock, MermaidBlock, TableCell, TextualBlock } from "@/types/workspace"
 import type { DataColumn, DataTable, DataRow } from "@/types/data-table"
 import { GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT, LAYOUT_COLUMNS_DEFAULT, isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
 import { cellValue, groupRows, kanbanCardColor, valueText } from "@/lib/data-table"
+import { balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, sumRows } from "@/lib/ledger"
+import type { LedgerSection, LedgerTotals } from "@/lib/ledger"
 import { escapeHtml, escapeTextToHtml, linkIcon, runsText, runsToHtml } from "@/lib/inline"
 import { docStyle } from "@/lib/typography"
 
@@ -80,6 +82,10 @@ export function blocksToHtml(blocks: readonly Block[], lookupTables?: DataTableL
     }
     if (block.type === "kanban") {
       out.push(kanbanHtml(block, lookup(block.path)))
+      continue
+    }
+    if (block.type === "ledger") {
+      out.push(ledgerHtml(block, lookup(block.path)))
       continue
     }
     if (block.type === "chat") {
@@ -536,6 +542,111 @@ function kanbanFieldHtml(row: DataRow, column: DataColumn): string {
   const value =
     text === "" ? '<span class="v note-empty">空</span>' : `<span class="v">${escapeHtml(text)}</span>`
   return `<span class="note-kfield">${label}${value}</span>`
+}
+
+/**
+ * 账目块 → **展示快照 + 指针**(与画册 / 看板同一条 ADR-0006 立场)。
+ *
+ * 导出与编辑器视图同构:一张带节标题行(按月 / 按列分组,标题行内带节小计)、
+ * 余额列与合计行(`tfoot`)的普通表格 —— 双击打开就是一本可读的账,不依赖 `.tbl`。
+ * 求和 / 格式化 / 分节全部走 `lib/ledger` 的同一份函数,与编辑器视图不算两遍。
+ *
+ * 指针属性(`data-income` / `data-expense` / `data-balance` / `data-group-mode` /
+ * `data-group`)原样挂在容器 `div` 上,解析端凭 `data-ledger` 认领回活的账目块;
+ * 剥掉属性后剩下的就是一张普通表格,按表格读是「正确的读法」。未设收入 / 支出列时
+ * 快照退化成纯数据表格(没有金额格式化、余额列与合计),设置不蒸发。表读不到时仍
+ * 写出带属性的空容器:指针跟着笔记走,重开时块自己走「读不到」的提示态。
+ */
+function ledgerHtml(block: LedgerBlock, table: DataTable | null): string {
+  const attrs = [`data-ledger="${escapeHtml(block.path)}"`]
+  if (block.incomeColumnId !== "") attrs.push(`data-income="${escapeHtml(block.incomeColumnId)}"`)
+  if (block.expenseColumnId !== "") attrs.push(`data-expense="${escapeHtml(block.expenseColumnId)}"`)
+  if (!block.showBalance) attrs.push(`data-balance="false"`)
+  if (block.groupMode !== "none" && block.groupColumnId !== "") {
+    attrs.push(`data-group-mode="${block.groupMode}"`)
+    attrs.push(`data-group="${escapeHtml(block.groupColumnId)}"`)
+  }
+
+  const openTag = `<div class="note-ledger" ${attrs.join(" ")}>`
+  if (table === null || table.rows.length === 0) return openTag + "</div>"
+
+  const income = block.incomeColumnId === "" ? null : table.columns.find((column) => column.id === block.incomeColumnId) ?? null
+  const expense = block.expenseColumnId === "" ? null : table.columns.find((column) => column.id === block.expenseColumnId) ?? null
+  const groupColumn = block.groupMode === "none" ? null : table.columns.find((column) => column.id === block.groupColumnId) ?? null
+  const hasMoney = income !== null || expense !== null
+  const showBalance = block.showBalance && hasMoney
+  const { sections, loose } = ledgerSections(table.rows, income, expense, {
+    mode: groupColumn === null ? "none" : block.groupMode,
+    column: groupColumn,
+  })
+  const balances = showBalance ? balanceMap(table.rows, income, expense) : null
+
+  const allSections = loose === null ? sections : [...sections, loose]
+  const columnCount = table.columns.length + (balances === null ? 0 : 1)
+
+  const headCells = table.columns.map((column) => wrap("th", escapeTextToHtml(column.name))).join("")
+  const headLine = `      <tr>${headCells}${balances === null ? "" : wrap("th", "余额")}</tr>`
+
+  const rowLine = (row: DataRow): string => {
+    const cells = table.columns.map((column) => {
+      const value = cellValue(row, column)
+      if (column === income) return wrap("td", escapeHtml(typeof value === "number" ? formatIncome(value) : ""), ' class="num in"')
+      if (column === expense) return wrap("td", escapeHtml(typeof value === "number" ? formatExpense(value) : ""), ' class="num ex"')
+      return wrap("td", escapeTextToHtml(valueText(value, column)))
+    })
+    if (balances !== null) {
+      cells.push(wrap("td", escapeHtml(formatAmount(balances.get(row.id) ?? 0)), ' class="num"'))
+    }
+    return `      <tr>${cells.join("")}</tr>`
+  }
+
+  const groupLine = (section: LedgerSection): string => {
+    const summary =
+      section.totals.income === 0 && section.totals.expense === 0
+        ? ""
+        : ` <span class="s">收入 ${formatYuan(section.totals.income)} · 支出 ${formatYuan(section.totals.expense)}</span>`
+    return `      <tr class="note-ledger-group"><th colspan="${columnCount}">${escapeHtml(section.title)}${summary}</th></tr>`
+  }
+
+  const bodyLines: string[] = []
+  for (const section of allSections) {
+    if (section.title !== "") bodyLines.push(groupLine(section))
+    for (const row of section.rows) bodyLines.push(rowLine(row))
+  }
+
+  const parts = ["<table>", "  <thead>", headLine, "  </thead>", "  <tbody>", ...bodyLines, "  </tbody>"]
+  if (hasMoney) {
+    const totals = sumRows(table.rows, income, expense)
+    parts.push(
+      "  <tfoot>",
+      `      <tr>${ledgerTotalsCells(table.columns, income, expense, totals)}${wrap("td", escapeHtml(`结余 ${formatYuan(totals.net)}`), ' class="num"')}</tr>`,
+      "  </tfoot>",
+    )
+  }
+  parts.push("</table>")
+
+  return `${openTag}\n${parts.join("\n")}\n</div>`
+}
+
+/** 合计行里除余额外的格子:第一个非金额列放「合计」标签,金额列放各自的合计,其余留空。 */
+function ledgerTotalsCells(
+  columns: readonly DataColumn[],
+  income: DataColumn | null,
+  expense: DataColumn | null,
+  totals: LedgerTotals,
+): string {
+  let labeled = false
+  return columns
+    .map((column) => {
+      if (column === income) return wrap("td", escapeHtml(formatIncome(totals.income)), ' class="num in"')
+      if (column === expense) return wrap("td", escapeHtml(formatExpense(totals.expense)), ' class="num ex"')
+      if (!labeled) {
+        labeled = true
+        return wrap("td", "合计", ' class="lbl"')
+      }
+      return wrap("td", "")
+    })
+    .join("")
 }
 
 /**

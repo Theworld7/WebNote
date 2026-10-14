@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>账目块自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; }
+  .fail { color: #b42318; }
+</style>
+</head>
+<body>
+<h1>账目块：登记、财务口径、快照+指针往返、宽容解析、与其他引用块不混淆</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { BLOCK_TYPES, createBlock, createLedgerBlock, createKanbanBlock, createGalleryBlock, blockText, cloneBlock, retypeBlock } from "../src/lib/blocks.ts"
+import { createLedgerPreset, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, sumRows, balanceMap } from "../src/lib/ledger.ts"
+import { blocksToHtml } from "../src/lib/html/serialize.ts"
+import { parseHtml } from "../src/lib/html/parse.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+let step = "块类型登记"
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  document.getElementById("out").textContent = `running: ${step}\n${lines.join("\n")}`
+}
+
+function note(next) {
+  step = next
+  document.getElementById("out").textContent = `running: ${step}\n${lines.join("\n")}`
+}
+note(step)
+
+// ---------- 一、块类型登记 ----------
+
+const ledgerMeta = BLOCK_TYPES.find((m) => m.type === "ledger")
+const kanbanIdx = BLOCK_TYPES.findIndex((m) => m.type === "kanban")
+const ledgerIdx = BLOCK_TYPES.findIndex((m) => m.type === "ledger")
+
+check("BLOCK_TYPES 里有 ledger", ledgerMeta !== undefined)
+check("ledger marker 是 ¥", ledgerMeta?.marker === "¥", `实际 ${ledgerMeta?.marker}`)
+check("ledger label 是 账目", ledgerMeta?.label === "账目", `实际 ${ledgerMeta?.label}`)
+check("ledger 紧挨 kanban（在它后面）", ledgerIdx === kanbanIdx + 1, `kanban=${kanbanIdx} ledger=${ledgerIdx}`)
+
+// ---------- 二、财务口径纯函数 ----------
+
+note("财务口径纯函数")
+check("formatAmount 千分位两位小数", formatAmount(1234567.891) === "1,234,567.89", formatAmount(1234567.891))
+check("formatAmount 负数与 -0", formatAmount(-1234.5) === "-1,234.50" && formatAmount(-0) === "0.00", `${formatAmount(-1234.5)} / ${formatAmount(-0)}`)
+check("formatYuan 负号在 ¥ 前", formatYuan(-88) === "−¥88.00", formatYuan(-88))
+check("formatIncome 正带 + 零空", formatIncome(12000) === "+12,000.00" && formatIncome(0) === "", `${formatIncome(12000)} / ${formatIncome(0)}`)
+check("formatExpense 正带 − 零空", formatExpense(86.5) === "−86.50" && formatExpense(0) === "", `${formatExpense(86.5)} / ${formatExpense(0)}`)
+
+const cols = [
+  { id: "c1", name: "日期", type: "date", options: [] },
+  { id: "c2", name: "摘要", type: "text", options: [] },
+  { id: "c3", name: "收入", type: "number", options: [] },
+  { id: "c4", name: "支出", type: "number", options: [] },
+]
+const rows = [
+  { id: "r1", values: { c1: "2026-10-02", c2: "工资", c3: 12000, c4: null } },
+  { id: "r2", values: { c1: "2026-10-03", c2: "房租", c3: null, c4: 3800 } },
+  { id: "r3", values: { c1: "2026-09-30", c2: "上月尾款", c3: 500, c4: 0 } },
+  { id: "r4", values: { c1: null, c2: "没日期", c3: 10, c4: null } },
+]
+const income = cols[2]
+const expense = cols[3]
+
+const totals = sumRows(rows, income, expense)
+check("sumRows 收入 12510 支出 3800 净 8710", totals.income === 12510 && totals.expense === 3800 && totals.net === 8710, JSON.stringify(totals))
+
+const balances = balanceMap(rows, income, expense)
+check("balanceMap 逐行累计 12000/8200/8700/8710",
+  balances.get("r1") === 12000 && balances.get("r2") === 8200 && balances.get("r3") === 8700 && balances.get("r4") === 8710,
+  JSON.stringify([...balances]))
+
+const monthed = ledgerSections(rows, income, expense, { mode: "month", column: cols[0] })
+check("按月分节:2026-09 在前 2026-10 在后",
+  monthed.sections.length === 2 && monthed.sections[0].key === "2026-09" && monthed.sections[1].key === "2026-10",
+  JSON.stringify(monthed.sections.map((s) => s.key)))
+check("无日期行进 loose(标题 无日期)", monthed.loose !== null && monthed.loose.title === "无日期" && monthed.loose.rows.length === 1)
+check("节小计:2026-09 收 500 支 0", monthed.sections[0].totals.income === 500 && monthed.sections[0].totals.expense === 0)
+
+const byCol = ledgerSections(rows, income, expense, { mode: "column", column: cols[1] })
+check("按列分节:组序跟首现序", byCol.sections.map((s) => s.title).join(",") === "工资,房租,上月尾款,没日期", byCol.sections.map((s) => s.title).join(","))
+
+// ---------- 三、预置表 ----------
+
+note("预置表")
+const preset = createLedgerPreset()
+check("createLedgerPreset 四列:日期/摘要/收入/支出",
+  preset.table.columns.map((c) => c.name).join("/") === "日期/摘要/收入/支出" &&
+  preset.table.columns.map((c) => c.type).join("/") === "date/text/number/number",
+  JSON.stringify(preset.table.columns.map((c) => [c.name, c.type])))
+check("预置表带一空行", preset.table.rows.length === 1)
+check("返回收入/支出列 id", preset.incomeColumnId === preset.table.columns[2].id && preset.expenseColumnId === preset.table.columns[3].id)
+
+// ---------- 四、工厂与投影 ----------
+
+note("工厂与投影")
+const empty = createLedgerBlock()
+check("createLedgerBlock 默认:未设列/显示余额/不分组",
+  empty.type === "ledger" && empty.path === "" && empty.incomeColumnId === "" && empty.expenseColumnId === "" && empty.showBalance === true && empty.groupMode === "none",
+  JSON.stringify(empty))
+check("createLedgerBlock(none) 清空 groupColumnId",
+  createLedgerBlock("a.tbl", "c1", "c2", true, "none", "c3").groupColumnId === "")
+
+const made = createBlock("ledger")
+check("createBlock(\"ledger\") 出 ledger", made.type === "ledger", made.type)
+check("blockText(ledger) 返回 path", blockText(createLedgerBlock("账.tbl")) === "账.tbl")
+
+const orig = createLedgerBlock("x.tbl", "c1", "c2")
+const copy = cloneBlock(orig, "newid")
+check("cloneBlock 换 id 且字段独立", copy.id === "newid" && copy.incomeColumnId === "c1" && orig.incomeColumnId === "c1")
+
+const retyped = retypeBlock({ id: "b", type: "text", runs: [], depth: 0 }, "ledger")
+check("retypeBlock(text → ledger) 出空 ledger", retyped.type === "ledger" && retyped.path === "", JSON.stringify(retyped))
+
+// ---------- 五、序列化:快照 + 指针 ----------
+
+note("序列化与往返")
+const table = { version: 1, columns: cols, rows }
+const lookup = () => table
+
+const full = createLedgerBlock("账.tbl", "c3", "c4", true, "month", "c1")
+const html = blocksToHtml([full], lookup)
+
+check("写 data-ledger", html.includes('data-ledger="账.tbl"'), html.slice(0, 80))
+check("非空收入列写 data-income", html.includes('data-income="c3"'))
+check("非空支出列写 data-expense", html.includes('data-expense="c4"'))
+check("按月分组写 data-group-mode 与 data-group", html.includes('data-group-mode="month"') && html.includes('data-group="c1"'))
+check("快照是账目容器(与编辑器视图同构)", html.includes('<div class="note-ledger"'), html.slice(0, 120))
+check("节标题行带月名与节小计", html.includes("2026-09") && html.includes("2026-10") && html.includes("收入 ¥500.00"), html)
+check("金额列带符号(+/−)", html.includes("+12,000.00") && html.includes("−3,800.00"), html)
+check("余额列逐行累计(8,200.00)", html.includes("8,200.00"))
+check("tfoot 合计行带结余", html.includes("<tfoot>") && html.includes("结余 ¥8,710.00"), html)
+check("金额红绿 class 落在格上", html.includes('class="num in"') && html.includes('class="num ex"'))
+
+// ---------- 六、解析往返 ----------
+
+note("解析往返")
+const round = parseHtml(html)
+check("往返出 1 个块", round.length === 1, `出 ${round.length}`)
+const r0 = round[0]
+check("往返是 ledger", r0.type === "ledger", r0.type)
+check("往返 path 一致", r0.type === "ledger" && r0.path === "账.tbl")
+check("往返收入/支出列一致", r0.type === "ledger" && r0.incomeColumnId === "c3" && r0.expenseColumnId === "c4")
+check("往返 showBalance 一致", r0.type === "ledger" && r0.showBalance === true)
+check("往返 groupMode/groupColumnId 一致", r0.type === "ledger" && r0.groupMode === "month" && r0.groupColumnId === "c1")
+check("往返丢弃快照行（块不带 rows）", r0.type === "ledger" && !("rows" in r0))
+
+// ---------- 七、缺省不落存储 ----------
+
+note("缺省不落存储")
+const bare = createLedgerBlock("空.tbl")
+const bareHtml = blocksToHtml([bare], lookup)
+check("未设列不写 data-income/data-expense", !bareHtml.includes("data-income=") && !bareHtml.includes("data-expense="))
+check("showBalance 缺省不写 data-balance", !bareHtml.includes("data-balance="))
+check("不分组不写 data-group-mode/data-group", !bareHtml.includes("data-group-mode=") && !bareHtml.includes("data-group="))
+check("但恒写 data-ledger", bareHtml.includes('data-ledger="空.tbl"'))
+check("未设列时快照是纯表格(无 tfoot 合计)", !bareHtml.includes("<tfoot>"))
+
+const hidden = createLedgerBlock("账.tbl", "c3", "", false)
+const hiddenHtml = blocksToHtml([hidden], lookup)
+check("showBalance=false 写 data-balance=false", hiddenHtml.includes('data-balance="false"'))
+check("关余额列时无余额列头", !hiddenHtml.includes("<th>余额</th>"))
+
+// ---------- 八、宽容解析 ----------
+
+note("宽容解析")
+const hand = `<div class="note-ledger" data-ledger="手改.tbl"><table><tr><td>x</td></tr></table></div>`
+const hm = parseHtml(hand)
+check("缺列属性全落默认", hm.length === 1 && hm[0].type === "ledger" && hm[0].incomeColumnId === "" && hm[0].expenseColumnId === "" && hm[0].showBalance === true && hm[0].groupMode === "none", JSON.stringify(hm[0]))
+
+const weird = `<div data-ledger="手改.tbl" data-group="c9" data-group-mode="year" data-balance="false"></div>`
+const wv = parseHtml(weird)
+check("非法 data-group-mode 落 none(有列 id 也不猜)", wv.length === 1 && wv[0].type === "ledger" && wv[0].groupMode === "none" && wv[0].groupColumnId === "", JSON.stringify(wv[0]))
+check("data-balance=false 收下", wv.length === 1 && wv[0].type === "ledger" && wv[0].showBalance === false)
+
+const plain = `<table><thead><tr><th>x</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table>`
+const pt = parseHtml(plain)
+check("无 data-ledger 走普通表格（不出 ledger）", pt.length === 1 && pt[0].type === "table", pt[0]?.type)
+
+// ---------- 九、与其他引用块不混淆 ----------
+
+note("与其他引用块不混淆")
+const galHtml = blocksToHtml([createGalleryBlock("画.tbl")], lookup)
+check("data-gallery 不被当 ledger", parseHtml(galHtml).length === 1 && parseHtml(galHtml)[0].type === "gallery")
+check("data-kanban 不被当 ledger", parseHtml(blocksToHtml([createKanbanBlock("板.tbl", "c1")], lookup))[0].type === "kanban")
+check("data-ledger 不被当 gallery/kanban", parseHtml(html)[0].type === "ledger")
+
+// ---------- 收尾 ----------
+
+note("收尾")
+document.getElementById("app").innerHTML =
+  `<p>共 ${passed + failed} 项，<span class="${failed === 0 ? "ok" : "fail"}">${passed} 通过</span>，<span class="${failed === 0 ? "ok" : "fail"}">${failed} 失败</span></p>`
+document.getElementById("out").textContent = lines.join("\n") + `\n\n${failed === 0 ? "ALL OK" : "HAS FAIL"}`
+</script>
+</body>
+</html>
