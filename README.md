@@ -74,6 +74,7 @@ pnpm icon          # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | `tab-check.html` | 标签栏保存按钮的显隐规则（挂真实组件驱动状态） |
 | `drag-check.html` | 块拖拽的落点线：位置计算、松手提交、非块拖拽不放行（合成 `DragEvent` 走真实 handler） |
 | `typography-check.html` | 排版规格：各级字号 / 行高 / 字重、块间距（含 margin 折叠）、手柄与列表标记的纵向居中、引用与行内 code 的形态、导出文件同一套规格 |
+| `theme-check.html` | 主题色：品牌色 = 图标 tokens 的 `themes.light.bg` 中档（逐通道比对）、`--primary`/`--ring`/`--color-selection-foreground`/`--sidebar-*` 是否都指它、**改 `--color-brand` 时四处一起动**（护住 var() 链不在 `:root` 僵住）、深浅两套的对比度门槛（主按钮字 ≥4.5、选中字 ≥4.5，实测 6.36 / 5.82 / 6.06 / 8.84）、深色选中底比卡片亮、语义色没被品牌化（高亮仍黄、危险仍红、脏标记仍橙）。页面同时是可视预览：浅色 / 深色两块面板，挂真实 `Button` 与 `Checkbox` |
 | `create-check.html` | 新建：名字合法性（非法字符 / 保留名 / 首尾空格）、重名与「文件 vs 文件夹同名」拒绝、写盘后单层重扫、文件夹行 `+` 与顶部全局 `+` |
 | `move-check.html` | 移动：`migratePath` 前缀边界、合法/非法落点、冲突拒绝、同目录空操作、源行与落点高亮、五个以路径为键的状态整体换键（含保存落到新路径） |
 | `settings-check.html` | 设置：默认值、面板两选项与勾选态、切换落盘（`webnote:table-effect`）、**两种表格效果的实际渲染几何**（换行=不超容器 / 滚动=撑开且容器可横向滚动）、**细滚动条**（类名挂上、样式表有 6px 的 `::-webkit-scrollbar`、滚动条占高 ≈6px、未退回原生粗条）、**滚动条与表格的间距**（容器下内边距 = 8px、表格底边与滚动条之间有间距）、**右端内阴影的显隐跟随滚动位置**（不在最右显示、最右隐藏、换行模式不出现）及其底边避开滚动条、非法存量值退回默认 |
@@ -119,6 +120,7 @@ macOS 26（Tahoe）风格：**全出血超椭圆**（`|x/512|^5 + |y/512|^5 = 1`
 | `src-tauri/icons/webnote-icon.svg`、`layers/*.svg` | `design/icon/icon.mjs` | 人看、以及拖进 Icon Composer 做原生 `.icon` |
 | `src-tauri/icons/*.png` / `icon.icns` / `icon.ico` | `design/icon/rasterize.py` | Tauri 打包、Dock、窗口图标 |
 | `design/icon-check.html` | 手写 | 浏览器里核观感（分档尺寸 / 深浅底 / Dock） |
+| `src/style.css` 的 `--color-brand` | 手写（**取值镜像 tokens**） | 界面主题色：主按钮 / 勾选 / 焦点环 / 选中态字色 |
 
 ```bash
 pnpm icon                                      # 三件套：生成 SVG → 自检 → 渲染位图
@@ -135,4 +137,14 @@ python design/icon/rasterize.py --preview      # 只出预览图，不动 icons/
 `design/icon/size-ladder.png` 是 256 → 16 的分档对照（上排浅色、下排深色）。
 16px 那一档只剩一个蓝色圆角方块是正常的 —— 换任何图标都一样。
 `design/icon/preview-{light,dark}.png` 是两套外观的 1024 原图（`rasterize.py --preview` 的产物）。
+
+### 图标背景色 = 界面主题色
+
+界面那支蓝不是另定的色号，就是图标背景渐变（`themes.light.bg` 的中档 `#1D4FD8`）；
+深色外观取图标深色变体的高光蓝（`themes.dark.glow`）、选中态字色取深色变体的字形蓝
+（`themes.dark.glyph`）。`--color-brand` 是主题色的**唯一**定义处，`--primary`、
+`--ring`、`--color-selection-foreground`、`--sidebar-primary` 全都指它，
+所以「主题色」在代码里只有一个地方可改。改图标配色的同时要改 `--color-brand`，
+`design/theme-check.html` 会核对两边是否还对得上，并守住对比度门槛 —— 详见
+`docs/adr/0010`。
 

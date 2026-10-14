@@ -14,9 +14,18 @@
     --color-canvas: oklch(0.963 0 0);
     --color-line: oklch(0.9 0 0);
     --color-muted-strong: oklch(0.93 0 0);
-    --color-selection: oklch(0.955 0.022 255);
-    --color-selection-foreground: oklch(0.44 0.13 255);
-    --color-selection-strong: oklch(0.93 0.035 255);
+    /* 品牌色 = 应用图标背景渐变里的那支蓝。真源是 design/icon/icon.tokens.json
+       （themes.light.bg 的中档），这里只镜像它 —— 图标哪天换蓝，界面跟着换。
+       design/theme-check.html 会核对两边一致，并守住各处的对比度。
+       主按钮 / 勾选选中 / 焦点环 / 选中态字色都指它（--primary、--ring、
+       --color-selection-foreground），所以「主题色」只有一个定义处。
+       深色外观改用图标深色变体的高光蓝，见下面的 .dark。 */
+    --color-brand: rgb(29 79 216);
+    /* 选中底色与它的悬停档：品牌色相（264）降彩度取浅档。字色直接用品牌色本身
+       —— 在浅底上 5.8:1，比原来那支低饱和靛蓝（oklch(0.44 0.13 255)，5.4:1）还清楚。 */
+    --color-selection: oklch(0.955 0.030 264);
+    --color-selection-foreground: var(--color-brand);
+    --color-selection-strong: oklch(0.93 0.045 264);
     /* 行内高亮的底色。取淡黄而不是复用 selection 蓝：选中态是瞬时、高亮是持久，
        两者在界面上会同时出现，同色系会分不清哪段是高亮、哪段正被选中。 */
     --color-highlight: oklch(0.96 0.085 100);
@@ -81,7 +90,10 @@
     --card-foreground: oklch(0.145 0 0);
     --popover: oklch(1 0 0);
     --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
+    /* 主色 = 品牌色。默认按钮（创建 / 重命名 / 保存 / 应用这类主操作）、勾选框的选中底
+       都用它。原来这里是近黑的中性色 —— 主操作没有任何颜色指向，跟图标那支蓝对不上。
+       前景保持近白（白字在品牌蓝上 6.6:1）。 */
+    --primary: var(--color-brand);
     --primary-foreground: oklch(0.985 0 0);
     --secondary: oklch(0.97 0 0);
     --secondary-foreground: oklch(0.205 0 0);
@@ -92,7 +104,9 @@
     --destructive: oklch(0.577 0.245 27.325);
     --border: oklch(0.922 0 0);
     --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
+    /* 焦点环走品牌色：全界面出现频率最高的「主题色」显形处（base 层那条
+       `* { outline-ring/50 }` 与按钮的 focus-visible:ring-ring 都取它）。 */
+    --ring: var(--color-brand);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
@@ -101,23 +115,37 @@
     --radius: 0.625rem;
     --sidebar: oklch(0.985 0 0);
     --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
+    /* 侧栏这组是 shadcn 的契约变量，当前没人消费 —— 一并跟上品牌色，
+       免得日后引了带 sidebar 的组件，冒出一支不属于本应用的蓝紫。 */
+    --sidebar-primary: var(--color-brand);
     --sidebar-primary-foreground: oklch(0.985 0 0);
     --sidebar-accent: oklch(0.97 0 0);
     --sidebar-accent-foreground: oklch(0.205 0 0);
     --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --sidebar-ring: var(--color-brand);
 }
 
 .dark {
     --color-highlight: oklch(0.44 0.08 95);
+    /* 深色外观的品牌色 = 图标深色变体的高光蓝（themes.dark.glow）。
+       不沿用浅色那支：同一支蓝在深底上会发暗、被吃掉纯度，而图标自己在深色下
+       就是这么换的 —— 界面对齐图标的做法，不是自己另定一套。 */
+    --color-brand: rgb(94 147 255);
+    /* 选中底色比卡片（0.205）、比 hover 底（muted 0.269）再亮一档并带品牌色相：
+       深色下「选中」要靠更亮表达，压暗就沉进背景里了。
+       字色取图标深色变体里那支**字形蓝**（themes.dark.glyph[1] = #BBD4FF），不是品牌色
+       本身 —— 品牌色 #5E93FF 在这块深底上只有 4.2:1，够不到正文标准；#BBD4FF 有 8.8:1，
+       而且它本来就是图标在深色下的「文字色」，取它比自己调浅更有依据。 */
+    --color-selection: oklch(0.31 0.065 263);
+    --color-selection-foreground: rgb(187 212 255);
+    --color-selection-strong: oklch(0.37 0.08 263);
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);
     --card: oklch(0.205 0 0);
     --card-foreground: oklch(0.985 0 0);
     --popover: oklch(0.205 0 0);
     --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
+    --primary: var(--color-brand);
     --primary-foreground: oklch(0.205 0 0);
     --secondary: oklch(0.269 0 0);
     --secondary-foreground: oklch(0.985 0 0);
@@ -128,7 +156,7 @@
     --destructive: oklch(0.704 0.191 22.216);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
+    --ring: var(--color-brand);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
@@ -136,12 +164,14 @@
     --chart-5: oklch(0.269 0 0);
     --sidebar: oklch(0.205 0 0);
     --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
+    /* 原来是 shadcn 默认那支蓝紫（oklch(0.488 0.243 264.376)），没人消费；
+       一并换成品牌色，跟浅色侧栏那条注释同一个理由。 */
+    --sidebar-primary: var(--color-brand);
     --sidebar-primary-foreground: oklch(0.985 0 0);
     --sidebar-accent: oklch(0.269 0 0);
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --sidebar-ring: var(--color-brand);
 }
 
 @layer base {

@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>主题色 · 取自应用图标背景</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  p.lead { margin: 0 0 16px; color: #6b7280; }
+  .panels { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  .panel { border-radius: 12px; padding: 16px; width: 320px; }
+  .panel h2 { font-size: 12px; margin: 0 0 10px; font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .chip { height: 22px; width: 34px; border-radius: 6px; flex: none; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+  .sel-row { display: flex; align-items: center; gap: 6px; border-radius: 6px; padding: 3px 6px; font-size: 12px; }
+  .focus-demo:focus { outline: 2px solid color-mix(in oklab, var(--ring) 50%, transparent); outline-offset: 1px; }
+  pre { margin: 16px 0 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>主题色 = 应用图标的背景色</h1>
+<p class="lead">品牌色只定义一处（<span class="mono">--color-brand</span>），主按钮 / 勾选 / 焦点环 / 选中态字色都指向它；下面用图标 tokens 验收，并守着对比度与「语义色不被品牌化」。</p>
+
+<div class="panels">
+  <!-- 浅色外观：与图标浅色变体的蓝对齐 -->
+  <section class="panel" style="background: var(--background); color: var(--foreground); border: 1px solid var(--color-line)">
+    <h2>浅色外观 · 对齐图标浅色变体</h2>
+    <div class="row"><img src="../src-tauri/icons/128x128.png" width="26" height="26" alt="应用图标">
+      <span class="mono">图标背景</span>
+      <span class="chip" style="background: var(--color-brand)"></span>
+      <span class="mono">--color-brand</span>
+    </div>
+    <div class="row" id="slot-light-button"></div>
+    <div class="row" id="slot-light-checkbox"></div>
+    <div class="row"><span style="color: var(--primary); text-decoration: underline" class="focus-demo" tabindex="0">链接色（variant=link）</span></div>
+    <div class="row">
+      <span class="sel-row" style="background: var(--color-selection); color: var(--color-selection-foreground)">▤ 选中的笔记（选中底 + 选中字）</span>
+    </div>
+    <div class="row">
+      <span class="sel-row" style="background: var(--color-selection-strong); color: var(--color-selection-foreground)">▤ 悬停档（selection-strong）</span>
+    </div>
+    <div class="row mono">焦点环：<span style="display:inline-block;width:60px;height:18px;border-radius:4px;border:2px solid color-mix(in oklab, var(--ring) 50%, transparent)"></span></div>
+  </section>
+
+  <!-- 深色外观：与图标深色变体的高光蓝对齐（.dark 的后代取深色 tokens） -->
+  <section class="dark panel" style="background: var(--background); color: var(--foreground); border: 1px solid oklch(1 0 0 / 10%)">
+    <h2>深色外观 · 对齐图标深色变体</h2>
+    <div class="row"><img src="../src-tauri/icons/webnote-icon-dark.svg" width="26" height="26" alt="应用图标（深色）">
+      <span class="mono">图标高光</span>
+      <span class="chip" style="background: var(--color-brand)"></span>
+      <span class="mono">--color-brand</span>
+    </div>
+    <div class="row" id="slot-dark-button"></div>
+    <div class="row" id="slot-dark-checkbox"></div>
+    <div class="row"><span style="color: var(--primary); text-decoration: underline">链接色（variant=link）</span></div>
+    <div class="row">
+      <span class="sel-row" style="background: var(--color-selection); color: var(--color-selection-foreground)">▤ 选中的笔记（选中底 + 选中字）</span>
+    </div>
+    <div class="row">
+      <span class="sel-row" style="background: var(--color-selection-strong); color: var(--color-selection-foreground)">▤ 悬停档（selection-strong）</span>
+    </div>
+    <div class="row mono">焦点环：<span style="display:inline-block;width:60px;height:18px;border-radius:4px;border:2px solid color-mix(in oklab, var(--ring) 50%, transparent)"></span></div>
+  </section>
+</div>
+
+<pre id="out">running…</pre>
+<script type="module">
+// 必须引应用样式表：下面读的全是应用 token 的计算值。
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import tokens from "./icon/icon.tokens.json"
+import { Button } from "../src/components/ui/button/index.ts"
+import { Checkbox } from "../src/components/ui/checkbox/index.ts"
+
+const out = document.getElementById("out")
+const lines = []
+let passed = 0
+let failed = 0
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+window.addEventListener("unhandledrejection", (e) => {
+  out.textContent = "REJECT " + (e.reason?.stack ?? String(e.reason))
+})
+window.addEventListener("error", (e) => { out.textContent = "ERROR " + e.message })
+
+// ---- 真实组件挂上：证明「主题色被主按钮 / 勾选框吃到」而不是只在 CSS 里躺着 ----
+const Preview = defineComponent({
+  setup() {
+    return () => [
+      h(Button, { size: "sm" }, { default: () => "主按钮（default）" }),
+      h(Checkbox, { modelValue: true, class: "ml-2" }),
+    ]
+  },
+})
+createApp(Preview).mount("#slot-light-button")
+createApp(Preview).mount("#slot-dark-button")
+
+// ---- 颜色工具 ----
+// 取真实 sRGB 字节走 canvas：Chromium 对 oklch() 的计算值是**原样保留 oklch(...)**
+// 序列化的，用正则从计算值里抠数字会把 `oklch(0.985 0 0)` 当成 rgb(0.985,0,0)。
+const canvas = document.createElement("canvas")
+canvas.width = 1
+canvas.height = 1
+const ctx = canvas.getContext("2d", { willReadFrequently: true })
+/** 任何 CSS 颜色写法 → sRGB [r, g, b]。认不出的颜色会被 canvas 丢掉，落回纯黑。 */
+function toRgb(value) {
+  ctx.fillStyle = "#000000"
+  ctx.fillStyle = value
+  ctx.clearRect(0, 0, 1, 1)
+  ctx.fillRect(0, 0, 1, 1)
+  const data = ctx.getImageData(0, 0, 1, 1).data
+  return [data[0], data[1], data[2]]
+}
+function varOf(name, scope = document.documentElement) {
+  return getComputedStyle(scope).getPropertyValue(name).trim()
+}
+/** 某个 token 在给定作用域下解析出来的 rgb。 */
+function rgbOf(name, scope = document.documentElement) {
+  return toRgb(varOf(name, scope))
+}
+const same = (a, b) => a !== null && b !== null && a.every((v, i) => Math.abs(v - b[i]) <= 1)
+const show = (rgb) => (rgb === null ? "解析不出" : `rgb(${rgb.join(" ")})`)
+
+function srgbToLinear(c) { return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4 }
+function luminance([r, g, b]) {
+  const [R, G, B] = [r, g, b].map((v) => srgbToLinear(v / 255))
+  return 0.2126 * R + 0.7152 * G + 0.0722 * B
+}
+function contrast(a, b) {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+// ---- 夹具：图标 tokens 的两支蓝 ----
+const lightBrand = tokens.themes.light.bg.find(([offset]) => offset === 0.46)?.[1] ?? null
+const darkBrand = tokens.themes.dark.glow.rgb
+const light = document.documentElement
+const darkScope = document.querySelector(".dark")
+const WHITE = [255, 255, 255]
+
+// ---- 浅色：品牌色取自图标背景渐变的中档 ----
+check("图标 tokens 读到了（themes.light.bg / themes.dark.glow）", lightBrand !== null && darkBrand.length === 3)
+check("--color-brand = 图标背景渐变中档（#1D4FD8）", same(rgbOf("--color-brand"), lightBrand),
+  `${show(rgbOf("--color-brand"))} vs ${show(lightBrand)}`)
+check("主按钮 / 勾选的主色 --primary 就是品牌色", same(rgbOf("--primary"), rgbOf("--color-brand")),
+  `${show(rgbOf("--primary"))}`)
+check("焦点环 --ring 就是品牌色", same(rgbOf("--ring"), rgbOf("--color-brand")), `${show(rgbOf("--ring"))}`)
+check("选中态字色 --color-selection-foreground 就是品牌色",
+  same(rgbOf("--color-selection-foreground"), rgbOf("--color-brand")), `${show(rgbOf("--color-selection-foreground"))}`)
+check("侧栏契约变量 --sidebar-primary / --sidebar-ring 也是品牌色",
+  same(rgbOf("--sidebar-primary"), rgbOf("--color-brand")) && same(rgbOf("--sidebar-ring"), rgbOf("--color-brand")))
+check("主题色只有一处定义：把 --color-brand 改掉，四处一起变",
+  [["--primary"], ["--ring"], ["--color-selection-foreground"], ["--sidebar-primary"]].every(([name]) => {
+    light.style.setProperty("--color-brand", "rgb(1 2 3)")
+    const hit = same(rgbOf(name), [1, 2, 3])
+    light.style.removeProperty("--color-brand")
+    return hit
+  }))
+
+// ---- 浅色：对比度 ----
+const lightPrimaryFg = contrast(rgbOf("--primary-foreground"), rgbOf("--primary"))
+const lightSelection = contrast(rgbOf("--color-selection-foreground"), rgbOf("--color-selection"))
+check(`主按钮白字 in 品牌底 ≥ 4.5（实测 ${lightPrimaryFg.toFixed(2)}）`, lightPrimaryFg >= 4.5)
+check(`选中字的对比度 ≥ 4.5（实测 ${lightSelection.toFixed(2)}，旧配色是 5.40）`, lightSelection >= 4.5)
+
+// ---- 深色：品牌色取图标深色变体的高光蓝 ----
+check("深色 --color-brand = 图标深色变体高光（#5E93FF）", same(rgbOf("--color-brand", darkScope), darkBrand),
+  `${show(rgbOf("--color-brand", darkScope))} vs ${show(darkBrand)}`)
+check("深色下 primary / ring 仍是品牌色（var() 链没僵在 :root）",
+  ["--primary", "--ring", "--sidebar-primary", "--sidebar-ring"].every((name) => same(rgbOf(name, darkScope), darkBrand)),
+  `${show(rgbOf("--primary", darkScope))} / ${show(rgbOf("--ring", darkScope))}`)
+check("深色选中字 = 图标深色变体字形蓝（#BBD4FF）",
+  same(rgbOf("--color-selection-foreground", darkScope), tokens.themes.dark.glyph[1][1]),
+  `${show(rgbOf("--color-selection-foreground", darkScope))} vs ${show(tokens.themes.dark.glyph[1][1])}`)
+const darkPrimaryFg = contrast(rgbOf("--primary-foreground", darkScope), rgbOf("--primary", darkScope))
+const darkSelection = contrast(rgbOf("--color-selection-foreground", darkScope), rgbOf("--color-selection", darkScope))
+check(`深色主按钮字对比度 ≥ 4.5（实测 ${darkPrimaryFg.toFixed(2)}）`, darkPrimaryFg >= 4.5)
+check(`深色选中字对比度 ≥ 4.5（实测 ${darkSelection.toFixed(2)}）`, darkSelection >= 4.5)
+check("深色选中底比卡片亮（选中在深色下靠更亮表达，不是压暗）",
+  luminance(rgbOf("--color-selection", darkScope)) > luminance(rgbOf("--card", darkScope)))
+
+// ---- 语义色不许被品牌化 ----
+const highlight = rgbOf("--color-highlight")
+const destructive = rgbOf("--destructive")
+check("行内高亮仍是淡黄（蓝通道最低，没被染成品牌蓝）", highlight[2] < highlight[0] && highlight[2] < highlight[1],
+  show(highlight))
+check("危险色仍是红（红通道压倒性领先，没被染成品牌蓝）",
+  destructive[0] > destructive[1] && destructive[0] > destructive[2] && destructive[0] > 150,
+  show(destructive))
+check("脏标记仍是橙黄（没被染成品牌蓝）", (() => {
+  const dirty = rgbOf("--color-dirty")
+  return dirty[2] < dirty[0] && dirty[2] < dirty[1]
+})())
+
+out.textContent = [...lines, failed === 0 ? `自检 ${passed}/${passed}` : `自检 ${passed} 过 / ${failed} 败`].join("\n")
+globalThis.__themeCheckDone = true
+</script>
+</body>
+</html>

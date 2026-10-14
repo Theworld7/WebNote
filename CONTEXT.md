@@ -298,6 +298,18 @@ heading scale. The editor and the exported Note must both be driven by the same 
 are two renderings of it, not two sources of it.
 _Avoid_: Styles, theme, CSS
 
+**Brand colour**:
+The app's one accent colour — the icon's background blue, rather than a colour chosen on its
+own. Its single definition is `--color-brand` in `src/style.css`, mirrored from
+`design/icon/icon.tokens.json`; everything that expresses the app's colour points at it
+(`--primary`, `--ring`, the selection text, the sidebar contract variables), so the theme has
+one place to change. The dark appearance takes the icon's dark variant, not a lightened copy.
+Surfaces (`--accent`, `--muted`, borders, the canvas) stay neutral, and the colours that
+already mean something else — highlight, dirty, destructive, the ledger's income / expense —
+are not allowed to drift towards it.
+_Avoid_: Accent (the name is taken: shadcn's `--accent` is a hover surface), brand palette
+(there is one colour, not a set), primary colour (`--primary` is one of its consumers)
+
 ### Preferences
 
 **Preference**:
