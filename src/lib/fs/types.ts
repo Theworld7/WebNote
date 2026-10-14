@@ -73,4 +73,21 @@ export interface WorkspaceFs {
    * 不可逆是这条原语的本性 —— 确认框属于调用方，这一层不做任何拦截。
    */
   remove(root: FsRoot, path: string): Promise<void>
+  /**
+   * 工作区路径 → 磁盘绝对路径。分隔符的拼法只由实现解释。
+   *
+   * 浏览器端返回 `null`：句柄背后没有「路径」这个概念，UI 据此决定
+   * 要不要露出「复制路径」这类只对磁盘有意义的入口。
+   */
+  absolutePath(root: FsRoot, path: string): string | null
+  /**
+   * 在系统文件管理器里显示该路径（文件或目录，定位选中而非打开内容）。
+   * 浏览器端没有「系统文件管理器」可言，返回 `false`；桌面端成功返回 `true`。
+   */
+  revealInFileManager(root: FsRoot, path: string): Promise<boolean>
+  /**
+   * 用系统默认浏览器打开该路径下的 HTML 文件（显式走浏览器，而不是 `.html`
+   * 注册的默认应用 —— 那可能是编辑器）。浏览器端返回 `false`；桌面端成功返回 `true`。
+   */
+  openInBrowser(root: FsRoot, path: string): Promise<boolean>
 }

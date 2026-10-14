@@ -6,6 +6,11 @@
   "permissions": [
     "core:default",
     "opener:default",
+    "opener:allow-reveal-item-in-dir",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "file://*" }]
+    },
     "dialog:allow-open",
     "fs:allow-read-dir",
     "fs:allow-read-text-file",

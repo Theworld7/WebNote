@@ -4,6 +4,7 @@ import type { FsRoot, WorkspaceFs } from "./types"
 import { invoke } from "@tauri-apps/api/core"
 import { open } from "@tauri-apps/plugin-dialog"
 import { exists as fsExists, mkdir, readDir, readTextFile, remove as fsRemove, rename, writeTextFile } from "@tauri-apps/plugin-fs"
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener"
 import { joinPath, toSegments } from "@/lib/paths"
 import {
   MAX_DEPTH,
@@ -60,6 +61,18 @@ function absoluteOf(root: FsRoot, path: string): string {
   let absolute = root.path
   for (const segment of toSegments(path)) absolute = joinNative(absolute, segment)
   return absolute
+}
+
+/**
+ * 磁盘绝对路径 → `file://` URL。
+ *
+ * **不做 percent-encoding**：Windows 的 ShellExecute 对 URL 字符串按字面解析、
+ * 不做 percent-decoding —— 编码过的路径（`%E7%86%8A…`、`C%3A`）会被当成不存在
+ * 的文件名，直接弹「系统找不到指定的文件」（探针实测：编码形态两种都失败，
+ * 原样 Unicode 成功）。这里只把反斜杠归一成正斜杠，其余原样交给 shell。
+ */
+function fileUrlOf(absolute: string): string {
+  return `file:///${absolute.replace(/\\/g, "/")}`
 }
 
 /**
@@ -183,6 +196,21 @@ export function createTauriFs(): WorkspaceFs {
     async remove(root, path) {
       if (root.kind !== "path") throw new Error("桌面端实现收到了非路径形态的根目录")
       await fsRemove(absoluteOf(root, path), { recursive: true })
+    },
+
+    absolutePath(root, path) {
+      // `absoluteOf` 自己会挡非路径形态的根，这里不用重复判。
+      return absoluteOf(root, path)
+    },
+
+    async revealInFileManager(root, path) {
+      await revealItemInDir(absoluteOf(root, path))
+      return true
+    },
+
+    async openInBrowser(root, path) {
+      await openUrl(fileUrlOf(absoluteOf(root, path)))
+      return true
     },
   }
 }

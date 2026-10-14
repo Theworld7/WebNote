@@ -309,5 +309,20 @@ export function createBrowserFs(): WorkspaceFs {
     async remove(root, path) {
       await removeAt(rootOf(root), path)
     },
+
+    /** 句柄背后没有磁盘路径，「复制路径」类入口按 `null` 隐藏。 */
+    absolutePath() {
+      return null
+    },
+
+    /** 没有「系统文件管理器」可去，如实报告做不到。 */
+    async revealInFileManager() {
+      return false
+    },
+
+    /** 浏览器端没有磁盘路径可转 `file://`，如实报告做不到。 */
+    async openInBrowser() {
+      return false
+    },
   }
 }

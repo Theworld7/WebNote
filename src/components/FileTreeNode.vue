@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { CreateTarget, FileNode } from "@/types/workspace"
 import { computed } from "vue"
-import { ChevronRightIcon, DatabaseIcon, EllipsisIcon, FilePlusIcon, FileTextIcon, FolderIcon, FolderPlusIcon, PencilIcon, PlusIcon, TrashIcon } from "@lucide/vue"
+import { ChevronRightIcon, CopyIcon, DatabaseIcon, EllipsisIcon, FilePlusIcon, FileTextIcon, FolderIcon, FolderOpenIcon, FolderPlusIcon, GlobeIcon, PencilIcon, PlusIcon, TrashIcon } from "@lucide/vue"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useWorkspace } from "@/composables/useWorkspace"
@@ -23,7 +23,7 @@ const emit = defineEmits<{
   remove: [path: string, kind: CreateTarget["kind"]]
 }>()
 
-const { expandedIds, activePath, isSearching, toggleFolder, openFile, draggingPath, dropTargetPath } =
+const { expandedIds, activePath, isSearching, toggleFolder, openFile, draggingPath, dropTargetPath, fs, root } =
   useWorkspace()
 
 // 路径格式只由 `joinPath` 决定 —— 树、标签、面包屑三处必须给出同一个键。
@@ -52,6 +52,37 @@ const MENU_BUTTON =
 
 /** 落点用描边环而不是填充：与 hover 的底色分属两层，叠加时仍能分辨。 */
 const DROP_TARGET = "ring-1 ring-selection-foreground ring-inset"
+
+/** 桌面端才有磁盘路径与系统文件管理器，「复制路径 / 打开所在位置」据此显隐。 */
+const isDesktop = computed(() => root.value?.kind === "path")
+
+/** 只有 HTML 文件给「用浏览器打开」—— 其它扩展名的默认应用不一定是浏览器，菜单不撒谎。 */
+const isHtmlFile = computed(() => !isFolder.value && /\.html?$/i.test(props.node.name))
+
+/** 把这个节点的磁盘绝对路径放进剪贴板。浏览器端没有路径，入口本身已隐藏。 */
+async function copyPath() {
+  const driver = fs.value
+  const current = root.value
+  if (driver === null || current === null) return
+  const absolute = driver.absolutePath(current, fullPath.value)
+  if (absolute !== null) await navigator.clipboard.writeText(absolute)
+}
+
+/** 在系统文件管理器里定位这个节点（选中呈现，不打开内容）。 */
+async function revealInFileManager() {
+  const driver = fs.value
+  const current = root.value
+  if (driver === null || current === null) return
+  await driver.revealInFileManager(current, fullPath.value)
+}
+
+/** 用系统默认浏览器打开这个 HTML 文件（显式走浏览器，不交给 `.html` 的默认应用）。 */
+async function openInBrowser() {
+  const driver = fs.value
+  const current = root.value
+  if (driver === null || current === null) return
+  await driver.openInBrowser(current, fullPath.value)
+}
 
 /** 文件行可拖，且拖的是「这个文件」。路径作为 `dataTransfer` 载荷由 FileTree 写。 */
 function startDrag(event: DragEvent) {
@@ -96,7 +127,7 @@ function startDrag(event: DragEvent) {
               <PlusIcon class="size-3.5" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
+          <DropdownMenuContent align="end">
             <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('create', fullPath, 'note')">
               <FilePlusIcon class="size-3.5 text-muted-foreground" />
               <span>新建笔记</span>
@@ -109,7 +140,33 @@ function startDrag(event: DragEvent) {
               <FolderPlusIcon class="size-3.5 text-muted-foreground" />
               <span>新建文件夹</span>
             </DropdownMenuItem>
-            <DropdownMenuSeparator />
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <!-- 与文件行同一套 `⋯` 菜单：重命名 / 删除从这里走，「新建」独立在左侧的 `+`。 -->
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <button
+              type="button"
+              draggable="false"
+              :class="MENU_BUTTON"
+              aria-label="更多操作"
+              @click.stop
+            >
+              <EllipsisIcon class="size-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <template v-if="isDesktop">
+              <DropdownMenuItem class="gap-2 text-[13px]" @select="copyPath">
+                <CopyIcon class="size-3.5 text-muted-foreground" />
+                <span>复制路径</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem class="gap-2 text-[13px]" @select="revealInFileManager">
+                <FolderOpenIcon class="size-3.5 text-muted-foreground" />
+                <span>打开所在位置</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </template>
             <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('rename', fullPath, 'folder')">
               <PencilIcon class="size-3.5 text-muted-foreground" />
               <span>重命名</span>
@@ -176,6 +233,21 @@ function startDrag(event: DragEvent) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        <template v-if="isDesktop">
+          <DropdownMenuItem class="gap-2 text-[13px]" @select="copyPath">
+            <CopyIcon class="size-3.5 text-muted-foreground" />
+            <span>复制路径</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem class="gap-2 text-[13px]" @select="revealInFileManager">
+            <FolderOpenIcon class="size-3.5 text-muted-foreground" />
+            <span>打开所在位置</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem v-if="isHtmlFile" class="gap-2 text-[13px]" @select="openInBrowser">
+            <GlobeIcon class="size-3.5 text-muted-foreground" />
+            <span>用浏览器打开</span>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+        </template>
         <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('rename', fullPath, node.kind)">
           <PencilIcon class="size-3.5 text-muted-foreground" />
           <span>重命名</span>
