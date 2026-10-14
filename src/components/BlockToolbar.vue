@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { BlockMenuKind, BlockType } from "@/types/workspace"
+import { computed } from "vue"
 import { GripVerticalIcon, PlusIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
@@ -14,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import BlockTypeMenuItems from "./BlockTypeMenuItems.vue"
+import { useSettings } from "@/composables/useSettings"
 
 defineProps<{
   /** 当前打开的是哪个菜单，由父级 BlockItem 持有 —— 因为 `/` 输入也要程序化打开类型菜单。 */
@@ -33,6 +35,8 @@ const emit = defineEmits<{
   (event: "remove"): void
 }>()
 
+const { menuGroupLayout } = useSettings()
+
 /** 手柄按钮：24px 见方，比 shadcn 默认图标按钮更小，靠 class 覆盖 size variant。 */
 const TOOL = "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foreground"
 
@@ -44,8 +48,16 @@ const TOOL = "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foregrou
  */
 const GRIP = `${TOOL} cursor-grab active:cursor-grabbing [-webkit-user-drag:element]`
 
-/** 菜单外框：244px 定宽、浮岛圆角、去掉 shadcn 默认的 1px ring，换成原型那套双层阴影。 */
-const MENU = "w-[244px] rounded-island p-1.5 shadow-pop ring-0"
+/**
+ * 菜单外框：浮岛圆角、去掉 shadcn 默认的 1px ring，换成原型那套双层阴影。
+ * 宽度随「块菜单」设置走 —— 纵向 244px 定宽；横向组要并排，改 `w-max`
+ * 让内容撑开（定宽会把横排的组挤换行，「横向」就不成立了）。
+ */
+const MENU = computed(() =>
+  menuGroupLayout.value === "horizontal"
+    ? "w-max rounded-island p-1.5 shadow-pop ring-0"
+    : "w-[244px] rounded-island p-1.5 shadow-pop ring-0",
+)
 
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
 

@@ -1,6 +1,7 @@
 import type { InjectionKey, Ref } from "vue"
+import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import type { TableEffect } from "@/types/workspace"
-import { inject, provide, ref } from "vue"
+import { inject, provide, ref, watch } from "vue"
 
 /**
  * 应用设置 —— 用户偏好，与工作区数据完全正交。
@@ -13,6 +14,11 @@ import { inject, provide, ref } from "vue"
  *
  * 与 `useResizableWidth` 同一套持久化口径：一个 `webnote:` 前缀的键、一个默认值
  * 常量、读取时防御性解析（值坏了就退回默认，不抛错）。
+ *
+ * 在 localStorage 之外，偏好还会随工作区落一份到根目录的 `webnote.json`
+ * （`attachStore` 接上后生效）—— localStorage 跟浏览器走，配置文件跟目录走，
+ * 两边由同一份内存值喂，永远说同一句话。配置文件只在「有工作区」时读写；
+ * 文件的宽容解析走同一套候选表，不会把坏值灌进内存。
  *
  * `TableEffect` 本身定义在 `@/types/workspace`（与其它领域类型同处），这里只是消费它。
  */
@@ -65,6 +71,64 @@ function readContentWidth(): ContentWidth {
   return found ?? DEFAULT_CONTENT_WIDTH
 }
 
+/**
+ * 块菜单分组的排布方向。与 `ContentWidth` 同一判据：只有组件消费，没有 lib 依赖，
+ * 类型就留在本文件。
+ */
+export type MenuGroupLayout = "vertical" | "horizontal"
+
+const MENU_GROUP_LAYOUT_KEY = "webnote:menu-group-layout"
+const DEFAULT_MENU_GROUP_LAYOUT: MenuGroupLayout = "vertical"
+
+const MENU_GROUP_LAYOUTS: readonly MenuGroupLayout[] = ["vertical", "horizontal"]
+
+function readMenuGroupLayout(): MenuGroupLayout {
+  const raw = window.localStorage.getItem(MENU_GROUP_LAYOUT_KEY)
+  if (raw === null) return DEFAULT_MENU_GROUP_LAYOUT
+  const found = MENU_GROUP_LAYOUTS.find((value) => value === raw)
+  return found ?? DEFAULT_MENU_GROUP_LAYOUT
+}
+
+/**
+ * 工作区根目录下的应用配置文件。
+ *
+ * localStorage 跟着浏览器走，换目录 / 换机器就丢了；这份文件让偏好**跟着工作区走**。
+ * 文件树之所以看不见它：扫描只认 `.html / .htm / .tbl` 白名单（`lib/fs/policy.ts`），
+ * 非笔记、非数据表的文件一律不进树 —— 「不可见」是白名单的既定结果，不靠点名过滤。
+ */
+export const PREFERENCE_FILE = "webnote.json"
+
+/** 盘上配置文件的形状。字段全可选 —— 宽容读取，缺哪个字段哪个保持现状。 */
+interface PreferenceFile {
+  tableEffect?: TableEffect
+  contentWidth?: ContentWidth
+  menuGroupLayout?: MenuGroupLayout
+}
+
+/** 从盘上文本解析偏好。文件坏了 / 字段非法都不抛错，非法字段退回「不覆盖」。 */
+function parsePreferenceFile(text: string): PreferenceFile {
+  let data: unknown
+  try {
+    data = JSON.parse(text)
+  } catch {
+    return {}
+  }
+  if (!isRecord(data)) return {}
+  const source = data
+  const pick = <T extends string>(candidates: readonly T[], value: unknown): T | undefined =>
+    candidates.find((item) => item === value)
+  return {
+    tableEffect: pick(TABLE_EFFECTS, source["tableEffect"]),
+    contentWidth: pick(CONTENT_WIDTHS, source["contentWidth"]),
+    menuGroupLayout: pick(MENU_GROUP_LAYOUTS, source["menuGroupLayout"]),
+  }
+}
+
+/** `object` → `Record<string, unknown>` 的收窄守卫。项目禁断言，判型走守卫。 */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
 interface Settings {
   /** 表格效果。`ref` 而不是 `reactive`：设置项各自独立，且都会被整体读写。 */
   tableEffect: Ref<TableEffect>
@@ -73,6 +137,16 @@ interface Settings {
   /** 内容宽度（正文列最大宽度档位）。同上，`ref` 且只经 setter 写。 */
   contentWidth: Ref<ContentWidth>
   setContentWidth: (value: ContentWidth) => void
+  /** 块菜单分组的排布方向。同上，`ref` 且只经 setter 写。 */
+  menuGroupLayout: Ref<MenuGroupLayout>
+  setMenuGroupLayout: (value: MenuGroupLayout) => void
+  /**
+   * 接上工作区这对 driver / root。接上后工作区根的 `webnote.json`（见
+   * `PREFERENCE_FILE`）成为第二份存储：启动 / 换目录时读取并应用，文件内容
+   * 与内存全同时静默不动。不接（自检页、未打开目录）则只有 localStorage
+   * 一份，行为与从前完全一致。
+   */
+  attachStore: (driver: Ref<WorkspaceFs | null>, root: Ref<FsRoot | null>) => void
 }
 
 function createSettings(): Settings {
@@ -81,6 +155,7 @@ function createSettings(): Settings {
   function setTableEffect(value: TableEffect) {
     tableEffect.value = value
     window.localStorage.setItem(TABLE_EFFECT_KEY, value)
+    void persistToStore()
   }
 
   const contentWidth = ref<ContentWidth>(readContentWidth())
@@ -88,9 +163,104 @@ function createSettings(): Settings {
   function setContentWidth(value: ContentWidth) {
     contentWidth.value = value
     window.localStorage.setItem(CONTENT_WIDTH_KEY, value)
+    void persistToStore()
   }
 
-  return { tableEffect, setTableEffect, contentWidth, setContentWidth }
+  const menuGroupLayout = ref<MenuGroupLayout>(readMenuGroupLayout())
+
+  function setMenuGroupLayout(value: MenuGroupLayout) {
+    menuGroupLayout.value = value
+    window.localStorage.setItem(MENU_GROUP_LAYOUT_KEY, value)
+    void persistToStore()
+  }
+
+  /**
+   * 工作区侧的读写。`attachStore` 接上前是 null —— 那时偏好只走 localStorage，
+   * 这是「没打开目录也想能设置」的退化路径，不是缺功能。
+   */
+  let storeDriver: Ref<WorkspaceFs | null> | null = null
+  let storeRoot: Ref<FsRoot | null> | null = null
+
+  /** 把当前三份偏好序列化成配置文件文本。全量写，不做「只写非默认值」的省略。 */
+  function serializePrefs(): string {
+    const file: PreferenceFile = {
+      tableEffect: tableEffect.value,
+      contentWidth: contentWidth.value,
+      menuGroupLayout: menuGroupLayout.value,
+    }
+    return `${JSON.stringify(file, null, 2)}\n`
+  }
+
+  /** 把偏好落到 `webnote.json`。写失败静默 —— 偏好不是文档，丢一次下次改动会再写。 */
+  async function persistToStore(): Promise<void> {
+    if (storeDriver === null || storeRoot === null) return
+    const driver = storeDriver.value
+    const root = storeRoot.value
+    if (driver === null || root === null) return
+    storeEpoch++ // 用户主动改设置：作废在途的配置读取，新选择优先于盘上旧值
+    try {
+      await driver.writeNote(root, PREFERENCE_FILE, serializePrefs())
+    } catch {
+      // 静默：设置写失败不该弹错误打扰阅读，localStorage 那份仍然生效。
+    }
+  }
+
+  /** 应用盘上读回的偏好。逐项比对，只动有差异的字段；全同则什么都不碰（静默）。 */
+  function applyPrefs(prefs: PreferenceFile): boolean {
+    let changed = false
+    if (prefs.tableEffect !== undefined && prefs.tableEffect !== tableEffect.value) {
+      tableEffect.value = prefs.tableEffect
+      window.localStorage.setItem(TABLE_EFFECT_KEY, prefs.tableEffect)
+      changed = true
+    }
+    if (prefs.contentWidth !== undefined && prefs.contentWidth !== contentWidth.value) {
+      contentWidth.value = prefs.contentWidth
+      window.localStorage.setItem(CONTENT_WIDTH_KEY, prefs.contentWidth)
+      changed = true
+    }
+    if (prefs.menuGroupLayout !== undefined && prefs.menuGroupLayout !== menuGroupLayout.value) {
+      menuGroupLayout.value = prefs.menuGroupLayout
+      window.localStorage.setItem(MENU_GROUP_LAYOUT_KEY, prefs.menuGroupLayout)
+      changed = true
+    }
+    return changed
+  }
+
+  /**
+   * 读写竞争的代币：每次发起读取前 +1，用户主动改设置（落盘）时也 +1。
+   * 读回时对不上号，说明读盘期间用户改了设置 —— 盘上那份是旧的，静默丢弃，
+   * 用户的新选择赢。没有这个守卫，慢盘上的读取会在落盘后把旧值灌回来。
+   */
+  let storeEpoch = 0
+
+  function attachStore(driver: Ref<WorkspaceFs | null>, root: Ref<FsRoot | null>): void {
+    storeDriver = driver
+    storeRoot = root
+    // 启动即读取：attachStore 发生在根组件 setup、bootstrap 挑驱动之前，此刻 root
+    // 还是 null，真正的首次读取由 bootstrap 恢复目录时触发；`immediate` 兜的是
+    // 「root 先于接线就绪」的调用序，让「启动读取」不依赖接线顺序。文件不存在
+    // （首次打开这个目录）是正常路径，保持 localStorage 里的现状即可。
+    watch(
+      root,
+      (current) => {
+        const workspaceDriver = driver.value
+        if (workspaceDriver === null || current === null) return
+        const epoch = ++storeEpoch
+        void workspaceDriver
+          .readNote(current, PREFERENCE_FILE)
+          .then((text) => {
+            if (epoch !== storeEpoch) return // 读期间用户改了设置，盘上这份作废
+            // 文件与内存全同时 applyPrefs 内部静默 —— 不碰 ref、不写 localStorage、
+            // 不触发任何订阅了设置的副作用。
+            applyPrefs(parsePreferenceFile(text))
+          })
+          .catch(() => {})
+      },
+      { immediate: true },
+    )
+  }
+
+  return { tableEffect, setTableEffect, contentWidth, setContentWidth, menuGroupLayout, setMenuGroupLayout, attachStore }
 }
 
 export type { Settings }

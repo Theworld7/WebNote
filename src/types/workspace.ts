@@ -284,9 +284,11 @@ export type BlockSettingsPatch = Partial<
   Omit<KanbanBlock, "id" | "type" | "path">
 >
 
-/** 块类型元数据：菜单标记 + 中文名。菜单渲染直接消费。 */
+/** 块类型元数据：菜单分组 + 菜单标记 + 中文名。菜单渲染直接消费。 */
 export interface BlockTypeMeta {
   type: BlockType
+  /** 所属菜单分组的名字。同名组在登记表里必须相邻，菜单按此切段渲染小标题。 */
+  group: string
   /** 菜单左侧的等宽字符标记，替代图标 SVG。 */
   marker: string
   label: string

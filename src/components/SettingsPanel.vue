@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import type { ContentWidth, TableEffect } from "@/composables/useSettings"
+import type { ContentWidth, MenuGroupLayout, TableEffect } from "@/composables/useSettings"
 import type { Component } from "vue"
-import { CheckIcon, MoveHorizontalIcon, WrapTextIcon, XIcon } from "@lucide/vue"
+import { CheckIcon, Columns2Icon, ListIcon, MoveHorizontalIcon, WrapTextIcon, XIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
@@ -25,7 +25,7 @@ import { CONTENT_WIDTH_PX, useSettings } from "@/composables/useSettings"
  */
 const open = defineModel<boolean>("open", { required: true })
 
-const { tableEffect, setTableEffect, contentWidth, setContentWidth } = useSettings()
+const { tableEffect, setTableEffect, contentWidth, setContentWidth, menuGroupLayout, setMenuGroupLayout } = useSettings()
 
 /** 分区。加新分区时在这里加一条，右侧内容按 `CURRENT` 分派。 */
 const SECTIONS = [{ id: "display", label: "显示" }] as const
@@ -82,6 +82,32 @@ const CONTENT_WIDTH_BAR: Readonly<Record<ContentWidth, string>> = {
   standard: "w-5",
   wide: "w-7",
 }
+
+interface MenuGroupLayoutOption {
+  value: MenuGroupLayout
+  label: string
+  hint: string
+  icon: Component
+}
+
+/**
+ * 块菜单分组的两种排布。纵向是出现分组小标题以来的原有行为、也是默认；
+ * 横向把组并排成几列，菜单矮而宽 —— 项多时不用滚那么深。
+ */
+const MENU_GROUP_LAYOUT_OPTIONS: readonly MenuGroupLayoutOption[] = [
+  {
+    value: "vertical",
+    label: "纵向",
+    hint: "组从上到下依次排，菜单窄而高",
+    icon: ListIcon,
+  },
+  {
+    value: "horizontal",
+    label: "横向",
+    hint: "组并排成几列，菜单矮而宽",
+    icon: Columns2Icon,
+  },
+]
 
 /** 抽屉标题栏的关闭按钮，与工具栏那批小按钮同一体量。 */
 const CLOSE = "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foreground"
@@ -205,6 +231,31 @@ function optionClass(isActive: boolean): string {
                   <span class="text-[11.5px] leading-[1.45] text-muted-foreground">
                     {{ CONTENT_WIDTH_PX[option.value] }}px
                   </span>
+                </button>
+              </div>
+            </section>
+
+            <section class="flex flex-col gap-2">
+              <h3 class="text-[13px] font-medium text-foreground">块菜单</h3>
+              <SheetDescription>插入块与「转为…」菜单里分组的排布方向。</SheetDescription>
+
+              <!-- 两档横排:方向本身是二维的,用图标画出组的走向比文字更直白。 -->
+              <div class="mt-0.5 grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="块菜单分组排布">
+                <button
+                  v-for="option in MENU_GROUP_LAYOUT_OPTIONS"
+                  :key="option.value"
+                  type="button"
+                  role="radio"
+                  :aria-checked="menuGroupLayout === option.value"
+                  :class="[
+                    'flex flex-col items-start gap-1 rounded-[9px] border p-2.5 text-left transition-colors',
+                    optionClass(menuGroupLayout === option.value),
+                  ]"
+                  @click="setMenuGroupLayout(option.value)"
+                >
+                  <component :is="option.icon" class="size-4 text-muted-foreground" />
+                  <span class="text-[13px] leading-[1.4] text-foreground">{{ option.label }}</span>
+                  <span class="text-[11.5px] leading-[1.45] text-muted-foreground">{{ option.hint }}</span>
                 </button>
               </div>
             </section>

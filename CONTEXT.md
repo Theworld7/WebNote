@@ -291,7 +291,10 @@ _Avoid_: Styles, theme, CSS
 A user choice that changes how the editor *shows* a Note without changing the Note. It is
 stored outside the Note (in the app's own settings), so the same file opened on another
 machine renders exactly the same. A Preference is never written into the exported HTML and
-never makes a Tab dirty.
+never makes a Tab dirty. Preferences live in two stores fed by the same in-memory value:
+localStorage (per browser) and `webnote.json` in the workspace root (per folder, written
+when a workspace is open). The config file is invisible in the file tree — scanning only
+admits `.html` / `.htm` / `.tbl`.
 _Avoid_: Setting (the panel is the settings panel, but a single item is a Preference),
 option, config
 

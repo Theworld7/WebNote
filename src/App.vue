@@ -35,7 +35,9 @@ attachTableCreate(async (fsDriver, fsRoot, path) => {
   tables.adopt(path, initial)
 })
 // 设置与工作区正交：它只装用户偏好，不参与任何笔记读写，所以在根组件独立 provide 一次。
-provideSettings()
+// 接上 driver / root 这对引用后，偏好才多落一份到工作区根的 webnote.json（换目录重读）。
+const settings = provideSettings()
+settings.attachStore(fs, root)
 
 const { width: sidebarWidth, dragging, startDrag } = useResizableWidth()
 const sidebarCollapsed = ref(false)

@@ -22,6 +22,14 @@ import { cloneRuns, runsText, textToRuns } from "@/lib/inline"
 import { cloneCell } from "@/lib/table"
 
 /**
+ * 菜单分组的名字清单。`group` 字段的取值由此收口 —— 写错组名会当场编译报错,
+ * 不会悄悄多出一个没人认识的分组。组的展示顺序即本清单顺序,但菜单实际按
+ * 登记表条目的相邻关系切段,同组的条目必须写在一起。
+ */
+const MENU_GROUPS = ["基础", "列表", "内容", "媒体与数据", "版面"] as const
+type MenuGroup = (typeof MENU_GROUPS)[number]
+
+/**
  * 块类型登记表 —— 类型标识符的唯一真源。
  *
  * `satisfies` 只做校验、不改推断类型：写错或改名某个 type 会在这里报错，
@@ -30,38 +38,44 @@ import { cloneCell } from "@/lib/table"
  * 登记表的**完备性**由下面的 `assertRegistryComplete` 在编译期保证 ——
  * 新增一个块类型却忘了登记，会当场编译报错（`satisfies` 本身查不出漏登记）。
  */
+/**
+ * 登记表条目的校验形状:`group` 用 `MenuGroup` 而不是 `string` —— 组名写错
+ * (或新造一个不在 MENU_GROUPS 里的组)会当场编译报错。
+ */
+type BlockTypeMenuEntry = BlockTypeMeta & { group: MenuGroup }
+
 export const BLOCK_TYPES = [
-  { type: "text", marker: "¶", label: "文本" },
-  { type: "h1", marker: "H1", label: "标题 1" },
-  { type: "h2", marker: "H2", label: "标题 2" },
-  { type: "h3", marker: "H3", label: "标题 3" },
-  { type: "h4", marker: "H4", label: "标题 4" },
-  { type: "h5", marker: "H5", label: "标题 5" },
-  { type: "h6", marker: "H6", label: "标题 6" },
-  { type: "todo", marker: "[ ]", label: "待办列表" },
-  { type: "ul", marker: "•", label: "无序列表" },
-  { type: "ol", marker: "1.", label: "有序列表" },
-  { type: "quote", marker: '"', label: "引用" },
-  { type: "code", marker: "</>", label: "代码块" },
+  { type: "text", group: "基础", marker: "¶", label: "文本" },
+  { type: "h1", group: "基础", marker: "H1", label: "标题 1" },
+  { type: "h2", group: "基础", marker: "H2", label: "标题 2" },
+  { type: "h3", group: "基础", marker: "H3", label: "标题 3" },
+  { type: "h4", group: "基础", marker: "H4", label: "标题 4" },
+  { type: "h5", group: "基础", marker: "H5", label: "标题 5" },
+  { type: "h6", group: "基础", marker: "H6", label: "标题 6" },
+  { type: "todo", group: "列表", marker: "[ ]", label: "待办列表" },
+  { type: "ul", group: "列表", marker: "•", label: "无序列表" },
+  { type: "ol", group: "列表", marker: "1.", label: "有序列表" },
+  { type: "quote", group: "内容", marker: '"', label: "引用" },
+  { type: "code", group: "内容", marker: "</>", label: "代码块" },
   // 紧挨 code：mermaid 的心智来源就是「用代码块写图」，摆一起最容易找。
-  { type: "mermaid", marker: "◇", label: "Mermaid 图" },
-  { type: "callout", marker: "!", label: "标注" },
-  { type: "divider", marker: "—", label: "分割线" },
-  { type: "image", marker: "▧", label: "图片" },
-  { type: "table", marker: "⊞", label: "表格" },
+  { type: "mermaid", group: "内容", marker: "◇", label: "Mermaid 图" },
+  { type: "callout", group: "内容", marker: "!", label: "标注" },
+  { type: "divider", group: "内容", marker: "—", label: "分割线" },
+  { type: "image", group: "媒体与数据", marker: "▧", label: "图片" },
+  { type: "table", group: "媒体与数据", marker: "⊞", label: "表格" },
   // 紧挨 table：数据表在用户眼里就是「更正式的表格」，摆一起最容易找。
-  { type: "datatable", marker: "▤", label: "数据表" },
+  { type: "datatable", group: "媒体与数据", marker: "▤", label: "数据表" },
   // 紧挨 datatable：画册展示的就是数据表的数据，只是换了一身衣服。
-  { type: "gallery", marker: "▦", label: "画册" },
+  { type: "gallery", group: "媒体与数据", marker: "▦", label: "画册" },
   // 紧挨 gallery：书签块同样吃数据表的数据，渲染成链接卡片宫格。
-  { type: "bookmark", marker: "⚑", label: "书签" },
+  { type: "bookmark", group: "媒体与数据", marker: "⚑", label: "书签" },
   // 紧挨 bookmark：看板块同样吃数据表的数据,按某列分组铺成几列,卡片可拖拽改值。
-  { type: "kanban", marker: "☰", label: "看板" },
+  { type: "kanban", group: "媒体与数据", marker: "☰", label: "看板" },
   // 紧挨 kanban 之后、布局压轴之前:聊天记录是内容块,不是版面级重结构。
-  { type: "chat", marker: "◌", label: "聊天记录" },
+  { type: "chat", group: "媒体与数据", marker: "◌", label: "聊天记录" },
   // 压轴：容器块是「版面级」的重结构,跟在内容块族的最后。
-  { type: "layout", marker: "⬚", label: "布局" },
-] satisfies readonly BlockTypeMeta[]
+  { type: "layout", group: "版面", marker: "⬚", label: "布局" },
+] satisfies readonly BlockTypeMenuEntry[]
 
 /**
  * 登记表里出现过的块类型。
