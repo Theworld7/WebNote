@@ -85,6 +85,7 @@ pnpm icon          # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | `ledger-check.html` | 账目块：登记表（紧挨 kanban、marker ¥、工厂默认值、cloneBlock 独立）、财务口径纯函数（求和 / 逐行累计余额 / 千分位与带符号金额 / 按月与按列分节 / 预置四列）、快照+指针导出（`data-ledger` 恒写、非空才写 `data-income`/`data-expense`/`data-group-mode`、`data-balance="false"` 才写、节标题行带小计、tfoot 合计带结余、未设列退化为纯表格）、解析往返、宽容解析（缺属性落默认、非法 `data-group-mode` 落 none、无 `data-ledger` 走普通表格）、与画册/看板不混淆 |
 | `ledger-edit-check.html` | 账目块就地增删改：渲染（行号列 = 整表行序、表头 + 余额列、带符号金额、逐行余额、tfoot 合计与结余）、改（点金额格进编辑态给的是**原始数字**、提交后格值与余额与合计一起重算）、回车跳下一行同列、末行回车退出编辑态、增（表底「记一笔」追加到末位并聚焦新行首格）、删（行号列悬停那颗钮，行号重排）、分组下新行落进「未分组」节、保存后读盘核对（数字类型、被删行不在盘上、新增行与空值键、笔记快照的分组设置与重算合计）；**抖动守卫**（进出编辑态前后表格几何逐项相同：表宽 / 行高 / 列宽，编辑框与格值按钮同框，右对齐列里的编辑框仍靠右 —— 理由见下方注） |
 | `layout-check.html` | 布局块：格子内块 HTML 的递归往返（grid 缺省与三列 / flex / 行内标记 / 多块格子 / 空格子 / 零格子）、宽容解析（非法 `data-layout` 回退 grid、`data-columns` 越界与非数字落回缺省、非 section 子元素忽略）、序列化形态（缺省列数不落存储、flex 不认列数）、`blockText` 投影、导出 CSS 的 grid/flex 规则 |
+| `split-check.html` | 段落中间回车拆块：光标后内容带去新块、两侧保留 marks（跨加粗 run 切开）、DOM 与数据同步、焦点落新块、一步撤销 / 重做；Shift+Enter 软换行不被接管；软换行（`\n`）跟着后半走；段首回车整段后移、末尾回车仍是插空块 |
 
 页面会把每个用例输出成 `OK` / `FAIL` 行，便于用无头浏览器 `--dump-dom` 抠出来做回归。
 
@@ -95,6 +96,7 @@ pnpm icon          # 重算应用图标（改 design/icon/icon.tokens.json 之�
 >
 > `data-table-check.html` 同理（它要挂真实组件、等读盘回来）。
 > `ledger-edit-check.html` 也是（挂真实编辑器 + OPFS，合成事件走一遍增删改，末了真写盘再读回来核对）。
+> `undo-check.html` 与 `split-check.html` 也是（挂真实编辑器 + OPFS）。
 >
 > 账目块的格值按钮与编辑框为什么一个在流里、一个绝对定位浮在上面（而不是直接二选一渲染）：
 > 表格是 auto 布局，列宽由「格里内容的最大宽度」算出来。`<input>` 自带约 20 字符的

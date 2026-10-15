@@ -370,6 +370,9 @@ export type BlockMenuKind = "" | "type" | "action"
 /** 拖拽排序时块的落点标记：指示线画在块的上沿还是下沿。`none` 表示不参与。 */
 export type BlockDropEdge = "none" | "before" | "after"
 
+/** + 菜单选定的插入位置：相对当前块的上方或下方。 */
+export type BlockInsertPosition = "above" | "below"
+
 /** 关闭脏标签时用户的选择。 */
 export type CloseStrategy = "save" | "discard"
 

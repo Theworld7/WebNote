@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { BlockDropEdge, BlockType } from "@/types/workspace"
+import type { BlockDropEdge, BlockType, InlineRun } from "@/types/workspace"
 import { computed, onBeforeUnmount, onMounted, ref } from "vue"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useSettings, CONTENT_WIDTH_PX } from "@/composables/useSettings"
@@ -13,6 +13,7 @@ import GalleryInsertDialog from "./GalleryInsertDialog.vue"
 const {
   activeDocument,
   insertBlockAfter,
+  insertBlockBefore,
   insertBlockAt,
   insertDataTableBlock,
   convertBlockToFileType,
@@ -22,6 +23,7 @@ const {
   removeBlock,
   moveBlock,
   setImageSource,
+  setBlockRuns,
   undo,
   redo,
   restoreTick,
@@ -47,12 +49,12 @@ function closeFileInsert() {
   fileRetypeId.value = null
 }
 
-/** 打开选表对话框(插入模式),记下落点。 */
-function openInsertDialog(kind: "gallery" | "bookmark" | "kanban" | "ledger", id: string) {
+/** 打开选表对话框(插入模式),记下落点:相对当前块偏移 0(前)或 1(后)。 */
+function openInsertDialog(kind: "gallery" | "bookmark" | "kanban" | "ledger", id: string, offset: 0 | 1) {
   const blocks = activeDocument.value
   const index = blocks.findIndex((item) => item.id === id)
   dialogKind.value = kind
-  fileInsertIndex.value = index === -1 ? blocks.length : index + 1
+  fileInsertIndex.value = index === -1 ? blocks.length : index + offset
 }
 
 /**
@@ -68,23 +70,38 @@ const orderedIndexes = computed(() => orderedIndexesOf(activeDocument.value))
 const { contentWidth } = useSettings()
 const docStyle = computed(() => ({ maxWidth: `${CONTENT_WIDTH_PX[contentWidth.value]}px` }))
 
-function handleInsertAfter(id: string, type: BlockType) {
+/**
+ * + 菜单的插入:`offset` 0 = 当前块上方,1 = 当前块下方。找不到 id(块已被删)
+ * 一律退化为追加到文档末尾,与 `insertBlockAfter` 的兜底同一立场。
+ */
+function handleInsert(id: string, type: BlockType, offset: 0 | 1) {
   // 数据表块要**先有文件**才能插 —— 引用块指向一个不存在的 `.tbl` 就是一个永远读不到的
   // 提示态。所以它走自己的异步路径：解析/新建那个表，拿到路径再插块。
   if (type === "datatable") {
     const blocks = activeDocument.value
     const index = blocks.findIndex((item) => item.id === id)
-    void insertDataTableBlock(index === -1 ? blocks.length : index + 1).then((blockId) => {
+    void insertDataTableBlock(index === -1 ? blocks.length : index + offset).then((blockId) => {
       if (blockId !== "") void focusBlockById(blockId)
     })
     return
   }
   // 画册 / 书签 / 看板 / 账目块同样先有文件,但选哪张交给用户:记下落点与落块种类,打开对话框。
   if (type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger") {
-    openInsertDialog(type, id)
+    openInsertDialog(type, id, offset)
     return
   }
-  void focusBlockById(insertBlockAfter(id, type))
+  const newId = offset === 0 ? insertBlockBefore(id, type) : insertBlockAfter(id, type)
+  void focusBlockById(newId)
+}
+
+/**
+ * 段落中间回车的拆块：前半已由 BlockItem 留在本块，这里把后半写进新块并聚焦。
+ * 同一拍内的改 runs + 插块落在同一个历史静默段里，Ctrl+Z 一步退回。
+ */
+function handleSplitAfter(id: string, type: BlockType, tail: InlineRun[]) {
+  const newId = insertBlockAfter(id, type)
+  setBlockRuns(newId, tail)
+  void focusBlockById(newId)
 }
 
 function handleRetype(id: string, type: BlockType) {
@@ -336,7 +353,9 @@ function edgeOf(index: number, to: number): BlockDropEdge {
         :ordered-index="orderedIndexes.get(block.id) ?? 0"
         :dragging="dragId === block.id"
         :drop-edge="dropEdgeAt(index)"
-        @insert-after="handleInsertAfter"
+        @insert-after="(id: string, type: BlockType) => handleInsert(id, type, 1)"
+        @insert-before="(id: string, type: BlockType) => handleInsert(id, type, 0)"
+        @split-after="handleSplitAfter"
         @retype="handleRetype"
         @duplicate="duplicateBlock"
         @remove="handleRemove"

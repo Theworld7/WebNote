@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { BlockMenuKind, BlockType } from "@/types/workspace"
-import { computed } from "vue"
+import type { BlockInsertPosition, BlockMenuKind, BlockType } from "@/types/workspace"
+import { computed, ref, watch } from "vue"
 import { GripVerticalIcon, PlusIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
@@ -9,6 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -17,7 +18,7 @@ import {
 import BlockTypeMenuItems from "./BlockTypeMenuItems.vue"
 import { useSettings } from "@/composables/useSettings"
 
-defineProps<{
+const props = defineProps<{
   /** 当前打开的是哪个菜单，由父级 BlockItem 持有 —— 因为 `/` 输入也要程序化打开类型菜单。 */
   openMenu: BlockMenuKind
   typeMenuMode: "insert" | "convert"
@@ -29,7 +30,7 @@ defineProps<{
 
 const emit = defineEmits<{
   (event: "update:openMenu", value: BlockMenuKind): void
-  (event: "insert", type: BlockType): void
+  (event: "insert", type: BlockType, position: BlockInsertPosition): void
   (event: "retype", type: BlockType): void
   (event: "duplicate"): void
   (event: "copy-content"): void
@@ -37,6 +38,19 @@ const emit = defineEmits<{
 }>()
 
 const { menuGroupLayout } = useSettings()
+
+/**
+ * 插入位置：相对当前块的上方或下方。只作用于 insert 模式，默认下方 ——
+ * 与「+」按钮多年来的行为一致，老习惯不被打扰；菜单关掉就复位，下次打开还是下方。
+ */
+const insertAbove = ref(false)
+
+watch(
+  () => props.openMenu,
+  (open) => {
+    if (open !== "type") insertAbove.value = false
+  },
+)
 
 /** 手柄按钮：24px 见方，比 shadcn 默认图标按钮更小，靠 class 覆盖 size variant。 */
 const TOOL = "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foreground"
@@ -63,6 +77,12 @@ const MENU = computed(() =>
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
 
 const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-foreground"
+
+/** 位置两项的公共数据：方向、符号、文案一次定义，纵向横向两个排布共用。 */
+const POSITIONS = [
+  { above: true, marker: "↑", label: "在上方插入" },
+  { above: false, marker: "↓", label: "在下方插入" },
+] as const
 </script>
 
 <template>
@@ -71,7 +91,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
     :class="[openMenu === '' ? 'opacity-0 group-hover:opacity-100' : 'opacity-100', inside ? 'left-0' : 'left-[-50px]']"
     :style="{ top: 'var(--tools-top, 2px)' }"
   >
-    <!-- +：在当前块下方插入。`/` 输入时复用同一个菜单，只是 mode 换成 convert。 -->
+    <!-- +：在当前块上/下方插入，方向由菜单里的位置两项决定。`/` 输入时复用同一个菜单，只是 mode 换成 convert。 -->
     <DropdownMenu
       :open="openMenu === 'type'"
       @update:open="(open: boolean) => emit('update:openMenu', open ? 'type' : '')"
@@ -82,13 +102,47 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent :class="MENU" :side-offset="6">
-        <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
-          {{ typeMenuMode === "insert" ? "在当前块下方插入" : "转换为" }}
+        <DropdownMenuLabel v-if="typeMenuMode === 'convert'" class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+          转换为
         </DropdownMenuLabel>
-        <BlockTypeMenuItems
-          :exclude="excludeTypes"
-          @pick="(type: BlockType) => (typeMenuMode === 'insert' ? emit('insert', type) : emit('retype', type))"
-        />
+        <!-- 插入位置：方向已由 ↑/↓ 表明，不再放顶部提示。纵向竖叠在最上；横向并成
+             第一列（带「位置」列头），与类型组同构。选中项右侧标 ✓；select.prevent
+             让菜单保持打开，接着挑块类型才真正落块。 -->
+        <template v-if="typeMenuMode === 'insert'">
+          <template v-if="menuGroupLayout === 'vertical'">
+            <div class="flex flex-col">
+              <DropdownMenuItem
+                v-for="position in POSITIONS"
+                :key="position.marker"
+                :class="ITEM"
+                @select.prevent="insertAbove = position.above"
+              >
+                <span :class="MARKER">{{ position.marker }}</span>
+                <span>{{ position.label }}</span>
+                <DropdownMenuShortcut v-if="insertAbove === position.above" class="tracking-normal">✓</DropdownMenuShortcut>
+              </DropdownMenuItem>
+            </div>
+            <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
+            <BlockTypeMenuItems :exclude="excludeTypes" @pick="(type: BlockType) => emit('insert', type, insertAbove ? 'above' : 'below')" />
+          </template>
+          <div v-else class="flex items-start gap-x-3">
+            <div class="flex min-w-[104px] shrink-0 flex-col">
+              <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">位置</DropdownMenuLabel>
+              <DropdownMenuItem
+                v-for="position in POSITIONS"
+                :key="position.marker"
+                :class="ITEM"
+                @select.prevent="insertAbove = position.above"
+              >
+                <span :class="MARKER">{{ position.marker }}</span>
+                <span>{{ position.label }}</span>
+                <DropdownMenuShortcut v-if="insertAbove === position.above" class="tracking-normal">✓</DropdownMenuShortcut>
+              </DropdownMenuItem>
+            </div>
+            <BlockTypeMenuItems :exclude="excludeTypes" @pick="(type: BlockType) => emit('insert', type, insertAbove ? 'above' : 'below')" />
+          </div>
+        </template>
+        <BlockTypeMenuItems v-else :exclude="excludeTypes" @pick="(type: BlockType) => emit('retype', type)" />
       </DropdownMenuContent>
     </DropdownMenu>
 

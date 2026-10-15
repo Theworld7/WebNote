@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "WebNote",
-        "width": 800,
-        "height": 600,
+        "width": 1600,
+        "height": 1200,
         "dragDropEnabled": false
       }
     ],

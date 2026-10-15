@@ -102,6 +102,18 @@ export interface OffsetRange {
   end: number
 }
 
+/** 光标（折叠选区）落在 `root` 内的字符偏移。无选区、选区未折叠、或光标不在 `root` 内时返回 null。 */
+export function caretOffsetIn(root: HTMLElement): number | null {
+  const selection = window.getSelection()
+  if (selection === null || selection.rangeCount === 0) return null
+
+  const range = selection.getRangeAt(0)
+  if (!range.collapsed) return null
+  if (!root.contains(range.startContainer)) return null
+
+  return offsetAt(root, range.startContainer, range.startOffset)
+}
+
 /** 当前窗口选区落在 `root` 内的字符区间。无选区、选区折叠、或跨出 `root` 时返回 null。 */
 export function offsetRangeIn(root: HTMLElement): OffsetRange | null {
   const selection = window.getSelection()
@@ -174,6 +186,31 @@ function slice(runs: readonly InlineRun[], range: OffsetRange): Piece[] {
   }
 
   return pieces
+}
+
+/**
+ * 在偏移处把 runs 切成两半：`head` 是偏移之前的部分，`tail` 是之后的部分。
+ * 偏移落在 run 中间时把该 run 拆开，两半各自保留 marks / href（经 `copyRun` 深拷）
+ * 再归一化。Enter 从段落中间拆块用：前半留在本块，后半带进新块。
+ */
+export function splitRunsAt(runs: readonly InlineRun[], offset: number): { head: InlineRun[]; tail: InlineRun[] } {
+  const head: InlineRun[] = []
+  const tail: InlineRun[] = []
+  let cursor = 0
+
+  for (const run of runs) {
+    const from = cursor
+    const to = from + run.text.length
+    cursor = to
+    if (to <= offset) head.push(copyRun(run))
+    else if (from >= offset) tail.push(copyRun(run))
+    else {
+      head.push(copyRun(run, run.text.slice(0, offset - from)))
+      tail.push(copyRun(run, run.text.slice(offset - from)))
+    }
+  }
+
+  return { head: normalizeRuns(head), tail: normalizeRuns(tail) }
 }
 
 /**

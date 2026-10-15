@@ -26,7 +26,7 @@ import BlockItem from "@/components/BlockItem.vue"
  */
 const props = defineProps<{ block: LayoutBlock }>()
 
-const { setLayoutMode, setLayoutColumns, addLayoutCell, removeLayoutCell, insertBlockAfter, changeBlockType, duplicateBlock, removeBlock } =
+const { setLayoutMode, setLayoutColumns, addLayoutCell, removeLayoutCell, insertBlockAfter, insertBlockBefore, changeBlockType, duplicateBlock, removeBlock } =
   useWorkspace()
 
 const isGrid = computed(() => props.block.mode === "grid")
@@ -41,9 +41,10 @@ const MENU = "w-[148px] rounded-island p-1.5 shadow-pop ring-0"
 const TOOL_BUTTON =
   "h-6 gap-1 rounded-full px-2 text-[12px] text-muted-foreground hover:text-foreground"
 
-/** 格子内回车新增块。菜单已在格子内滤掉引用块/容器块，落到这里的都是普通类型。 */
-function onInsertAfter(id: string, type: BlockType) {
-  void focusBlockById(insertBlockAfter(id, type))
+/** 格子内回车/+ 菜单新增块,上方(0)/下方(1)共用。菜单已在格子内滤掉引用块/容器块,落到这里的都是普通类型。 */
+function onInsertAt(id: string, type: BlockType, offset: 0 | 1) {
+  const inserted = offset === 0 ? insertBlockBefore(id, type) : insertBlockAfter(id, type)
+  void focusBlockById(inserted)
 }
 
 /** 格子内「转换为」。目标类型同样已被菜单滤过；changeBlockType 里还有一层容器守卫。 */
@@ -116,7 +117,8 @@ function pickMode(value: string) {
           :dragging="false"
           drop-edge="none"
           in-cell
-          @insert-after="onInsertAfter"
+          @insert-after="(id: string, type: BlockType) => onInsertAt(id, type, 1)"
+          @insert-before="(id: string, type: BlockType) => onInsertAt(id, type, 0)"
           @retype="onRetype"
           @duplicate="duplicateBlock"
           @remove="onRemove"

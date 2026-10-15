@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Block, BlockDropEdge, BlockMenuKind, BlockType } from "@/types/workspace"
+import type { Block, BlockDropEdge, BlockInsertPosition, BlockMenuKind, BlockType, InlineRun } from "@/types/workspace"
 import { computed, nextTick, onMounted, ref, watch } from "vue"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useWorkspace } from "@/composables/useWorkspace"
@@ -10,7 +10,7 @@ import { focusEditable } from "@/lib/dom"
 import { highlightCode } from "@/lib/highlight"
 import { runsFromNode } from "@/lib/html"
 import { runsText, runsToHtml } from "@/lib/inline"
-import { shortcutMark } from "@/lib/marks"
+import { caretOffsetIn, shortcutMark, splitRunsAt } from "@/lib/marks"
 import {
   BODY_TEXT_CLASS,
   CHECKBOX_TOP,
@@ -52,6 +52,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (event: "insert-after", id: string, type: BlockType): void
+  (event: "insert-before", id: string, type: BlockType): void
+  (event: "split-after", id: string, type: BlockType, tail: InlineRun[]): void
   (event: "retype", id: string, type: BlockType): void
   (event: "duplicate", id: string): void
   (event: "remove", id: string): void
@@ -136,6 +138,30 @@ function onInput() {
   }
 }
 
+/**
+ * 在光标处把本块正文切成两半，光标之后的内容即返回值的前半留在 DOM / 数据里。
+ * 光标不在正文内、或在末尾（无事可拆）时返回 null。
+ *
+ * runs 从 DOM 现读而不是用 props 里的：光标是相对 DOM 量的，两边万一漂移，
+ * 按同一份事实切才不会错位。
+ */
+function splitAtCaret(): InlineRun[] | null {
+  const element = bodyRef.value
+  if (element === null) return null
+  const caret = caretOffsetIn(element)
+  if (caret === null) return null
+
+  const runs = runsFromNode(element, { collapseWhitespace: false })
+  if (caret >= runsText(runs).length) return null
+
+  const { head, tail } = splitRunsAt(runs, caret)
+  // contenteditable 非受控：本块的 DOM 与高亮层要自己按前半重画（焦点马上移去新块，无需复原选区）。
+  element.innerHTML = runsToHtml(head)
+  setBlockRuns(props.block.id, head)
+  updateHighlight()
+  return tail
+}
+
 function onKeydown(event: KeyboardEvent) {
   // 中文输入法组字中的 Enter 是确认候选词，不能当成换块。
   if (event.isComposing) return
@@ -157,6 +183,13 @@ function onKeydown(event: KeyboardEvent) {
     if (text === "" && (isListType(props.block.type) || props.block.type === "todo")) {
       yieldFocus = true
       emit("retype", props.block.id, "text")
+      return
+    }
+    // 段落中间回车 → 光标之后的内容带去新块。Shift+Enter 是块内软换行，
+    // 放行给浏览器插 <br>，不经这条分支。
+    const tail = splitAtCaret()
+    if (tail !== null) {
+      emit("split-after", props.block.id, props.block.type, tail)
       return
     }
     emit("insert-after", props.block.id, props.block.type)
@@ -380,7 +413,7 @@ const bodyClass = computed(() => {
       :exclude-types="inCell === true ? CELL_EXCLUDED_TYPES : undefined"
       :inside="inCell === true"
       @update:open-menu="onMenuChange"
-      @insert="(type: BlockType) => emit('insert-after', block.id, type)"
+      @insert="(type: BlockType, position: BlockInsertPosition) => (position === 'above' ? emit('insert-before', block.id, type) : emit('insert-after', block.id, type))"
       @retype="(type: BlockType) => emit('retype', block.id, type)"
       @duplicate="emit('duplicate', block.id)"
       @copy-content="copyContent"

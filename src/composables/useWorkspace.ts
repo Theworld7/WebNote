@@ -1236,6 +1236,13 @@ function createWorkspace() {
     return insertIntoList(at.list, at.index + 1, type)
   }
 
+  /** 与 `insertBlockAfter` 对偶：插在当前块前面，共用同一条定位与兜底路径。 */
+  function insertBlockBefore(id: string, type: BlockType): string {
+    const at = locateBlock(id)
+    if (at === null) return insertIntoList(activeDocument.value, activeDocument.value.length, type)
+    return insertIntoList(at.list, at.index, type)
+  }
+
   function appendBlock(type: BlockType): string {
     return insertBlockAt(activeDocument.value.length, type)
   }
@@ -1498,6 +1505,7 @@ function createWorkspace() {
     setBlockRuns,
     toggleBlockChecked,
     insertBlockAfter,
+    insertBlockBefore,
     insertBlockAt,
     insertDataTableBlock,
     insertGalleryBlock,

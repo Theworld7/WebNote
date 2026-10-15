@@ -96,6 +96,16 @@ async function typeInto(index, text) {
   await nextTick()
 }
 
+/** 把光标折叠到正文末尾（末尾回车插空块的入口姿态）。 */
+function caretToEnd(body) {
+  const range = document.createRange()
+  range.selectNodeContents(body)
+  range.collapse(false)
+  const selection = window.getSelection()
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
 function press(key, opts = {}) {
   const event = new KeyboardEvent("keydown", { key, cancelable: true, bubbles: true, ...opts })
   document.dispatchEvent(event)
@@ -144,7 +154,10 @@ async function run() {
   check("没有历史可退时安全无操作", storeTexts()[0] === "原始文字" && rows().length === 1, JSON.stringify(storeTexts()))
 
   // ---- 块级操作：Enter 插块 → 撤销 ----
+  // 光标要显式放到末尾：focus() 落在段首，而段首回车现在是「拆块」（光标后内容带去新块），
+  // 由 split-check.html 专测；这里测的仍是「末尾回车插空块」。
   bodies()[0].focus()
+  caretToEnd(bodies()[0])
   bodies()[0].dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
   await nextTick()
   check("Enter 插出新块", rows().length === 2, `实际 ${rows().length}`)
