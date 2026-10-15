@@ -192,7 +192,10 @@ function onKeydown(event: KeyboardEvent) {
       emit("split-after", props.block.id, props.block.type, tail)
       return
     }
-    emit("insert-after", props.block.id, props.block.type)
+    // 标题末尾回车 → 新块直接落文本块：写完标题回车是开始写正文，不是接着写标题。
+    // 拆块分支不受影响 —— 标题中间回车仍是把标题切成两半。
+    const isHeading = /^h[1-6]$/.test(props.block.type)
+    emit("insert-after", props.block.id, isHeading ? "text" : props.block.type)
     return
   }
 

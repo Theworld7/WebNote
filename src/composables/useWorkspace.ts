@@ -977,6 +977,24 @@ function createWorkspace() {
   }
 
   /**
+   * 把 `[from, to]` 的块区间整体换成一个块：类型 `type`、正文 `runs`，返回新块 id。
+   * 跨块删除用它 —— 不能拆成「转类型 + 改 runs + 逐个删」走 id 型 API：
+   * `retypeBlock` 会换新 id（`createBlockId`），后面的调用按旧 id 找不到块就静默落空。
+   * 一次 splice 一拍完成，撤销历史里自然是一步。
+   */
+  function mergeBlockRange(from: number, to: number, type: BlockType, runs: InlineRun[]): string {
+    const blocks = activeDocument.value
+    const source = blocks[from]
+    if (source === undefined || to < from) return ""
+    const merged = retypeBlock(source, type)
+    // 调用方传入的类型只会是正文类型（锚/焦块的类型或 text），runs 一定是它的形态。
+    if (isTextualBlock(merged)) merged.runs = runs
+    blocks.splice(from, to - from + 1, merged)
+    markDirty()
+    return merged.id
+  }
+
+  /**
    * 更新引用块(画册 / 书签 / 看板)的展示设置。改动的是**笔记文档**
    * （块属性随笔记保存，ADR-0006），不是 `.tbl` —— 多篇笔记引用同一张表时，
    * 各自的展示设置互不相干。patch 只带改动的键：菜单里每档设置各管各的，
@@ -1503,6 +1521,7 @@ function createWorkspace() {
     dropTargetPath,
     // block actions
     setBlockRuns,
+    mergeBlockRange,
     toggleBlockChecked,
     insertBlockAfter,
     insertBlockBefore,

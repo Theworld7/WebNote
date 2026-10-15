@@ -1,16 +1,38 @@
+<script lang="ts">
+/**
+ * 每篇笔记离开时的滚动位置。
+ *
+ * 切到未缓存的笔记时,加载态会把 BlockEditor 整个卸下再挂回(EditorSurface 的
+ * `v-if`),scrollTop 随实例一起没了。按路径记住、挂回时送回去。Map 放模块层 ——
+ * 组件实例随切换生灭,记忆要活得比实例久。
+ */
+const scrollTops = new Map<string, number>()
+</script>
+
 <script setup lang="ts">
 import type { BlockDropEdge, BlockType, InlineRun } from "@/types/workspace"
-import { computed, onBeforeUnmount, onMounted, ref } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useSettings, CONTENT_WIDTH_PX } from "@/composables/useSettings"
 import { useWorkspace } from "@/composables/useWorkspace"
-import { orderedIndexes as orderedIndexesOf } from "@/lib/blocks"
-import { DRAG_HANDLE_SELECTOR, TOP_BLOCK_ROW_SELECTOR, closestBlockId, focusBlockById } from "@/lib/dom"
+import { isTextualBlock, orderedIndexes as orderedIndexesOf } from "@/lib/blocks"
+import { DRAG_HANDLE_SELECTOR, TOP_BLOCK_ROW_SELECTOR, closestBlockId, findEditable, focusBlockById } from "@/lib/dom"
 import { isFileDrag, pickImageFiles, readImageFile } from "@/lib/image"
+import { rangeForOffsets, sliceRuns } from "@/lib/marks"
+import { runsText, runsToHtml } from "@/lib/inline"
+import {
+  copyPayload,
+  isCrossSelecting,
+  resolvePoint,
+  selectionRects,
+  setCrossSelecting,
+} from "@/lib/crossselect"
+import type { BlockSelectionPoint } from "@/lib/crossselect"
 import BlockItem from "./BlockItem.vue"
 import GalleryInsertDialog from "./GalleryInsertDialog.vue"
 
 const {
+  activePath,
   activeDocument,
   insertBlockAfter,
   insertBlockBefore,
@@ -20,6 +42,7 @@ const {
   appendBlock,
   changeBlockType,
   duplicateBlock,
+  mergeBlockRange,
   removeBlock,
   moveBlock,
   setImageSource,
@@ -180,6 +203,11 @@ function computeDropIndex(clientY: number): number | null {
 }
 
 function onDragStart(event: DragEvent) {
+  // HTML5 拖拽期间 mousemove / mouseup 不触发 —— 无论是排序还是拖文字,先撤掉
+  // 跨块选择的按住状态,免得拖完之后指针一动就拿残留的锚点误开选区。
+  dragPressed = false
+  window.removeEventListener("mousemove", onCrossMove)
+  window.removeEventListener("mouseup", onCrossEnd)
   const target = event.target
   // 只有手柄发起的才算排序。正文里选中文字也会触发 dragstart，那种放过。
   if (!(target instanceof HTMLElement) || target.closest(DRAG_HANDLE_SELECTOR) === null) return
@@ -286,6 +314,164 @@ function resetDrag() {
   fileDropIndex.value = null
 }
 
+// ---- 跨块选区 ----
+
+/**
+ * 拖选高亮统一走覆盖层（块内与跨块同一层,颜色才不会两样）。
+ *
+ * 落点解析 / 矩形 / 复制内容都在 `lib/crossselect`。单击落光标仍走原生 ——
+ * 从按下点移动超过阈值才算「在拖选」,那一刻才关原生选区（select-none）,
+ * 把绘制权整个交给覆盖层;按住不放拖回锚块也保持覆盖层,不再退回原生。
+ */
+const crossAnchor = ref<BlockSelectionPoint | null>(null)
+const crossFocus = ref<BlockSelectionPoint | null>(null)
+/** 覆盖层高亮矩形（视口坐标），拖选期间每次 mousemove 重算。 */
+const crossRects = ref<{ top: number; left: number; width: number; height: number }[]>([])
+/** 拖拽过程状态（无需响应式）：锚点、是否按住、按下坐标、覆盖层是否已接管。 */
+let dragAnchor: BlockSelectionPoint | null = null
+let dragPressed = false
+let dragStartX = 0
+let dragStartY = 0
+let overlayOn = false
+
+/** 位移超过这个距离才算拖选 —— 单击（含点完微抖）仍是原生光标落点。 */
+const DRAG_THRESHOLD = 4
+
+function clearCrossSelection() {
+  crossAnchor.value = null
+  crossFocus.value = null
+  crossRects.value = []
+  dragAnchor = null
+  overlayOn = false
+  setCrossSelecting(false)
+  docRef.value?.classList.remove("select-none")
+}
+
+function onCrossMove(event: MouseEvent) {
+  const root = docRef.value
+  if (!dragPressed || dragAnchor === null || root === null) return
+
+  // 未过阈值先让原生跑;过了阈值接管:关原生选区、锁 select-none,此后块内块外同一套覆盖层。
+  if (!overlayOn) {
+    if (Math.abs(event.clientX - dragStartX) < DRAG_THRESHOLD && Math.abs(event.clientY - dragStartY) < DRAG_THRESHOLD)
+      return
+    overlayOn = true
+    setCrossSelecting(true)
+    root.classList.add("select-none")
+    window.getSelection()?.removeAllRanges()
+  }
+
+  const focus = resolvePoint(root, activeDocument.value, event.clientX, event.clientY)
+  if (focus === null) return
+
+  crossAnchor.value = dragAnchor
+  crossFocus.value = focus
+  // 矩形存文档坐标(视口坐标减文档容器原点):覆盖层随内容一起滚动,不用监听 scroll 重算。
+  const docRect = root.getBoundingClientRect()
+  crossRects.value = selectionRects(root, activeDocument.value, dragAnchor, focus).map((rect) => ({
+    top: rect.top - docRect.top,
+    left: rect.left - docRect.left,
+    width: rect.width,
+    height: rect.height,
+  }))
+}
+
+function onCrossEnd() {
+  dragPressed = false
+  window.removeEventListener("mousemove", onCrossMove)
+  window.removeEventListener("mouseup", onCrossEnd)
+  // 处于覆盖层选区时保留 anchor/focus 供 Ctrl+C;否则什么都不留。
+  if (!overlayOn) dragAnchor = null
+}
+
+function onDocMouseDown(event: MouseEvent) {
+  clearCrossSelection()
+  if (event.button !== 0) return
+  const root = docRef.value
+  const target = event.target
+  if (root === null || !(target instanceof Element)) return
+  // 只从顶层块的可编辑体起选。resolvePoint 按落点返回顶层块端点,
+  // 返回的块与 mousedown 归属的块对不上（格子内、树、工具条）就整段交给原生。
+  const point = resolvePoint(root, activeDocument.value, event.clientX, event.clientY)
+  if (point === null || point.id !== closestBlockId(target)) return
+  dragAnchor = point
+  dragPressed = true
+  dragStartX = event.clientX
+  dragStartY = event.clientY
+  window.addEventListener("mousemove", onCrossMove)
+  window.addEventListener("mouseup", onCrossEnd)
+}
+
+async function copyCrossSelection() {
+  const anchor = crossAnchor.value
+  const focus = crossFocus.value
+  if (anchor === null || focus === null) return
+  const payload = copyPayload(activeDocument.value, anchor, focus)
+  if (typeof ClipboardItem !== "undefined") {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/plain": new Blob([payload.text], { type: "text/plain" }),
+          "text/html": new Blob([payload.html], { type: "text/html" }),
+        }),
+      ])
+      return
+    } catch {
+      // WebView 不支持多 flavor 写入时落到纯文本兜底。
+    }
+  }
+  await navigator.clipboard.writeText(payload.text)
+}
+
+/**
+ * 跨块删除:选区内内容删掉,锚块的头残段与焦点块的尾残段拼进一个块（类型随锚块,
+ * 锚块不是正文块则随焦点块,两端都不是则落一个空文本块）,位置取范围上沿。
+ * 改 runs + 逐个删块在同一拍完成,落在同一个历史静默段里,Ctrl+Z 一步退回。
+ */
+function deleteCrossSelection() {
+  const anchor = crossAnchor.value
+  const focus = crossFocus.value
+  if (anchor === null || focus === null) return
+
+  const blocks = activeDocument.value
+  const from = Math.min(anchor.index, focus.index)
+  const to = Math.max(anchor.index, focus.index)
+  const anchorBlock = blocks[anchor.index]
+  const focusBlock = blocks[focus.index]
+  if (anchorBlock === undefined || focusBlock === undefined) {
+    clearCrossSelection()
+    return
+  }
+
+  const head = isTextualBlock(anchorBlock) ? sliceRuns(anchorBlock.runs, { start: 0, end: Math.max(anchor.offset, 0) }) : []
+  const tail = isTextualBlock(focusBlock)
+    ? sliceRuns(focusBlock.runs, { start: Math.max(focus.offset, 0), end: runsText(focusBlock.runs).length })
+    : []
+  const mergedType = isTextualBlock(anchorBlock)
+    ? anchorBlock.type
+    : isTextualBlock(focusBlock)
+      ? focusBlock.type
+      : "text"
+  const mergedRuns = [...head, ...tail]
+  const newId = mergeBlockRange(from, to, mergedType, mergedRuns)
+  clearCrossSelection()
+
+  // contenteditable 非受控:数据改了 DOM 不会自己跟上(类型没变时 BlockItem 也不重画),
+  // 保留块的正文要按数据直接重写,再把光标放到拼接缝(头残段的末尾)上。
+  const caret = runsText(head).length
+  void nextTick(() => {
+    const editable = newId === "" ? null : findEditable(newId)
+    if (editable === null) return
+    editable.innerHTML = runsToHtml(mergedRuns)
+    editable.focus()
+    const range = rangeForOffsets(editable, { start: caret, end: caret })
+    const selection = window.getSelection()
+    if (range === null || selection === null) return
+    selection.removeAllRanges()
+    selection.addRange(range)
+  })
+}
+
 // ---- 撤销 / 重做 ----
 
 /**
@@ -299,6 +485,20 @@ function resetDrag() {
  * 快捷键也要放过,组字确认键不能同时撤销。
  */
 function onKeyDown(event: KeyboardEvent) {
+  // 跨块选区在位:Ctrl+C 复制（选区保留,可连抄几刀）,其余按键一律清除选区。
+  // 修饰键不清 —— Ctrl 是 Ctrl+C 的前半个组合键,按下它本身选区必须还在。
+  if (isCrossSelecting()) {
+    if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "c") {
+      event.preventDefault()
+      void copyCrossSelection()
+    } else if (event.key === "Backspace" || event.key === "Delete") {
+      event.preventDefault()
+      deleteCrossSelection()
+    } else if (event.key !== "Control" && event.key !== "Shift" && event.key !== "Alt" && event.key !== "Meta") {
+      clearCrossSelection()
+    }
+    return
+  }
   if (!(event.ctrlKey || event.metaKey) || event.isComposing) return
   const key = event.key.toLowerCase()
   if (key !== "z" && key !== "y") return
@@ -311,6 +511,42 @@ function onKeyDown(event: KeyboardEvent) {
 
 onMounted(() => document.addEventListener("keydown", onKeyDown))
 onBeforeUnmount(() => document.removeEventListener("keydown", onKeyDown))
+
+// ---- 滚动位置记忆 ----
+
+/** 滚动容器是 ScrollArea 的 viewport，从正文容器向上找（reka 写了 `data-slot`）。 */
+function scrollViewport(): HTMLElement | null {
+  const node = docRef.value?.closest('[data-slot="scroll-area-viewport"]')
+  return node instanceof HTMLElement ? node : null
+}
+
+function rememberScroll(path: string) {
+  const viewport = scrollViewport()
+  if (path !== "" && viewport !== null) scrollTops.set(path, viewport.scrollTop)
+}
+
+/** 恢复要等新文档渲染落地，所以包一层 `nextTick`；没记忆的路径落回顶部。 */
+function restoreScroll(path: string) {
+  if (path === "") return
+  void nextTick(() => {
+    const viewport = scrollViewport()
+    if (viewport !== null) viewport.scrollTop = scrollTops.get(path) ?? 0
+  })
+}
+
+// 缓存命中的切换不经历卸载，靠这条 watcher 换存取；卸载重挂的路由 `onMounted` 兜住。
+// 换文档先清跨块选区 —— 覆盖层挂在 body 上不随文档卸载，锚点也是旧文档的块，
+// 不清的话高亮会跟着切到另一篇文章里去。
+watch(activePath, (next, prev) => {
+  if (prev !== undefined) rememberScroll(prev)
+  clearCrossSelection()
+  restoreScroll(next)
+})
+onMounted(() => restoreScroll(activePath.value))
+onBeforeUnmount(() => {
+  rememberScroll(activePath.value)
+  clearCrossSelection()
+})
 
 /** 每个块的落点标记。同一时刻只画一条线：先判 before，末尾再特判 after。 */
 function dropEdgeAt(index: number): BlockDropEdge {
@@ -337,7 +573,7 @@ function edgeOf(index: number, to: number): BlockDropEdge {
     <div
       ref="docRef"
       data-doc
-      class="mx-auto w-full pt-5 pb-30 pr-10 pl-24"
+      class="relative mx-auto w-full pt-5 pb-30 pr-10 pl-24"
       :style="docStyle"
       @dragstart="onDragStart"
       @dragover="onDragOver"
@@ -345,6 +581,7 @@ function edgeOf(index: number, to: number): BlockDropEdge {
       @drop="onDrop"
       @dragend="resetDrag"
       @paste="onPaste"
+      @mousedown="onDocMouseDown"
     >
       <BlockItem
         v-for="(block, index) in activeDocument"
@@ -359,6 +596,17 @@ function edgeOf(index: number, to: number): BlockDropEdge {
         @retype="handleRetype"
         @duplicate="duplicateBlock"
         @remove="handleRemove"
+      />
+
+      <!-- 拖选高亮覆盖层:块内与跨块统一走这里,样式(.cross-selection-rect)在 style.css。
+           直接铺在文档容器里(文档坐标),随内容滚动 —— 不挂在 body 上,滚动不错位。
+           不包容器层:mix-blend 要跟页面内容同处一个层叠上下文,包一层会被隔离成不透明色块。 -->
+      <span
+        v-for="(rect, i) in crossRects"
+        :key="i"
+        aria-hidden="true"
+        class="cross-selection-rect pointer-events-none absolute"
+        :style="{ top: `${rect.top}px`, left: `${rect.left}px`, width: `${rect.width}px`, height: `${rect.height}px` }"
       />
     </div>
   </ScrollArea>

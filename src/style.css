@@ -188,6 +188,20 @@
     background-color: var(--color-highlight);
     color: inherit;
     }
+  /* 文本选区与拖选覆盖层统一取选中色的加强档（普通档叠在纸底上几乎看不见）。
+     块编辑器的拖选高亮走覆盖层（.cross-selection-rect），覆盖层画在文字上面，
+     用 multiply（深色 screen）混合模拟原生「画在文字后面」的层级；::selection
+     同用一支变量，双击选词等原生路径与拖选同色，两种选区不分家。 */
+  ::selection {
+    background-color: var(--color-selection-strong);
+    }
+  .cross-selection-rect {
+    background-color: var(--color-selection-strong);
+    mix-blend-mode: multiply;
+    }
+  .dark .cross-selection-rect {
+    mix-blend-mode: screen;
+    }
   /* 行内代码。数值照搬 naive typography 的 text--code：0.9em / line-height 1.4 /
      padding .05em .35em 0 / 圆角 2px。`inline-block` 不能省 —— 行内元素的垂直
      padding 不撑开行盒，底色会溢到上下相邻的行上。

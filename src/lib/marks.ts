@@ -30,7 +30,7 @@ function measure(node: Node): number {
  * `offset` 落在元素上时表示子节点下标 —— contenteditable 里的选区端点常常正好落在
  * 元素边界上（整段加粗的末尾、两个标记之间），只认文本节点会漏掉这半边。
  */
-function offsetAt(root: Node, target: Node, offset: number): number | null {
+export function offsetAt(root: Node, target: Node, offset: number): number | null {
   let cursor = 0
 
   function walk(node: Node): number | null {
@@ -112,6 +112,11 @@ export function caretOffsetIn(root: HTMLElement): number | null {
   if (!root.contains(range.startContainer)) return null
 
   return offsetAt(root, range.startContainer, range.startOffset)
+}
+
+/** 容器内容的总字符长度（与 `runsText` 同口径，`<br>` 记 1）。跨块选区量边界用。 */
+export function contentLength(root: Node): number {
+  return offsetAt(root, root, root.childNodes.length) ?? 0
 }
 
 /** 当前窗口选区落在 `root` 内的字符区间。无选区、选区折叠、或跨出 `root` 时返回 null。 */
@@ -211,6 +216,15 @@ export function splitRunsAt(runs: readonly InlineRun[], offset: number): { head:
   }
 
   return { head: normalizeRuns(head), tail: normalizeRuns(tail) }
+}
+
+/** 只取区间内的 runs（端点落在 run 中间时拆开，marks / href 经 `copyRun` 保留）。跨块复制用它取选中片段。 */
+export function sliceRuns(runs: readonly InlineRun[], range: OffsetRange): InlineRun[] {
+  return normalizeRuns(
+    slice(runs, range)
+      .filter((piece) => piece.inside)
+      .map((piece) => piece.run),
+  )
 }
 
 /**

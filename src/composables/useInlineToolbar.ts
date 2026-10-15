@@ -1,6 +1,7 @@
 import type { InlineMark, InlineRun, LinkShape } from "@/types/workspace"
 import type { OffsetRange } from "@/lib/marks"
 import { onBeforeUnmount, onMounted, ref } from "vue"
+import { isCrossSelecting } from "@/lib/crossselect"
 import { applyLinkAt, linkAt, marksAt, offsetRangeIn, paintRuns, toggleMarkAt } from "@/lib/marks"
 
 /** 浮条显示状态。坐标是视口坐标，浮条以此为底部中心点。 */
@@ -60,6 +61,12 @@ export function useInlineToolbar(options: {
    * 两端不可能同时落在同一个可编辑体里。
    */
   function refreshToolbar() {
+    // 跨块选区进行中不浮出来：原生选区被钳在首块里，浮条在那儿出现是错的（见 crossselect.ts）。
+    if (isCrossSelecting()) {
+      toolbar.value = null
+      return
+    }
+
     const element = options.target()
     if (element === null || document.activeElement !== element) {
       toolbar.value = null
