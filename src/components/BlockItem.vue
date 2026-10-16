@@ -69,7 +69,7 @@ const typeMenuMode = ref<"insert" | "convert">("insert")
 const textual = computed(() => (isTextualBlock(props.block) ? props.block : null))
 
 // 浮条与链接浮层的编排收在 composable 里，与表格单元格共用同一套（见 useInlineToolbar）。
-const { toolbar, linkEdit, applyMark, openLink, applyLink } = useInlineToolbar({
+const { toolbar, linkEdit, applyMark, applyColor, openLink, applyLink } = useInlineToolbar({
   target: () => bodyRef.value,
   getRuns: () => textual.value?.runs ?? [],
   commit: (runs) => setBlockRuns(props.block.id, runs),
@@ -506,6 +506,7 @@ const bodyClass = computed(() => {
         :link="toolbar.link"
         :anchor="{ top: toolbar.top, left: toolbar.left }"
         @toggle="applyMark"
+        @color="applyColor"
         @link="openLink"
       />
       <LinkPopover

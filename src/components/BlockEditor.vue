@@ -380,8 +380,30 @@ function onCrossEnd() {
   dragPressed = false
   window.removeEventListener("mousemove", onCrossMove)
   window.removeEventListener("mouseup", onCrossEnd)
-  // 处于覆盖层选区时保留 anchor/focus 供 Ctrl+C;否则什么都不留。
-  if (!overlayOn) dragAnchor = null
+  if (!overlayOn) {
+    dragAnchor = null
+    return
+  }
+  // 拖选结束落在单个正文块内:还原成原生选区。浮条(useInlineToolbar)只认原生选区
+  // —— 双击 / Shift+点选本来就是原生的所以有浮条,拖选被覆盖层接管后原生选区是空的,
+  // 不还回去浮条永远不出来。跨块选区保留 anchor/focus 供 Ctrl+C。
+  const anchor = crossAnchor.value
+  const focus = crossFocus.value
+  if (anchor === null || focus === null || anchor.index !== focus.index) return
+  if (anchor.offset === -1 || focus.offset === -1) return
+  const editable = findEditable(anchor.id)
+  if (editable === null) return
+  const range = rangeForOffsets(editable, {
+    start: Math.min(anchor.offset, focus.offset),
+    end: Math.max(anchor.offset, focus.offset),
+  })
+  if (range === null) return
+  clearCrossSelection()
+  editable.focus({ preventScroll: true })
+  const selection = window.getSelection()
+  if (selection === null) return
+  selection.removeAllRanges()
+  selection.addRange(range)
 }
 
 function onDocMouseDown(event: MouseEvent) {
@@ -424,8 +446,9 @@ async function copyCrossSelection() {
 }
 
 /**
- * 跨块删除:选区内内容删掉,锚块的头残段与焦点块的尾残段拼进一个块（类型随锚块,
- * 锚块不是正文块则随焦点块,两端都不是则落一个空文本块）,位置取范围上沿。
+ * 跨块删除:选区内内容删掉,文档序靠前块的头残段与靠后块的尾残段拼进一个块（类型随
+ * 靠前块,靠前块不是正文块则随靠后块,两端都不是则落一个空文本块）,位置取范围上沿。
+ * 拖选方向不限 —— 锚/焦先按文档序归一再取残段。
  * 改 runs + 逐个删块在同一拍完成,落在同一个历史静默段里,Ctrl+Z 一步退回。
  */
 function deleteCrossSelection() {
@@ -436,21 +459,29 @@ function deleteCrossSelection() {
   const blocks = activeDocument.value
   const from = Math.min(anchor.index, focus.index)
   const to = Math.max(anchor.index, focus.index)
-  const anchorBlock = blocks[anchor.index]
-  const focusBlock = blocks[focus.index]
-  if (anchorBlock === undefined || focusBlock === undefined) {
+  // 文档序归一:头残段永远属于靠前的块、尾残段属于靠后的块。锚点是按下位置,
+  // 反向拖选(从下往上)时锚在下、焦在上,直接拿锚块算头残段会把两端未选部分算反
+  // —— 整篇反选删除后首尾内容反而留下的根因就在这。
+  const sameBlock = anchor.index === focus.index
+  const forward = sameBlock ? anchor.offset <= focus.offset : anchor.index < focus.index
+  const start = forward ? anchor : focus
+  const end = forward ? focus : anchor
+  const startBlock = blocks[start.index]
+  const endBlock = blocks[end.index]
+  if (startBlock === undefined || endBlock === undefined) {
     clearCrossSelection()
     return
   }
 
-  const head = isTextualBlock(anchorBlock) ? sliceRuns(anchorBlock.runs, { start: 0, end: Math.max(anchor.offset, 0) }) : []
-  const tail = isTextualBlock(focusBlock)
-    ? sliceRuns(focusBlock.runs, { start: Math.max(focus.offset, 0), end: runsText(focusBlock.runs).length })
+  const head = isTextualBlock(startBlock) ? sliceRuns(startBlock.runs, { start: 0, end: Math.max(start.offset, 0) }) : []
+  const tail = isTextualBlock(endBlock)
+    ? sliceRuns(endBlock.runs, { start: Math.max(end.offset, 0), end: runsText(endBlock.runs).length })
     : []
-  const mergedType = isTextualBlock(anchorBlock)
-    ? anchorBlock.type
-    : isTextualBlock(focusBlock)
-      ? focusBlock.type
+  // 合并块落在范围上沿(文档序靠前的位置),类型也随靠前的块,正反两个方向行为一致。
+  const mergedType = isTextualBlock(startBlock)
+    ? startBlock.type
+    : isTextualBlock(endBlock)
+      ? endBlock.type
       : "text"
   const mergedRuns = [...head, ...tail]
   const newId = mergeBlockRange(from, to, mergedType, mergedRuns)
@@ -573,7 +604,7 @@ function edgeOf(index: number, to: number): BlockDropEdge {
     <div
       ref="docRef"
       data-doc
-      class="relative mx-auto w-full pt-5 pb-30 pr-10 pl-24"
+      class="relative mx-auto w-full pt-16 pb-30 pr-10 pl-24"
       :style="docStyle"
       @dragstart="onDragStart"
       @dragover="onDragOver"

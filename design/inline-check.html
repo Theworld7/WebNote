@@ -16,7 +16,8 @@
 <pre id="out">running…</pre>
 <script type="module">
 import { runsToHtml } from "../src/lib/inline.ts"
-import { marksAt, offsetRangeIn, paintRuns, rangeForOffsets, shortcutMark, toggleMarkAt } from "../src/lib/marks.ts"
+import { runsFromNode } from "../src/lib/html/index.ts"
+import { applyColorAt, colorAt, marksAt, offsetRangeIn, paintRuns, rangeForOffsets, shortcutMark, toggleMarkAt } from "../src/lib/marks.ts"
 
 const lines = []
 let passed = 0
@@ -174,6 +175,48 @@ check("单独按 E → 不是格式键", shortcutMark(key({ key: "e" })) === nul
 check("Cmd+Shift+H → highlight", shortcutMark(key({ key: "h", metaKey: true, shiftKey: true })) === "highlight")
 check("Ctrl+H（无 shift）→ 不是格式键", shortcutMark(key({ key: "h", ctrlKey: true })) === null)
 check("单独按 B → 不是格式键", shortcutMark(key({ key: "b" })) === null)
+
+// ---- 颜色：序列化 / 设置 / 移除 / 切分 / 往返 ----
+check(
+  "渲染：color → span[style]",
+  runsToHtml([{ text: "x", marks: [], color: "#d9730d" }]) === '<span style="color: #d9730d">x</span>',
+  runsToHtml([{ text: "x", marks: [], color: "#d9730d" }]),
+)
+check(
+  "渲染：颜色套在标记外面",
+  runsToHtml([{ text: "x", marks: ["bold"], color: "#d9730d" }]) === '<span style="color: #d9730d"><strong>x</strong></span>',
+  runsToHtml([{ text: "x", marks: ["bold"], color: "#d9730d" }]),
+)
+const colored = applyColorAt(plain("abcdef"), { start: 1, end: 3 }, "#d9730d")
+check(
+  "部分选中设色：只染中间那段",
+  same(colored, [{ text: "a", marks: [] }, { text: "bc", marks: [], color: "#d9730d" }, { text: "def", marks: [] }]),
+  JSON.stringify(colored),
+)
+check("colorAt 读取选中段颜色", colorAt(colored, 1) === "#d9730d", String(colorAt(colored, 1)))
+check("colorAt 默认色 → null", colorAt(plain("abc"), 0) === null)
+const uncolored = applyColorAt(colored, { start: 1, end: 3 }, null)
+check("设 null → 回默认色", same(uncolored, plain("abcdef")), JSON.stringify(uncolored))
+const colorCut = toggleMarkAt([{ text: "abcdef", marks: [], color: "#d9730d" }], { start: 2, end: 4 }, "bold")
+check(
+  "切分保留颜色",
+  same(colorCut, [
+    { text: "ab", marks: [], color: "#d9730d" },
+    { text: "cd", marks: ["bold"], color: "#d9730d" },
+    { text: "ef", marks: [], color: "#d9730d" },
+  ]),
+  JSON.stringify(colorCut),
+)
+editor.innerHTML = runsToHtml([{ text: "红", marks: [], color: "#d44c47" }, { text: "素", marks: [] }])
+const reparsed = runsFromNode(editor, { collapseWhitespace: true })
+check(
+  "解析往返：色盘内的颜色读回来",
+  same(reparsed, [{ text: "红", marks: [], color: "#d44c47" }, { text: "素", marks: [] }]),
+  JSON.stringify(reparsed),
+)
+editor.innerHTML = '<span style="color: #ff8800; background-color: #d44c47">外</span>'
+const offPalette = runsFromNode(editor, { collapseWhitespace: true })
+check("解析：色盘外的颜色按默认色丢弃（background-color 不误读）", same(offPalette, plain("外")), JSON.stringify(offPalette))
 
 lines.push(`\n自检 ${passed}/${passed + failed} 通过`)
 document.getElementById("out").textContent = lines.join("\n")

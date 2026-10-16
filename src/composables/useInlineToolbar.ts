@@ -2,12 +2,14 @@ import type { InlineMark, InlineRun, LinkShape } from "@/types/workspace"
 import type { OffsetRange } from "@/lib/marks"
 import { onBeforeUnmount, onMounted, ref } from "vue"
 import { isCrossSelecting } from "@/lib/crossselect"
-import { applyLinkAt, linkAt, marksAt, offsetRangeIn, paintRuns, toggleMarkAt } from "@/lib/marks"
+import { applyColorAt, applyLinkAt, colorAt, linkAt, marksAt, offsetRangeIn, paintRuns, toggleMarkAt } from "@/lib/marks"
 
 /** 浮条显示状态。坐标是视口坐标，浮条以此为底部中心点。 */
 export interface ToolbarState {
   marks: InlineMark[]
   link: boolean
+  /** 选区起点处的文本颜色；默认色为 null。 */
+  color: string | null
   top: number
   left: number
 }
@@ -89,6 +91,7 @@ export function useInlineToolbar(options: {
     toolbar.value = {
       marks: marksAt(options.getRuns(), range.start),
       link: linkAt(options.getRuns(), range.start) !== null,
+      color: colorAt(options.getRuns(), range.start),
       top: rect.top - 8,
       left: rect.left + rect.width / 2,
     }
@@ -111,6 +114,19 @@ export function useInlineToolbar(options: {
     if (range === null) return
 
     const runs = toggleMarkAt(options.getRuns(), range, mark)
+    options.commit(runs)
+    paint(runs, range)
+  }
+
+  /** 对当前选区设置文本颜色，null 回默认色。色板按钮共用这一条路。 */
+  function applyColor(color: string | null) {
+    const element = options.target()
+    if (element === null) return
+
+    const range = offsetRangeIn(element)
+    if (range === null) return
+
+    const runs = applyColorAt(options.getRuns(), range, color)
     options.commit(runs)
     paint(runs, range)
   }
@@ -156,5 +172,5 @@ export function useInlineToolbar(options: {
     document.removeEventListener("scroll", hideToolbar, true)
   })
 
-  return { toolbar, linkEdit, refreshToolbar, hideToolbar, applyMark, openLink, applyLink }
+  return { toolbar, linkEdit, refreshToolbar, hideToolbar, applyMark, applyColor, openLink, applyLink }
 }

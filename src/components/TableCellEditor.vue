@@ -36,7 +36,7 @@ const { setTableCellRuns } = useWorkspace()
 const cellRef = ref<HTMLElement | null>(null)
 
 // 浮条与快捷键共用同一条标记切换路（见 useInlineToolbar）；数据出口按行列定位到本格。
-const { applyMark, toolbar } = useInlineToolbar({
+const { applyMark, applyColor, toolbar } = useInlineToolbar({
   target: () => cellRef.value,
   getRuns: () => props.cell.runs,
   commit: (runs) => setTableCellRuns(props.blockId, props.row, props.column, runs),
@@ -135,6 +135,7 @@ const tag = computed(() => (props.cell.header ? "th" : "td"))
       no-link
       :anchor="{ top: toolbar.top, left: toolbar.left }"
       @toggle="applyMark"
+      @color="applyColor"
     />
   </Teleport>
 </template>

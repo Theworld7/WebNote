@@ -1,5 +1,5 @@
 import type { InlineMark, InlineRun, LinkShape } from "@/types/workspace"
-import { TAG_MARKS, normalizeRuns } from "@/lib/inline"
+import { TAG_MARKS, isTextColor, normalizeRuns } from "@/lib/inline"
 import { BLOCK_TAGS, IMAGE_TAG, SKIPPED_TAGS } from "./tags"
 
 /**
@@ -31,12 +31,14 @@ interface RunContext {
   marks: InlineMark[]
   href: string | undefined
   linkShape: LinkShape | undefined
+  color: string | undefined
 }
 
 function makeRun(context: RunContext, text: string): InlineRun {
   const run: InlineRun = { text, marks: [...context.marks] }
   if (context.href !== undefined && context.href !== "") run.href = context.href
   if (run.href !== undefined && context.linkShape === "card") run.linkShape = "card"
+  if (context.color !== undefined && context.color !== "") run.color = context.color
   return run
 }
 
@@ -51,6 +53,24 @@ function breakBefore(out: InlineRun[], context: RunContext): void {
   const last = out[out.length - 1]
   if (last.text.endsWith("\n")) return
   out.push(makeRun(context, "\n"))
+}
+
+/**
+ * 从 style 属性里取 `color` 声明的值。整条声明按 `;` 拆、按第一个 `:` 拆属性名——
+ * `background-color:` 里的 "color" 不是属性名，不会被误认。值不在色盘内返回 undefined
+ * （见 TEXT_COLORS：归一化要稳，只收命名色）。
+ */
+function styleColor(node: Element): string | undefined {
+  const style = node.getAttribute("style")
+  if (style === null) return undefined
+  for (const declaration of style.split(";")) {
+    const separator = declaration.indexOf(":")
+    if (separator === -1) continue
+    if (declaration.slice(0, separator).trim().toLowerCase() !== "color") continue
+    const value = declaration.slice(separator + 1).trim().toLowerCase()
+    return isTextColor(value) && value !== "" ? value : undefined
+  }
+  return undefined
 }
 
 function walk(node: Node, context: RunContext, out: InlineRun[], collapse: boolean): void {
@@ -81,6 +101,9 @@ function walk(node: Node, context: RunContext, out: InlineRun[], collapse: boole
     // 读回时重算，文件被手改也不会两份事实漂移。
     linkShape:
       tag === LINK_TAG && node.getAttribute("data-link-shape") === "card" ? "card" : context.linkShape,
+    // 颜色取最内层的声明，与 href 同一立场。任何元素上的 style 都认 —— 剪藏来的
+    // 内容颜色不一定包在我们序列化用的 `<span>` 里。
+    color: styleColor(node) ?? context.color,
   }
 
   for (const child of node.childNodes) walk(child, next, out, collapse)
@@ -109,7 +132,7 @@ function collapseBoundaries(runs: InlineRun[]): InlineRun[] {
 export function runsFromNodes(nodes: Iterable<Node>, options: RunsFromNodeOptions = {}): InlineRun[] {
   const collapse = options.collapseWhitespace === true
   const out: InlineRun[] = []
-  const context: RunContext = { marks: [], href: undefined, linkShape: undefined }
+  const context: RunContext = { marks: [], href: undefined, linkShape: undefined, color: undefined }
 
   for (const node of nodes) walk(node, context, out, collapse)
 

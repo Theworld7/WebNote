@@ -186,6 +186,24 @@ function onColumnDrop(event: DragEvent, target: KanbanGroup): void {
   void change((current) => dt.replaceRow(current, dt.setCell(row, col.id, target.value)))
 }
 
+// ---- 添加卡片 ----
+
+/**
+ * 在某列添加卡片:表尾追加一行,分组列直接落成这一列的值 —— 卡片即刻归位,
+ * 不必先去数据表加行再拖过来。未分组列的 value 是 null,等于加一张不归组的卡。
+ * 加行与设值在同一拍 `change` 里完成,只记一次脏、一次写盘。
+ */
+function addCard(group: KanbanGroup): void {
+  const col = groupColumn.value
+  if (col === null) return
+  void change((current) => {
+    const added = dt.addRow(current)
+    const row = added.rows[added.rows.length - 1]
+    if (row === undefined) return added
+    return dt.replaceRow(added, dt.setCell(row, col.id, group.value))
+  })
+}
+
 // ---- 块设置 ----
 
 /** 分组列的下拉选择:空 = 关闭(提示态)。 */
@@ -414,6 +432,13 @@ function openTable() {
             </div>
           </article>
         </div>
+        <button
+          type="button"
+          class="mt-1 w-full rounded-md px-2 py-1 text-left text-[12px] text-muted-foreground/70 transition-colors hover:bg-black/5 hover:text-muted-foreground"
+          @click="addCard(group)"
+        >
+          + 添加卡片
+        </button>
       </section>
     </div>
   </div>

@@ -147,11 +147,12 @@ export function rangeForOffsets(root: Node, range: OffsetRange): Range | null {
   return result
 }
 
-/** 深拷一个 run。`marks` 与 `href` 都是引用 / 可选字段，浅拷会让两份 run 共享同一组标记。 */
+/** 深拷一个 run。`marks` / `href` / `color` 都是引用或可选字段，浅拷会让两份 run 共享同一组标记。 */
 function copyRun(run: InlineRun, text?: string): InlineRun {
   const next: InlineRun = { text: text ?? run.text, marks: [...run.marks] }
   if (run.href !== undefined && run.href !== "") next.href = run.href
   if (next.href !== undefined && run.linkShape === "card") next.linkShape = "card"
+  if (run.color !== undefined && run.color !== "") next.color = run.color
   return next
 }
 
@@ -300,6 +301,37 @@ export function applyLinkAt(
     piece.run.href = href.trim()
     if (shape === "card") piece.run.linkShape = "card"
     else delete piece.run.linkShape
+  }
+
+  return normalizeRuns(pieces.map((piece) => piece.run))
+}
+
+/** 偏移处生效的文本颜色。默认色（无着色）返回 null —— 色板的高亮态靠它。 */
+export function colorAt(runs: readonly InlineRun[], offset: number): string | null {
+  let cursor = 0
+  for (const run of runs) {
+    const next = cursor + run.text.length
+    if (offset < next) return run.color ?? null
+    cursor = next
+  }
+  const last = runs[runs.length - 1]
+  return last?.color ?? null
+}
+
+/**
+ * 在区间上设置 / 移除文本颜色。
+ *
+ * `color` 为 null 即回到默认色。与链接同一立场：设置时选区跨多段统一成同一个颜色
+ * —— 「我圈了一段，想把它们染成同一个颜色」。调用方保证传入值在色盘内（TEXT_COLORS）。
+ */
+export function applyColorAt(runs: readonly InlineRun[], range: OffsetRange, color: string | null): InlineRun[] {
+  const pieces = slice(runs, range)
+  const touched = pieces.filter((piece) => piece.inside)
+  if (touched.length === 0) return runs.map((run) => copyRun(run))
+
+  for (const piece of touched) {
+    if (color === null || color === "") delete piece.run.color
+    else piece.run.color = color
   }
 
   return normalizeRuns(pieces.map((piece) => piece.run))

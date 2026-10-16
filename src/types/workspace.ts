@@ -27,7 +27,7 @@ export type LinkShape = "text" | "card"
  * 规范化不变式（由 `normalizeRuns()` 保证，解析与编辑回读都必须过一遍）：
  * - `text` 非空；
  * - `marks` 已去重，且按 `INLINE_MARK_ORDER` 排序 —— 顺序影响序列化产物，所以不能留给调用方；
- * - 相邻 run 的「标记 + href」必然不同，否则已合并。
+ * - 相邻 run 的「标记 + href + 颜色」必然不同，否则已合并。
  */
 export interface InlineRun {
   text: string
@@ -36,6 +36,8 @@ export interface InlineRun {
   href?: string
   /** 仅链接使用。缺省即 `text`，缺省态不落盘（对齐其它「非默认值才写出」的属性立场）。 */
   linkShape?: LinkShape
+  /** 有值即为文本着色（解析自 `<span style="color:…">`）。空串按默认色处理。 */
+  color?: string
 }
 
 /** 可承载正文的块类型。`divider` 也在内 —— 它只是正文恒为空。 */

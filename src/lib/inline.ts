@@ -33,8 +33,8 @@ export interface MarkSpec {
 export const MARK_REGISTRY = [
   { mark: "bold", tag: "strong", aliases: ["b"], shortcut: { key: "b" }, label: "加粗" },
   { mark: "italic", tag: "em", aliases: ["i"] },
-  { mark: "underline", tag: "u", aliases: ["ins"] },
-  { mark: "strike", tag: "s", aliases: ["del", "strike"] },
+  { mark: "underline", tag: "u", aliases: ["ins"], shortcut: { key: "u" }, label: "下划线" },
+  { mark: "strike", tag: "s", aliases: ["del", "strike"], label: "删除线" },
   { mark: "code", tag: "code", shortcut: { key: "e" }, label: "行内代码" },
   // 高亮挂 Shift：`Cmd+H` 在 macOS 被系统占用（隐藏窗口）。
   { mark: "highlight", tag: "mark", shortcut: { key: "h", shift: true }, label: "高亮" },
@@ -62,6 +62,34 @@ export const TAG_MARKS = new Map<string, InlineMark>(
 /** 纯文本 → runs（单个无标记 run）。空串得到空数组，与 normalizeRuns 的约定一致。 */
 export function textToRuns(text: string): InlineRun[] {
   return text === "" ? [] : [{ text, marks: [] }]
+}
+
+/**
+ * 文本色盘 —— 颜色知识的唯一真源，取值对齐 Notion 的文本色（浅色主题）。
+ *
+ * 色板按钮、激活态比对、解析时的落盘值都从这里出。只收**命名色**：解析到的
+ * `color:` 值不在色盘里时按默认色丢弃 —— 色值一多，「解析 → 序列化 → 再解析」
+ * 的归一化就稳不住（`red` 与 `#ff0000` 同色不同串）。
+ */
+export const TEXT_COLORS: readonly { name: string; value: string }[] = [
+  { name: "默认", value: "" },
+  { name: "灰色", value: "#787774" },
+  { name: "棕色", value: "#9f6b53" },
+  { name: "橙色", value: "#d9730d" },
+  { name: "黄色", value: "#cb912f" },
+  { name: "绿色", value: "#448361" },
+  { name: "蓝色", value: "#337ea9" },
+  { name: "紫色", value: "#9065b0" },
+  { name: "粉色", value: "#c14c8a" },
+  { name: "红色", value: "#d44c47" },
+]
+
+/** 色盘值集合，解析时校验用。 */
+const TEXT_COLOR_VALUES = new Set(TEXT_COLORS.map((item) => item.value))
+
+/** 色值是否在色盘内。空串（默认色）恒真。 */
+export function isTextColor(value: string): boolean {
+  return TEXT_COLOR_VALUES.has(value.toLowerCase())
 }
 
 /** runs → 纯文本投影。`\n` 是 `<br>` 的语义，原样保留。 */
@@ -96,9 +124,10 @@ function sortMarks(marks: readonly InlineMark[]): InlineMark[] {
 }
 
 /** 两个 run 的格式是否相同（文本之外的部分）。 */
-function sameFormat(run: InlineRun, marks: readonly InlineMark[], href: string | undefined, shape: LinkShape | undefined): boolean {
+function sameFormat(run: InlineRun, marks: readonly InlineMark[], href: string | undefined, shape: LinkShape | undefined, color: string | undefined): boolean {
   if ((run.href ?? "") !== (href ?? "")) return false
   if ((run.linkShape ?? "text") !== (shape ?? "text")) return false
+  if ((run.color ?? "") !== (color ?? "")) return false
   if (run.marks.length !== marks.length) return false
   return run.marks.every((mark, index) => mark === marks[index])
 }
@@ -116,7 +145,7 @@ export function normalizeRuns(runs: readonly InlineRun[]): InlineRun[] {
   for (const run of runs) {
     if (run.text === "") continue
     const marks = sortMarks(run.marks)
-    if (previous !== null && sameFormat(previous, marks, run.href, run.linkShape)) {
+    if (previous !== null && sameFormat(previous, marks, run.href, run.linkShape, run.color)) {
       previous.text += run.text
       continue
     }
@@ -126,6 +155,8 @@ export function normalizeRuns(runs: readonly InlineRun[]): InlineRun[] {
     if (next.href !== undefined && run.linkShape !== undefined && run.linkShape !== "text") {
       next.linkShape = run.linkShape
     }
+    // 颜色与链接同一立场：空串按默认色处理，缺省态不落盘。
+    if (run.color !== undefined && run.color !== "") next.color = run.color
     result.push(next)
     previous = next
   }
@@ -181,6 +212,12 @@ export function runToHtml(run: InlineRun): string {
     const tag = MARK_TAG.get(mark)
     if (tag === undefined) continue
     html = `<${tag}>${html}</${tag}>`
+  }
+
+  // 颜色套在标记外面：色值是整段文字的属性，与加粗等语义标记不在一个层级。
+  // 只写色盘内的值，序列化产物稳定（见 TEXT_COLORS）。
+  if (run.color !== undefined && isTextColor(run.color) && run.color !== "") {
+    html = `<span style="color: ${run.color}">${html}</span>`
   }
 
   // 链接永远是最外层：`<a>` 里套 `<code>` 合法，反过来在语义上也说得通但更难读。
