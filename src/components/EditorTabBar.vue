@@ -22,10 +22,9 @@ const {
   tabs,
   activePath,
   activeTab,
-  isDirty,
   activateTab,
   requestCloseTab,
-  save,
+  saveTab,
   isClosePending,
   pendingCloseLabel,
   resolveClose,
@@ -36,10 +35,6 @@ const ACTION = "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foregr
 
 /** 设置抽屉的开合。放在工具栏这一层：它是浮岛上的一个动作，不是工作区状态。 */
 const settingsOpen = ref(false)
-
-/** 出现即代表「有东西要存」，所以样式是恒定的强调态，不再随 isDirty 分叉。 */
-const SAVE =
-  "h-[26px] rounded-full bg-selection px-3 text-xs font-medium text-selection-foreground hover:bg-selection-strong hover:text-selection-foreground"
 
 /** 确认框里的按钮：h-7、13px，跟工具栏那批小按钮同一个体量。 */
 const DIALOG_BTN = "h-7 px-3 text-[13px]"
@@ -100,6 +95,7 @@ watch(() => tabs.value.length, () => nextTick(updateOverflow))
           :active="tab.path === activePath"
           @activate="activateTab"
           @close="requestCloseTab"
+          @save="saveTab"
         />
       </div>
 
@@ -124,18 +120,6 @@ watch(() => tabs.value.length, () => nextTick(updateOverflow))
     </div>
 
     <div class="flex flex-none items-center gap-0.5">
-      <!-- 只在当前激活标签有未保存改动时出现。其余标签的脏态由标签自己那个圆点表达，
-           全局常驻一个「保存」按钮会误导成「点了会保存所有标签」。 -->
-      <Button
-        v-if="isDirty"
-        variant="ghost"
-        size="xs"
-        :class="SAVE"
-        @click="save"
-      >
-        保存
-      </Button>
-
       <!-- 「在目录中定位」定的是当前激活的那篇笔记，没有激活标签就无从定位，不给按钮。 -->
       <Tooltip v-if="activeTab !== null">
         <TooltipTrigger as-child>

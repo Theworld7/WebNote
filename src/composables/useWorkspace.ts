@@ -1567,6 +1567,7 @@ function createWorkspace() {
     cancelPendingClose,
     toggleFolder,
     save,
+    saveTab,
     markDirty,
     markTableDirty,
     createNoteIn,

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { OpenTab } from "@/types/workspace"
 import { computed } from "vue"
-import { XIcon } from "@lucide/vue"
+import { SaveIcon, XIcon } from "@lucide/vue"
 import { fileName } from "@/lib/paths"
 import { cn } from "@/lib/utils"
 
@@ -13,6 +13,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: "activate", path: string): void
   (event: "close", path: string): void
+  (event: "save", path: string): void
 }>()
 
 const label = computed(() => fileName(props.tab.path))
@@ -31,14 +32,15 @@ const label = computed(() => fileName(props.tab.path))
   >
     <span class="min-w-0 truncate">{{ label }}</span>
 
-    <!-- 未保存态按原型分两种：激活的用文字 tag，非激活的用小圆点，两者常驻 DOM 靠显示切换。 -->
+    <!-- 未保存态分两种：激活的用保存图标按钮（本身就是「点这里存」的入口），非激活的用小圆点。 -->
     <span
-      v-if="tab.dirty"
-      :class="cn(
-        'shrink-0 rounded-full bg-dirty-soft px-[7px] py-px text-[11px] leading-[1.5] font-medium whitespace-nowrap text-dirty',
-        active ? 'inline-block' : 'hidden',
-      )"
-    >未保存</span>
+      v-if="tab.dirty && active"
+      class="flex size-4 shrink-0 items-center justify-center rounded-[4px] text-dirty hover:text-foreground"
+      aria-label="保存"
+      @click.stop="emit('save', tab.path)"
+    >
+      <SaveIcon class="size-[13px]" />
+    </span>
     <span
       v-if="tab.dirty"
       :class="cn('size-1.5 shrink-0 rounded-full bg-dirty', active ? 'hidden' : 'inline-block')"

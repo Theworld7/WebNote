@@ -3,8 +3,15 @@ import type { BookmarkBlock } from "@/types/workspace"
 import type { DataColumn, DataRow } from "@/types/data-table"
 import type { ComponentPublicInstance } from "vue"
 import { computed, nextTick, ref, watch } from "vue"
-import { DatabaseIcon, Settings2Icon } from "@lucide/vue"
+import { DatabaseIcon, PencilIcon, PlusIcon, Settings2Icon, Trash2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,12 +34,17 @@ import * as dt from "@/lib/data-table"
  * 数据链路与 `GalleryBlockView` 完全同源,取数与改表走 `useTableEntry` 共用 seam,
  * 这里不再复述。不同的只有展示设置:名称列、链接列、列数,都是**块的属性**,
  * 同一张表在两篇笔记里可以各挑各的字段。
+ *
+ * 就地增删改与看板卡 / 账目行同一套口径(解析走 `dt.parseCellInput`,经 `change`
+ * 记在当前笔记名下):卡片悬停出「编辑 / 删除」,编辑收进模态框(卡片只有 96px 宽,
+ * 塞不下名称/链接两个输入框);「添加书签」在块操作入口里,追加一行后弹同一个框,
+ * 光标直接落进名称框。
  */
 const props = defineProps<{ block: BookmarkBlock }>()
 
 const { openFile, updateBlockSettings } = useWorkspace()
 
-const { state, table, columns, rows } = useTableEntry(() => props.block.path)
+const { state, table, columns, rows, change } = useTableEntry(() => props.block.path)
 
 /** 指向的列被删后这里落空,整块退化为「未设置」提示态,无需清洗块属性。 */
 const nameColumn = computed<DataColumn | null>(() => columns.value.find((column) => column.id === props.block.nameColumn) ?? null)
@@ -100,6 +112,85 @@ const gridStyle = computed(() => ({
       : `repeat(${props.block.columns}, minmax(0, 1fr))`,
 }))
 
+// ---- 就地增删改 ----
+
+/**
+ * 正在编辑的书签(行 id);空串 = 没有模态框。编辑表单收进模态框 —— 卡片只有 96px 宽,
+ * 塞不下名称/链接两个输入框。进框拷一份草稿,保存时统一解析落盘,取消即丢弃。
+ */
+const editingId = ref("")
+/** 模态框这次打开是「添加」还是「编辑」,只用来定标题。 */
+const isAdding = ref(false)
+
+/** 模态框里的草稿,进出各拷一次。 */
+const draft = ref({ name: "", url: "", icon: "" })
+
+function focusOnMount(el: unknown): void {
+  if (el instanceof HTMLInputElement) el.focus()
+}
+
+function openEdit(row: DataRow): void {
+  isAdding.value = false
+  const name = nameColumn.value
+  const url = urlColumn.value
+  const icon = iconColumn.value
+  draft.value = {
+    name: name === null ? "" : fieldOf(row, name),
+    url: url === null ? "" : fieldOf(row, url),
+    icon: icon === null || icon.type === "image" ? "" : fieldOf(row, icon),
+  }
+  editingId.value = row.id
+}
+
+function closeEdit(): void {
+  editingId.value = ""
+}
+
+/**
+ * 保存:三个字段各自走共用的 `parseCellInput`(与数据表编辑页 / 看板卡同一口径),
+ * 有变化的合成一行一次 `change` 落盘(只记一次脏),然后关框。
+ */
+function saveEdit(): void {
+  const row = rows.value.find((item) => item.id === editingId.value)
+  const name = nameColumn.value
+  const url = urlColumn.value
+  const icon = iconColumn.value
+  if (row === undefined || name === null || url === null) return closeEdit()
+
+  let working = row
+  const nameValue = dt.parseCellInput(draft.value.name, name.type)
+  if (nameValue !== dt.cellValue(row, name)) working = dt.setCell(working, name.id, nameValue)
+  const urlValue = dt.parseCellInput(draft.value.url, url.type)
+  if (urlValue !== dt.cellValue(row, url)) working = dt.setCell(working, url.id, urlValue)
+  if (icon !== null && icon.type !== "image") {
+    const iconValue = dt.parseCellInput(draft.value.icon, icon.type)
+    if (iconValue !== dt.cellValue(row, icon)) working = dt.setCell(working, icon.id, iconValue)
+  }
+  if (working !== row) void change((current) => dt.replaceRow(current, working))
+  closeEdit()
+}
+
+/** 输入框里回车 = 保存(表单语义)。 */
+function saveOnEnter(event: Event): void {
+  if (event.target instanceof HTMLInputElement) saveEdit()
+}
+
+/** 加一枚书签:表尾追加一行,随即弹模态框补名称与链接,光标落在名称框里。 */
+async function addBookmark(): Promise<void> {
+  await change((current) => dt.addRow(current))
+  const added = rows.value[rows.value.length - 1]
+  if (added === undefined) return
+  isAdding.value = true
+  draft.value = { name: "", url: "", icon: "" }
+  editingId.value = added.id
+}
+
+/** 删一枚书签。正在编辑这一张时先收掉模态框,免得框跟着一个已消失的行。 */
+function removeBookmark(row: DataRow): void {
+  if (editingId.value === row.id) closeEdit()
+  void change((current) => dt.removeRow(current, row.id))
+}
+
 /** 分组字段的列。未设置或指向的列被删后落空,整块退化为平铺,无需清洗块属性。 */
 const groupByColumn = computed<DataColumn | null>(() => {
   if (props.block.groupBy === undefined || props.block.groupBy === "") return null
@@ -164,6 +255,9 @@ watch(sections, () => void nextTick(measureTruncation))
 const MENU = "w-48 rounded-island p-1.5 shadow-pop ring-0"
 /** 下拉框观感照搬画册设置里的 select,两处菜单放一起看不出差别。 */
 const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
+/** 编辑模态框的输入框(与 SELECT 同一套观感)与底部按钮(与关标签确认框同一体量)。 */
+const FIELD = "w-full rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
+const DIALOG_BTN = "h-7 px-3 text-[13px]"
 
 const COLUMN_COUNTS = [1, 2, 3, 4, 5, 6] as const
 
@@ -222,19 +316,29 @@ const columnsSelection = computed({
   <TableRefNotice v-else-if="table === null" kind="loading" label="书签" />
 
   <div v-else class="group/bookmark relative my-4">
-    <!-- 块操作入口:右上角,悬停浮现。与画册的入口同一套。 -->
+    <!-- 块操作入口:右上角,悬停浮现。与画册的入口同一套;浅阴影把浮岛从正文上托起来。 -->
     <div class="absolute -top-2 right-0 z-20 flex items-center gap-1 opacity-0 transition-opacity group-hover/bookmark:opacity-100 focus-within:opacity-100">
+      <!-- 添加书签 = 表尾追加一行并进编辑态;名称/链接列没挑时没有可写的字段,不给入口。 -->
+      <Button
+        v-if="nameColumn !== null && urlColumn !== null"
+        variant="ghost"
+        size="sm"
+        class="h-6 gap-1 rounded-full bg-background px-2 text-[12px] text-muted-foreground shadow-sm hover:text-foreground"
+        @click="addBookmark"
+      >
+        <PlusIcon class="size-3" />添加书签
+      </Button>
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full bg-background px-2 text-[12px] text-muted-foreground hover:text-foreground"
+        class="h-6 gap-1 rounded-full bg-background px-2 text-[12px] text-muted-foreground shadow-sm hover:text-foreground"
         @click="openFile(props.block.path)"
       >
         <DatabaseIcon class="size-3" />打开数据表
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-background px-2 text-[12px] text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-background px-2 text-[12px] text-muted-foreground shadow-sm hover:text-foreground">
             <Settings2Icon class="size-3" />设置
           </Button>
         </DropdownMenuTrigger>
@@ -312,47 +416,99 @@ const columnsSelection = computed({
       在「设置」里挑选名称列和链接列后,每一行会变成一枚书签卡片。
     </p>
 
-    <!-- 宫格。空表给一句说明,而不是留一片空白。 -->
-    <p v-else-if="rows.length === 0" class="py-6 text-center text-[12px] text-muted-foreground">
-      这张表还没有行 —— 到数据表里添加后,书签会自动出现。
-    </p>
-
-    <!-- 分节宫格:不开分组时只有一节且不画标题,观感与平铺无差别。 -->
+    <!-- 宫格。空表给一句说明,表尾的「添加书签」即入口。 -->
     <div v-else class="flex flex-col gap-3">
-      <section v-for="sec in sections" :key="sec.key">
-        <p v-if="sec.title !== null" class="pb-1 text-[12px] font-medium text-muted-foreground">{{ sec.title }}</p>
-        <ul class="m-0 grid list-none gap-3 p-0" :style="gridStyle">
-          <li v-for="row in sec.rows" :key="row.id" class="flex justify-center">
-            <!-- 只有名称被截断的行才开 tooltip(disabled 绑定测量结果)—— 名称完整时
-                 划过每张卡都弹一遍提示是噪音。 -->
-            <Tooltip :disabled="!truncatedNames.has(row.id)">
-              <TooltipTrigger as-child>
-                <!-- 与行内链接的书签卡片同一套标记:data-link-shape + data-icon 驱动同一条 CSS。
-                     图标列的值能加载成图片时挂 data-icon-image:伪元素字符退场,由 img 顶替
-                     (样式见 style.css 的书签卡片段);加载中或失败不带这个属性,照常显示字符。 -->
-                <a
-                  :href="fieldOf(row, urlColumn)"
-                  target="_blank"
-                  rel="noreferrer"
-                  data-link-shape="card"
-                  :data-icon="iconOf(row)"
-                  :data-icon-image="shownIconOf(row) !== null ? '' : undefined"
-                ><img
-                  v-if="iconSrcOf(row) !== ''"
-                  :src="iconSrcOf(row)"
-                  alt=""
-                  decoding="async"
-                  class="note-bookmark-icon"
-                  :class="shownIconOf(row) !== null ? '' : 'hidden'"
-                  @load="onIconLoad(row.id)"
-                  @error="onIconError(row.id)"
-                ><span :ref="(el) => setNameEl(row.id, el)" class="note-bookmark-name">{{ fieldOf(row, nameColumn) }}</span></a>
-              </TooltipTrigger>
-              <TooltipContent>{{ fieldOf(row, nameColumn) }}</TooltipContent>
-            </Tooltip>
-          </li>
-        </ul>
-      </section>
+      <p v-if="rows.length === 0" class="py-2 text-center text-[12px] text-muted-foreground">
+        这张表还没有书签 —— 点上方「添加书签」开始。
+      </p>
+
+      <!-- 分节宫格:不开分组时只有一节且不画标题,观感与平铺无差别。 -->
+      <template v-if="rows.length > 0">
+        <section v-for="sec in sections" :key="sec.key">
+          <p v-if="sec.title !== null" class="pb-1 text-[12px] font-medium text-muted-foreground">{{ sec.title }}</p>
+          <ul class="m-0 grid list-none gap-3 p-0" :style="gridStyle">
+            <li v-for="row in sec.rows" :key="row.id" class="group/card relative flex justify-center">
+              <!-- 悬停操作:编辑 / 删除,锚在卡片右上角(卡片 96px 宽且居中,右缘即 50%-48px)。
+                   编辑收进模态框 —— 卡片塞不下名称/链接两个输入框。 -->
+              <span class="absolute top-0.5 right-[calc(50%-46px)] z-10 hidden items-center gap-0.5 rounded-full border border-line bg-background p-0.5 shadow-sm group-hover/card:flex">
+                <button
+                  type="button"
+                  aria-label="编辑书签"
+                  class="rounded-full p-0.5 text-muted-foreground hover:text-foreground"
+                  @click="openEdit(row)"
+                >
+                  <PencilIcon class="size-3" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="删除书签"
+                  class="rounded-full p-0.5 text-muted-foreground hover:text-destructive"
+                  @click="removeBookmark(row)"
+                >
+                  <Trash2Icon class="size-3" />
+                </button>
+              </span>
+
+              <!-- 只有名称被截断的行才开 tooltip(disabled 绑定测量结果)—— 名称完整时
+                   划过每张卡都弹一遍提示是噪音。 -->
+              <Tooltip :disabled="!truncatedNames.has(row.id)">
+                <TooltipTrigger as-child>
+                  <!-- 与行内链接的书签卡片同一套标记:data-link-shape + data-icon 驱动同一条 CSS。
+                       图标列的值能加载成图片时挂 data-icon-image:伪元素字符退场,由 img 顶替
+                       (样式见 style.css 的书签卡片段);加载中或失败不带这个属性,照常显示字符。 -->
+                  <a
+                    :href="fieldOf(row, urlColumn)"
+                    target="_blank"
+                    rel="noreferrer"
+                    data-link-shape="card"
+                    :data-icon="iconOf(row)"
+                    :data-icon-image="shownIconOf(row) !== null ? '' : undefined"
+                  ><img
+                    v-if="iconSrcOf(row) !== ''"
+                    :src="iconSrcOf(row)"
+                    alt=""
+                    decoding="async"
+                    class="note-bookmark-icon"
+                    :class="shownIconOf(row) !== null ? '' : 'hidden'"
+                    @load="onIconLoad(row.id)"
+                    @error="onIconError(row.id)"
+                  ><span :ref="(el) => setNameEl(row.id, el)" class="note-bookmark-name">{{ fieldOf(row, nameColumn) }}</span></a>
+                </TooltipTrigger>
+                <TooltipContent>{{ fieldOf(row, nameColumn) }}</TooltipContent>
+              </Tooltip>
+            </li>
+          </ul>
+        </section>
+      </template>
     </div>
+
+    <!-- 编辑书签的模态框:添加与编辑共用一个框,标题随 isAdding 摆。
+         三个按钮用普通 Button —— reka 自带的「点击即关框」回调会先清状态,保存逻辑
+         需要自己掌控关框时机(与关标签确认框同一手法)。Esc 走 onOpenChange(false)。 -->
+    <AlertDialog :open="editingId !== ''" @update:open="(open: boolean) => !open && closeEdit()">
+      <AlertDialogContent class="w-[300px] rounded-[18px] p-5 shadow-pop ring-0">
+        <AlertDialogHeader>
+          <AlertDialogTitle>{{ isAdding ? "添加书签" : "编辑书签" }}</AlertDialogTitle>
+        </AlertDialogHeader>
+        <div class="flex flex-col gap-2.5 pt-0.5">
+          <label class="block">
+            <span class="block pb-1 text-[11px] text-muted-foreground">名称</span>
+            <input v-model="draft.name" :ref="focusOnMount" :class="FIELD" @keydown.enter.prevent="saveOnEnter">
+          </label>
+          <label class="block">
+            <span class="block pb-1 text-[11px] text-muted-foreground">链接</span>
+            <input v-model="draft.url" :class="FIELD" placeholder="https://" @keydown.enter.prevent="saveOnEnter">
+          </label>
+          <label v-if="iconColumn !== null && iconColumn.type !== 'image'" class="block">
+            <span class="block pb-1 text-[11px] text-muted-foreground">图标(可选)</span>
+            <input v-model="draft.icon" :class="FIELD" @keydown.enter.prevent="saveOnEnter">
+          </label>
+        </div>
+        <AlertDialogFooter class="mx-0 mb-0 gap-2 rounded-none border-t-0 bg-transparent p-0 pt-3">
+          <Button variant="ghost" :class="DIALOG_BTN" @click="closeEdit">取消</Button>
+          <Button :class="DIALOG_BTN" @click="saveEdit">保存</Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 </template>
