@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>HTML 源码抽屉自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; display: flex; height: 420px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; }
+  .fail { color: #b42318; }
+</style>
+</head>
+<body>
+<h1>HTML 块源码抽屉：占位聚焦拉抽屉、Monaco 挂载、提交与取消</h1>
+<!-- 要等 Monaco 动态加载与真实读盘，抓结果用 CDP 驱动跑：
+     node design/cdp-dump.mjs http://localhost:1420/design/html-drawer-check.html -->
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+
+const out = document.querySelector("#out")
+addEventListener("error", (event) => { out.textContent += "\nERROR " + event.message + "\nSTACK " + String(event.error?.stack ?? "").slice(0, 900) })
+addEventListener("unhandledrejection", (event) => { out.textContent += "\nREJECT " + String(event.reason) })
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  out.textContent = lines.join("\n")
+}
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+async function until(get, ms = 15000) {
+  for (let i = 0; i < ms / 100; i += 1) {
+    const value = get()
+    if (value) return value
+    await wait(100)
+  }
+  return null
+}
+
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("html-drawer-check", { create: true })
+const file = await dir.getFileHandle("a.html", { create: true })
+const writable = await file.createWritable()
+await writable.write("<p>占位</p>")
+await writable.close()
+window.showDirectoryPicker = async () => dir
+
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    provideSettings()
+    // 真应用里 BlockEditor 挂在 EditorSurface（data-editor-surface）之内 —— 抽屉的
+    // Teleport 锚点。检查页直接挂 BlockEditor，得自己补一个同款容器，否则抽屉
+    // 没有落点、渲染不出来。
+    return () =>
+      h(
+        "div",
+        { "data-editor-surface": "", class: "relative flex min-h-0 flex-1 flex-col overflow-hidden" },
+        h(TooltipProvider, null, { default: () => h(BlockEditor) }),
+      )
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+const note = workspace.tree.value.find((node) => node.kind === "note")
+workspace.openFile(note.id)
+for (let i = 0; i < 60 && workspace.activeDocument.value.length < 1; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 50))
+}
+await nextTick()
+
+// 插入空 HTML 块 → 空占位（data-editable）出现，抽屉未开。
+const htmlId = workspace.appendBlock("html")
+await nextTick()
+const placeholder = await until(() => document.querySelector(`[data-editable="${htmlId}"]`))
+check("空块渲染可聚焦占位", placeholder !== null, "")
+
+// 抽屉初始未开。
+check("初始不弹抽屉", document.querySelector("[data-editor-surface] .monaco-editor") === null, "")
+
+// 焦点落到占位（BlockEditor 聚焦新块的同一条路）→ 抽屉拉开。
+placeholder?.focus()
+await wait(200)
+
+const drawer = await until(() => document.querySelector("[data-html-source-drawer]"), 3000)
+check("聚焦占位后抽屉打开", drawer !== null, "")
+
+// Monaco 动态加载需要时间，轮询等编辑器落进抽屉。
+const monacoHost = await until(() => document.querySelector("[data-html-source-drawer] .monaco-editor"), 20000)
+check("抽屉内挂上 Monaco", monacoHost !== null, "")
+
+// 往编辑器里写内容再点「完成」提交。
+//
+// headless shell 里 execCommand / 合成 paste / 合成 keydown 都进不了 Monaco 的输入
+// 管线。改走模块缓存：页面里 import("monaco-editor") 拿到与抽屉**同一个**实例，
+// 直接驱动真实 model —— setValue 就是用户输入落点的那份状态，提交链路原样走到。
+const monaco = await import("monaco-editor")
+const typed = "<p>抽屉写入</p>"
+monaco.editor.getModels().at(-1)?.setValue(typed)
+await wait(200)
+const done = [...document.querySelectorAll("[data-html-source-drawer] button")].find((b) => b.textContent?.trim() === "完成")
+check("抽屉有「完成」按钮", done !== undefined, "")
+done?.click()
+await wait(300)
+
+const block = workspace.activeDocument.value.find((b) => b.id === htmlId)
+check("提交后块原文更新", block?.source === typed, JSON.stringify(block?.source))
+check("提交后抽屉关闭", document.querySelector("[data-html-source-drawer]")?.offsetParent === null, "")
+
+// 再开一次：改了内容点「取消」，原文不动。
+const pencil = [...document.querySelectorAll(`[data-block-id="${htmlId}"] button`)].find((b) => b.textContent?.includes("编辑源码"))
+pencil?.click()
+await wait(200)
+await until(() => document.querySelector("[data-html-source-drawer] .monaco-editor"), 20000)
+monaco.editor.getModels().at(-1)?.setValue("不应保存")
+await wait(200)
+const cancel = [...document.querySelectorAll("[data-html-source-drawer] button")].find((b) => b.textContent?.trim() === "取消")
+cancel?.click()
+await wait(300)
+check("取消：抽屉关闭且原文不动", document.querySelector("[data-html-source-drawer]")?.offsetParent === null && block?.source === typed, JSON.stringify(block?.source))
+
+// ---------- 汇总 ----------
+
+lines.push("")
+lines.push(`自检 ${passed}/${passed + failed}`)
+out.textContent = lines.join("\n")
+out.className = failed === 0 ? "ok" : "fail"
+</script>
+</body>
+</html>

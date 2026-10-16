@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>HTML 块自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; }
+  .fail { color: #b42318; }
+  .sum { margin-top: 12px; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>自定义 HTML 块，自检</h1>
+<pre id="out">running…</pre>
+
+<script type="module">
+import { parseHtml } from "../src/lib/html/parse.ts"
+import { blocksToHtml } from "../src/lib/html/serialize.ts"
+import { buildHtmlFrameDoc } from "../src/lib/html-frame.ts"
+import { createHtmlBlock, createLayoutBlock, createTextualBlock, blockText, cloneBlock, retypeBlock, BLOCK_TYPES, blockTypeMeta } from "../src/lib/blocks.ts"
+import { textToRuns } from "../src/lib/inline.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) {
+    passed += 1
+    lines.push(`OK   ${name}`)
+  } else {
+    failed += 1
+    lines.push(`FAIL ${name} —— ${detail}`)
+  }
+}
+
+/** 比对块时去掉 id：解析每次都重新生成 id，它不参与等价判断。格子里的子块递归剥。 */
+function strip(blocks) {
+  return blocks.map((block) => {
+    const copy = { ...block }
+    delete copy.id
+    if (copy.type === "layout") copy.cells = copy.cells.map((cell) => strip(cell))
+    return copy
+  })
+}
+
+function same(a, b) {
+  return JSON.stringify(strip(a)) === JSON.stringify(strip(b))
+}
+
+// ---------- 一、登记表 ----------
+
+check("登记表含 html 条目（内容组，紧挨 mermaid）", (() => {
+  const meta = BLOCK_TYPES.find((entry) => entry.type === "html")
+  return meta !== undefined && meta.group === "内容" && meta.label === "HTML"
+})())
+check("blockTypeMeta 认领 html", (() => {
+  try {
+    return blockTypeMeta("html").marker === "<>"
+  } catch {
+    return false
+  }
+})())
+
+// ---------- 二、序列化形态 ----------
+
+const source = '<div class="card" style="color:red">你好</div>\n<p>第二段</p>'
+const exported = blocksToHtml([createHtmlBlock(source)])
+check("原文原样落盘（写什么落什么）", exported.includes(source), exported)
+check("开栏注释在前", exported.startsWith("<!--note-html-->"), exported)
+check("关栏注释收尾", exported.endsWith("<!--/note-html-->"), exported)
+check("空原文也写围栏", blocksToHtml([createHtmlBlock("")]) === "<!--note-html-->\n\n<!--/note-html-->", blocksToHtml([createHtmlBlock("")]))
+check("script 标签不转义不剔除", blocksToHtml([createHtmlBlock("<script>alert(1)<\/script>")]).includes("<script>alert(1)<\/script>"), "")
+
+// ---------- 三、往返一致性 ----------
+
+const roundTrip = parseHtml(exported)
+check("往返还原成单块 html", roundTrip.length === 1 && roundTrip[0].type === "html", JSON.stringify(roundTrip.map((b) => b.type)))
+check("往返后原文不变", roundTrip[0].source === source, JSON.stringify(roundTrip[0].source))
+
+const mixed = [
+  createTextualBlock("text", textToRuns("前面一段")),
+  createHtmlBlock(source),
+  createTextualBlock("text", textToRuns("后面一段")),
+]
+const mixedBack = parseHtml(blocksToHtml(mixed))
+check("夹在正文中的往返（三块，类型序列不变）", same(mixedBack, mixed), JSON.stringify(strip(mixedBack)))
+check("相邻正文不受围栏吞并", mixedBack.length === 3, `实际 ${mixedBack.length} 块`)
+
+const emptyBack = parseHtml(blocksToHtml([createHtmlBlock("")]))
+check("空原文往返仍为空", emptyBack.length === 1 && emptyBack[0].type === "html" && emptyBack[0].source === "", JSON.stringify(emptyBack))
+
+// ---------- 四、宽容解析 ----------
+
+const unterminated = parseHtml(`<p>开头</p>\n<!--note-html-->\n<div>没收尾的块</div>`)
+check("终止栏缺失：收到容器末尾", unterminated.length === 2 && unterminated[1].type === "html" && unterminated[1].source === "<div>没收尾的块</div>", JSON.stringify(unterminated))
+
+const nestedComment = parseHtml(`<!--note-html-->\n<div>含普通注释<!--备注--></div>\n<!--/note-html-->`)
+check("原文内的普通注释原样保留", nestedComment[0].source === "<div>含普通注释<!--备注--></div>", JSON.stringify(nestedComment[0]?.source))
+
+const noMarker = parseHtml(`<div>没有围栏的 div</div>`)
+check("无围栏不认领（照旧穿透）", noMarker.every((block) => block.type !== "html"), JSON.stringify(noMarker.map((b) => b.type)))
+
+// ---------- 五、模型行为 ----------
+
+check("blockText 投影取原文", blockText(createHtmlBlock("<b>x</b>")) === "<b>x</b>", blockText(createHtmlBlock("<b>x</b>")))
+
+const cloned = cloneBlock(createHtmlBlock(source), "new-id")
+check("cloneBlock 浅拷保留原文", cloned.id === "new-id" && cloned.source === source, "")
+
+const retyped = retypeBlock(createTextualBlock("text", textToRuns("一段话")), "html")
+check("正文转 html：纯文本投影收进 source", retyped.type === "html" && retyped.source === "一段话", JSON.stringify(retyped.source))
+
+// ---------- 六、布局格子内嵌（html 不在 CELL_EXCLUDED_TYPES，格子全链路放行） ----------
+
+const celled = [
+  // 列数不带：2 是缺省不落存储（与 layout-check 同一口径），带上反而比对不上。
+  createLayoutBlock("grid", undefined, [
+    [createTextualBlock("text", textToRuns("左格"))],
+    [createHtmlBlock(source), createTextualBlock("text", textToRuns("右格"))],
+  ]),
+]
+const celledHtml = blocksToHtml(celled)
+// 格子序列化是 <section> 直接拼块 HTML（无分隔换行），HTML 块打头时围栏紧贴开标签。
+check("围栏原样落在 section 内", celledHtml.includes("<section><!--note-html-->"), celledHtml)
+const celledBack = parseHtml(celledHtml)
+check("布局格子内的 HTML 块往返一致", same(celledBack, celled), JSON.stringify(strip(celledBack)))
+
+// ---------- 七、iframe 高度探针（对真 iframe 验证，须等上报，CDP 驱动抓结果） ----------
+
+/** 造一只初始高度任意的沙箱 iframe，等第一次高度上报。超时 resolve null。 */
+function measureFrame(initialHeight) {
+  return new Promise((resolve) => {
+    const frame = document.createElement("iframe")
+    frame.setAttribute("sandbox", "allow-scripts")
+    frame.style.cssText = `width:600px;height:${initialHeight}px;border:0`
+    frame.srcdoc = buildHtmlFrameDoc('<div style="height:230px;background:#000"></div>')
+    const onMessage = (event) => {
+      if (event.source !== frame.contentWindow) return
+      window.removeEventListener("message", onMessage)
+      frame.remove()
+      resolve(typeof event.data?.height === "number" ? event.data.height : null)
+    }
+    window.addEventListener("message", onMessage)
+    document.body.appendChild(frame)
+    setTimeout(() => {
+      window.removeEventListener("message", onMessage)
+      frame.remove()
+      resolve(null)
+    }, 3000)
+  })
+}
+
+const narrowReport = await measureFrame(48)
+const tallReport = await measureFrame(500)
+check("上报 = 内容高度（230px 内容报 ~230）", narrowReport !== null && Math.abs(narrowReport - 230) <= 1, `报告 ${narrowReport}`)
+check("初始视口 500px 不虚报（量 body 不量 documentElement，无正反馈）", tallReport !== null && Math.abs(tallReport - 230) <= 1, `报告 ${tallReport}`)
+
+// ---------- 汇总 ----------
+
+lines.push("")
+lines.push(`通过 ${passed}，失败 ${failed}`)
+const out = document.getElementById("out")
+out.textContent = lines.join("\n")
+out.className = failed === 0 ? "ok" : "fail"
+</script>
+</body>
+</html>

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>抽屉抖动探针 v2（焦点滚动假设）</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  #app { margin: 0 0 16px; display: flex; height: 420px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>抽屉展开时的滚动采样（临时探针 v2）</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+
+const out = document.querySelector("#out")
+const log = (line) => { out.textContent += "\n" + line }
+
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("drawer-jitter-probe", { create: true })
+const file = await dir.getFileHandle("a.html", { create: true })
+const writable = await file.createWritable()
+await writable.write("<p>占位</p>")
+await writable.close()
+window.showDirectoryPicker = async () => dir
+
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    provideSettings()
+    return () =>
+      h(
+        "div",
+        { "data-editor-surface": "", class: "relative flex min-h-0 flex-1 flex-col overflow-hidden" },
+        h(TooltipProvider, null, { default: () => h(BlockEditor) }),
+      )
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+const note = workspace.tree.value.find((node) => node.kind === "note")
+workspace.openFile(note.id)
+for (let i = 0; i < 60 && workspace.activeDocument.value.length < 1; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 50))
+}
+await nextTick()
+
+const htmlId = workspace.appendBlock("html")
+workspace.setHtmlSource(htmlId, "<p>已有内容</p>")
+await nextTick()
+
+const surface = document.querySelector("[data-editor-surface]")
+
+// 全程捕获 scroll 事件：焦点滚动改变的是 scrollLeft/scrollTop，不是宽度 ——
+// v1 探针只量宽度量错了指标。capture 挂 document，谁滚都逃不掉。
+const scrolls = []
+document.addEventListener(
+  "scroll",
+  (event) => {
+    const t = event.target
+    const name = t === document ? "document" : (t.dataset?.htmlSourceDrawer !== undefined ? "drawer" : (t.dataset?.editorSurface !== undefined ? "surface" : t.className?.toString?.().slice(0, 40) ?? t.tagName))
+    scrolls.push(`${name} → scrollLeft=${t.scrollLeft ?? "?"} scrollTop=${t.scrollTop ?? "?"}`)
+  },
+  true,
+)
+
+const state = (tag) =>
+  log(`${tag} 文档scrollL=${document.scrollingElement.scrollLeft} scrollT=${document.scrollingElement.scrollTop} surface滚动L=${surface.scrollLeft} T=${surface.scrollTop}`)
+
+async function openDrawer() {
+  const blockRow = document.querySelector(`[data-block-id="${htmlId}"]`)
+  blockRow?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }))
+  const pencil = [...(blockRow?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.includes("编辑源码"))
+  pencil?.click()
+}
+function closeDrawer() {
+  const cancel = [...document.querySelectorAll("[data-html-source-drawer] button")].find((b) => b.textContent?.includes("取消"))
+  cancel?.click()
+}
+async function waitMonaco() {
+  for (let i = 0; i < 150; i += 1) {
+    if (document.querySelector("[data-html-source-drawer] .monaco-editor")) return true
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  return false
+}
+
+// ── 第一次打开：Monaco 慢加载，动画（200ms）大概率已结束 ──
+state("基线")
+await openDrawer()
+await new Promise((resolve) => setTimeout(resolve, 500))
+const ready = await waitMonaco()
+log(`第一次打开 Monaco=${ready ? "已挂载" : "未挂载"}`)
+state("第一次打开稳定后")
+log(`scroll事件（第一次）: ${scrolls.length === 0 ? "无" : ""}`)
+scrolls.splice(0).forEach((line) => log(`  ${line}`))
+
+// ── 第二次打开：Monaco 实例已缓存，watch 里的 focus() 会在滑入动画进行中触发 ──
+closeDrawer()
+await new Promise((resolve) => setTimeout(resolve, 400))
+state("关闭后")
+await openDrawer()
+// 焦点/滚动都发生在头 300ms 内，密集采样
+for (let i = 0; i < 10; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  state(`第二次打开 +${(i + 1) * 30}ms`)
+}
+await new Promise((resolve) => setTimeout(resolve, 400))
+log(`scroll事件（第二次）: ${scrolls.length === 0 ? "无" : ""}`)
+scrolls.splice(0).forEach((line) => log(`  ${line}`))
+
+log("探针结束 0 failed, 1 passed")
+</script>
+</body>
+</html>

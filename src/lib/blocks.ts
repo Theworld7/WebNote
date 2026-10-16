@@ -7,6 +7,7 @@ import type {
   ChatMessage,
   DataTableBlock,
   GalleryBlock,
+  HtmlBlock,
   ImageBlock,
   InlineRun,
   KanbanBlock,
@@ -62,6 +63,8 @@ export const BLOCK_TYPES = [
   { type: "code", group: "内容", marker: "</>", label: "代码块" },
   // 紧挨 code：mermaid 的心智来源就是「用代码块写图」，摆一起最容易找。
   { type: "mermaid", group: "内容", marker: "◇", label: "Mermaid 图" },
+  // 紧挨 mermaid：HTML 块的心智来源同为「写一段源码」，只是源码直接渲染成内容。
+  { type: "html", group: "内容", marker: "<>", label: "HTML" },
   { type: "callout", group: "内容", marker: "!", label: "标注" },
   { type: "divider", group: "内容", marker: "—", label: "分割线" },
   { type: "image", group: "媒体与数据", marker: "▧", label: "图片" },
@@ -155,7 +158,8 @@ export function isTextualBlock(block: Block): block is TextualBlock {
     block.type !== "ledger" &&
     block.type !== "stat" &&
     block.type !== "chat" &&
-    block.type !== "layout"
+    block.type !== "layout" &&
+    block.type !== "html"
   )
 }
 
@@ -254,6 +258,11 @@ export function createTableBlock(rows: TableCell[][] = []): TableBlock {
 
 export function createMermaidBlock(source = ""): MermaidBlock {
   return { id: createBlockId(), type: "mermaid", source }
+}
+
+/** 造自定义 HTML 块。缺省空原文 = 尚未编写，视图直接摊开编辑区。 */
+export function createHtmlBlock(source = ""): HtmlBlock {
+  return { id: createBlockId(), type: "html", source }
 }
 
 export function createDataTableBlock(path = ""): DataTableBlock {
@@ -369,6 +378,7 @@ export function createBlock(type: BlockType, text = ""): Block {
   if (type === "stat") return createStatBlock()
   if (type === "chat") return createChatBlock()
   if (type === "layout") return createLayoutBlock()
+  if (type === "html") return createHtmlBlock()
   return createTextualBlock(type, textToRuns(text))
 }
 
@@ -382,8 +392,11 @@ export function createBlock(type: BlockType, text = ""): Block {
  *   DOM 层的配套在 BlockItem:类型变化时按新 `runs` 重画正文,不再无脑清空。
  */
 export function retypeBlock(block: Block, type: BlockType): Block {
-  if (type === "mermaid") {
-    return { ...createMermaidBlock(), source: isTextualBlock(block) ? runsText(block.runs) : blockText(block) }
+  if (type === "mermaid" || type === "html") {
+    // 两个「源码即内容」的块：转换时把纯文本投影收进源码 —— 字至少还在，
+    // 心智也一致（都从「写一段源码」开始）。
+    const source = isTextualBlock(block) ? runsText(block.runs) : blockText(block)
+    return type === "mermaid" ? { ...createMermaidBlock(), source } : { ...createHtmlBlock(), source }
   }
   if (type === "image" || type === "table" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat" || type === "chat" || type === "layout") {
     return createBlock(type)
@@ -404,7 +417,7 @@ export function retypeBlock(block: Block, type: BlockType): Block {
  */
 export function cloneBlock(block: Block, id: string): Block {
   // 平坦形态浅拷即可：账目块与数据表 / 书签 / 统计一样全是原始值字段。
-  if (block.type === "image" || block.type === "mermaid" || block.type === "datatable" || block.type === "bookmark" || block.type === "ledger" || block.type === "stat") {
+  if (block.type === "image" || block.type === "mermaid" || block.type === "html" || block.type === "datatable" || block.type === "bookmark" || block.type === "ledger" || block.type === "stat") {
     return { ...block, id }
   }
   // 画册的 hiddenFields 是数组：更新总以整体替换发生，但拷贝不该共享同一份。
@@ -439,6 +452,9 @@ export function cloneBlock(block: Block, id: string): Block {
 export function blockText(block: Block): string {
   if (block.type === "image") return block.alt
   if (block.type === "mermaid") return block.source
+  // HTML 块取原文 —— 标记字符跟着进投影，与 mermaid 的图源码同一立场：
+  // 原文就是这块的全部内容，投影不再另作解析（那需要 DOM，字数统计是同步纯函数）。
+  if (block.type === "html") return block.source
   // 引用块只带路径 —— 表格内容不在笔记里，投影拿不到它，也不该为此去读盘
   // （字数统计是同步的纯函数）。取路径是这里唯一诚实的选择。
   if (block.type === "datatable") return block.path

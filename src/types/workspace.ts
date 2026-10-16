@@ -58,7 +58,7 @@ export type TextualBlockType =
   | "divider"
 
 /** 全部块类型 = 正文类 + 结构类。派生而常量列表，避免两处维护。 */
-export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "chat" | "layout"
+export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "chat" | "layout" | "html"
 
 /** 正文块。块之间是平铺列表；列表的嵌套层级用 `depth` 表达，不建树。 */
 export interface TextualBlock {
@@ -334,6 +334,21 @@ export interface ChatMessage {
   text: string
 }
 
+/**
+ * 自定义 HTML 块：内容就是用户手写的一段 HTML 原文。
+ *
+ * `source` 是**纯字符串**而不是 `InlineRun[]`（与 mermaid source 同一立场）——
+ * 富文本行内标记对一段手写 HTML 没有意义，块的全部表达力都在原文里。原文
+ * 「写什么落什么」：序列化原样落盘、解析原样收回，编辑器只负责把它装进
+ * 沙箱 iframe 渲染，不消毒、不重排。
+ */
+export interface HtmlBlock {
+  id: string
+  type: "html"
+  /** 用户手写的 HTML 原文，原样保存原样落盘。空串 = 尚未编写，视图直接摊开编辑区。 */
+  source: string
+}
+
 /** 聊天记录块：一串按序排列的对话消息，渲染成气泡列表。整块原子，不拆成多个正文块。 */
 export interface ChatBlock {
   id: string
@@ -341,7 +356,7 @@ export interface ChatBlock {
   messages: ChatMessage[]
 }
 
-export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | LedgerBlock | StatBlock | ChatBlock | LayoutBlock
+export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | LedgerBlock | StatBlock | ChatBlock | LayoutBlock | HtmlBlock
 
 /**
  * 引用块展示设置的 patch 形状:四种引用块设置字段的并集,id / type / path 不在内

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>布局格子增删自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; display: flex; height: 420px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; }
+  .fail { color: #b42318; }
+</style>
+</head>
+<body>
+<h1>布局格子增删：起底空文本块让位、删空回补、真实 Backspace</h1>
+<!-- 脚本里有顶层 await（要等真实读盘），抓结果用 CDP 驱动跑：
+     node design/cdp-dump.mjs http://localhost:1420/design/cell-check.html -->
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { createBlock, createHtmlBlock } from "../src/lib/blocks.ts"
+
+const out = document.querySelector("#out")
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  out.textContent = lines.join("\n")
+}
+
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("cell-check", { create: true })
+const file = await dir.getFileHandle("a.html", { create: true })
+const writable = await file.createWritable()
+await writable.write("<p>占位</p>")
+await writable.close()
+window.showDirectoryPicker = async () => dir
+
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    provideSettings()
+    return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+const note = workspace.tree.value.find((node) => node.kind === "note")
+workspace.openFile(note.id)
+for (let i = 0; i < 60 && workspace.activeDocument.value.length < 1; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 50))
+}
+await nextTick()
+
+const cellTypes = (layout, index) => layout.cells[index].map((b) => b.type).join(",")
+const starterLayout = () => {
+  // 每个用例从「两个格子各含起底空文本块」的干净状态起步。
+  const id = workspace.appendBlock("layout")
+  workspace.setLayoutMode(id, "grid")
+  return workspace.activeDocument.value.find((b) => b.id === id)
+}
+
+// ---------- 一、插入时起底块让位 ----------
+
+let layout = starterLayout()
+let inserted = workspace.insertBlockAfter(layout.cells[0][0].id, "html")
+check("下方插入：起底块被顶掉，格子 = [html]", cellTypes(layout, 0) === "html", cellTypes(layout, 0))
+check("返回的是新块 id", inserted === layout.cells[0][0].id, "")
+
+layout = starterLayout()
+workspace.insertBlockBefore(layout.cells[0][0].id, "html")
+check("上方插入：同样让位，格子 = [html]", cellTypes(layout, 0) === "html", cellTypes(layout, 0))
+
+// 有字的空文本块不是起底块，不动。
+layout = starterLayout()
+layout.cells[0][0].runs = [{ text: "有字", marks: [] }]
+workspace.insertBlockAfter(layout.cells[0][0].id, "html")
+check("有内容的文本块保留", cellTypes(layout, 0) === "text,html", cellTypes(layout, 0))
+
+// 顶层不吃这条规则：空起底块与插入并存。
+const firstText = workspace.activeDocument.value[0]
+workspace.insertBlockAfter(firstText.id, "html")
+const topTypes = workspace.activeDocument.value.slice(0, 2).map((b) => b.type).join(",")
+check("顶层插入不顶掉起底块", topTypes === "text,html" || workspace.activeDocument.value[0].type === "text", topTypes)
+
+// ---------- 二、拖入时起底块让位 ----------
+
+layout = starterLayout()
+const topLevelHtml = workspace.appendBlock("html")
+workspace.setHtmlSource(topLevelHtml, "<p>x</p>")
+workspace.moveBlockIntoCell(layout.id, 0, topLevelHtml)
+check("拖入格子：起底块被顶掉，格子 = [html]", cellTypes(layout, 0) === "html", cellTypes(layout, 0))
+
+// ---------- 三、删空回补与真实 Backspace ----------
+
+layout = starterLayout()
+layout.cells[0] = [createHtmlBlock("<p>x</p>"), createBlock("text")]
+const emptyTextId = layout.cells[0][1].id
+workspace.removeBlock(emptyTextId)
+check("删掉尾随空文本块：格子 = [html]（不回补）", cellTypes(layout, 0) === "html", cellTypes(layout, 0))
+
+workspace.removeBlock(layout.cells[0][0].id)
+check("删空格子：回补起底空文本块", cellTypes(layout, 0) === "text", cellTypes(layout, 0))
+
+// 真实键盘链路：聚焦空文本块按 Backspace，走 BlockItem → LayoutBlockView → removeBlock。
+layout = starterLayout()
+layout.cells[0] = [createHtmlBlock("<p>x</p>"), createBlock("text")]
+await nextTick()
+const row = [...document.querySelectorAll("[data-block-id]")].find(
+  (node) => node.dataset.blockId === layout.cells[0][1].id,
+)
+const body = row?.querySelector("[contenteditable]")
+body?.focus()
+body?.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true }))
+await nextTick()
+check("真实 Backspace 删掉尾随空文本块", cellTypes(layout, 0) === "html", cellTypes(layout, 0))
+
+// ---------- 汇总 ----------
+
+lines.push("")
+lines.push(`自检 ${passed}/${passed + failed}`)
+out.textContent = lines.join("\n")
+out.className = failed === 0 ? "ok" : "fail"
+</script>
+</body>
+</html>

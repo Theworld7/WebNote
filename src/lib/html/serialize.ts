@@ -1,4 +1,4 @@
-import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, ImageBlock, KanbanBlock, LayoutBlock, LedgerBlock, MermaidBlock, StatBlock, TableCell, TextualBlock } from "@/types/workspace"
+import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, HtmlBlock, ImageBlock, KanbanBlock, LayoutBlock, LedgerBlock, MermaidBlock, StatBlock, TableCell, TextualBlock } from "@/types/workspace"
 import type { DataColumn, DataTable, DataRow } from "@/types/data-table"
 import { GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT, LAYOUT_COLUMNS_DEFAULT, isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
@@ -94,6 +94,10 @@ export function blocksToHtml(blocks: readonly Block[], lookupTables?: DataTableL
     }
     if (block.type === "chat") {
       out.push(chatHtml(block))
+      continue
+    }
+    if (block.type === "html") {
+      out.push(htmlBlockHtml(block))
       continue
     }
     if (block.type === "layout") {
@@ -779,6 +783,20 @@ function chatHtml(block: ChatBlock): string {
   )
   const inner = lines.length === 0 ? "" : `\n${lines.join("\n")}\n`
   return `<div data-chat>${inner}</div>`
+}
+
+/**
+ * 自定义 HTML 块 → 注释围栏包住的原文。
+ *
+ * 「写什么落什么」：原文不经转义、不换载体，一对 HTML 注释
+ * （`<!--note-html-->` / `<!--/note-html-->`）只负责给解析端划边界 ——
+ * 注释本身浏览器不渲染，第三方双击打开看到的就是用户写的那段 HTML。
+ * 代价写在明处：导出的文件双击打开时 `<script>` 会真的执行（普通文件本就如此）。
+ *
+ * 围栏是保留字：原文里不能出现 `<!--/note-html-->`，写了会被解析端当成块结尾。
+ */
+function htmlBlockHtml(block: HtmlBlock): string {
+  return `<!--note-html-->\n${block.source}\n<!--/note-html-->`
 }
 
 // ---- 嵌套列表 ----

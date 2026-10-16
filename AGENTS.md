@@ -31,6 +31,7 @@ WebNote:本地优先的块式笔记编辑器。笔记 = 磁盘上的普通 `.htm
 改哪层跑哪页:动 `lib/html` → `parse-check`;动块拖拽 / 标签栏 → `drag-check` / `tab-check`;
 动数据表 → `data-table-check`;动排版样式 → `typography-check`;动新建 / 移动 →
 `create-check` / `move-check`;动设置 → `settings-check`;动布局块 → `layout-check`;
+动格子的增删行为 → `cell-check`(挂真实编辑器,走 CDP);
 动账目块的财务口径 → `ledger-check`,动它的就地增删改 → `ledger-edit-check`(挂真实编辑器,
 走 CDP 驱动);动主题色 / 品牌色 → `theme-check`(对齐图标 tokens,守对比度)。
 覆盖明细见 README「自检」一节。

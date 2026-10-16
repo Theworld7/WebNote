@@ -1023,8 +1023,23 @@ function createWorkspace() {
     const block = createBlock(type)
     const at = Math.min(Math.max(index, 0), list.length)
     list.splice(at, 0, block)
+    if (list !== activeDocument.value) dropCellStarter(list, block.id)
     markDirty()
     return block.id
+  }
+
+  /**
+   * 格子里的起底空文本块只为「格子不空、光标有处落」而生：新块一进来它就失业了，
+   * 留着是一块永远多出来的占位（永远出现在内容旁边、删了也不像删干净）。所以
+   * 仅当「另一个块就是它」时把它顶掉 —— 列表超过两块、或空文本块里有字，
+   * 都说明不是起底块，不动。
+   */
+  function dropCellStarter(list: Block[], keepId: string) {
+    if (list.length !== 2) return
+    const starter = list.find((item) => item.id !== keepId)
+    if (starter === undefined || starter.type !== "text") return
+    if (starter.runs.length > 0) return
+    list.splice(list.indexOf(starter), 1)
   }
 
   /** 在 `index` 处插入新块，越界夹到两端。拖入图片要按落点插，不能只支持「追加」。 */
@@ -1326,6 +1341,8 @@ function createWorkspace() {
 
     at.list.splice(at.index, 1)
     cell.push(block)
+    // 拖入与插入同一特例：起底空文本块被拖进来的块顶掉（见 dropCellStarter）。
+    dropCellStarter(cell, block.id)
     markDirty()
   }
 
@@ -1364,6 +1381,22 @@ function createWorkspace() {
   function setMermaidSource(id: string, source: string) {
     const block = activeBlock(id)
     if (block === undefined || block.type !== "mermaid") return
+    block.source = source
+    markDirty()
+  }
+
+  // ---- 自定义 HTML ----
+
+  /**
+   * 改 HTML 块的原文。
+   *
+   * 与 `setMermaidSource` 同一立场：**不校验内容** —— 用户打到一半的 HTML 是常态，
+   * 此时报错等于不让人保存；渲染不出由 iframe 自己呈现（浏览器对坏标记宽容），
+   * 原文照存。
+   */
+  function setHtmlSource(id: string, source: string) {
+    const block = activeBlock(id)
+    if (block === undefined || block.type !== "html") return
     block.source = source
     markDirty()
   }
@@ -1611,6 +1644,8 @@ function createWorkspace() {
     setImageSource,
     // mermaid actions
     setMermaidSource,
+    // html actions
+    setHtmlSource,
     // chat actions
     setChatMessages,
     // table actions

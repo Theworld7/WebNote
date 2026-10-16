@@ -222,6 +222,7 @@ export const BLOCK_SPACING: Readonly<Record<BlockType, BlockSpacing>> = {
   stat: { top: 16, bottom: 16 },
   chat: { top: 16, bottom: 16 },
   layout: { top: 16, bottom: 16 },
+  html: { top: 16, bottom: 16 },
 }
 
 // ───────────────────────────── 编辑器侧适配器 ─────────────────────────────

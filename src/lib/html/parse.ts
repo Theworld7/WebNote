@@ -1,5 +1,5 @@
 import type { Block, BookmarkBlock, ChatMessage, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, LedgerBlock, LedgerGroupMode, StatBlock, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
-import { createBookmarkBlock, createChatBlock, createGalleryBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createLedgerBlock, createMermaidBlock, createStatBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
+import { createBookmarkBlock, createChatBlock, createGalleryBlock, createHtmlBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createLedgerBlock, createMermaidBlock, createStatBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
 import { STAT_PRECISION_DEFAULT, STAT_PRECISION_OPTIONS } from "@/lib/data-table"
 import { runsText, textToRuns, trimRuns } from "@/lib/inline"
 import { isTableAlign } from "@/lib/table"
@@ -24,6 +24,17 @@ import { BLOCK_TAGS, IMAGE_TAG, SKIPPED_TAGS } from "./tags"
 export function parseHtml(source: string): Block[] {
   const doc = new DOMParser().parseFromString(source, "text/html")
   const state: ParseState = { blocks: [] }
+
+  // HTML 解析规则：进入「in body」模式之前的注释不落进 body —— 片段以围栏注释开头时
+  // （笔记第一块就是 HTML 块、或直接把片段喂给解析器），开栏注释会挂在 Document 上；
+  // `</body>` 之后的尾注则挂在 `<html>` 元素上。两边都挪回 body 首尾，
+  // 围栏才在 parseContainer 的视野里。正文中的注释不受此规则影响。
+  const leading = Array.from(doc.childNodes).filter((node) => node instanceof Comment)
+  const anchor = doc.body.firstChild
+  for (const node of leading) doc.body.insertBefore(node, anchor)
+  for (const node of Array.from(doc.documentElement.childNodes)) {
+    if (node instanceof Comment) doc.body.appendChild(node)
+  }
 
   parseContainer(doc.body, state, 0)
 
@@ -55,6 +66,10 @@ const HEADING_TYPES = new Map<string, TextualBlockType>([
 
 const CODE_TAG = "CODE"
 
+/** 自定义 HTML 块的围栏注释文本（开 / 关），与 `serialize.ts` 的 `htmlBlockHtml` 对偶。 */
+const HTML_BLOCK_OPEN = "note-html"
+const HTML_BLOCK_CLOSE = "/note-html"
+
 /** 行内内容 → runs。静态 HTML 走这条路径一律折叠空白并掐头去尾。 */
 function inlineRuns(nodes: Iterable<Node>): InlineRun[] {
   return trimRuns(runsFromNodes(nodes, { collapseWhitespace: true }))
@@ -82,9 +97,21 @@ function parseContainer(container: Node, state: ParseState, depth: number): void
     if (runs.length > 0) state.blocks.push(createTextualBlock("text", runs))
   }
 
-  for (const child of container.childNodes) {
+  const children = Array.from(container.childNodes)
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children[index]
     if (child.nodeType === Node.TEXT_NODE) {
       pending.push(child)
+      continue
+    }
+    // 自定义 HTML 块以围栏注释认领：`<!--note-html-->` 与 `<!--/note-html-->` 之间的
+    // 节点整体收进原文（见 parseHtmlBlock）。普通注释不是元素也不是文本，
+    // 走下面 `instanceof Element` 一关被跳过 —— 行为不变。
+    if (child instanceof Comment && child.textContent === HTML_BLOCK_OPEN) {
+      flush()
+      const collected = collectHtmlBlock(children, index)
+      state.blocks.push(createHtmlBlock(collected.source))
+      index = collected.stopIndex
       continue
     }
     if (!(child instanceof Element)) continue
@@ -107,6 +134,35 @@ function parseContainer(container: Node, state: ParseState, depth: number): void
   }
 
   flush()
+}
+
+/**
+ * 收集围栏注释之间的节点为 HTML 原文。
+ *
+ * 按节点类型各自取**字面**表示：元素取 `outerHTML`、文本取原数据、普通注释还原成
+ * `<!--…-->` —— 不走 runs、不折叠空白，原文进出一个字节不差。边界换行掐掉
+ * （与 `parsePre` 同一手法），序列化端补回的 `\n` 不算内容。
+ *
+ * 宽容口径：终止注释缺失（手工编辑截断）就收到容器末尾；嵌套的同名开栏注释
+ * 不递归配对，第一个终止栏收场 —— 围栏是保留字，见序列化端的说明。
+ */
+function collectHtmlBlock(children: readonly Node[], startIndex: number): { source: string; stopIndex: number } {
+  const parts: string[] = []
+  let stopIndex = children.length - 1
+
+  for (let index = startIndex + 1; index < children.length; index += 1) {
+    const node = children[index]
+    if (node instanceof Comment && node.textContent === HTML_BLOCK_CLOSE) {
+      stopIndex = index
+      break
+    }
+    if (node instanceof Element) parts.push(node.outerHTML)
+    else if (node instanceof Comment) parts.push(`<!--${node.textContent ?? ""}-->`)
+    else if (node.nodeType === Node.TEXT_NODE) parts.push(node.textContent ?? "")
+  }
+
+  const source = parts.join("").replace(/^\n/, "").replace(/\n+$/, "")
+  return { source, stopIndex }
 }
 
 function parseBlockElement(element: Element, state: ParseState, depth: number): void {

@@ -33,6 +33,7 @@ import MermaidBlockView from "./MermaidBlockView.vue"
 import TableBlockView from "./TableBlockView.vue"
 import DataTableBlockView from "./DataTableBlockView.vue"
 import GalleryBlockView from "./GalleryBlockView.vue"
+import HtmlBlockView from "./HtmlBlockView.vue"
 import KanbanBlockView from "./KanbanBlockView.vue"
 import LedgerBlockView from "./LedgerBlockView.vue"
 import StatBlockView from "./StatBlockView.vue"
@@ -462,6 +463,8 @@ const bodyClass = computed(() => {
     <ChatBlockView v-else-if="block.type === 'chat'" :block="block" />
 
     <LayoutBlockView v-else-if="block.type === 'layout'" :block="block" @cell-hover="layoutCellHover = $event" />
+
+    <HtmlBlockView v-else-if="block.type === 'html'" :block="block" />
 
     <div v-else-if="block.type === 'divider'" class="h-px bg-line" />
 

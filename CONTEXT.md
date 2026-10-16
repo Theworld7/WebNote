@@ -22,9 +22,9 @@ The atomic unit a Note is made of. Blocks are a flat list, not a tree.
 _Avoid_: Element, node, item, paragraph
 
 **Block type**:
-One of twenty-four identifiers. Fourteen are *textual* — they carry body content. Ten are
+One of twenty-six identifiers. Fourteen are *textual* — they carry body content. Twelve are
 *structural* and carry their own fields: `image`, `table`, `mermaid`, `datatable`,
-`gallery`, `bookmark`, `kanban`, `ledger`, `chat`, `layout`.
+`gallery`, `bookmark`, `kanban`, `ledger`, `stat`, `chat`, `layout`, `html`.
 _Avoid_: Kind, variant, tag
 
 **Textual block**:
@@ -34,8 +34,8 @@ _Avoid_: Rich block, text block
 
 **Structural block**:
 A Block that is not textual: an Image, a Table, a Mermaid diagram, a Data table block, a
-Bookmark, a Kanban, a Ledger, a Chat record, or a Layout. Each owns its own fields instead
-of a run list.
+Bookmark, a Kanban, a Ledger, a Stat, a Chat record, a Layout, or an HTML block. Each owns
+its own fields instead of a run list.
 _Avoid_: Widget, embed, special block
 
 **Chat record**:
@@ -44,6 +44,17 @@ role — `you` (the note's owner, bubble on the right) or `agent` (the other sid
 the left) — and plain text: no runs, no inline marks, same stance as a Mermaid diagram's
 source.
 _Avoid_: Conversation, dialogue, message block (the block is the whole transcript)
+
+**HTML block**:
+A structural Block whose content is a fragment of HTML the user wrote by hand. The source
+lands in the file **verbatim** — no escaping, no re-encoding — fenced by a pair of
+`<!--note-html-->` / `<!--/note-html-->` comments that only mark the boundary for the
+parser (browsers never render comments, so a third party double-clicking the file sees
+exactly what the user wrote). The editor renders the source in a sandboxed iframe sized
+by the content itself. The closing fence is a reserved sequence: source containing
+`<!--/note-html-->` ends the block there. A Code block shows its source; an HTML block
+renders it.
+_Avoid_: Custom block (the type id is `html`), embed, widget, code block
 
 **Depth**:
 A textual block's nesting level, starting at 0. Nesting is expressed as a number on a flat
@@ -201,8 +212,10 @@ _Avoid_: Container, wrapper, section, Column, Grid (Grid is a mode name, not the
 
 **Cell**:
 One section of a Layout block: an ordered list of Blocks rendered side by side. A Cell is not
-a Note — it holds no settings and no title, and deleting its last block leaves an empty text
-block, the same rule the top level follows.
+a Note — it holds no settings and no title. It is never empty: deleting its last block leaves
+an empty text block, the same rule the top level follows. That starter text block exists only
+so the caret has somewhere to land — inserting or dropping a block into a cell that holds only
+the starter **replaces** it instead of piling up beside it.
 _Avoid_: Column, slot, pane, area
 
 ### The workspace

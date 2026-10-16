@@ -22,7 +22,12 @@ const hasDocument = computed(() => activeTab.value !== null && !isLoadingDocumen
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-block bg-card shadow-block">
+  <!-- `data-editor-surface`：块级抽屉（HTML 源码编辑）的 Teleport 锚点 ——
+       抽屉宽度按笔记编辑区一半算，只能挂这里，挂 body 就成了按视口算。 -->
+  <div
+    class="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-block bg-card shadow-block"
+    data-editor-surface
+  >
     <!-- 读写错误条。常驻在编辑区顶部而不是只在空态里 —— 保存失败时正开着文档，
          那条错误若不显示出来，用户会以为已经存好了。 -->
     <div
