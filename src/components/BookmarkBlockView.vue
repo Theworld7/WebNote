@@ -71,6 +71,11 @@ function iconSrcOf(row: DataRow): string {
  * 逐行记录图片加载结果:只有 `load` 成功的行才展示图片图标,加载中/失败/无值
  * 都回退到字符图标(伪元素),不会露出破图。换列或改值后 img 重新加载,事件
  * 会把状态修正,无需主动清洗。
+ *
+ * img 不能挂 `loading="lazy"`:它初始带着 `hidden`(display:none)等 load 触发,
+ * 而懒加载图片没有布局盒就永远不进视口、永远不开始加载 —— 两边互等,死锁
+ * (Chromium 实测:data URI + lazy + display:none,load 永不触发)。image 列的
+ * 值是 data URI,没有网络成本,直接加载即可,懒加载在这里只有死锁没有收益。
  */
 const loadedIcons = ref<Record<string, boolean>>({})
 function onIconLoad(id: string) {
@@ -336,7 +341,6 @@ const columnsSelection = computed({
                   v-if="iconSrcOf(row) !== ''"
                   :src="iconSrcOf(row)"
                   alt=""
-                  loading="lazy"
                   decoding="async"
                   class="note-bookmark-icon"
                   :class="shownIconOf(row) !== null ? '' : 'hidden'"

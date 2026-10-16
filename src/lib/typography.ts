@@ -401,20 +401,30 @@ ${headingRules}
     table > *:last-child > tr:last-child > *:last-child { border-bottom-right-radius: calc(var(--radius-table) - 1px); }
     th { font-weight: 600; background: var(--bg-soft); }
     .note-layout { margin: ${BLOCK_SPACING.table.top}px 0; }
-    .note-layout[data-layout="grid"] { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-    .note-layout[data-layout="grid"][data-columns="3"] { grid-template-columns: repeat(3, 1fr); }
-    .note-layout[data-layout="grid"][data-columns="4"] { grid-template-columns: repeat(4, 1fr); }
+    /* 轨道下限必须 minmax(0,1fr) 与应用内视图一致(LayoutBlockView/BookmarkBlockView
+       同款):裸 1fr 的下限是内容 min-content,nowrap 的统计卡列名等会撑破容器,
+       窄窗口下布局块不收缩、横向溢出 —— 观感上就是「不跟着响应式走」。 */
+    .note-layout[data-layout="grid"] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .note-layout[data-layout="grid"][data-columns="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .note-layout[data-layout="grid"][data-columns="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .note-layout[data-layout="flex"] { display: flex; flex-wrap: wrap; gap: 12px; }
-    .note-layout > section { min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; }
+    /* 格子口径与 LayoutBlockView 对齐:有内容的格子边框透明让位给内容(块自带
+       卡片/边框,再画一层就是双框),空格子保留边框当结构提示。 */
+    .note-layout > section { min-width: 0; border: 1px solid transparent; border-radius: 8px; }
+    .note-layout > section:empty { border-color: var(--line); min-height: 3rem; }
     .note-layout[data-layout="flex"] > section { flex: 1 1 0; min-width: 8rem; }
-    .note-layout > section > :first-child { margin-top: 0; }
-    .note-layout > section > :last-child { margin-bottom: 0; }
     .note-bookmark, .note-gallery, .note-kanban, .note-ledger { margin: ${BLOCK_SPACING.gallery.top}px 0; }
-    .note-stat { display: inline-flex; flex-direction: column; gap: 2px; min-width: 10rem;
+    /* 与 StatBlockView 应用内观感逐项对齐:满宽卡片、列名截断、合计下方还有
+       一行参与求和的行数(.c)—— 静态页与笔记里看到的不该是两张脸。
+       不能写 width:100%:静态页没有 border-box 预设,加上 padding/border 会
+       溢出轨道(grid/flex 子项默认 stretch,本来就撑满,写它纯属画蛇添足)。 */
+    .note-stat { display: flex; flex-direction: column; gap: 2px;
       margin: ${BLOCK_SPACING.gallery.top}px 0; padding: 12px 16px;
       border: 1px solid var(--line); border-radius: 8px; background: var(--bg-soft); }
-    .note-stat .k { font-size: 11px; color: var(--muted); }
+    .note-stat .k { font-size: 11px; color: var(--muted);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .note-stat .v { font-size: 26px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+    .note-stat .c { font-size: 10px; color: var(--muted); opacity: 0.7; }
     .note-ledger table { margin: 0; }
     .note-ledger th, .note-ledger td { padding: 0.35em 0.7em; }
     .note-ledger .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -459,12 +469,12 @@ ${headingRules}
     .note-empty { color: var(--muted); opacity: .6; }
     .note-bookmark .note-bookmarks { margin: 0; padding: 0; list-style: none;
       display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
-    .note-bookmark[data-columns="1"] .note-bookmarks { grid-template-columns: repeat(1, 1fr); }
-    .note-bookmark[data-columns="2"] .note-bookmarks { grid-template-columns: repeat(2, 1fr); }
-    .note-bookmark[data-columns="3"] .note-bookmarks { grid-template-columns: repeat(3, 1fr); }
-    .note-bookmark[data-columns="4"] .note-bookmarks { grid-template-columns: repeat(4, 1fr); }
-    .note-bookmark[data-columns="5"] .note-bookmarks { grid-template-columns: repeat(5, 1fr); }
-    .note-bookmark[data-columns="6"] .note-bookmarks { grid-template-columns: repeat(6, 1fr); }
+    .note-bookmark[data-columns="1"] .note-bookmarks { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+    .note-bookmark[data-columns="2"] .note-bookmarks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .note-bookmark[data-columns="3"] .note-bookmarks { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .note-bookmark[data-columns="4"] .note-bookmarks { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .note-bookmark[data-columns="5"] .note-bookmarks { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .note-bookmark[data-columns="6"] .note-bookmarks { grid-template-columns: repeat(6, minmax(0, 1fr)); }
     .note-bookmarks li { display: flex; justify-content: center; margin: 0; }
     mark { background-color: var(--mark-bg); color: inherit; }
     a[data-link-shape="card"] { display: inline-flex; flex-direction: column; align-items: center; gap: 6px;

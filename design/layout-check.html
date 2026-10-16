@@ -205,10 +205,11 @@ const sample = parseHtml(
 )
 const doc = serializeHtml(sample, { title: "布局样本" })
 check("完整文档能被重新解析", same(sample, parseHtml(doc)))
-check("导出 CSS 带 grid 两列兜底", doc.includes('.note-layout[data-layout="grid"] { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }'))
+check("导出 CSS 带 grid 两列兜底(minmax(0,1fr) 可收缩)", doc.includes('.note-layout[data-layout="grid"] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }'))
 check("导出 CSS 带 3 / 4 列覆盖", doc.includes('[data-columns="3"]') && doc.includes('[data-columns="4"]'))
 check("导出 CSS 带 flex 换行", doc.includes('.note-layout[data-layout="flex"] { display: flex; flex-wrap: wrap; gap: 12px; }'))
-check("导出 CSS 带格子边框", doc.includes(".note-layout > section { min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; }"))
+check("导出 CSS 格子边框默认透明(与编辑器口径一致)", doc.includes(".note-layout > section { min-width: 0; border: 1px solid transparent; border-radius: 8px; }"))
+check("导出 CSS 空格子保留边框提示", doc.includes(".note-layout > section:empty { border-color: var(--line); min-height: 3rem; }"))
 
 // ---------- 输出 ----------
 

@@ -529,7 +529,7 @@ function kanbanHtml(block: KanbanBlock, table: DataTable | null): string {
 /**
  * 统计块 → **展示快照 + 指针**(与画册 / 看板同一条 ADR-0006 立场)。
  *
- * 快照是导出时刻的列名与合计 —— 一个数字没有「可读全数据」可言,静态文件里它就是
+ * 快照是导出时刻的列名、合计与行数 —— 一个数字没有「可读全数据」可言,静态文件里它就是
  * 一个摘录。指针属性(`data-stat` / `data-column`)挂在容器 `div` 上,解析端凭它认领
  * 回活的统计块。未选列或表读不到时只写带属性的空容器:设置不蒸发,内容不瞎猜。
  */
@@ -559,7 +559,12 @@ function statHtml(block: StatBlock, table: DataTable | null): string {
   const rows = filterColumn === null ? table.rows : filterRowsByValue(table.rows, filterColumn, block.filterValue ?? "")
   const filterText = filterColumn === null ? "" : ` · ${filterColumn.name} = ${block.filterValue ?? ""}`
   const precision = block.precision ?? STAT_PRECISION_DEFAULT
-  return `${openTag}<span class="k">${escapeHtml(column.name + filterText)}</span><span class="v">${formatGrouped(sumColumn(rows, column), precision)}</span></div>`
+  // 第三行与应用内视图同一文案:参与求和的行数,开筛选时附全表行数。
+  const countText =
+    filterColumn === null
+      ? `${rows.length} 行 · 求和`
+      : `${rows.length} 行 / 共 ${table.rows.length} 行 · 求和`
+  return `${openTag}<span class="k">${escapeHtml(column.name + filterText)}</span><span class="v">${formatGrouped(sumColumn(rows, column), precision)}</span><span class="c">${escapeHtml(countText)}</span></div>`
 }
 
 function kanbanCardHtml(row: DataRow, fields: readonly DataColumn[]): string {
