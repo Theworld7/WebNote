@@ -58,7 +58,7 @@ export type TextualBlockType =
   | "divider"
 
 /** 全部块类型 = 正文类 + 结构类。派生而常量列表，避免两处维护。 */
-export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "kanban" | "ledger" | "chat" | "layout"
+export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "chat" | "layout"
 
 /** 正文块。块之间是平铺列表；列表的嵌套层级用 `depth` 表达，不建树。 */
 export interface TextualBlock {
@@ -270,6 +270,35 @@ export interface LedgerBlock {
 }
 
 /**
+ * 统计块:引用一张数据表的某一列,把列下的数值求和成一个大数字。
+ *
+ * 与看板 / 账目同源:数据只在 `.tbl` 里(ADR-0005),块上只带引用路径与一个展示设置
+ * —— 求哪一列的和。非数字值在求和里按空处理(与账目块的金额列同一立场),指向的列
+ * 被删后渲染时退化为「未设置」提示态,无需清洗。
+ *
+ * 求和是**视图计算的派生值**,不进 `.tbl` 也不进块 —— 落进存储就是第二份真源。
+ * 导出形态与画册同一条 ADR-0006 立场:`data-stat` 指针挂容器,快照内容是导出时刻
+ * 的列名与合计(读不到表时只写空容器,设置不蒸发、内容不瞎猜)。
+ */
+export interface StatBlock {
+  id: string
+  type: "stat"
+  /** 被引用的 `.tbl` 文件的工作区路径。 */
+  path: string
+  /** 求和列的列 id。空 = 尚未选列(视图显示提示态引导去设置)。 */
+  columnId: string
+  /** 合计保留的小数位数。缺省 = 2(`STAT_PRECISION_DEFAULT`),缺省态不落盘。 */
+  precision?: number
+  /**
+   * 筛选列的列 id。空 = 不筛选(对全表求和);非空时只合计该列**显示文本**等于
+   * `filterValue` 的行。指向的列被删后筛选失效,退回全表 —— 与求和列同一退化立场。
+   */
+  filterColumnId?: string
+  /** 筛选列的比对值(按显示文本精确比较)。只在 `filterColumnId` 非空时参与比较。 */
+  filterValue?: string
+}
+
+/**
  * 布局块:笔记里唯一的**容器块** —— 把若干格子按网格或弹性方式排开,每个格子各持有
  * 一份独立的块列表(Notion 式)。顶层文档仍是扁平列表;布局块是唯一一层受控的嵌套,
  * 且**格子内不再出现布局块**(一层容器原则,UI 的插入/转换菜单在格子内会把它滤掉)。
@@ -312,7 +341,7 @@ export interface ChatBlock {
   messages: ChatMessage[]
 }
 
-export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | LedgerBlock | ChatBlock | LayoutBlock
+export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | LedgerBlock | StatBlock | ChatBlock | LayoutBlock
 
 /**
  * 引用块展示设置的 patch 形状:四种引用块设置字段的并集,id / type / path 不在内
@@ -323,7 +352,8 @@ export type BlockSettingsPatch = Partial<
   Omit<GalleryBlock, "id" | "type" | "path"> &
   Omit<BookmarkBlock, "id" | "type" | "path"> &
   Omit<KanbanBlock, "id" | "type" | "path"> &
-  Omit<LedgerBlock, "id" | "type" | "path">
+  Omit<LedgerBlock, "id" | "type" | "path"> &
+  Omit<StatBlock, "id" | "type" | "path">
 >
 
 /** 块类型元数据：菜单分组 + 菜单标记 + 中文名。菜单渲染直接消费。 */

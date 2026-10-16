@@ -2,7 +2,7 @@
 import type { KanbanBlock } from "@/types/workspace"
 import type { DataColumn, DataRow, DataCellValue } from "@/types/data-table"
 import { computed, ref } from "vue"
-import { ChevronDownIcon, ChevronUpIcon, DatabaseIcon, Settings2Icon } from "@lucide/vue"
+import { ChevronDownIcon, ChevronUpIcon, DatabaseIcon, PlusIcon, Settings2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -377,7 +377,18 @@ function openTable() {
       >
         <div class="mb-2 flex items-center justify-between px-0.5">
           <span class="truncate text-[12px] font-medium text-foreground">{{ group.label }}</span>
-          <span class="shrink-0 rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">{{ group.rows.length }}</span>
+          <span class="flex shrink-0 items-center gap-0.5">
+            <span class="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">{{ group.rows.length }}</span>
+            <button
+              type="button"
+              aria-label="添加卡片"
+              title="添加卡片"
+              class="rounded p-0.5 text-muted-foreground/60 transition-colors hover:bg-black/5 hover:text-muted-foreground"
+              @click="addCard(group)"
+            >
+              <PlusIcon class="size-3.5" />
+            </button>
+          </span>
         </div>
         <div class="flex flex-col gap-2">
           <article
@@ -432,13 +443,6 @@ function openTable() {
             </div>
           </article>
         </div>
-        <button
-          type="button"
-          class="mt-1 w-full rounded-md px-2 py-1 text-left text-[12px] text-muted-foreground/70 transition-colors hover:bg-black/5 hover:text-muted-foreground"
-          @click="addCard(group)"
-        >
-          + 添加卡片
-        </button>
       </section>
     </div>
   </div>

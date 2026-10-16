@@ -16,7 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { useSettings, CONTENT_WIDTH_PX } from "@/composables/useSettings"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { isTextualBlock, orderedIndexes as orderedIndexesOf } from "@/lib/blocks"
-import { DRAG_HANDLE_SELECTOR, TOP_BLOCK_ROW_SELECTOR, closestBlockId, findEditable, focusBlockById } from "@/lib/dom"
+import { BLOCK_DRAG_TYPE, DRAG_HANDLE_SELECTOR, TOP_BLOCK_ROW_SELECTOR, closestBlockId, findEditable, focusBlockById } from "@/lib/dom"
 import { isFileDrag, pickImageFiles, readImageFile } from "@/lib/image"
 import { rangeForOffsets, sliceRuns } from "@/lib/marks"
 import { runsText, runsToHtml } from "@/lib/inline"
@@ -57,7 +57,7 @@ const {
  * 与数据表块一样「先有文件才能插」,但选表交给用户,确认后再落块。
  * 两种块共用一个对话框(同一套「挑表或新建」交互),用 kind 区分落块。
  */
-const dialogKind = ref<"gallery" | "bookmark" | "kanban" | "ledger">("gallery")
+const dialogKind = ref<"gallery" | "bookmark" | "kanban" | "ledger" | "stat">("gallery")
 const fileInsertIndex = ref<number | null>(null)
 
 /**
@@ -73,7 +73,7 @@ function closeFileInsert() {
 }
 
 /** 打开选表对话框(插入模式),记下落点:相对当前块偏移 0(前)或 1(后)。 */
-function openInsertDialog(kind: "gallery" | "bookmark" | "kanban" | "ledger", id: string, offset: 0 | 1) {
+function openInsertDialog(kind: "gallery" | "bookmark" | "kanban" | "ledger" | "stat", id: string, offset: 0 | 1) {
   const blocks = activeDocument.value
   const index = blocks.findIndex((item) => item.id === id)
   dialogKind.value = kind
@@ -109,7 +109,7 @@ function handleInsert(id: string, type: BlockType, offset: 0 | 1) {
     return
   }
   // 画册 / 书签 / 看板 / 账目块同样先有文件,但选哪张交给用户:记下落点与落块种类,打开对话框。
-  if (type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger") {
+  if (type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat") {
     openInsertDialog(type, id, offset)
     return
   }
@@ -131,7 +131,7 @@ function handleRetype(id: string, type: BlockType) {
   // 转换成引用块同样**先有文件**:数据表自动同名解析(与插入同一套规则),画册与书签
   // 交给对话框挑表。不接这条规则,落下的就是空路径的引用块 —— 视图永远停在「正在读取」。
   // 解析失败就不转换,原块保持原样。
-  if (type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger") {
+  if (type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat") {
     dialogKind.value = type
     fileRetypeId.value = id
     return
@@ -220,6 +220,9 @@ function onDragStart(event: DragEvent) {
   event.dataTransfer.effectAllowed = "move"
   // 必须写点数据：某些 WebView 在 dataTransfer 全空时干脆不认这次拖拽，连 dragover 都不给。
   event.dataTransfer.setData("text/plain", id)
+  // 自定义类型给布局格子认落点用：dragover 受保护模式读不到数据，但 types 可查；
+  // `text/plain` 与拖选文字撞车，它区分不了「块在拖」还是「一段文字在拖」。
+  event.dataTransfer.setData(BLOCK_DRAG_TYPE, id)
 }
 
 function onDragOver(event: DragEvent) {

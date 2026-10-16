@@ -314,6 +314,46 @@ export function replaceRow(table: DataTable, row: DataRow): DataTable {
   }
 }
 
+/** 一列数值的合计。非数字(文本 / 勾选 / 空)按空跳过 —— 统计块的视图与导出快照共用这一份口径。 */
+export function sumColumn(rows: readonly DataRow[], column: DataColumn): number {
+  let total = 0
+  for (const row of rows) {
+    const value = cellValue(row, column)
+    if (typeof value === "number" && Number.isFinite(value)) total += value
+  }
+  return total
+}
+
+/**
+ * 按显示文本精确匹配筛行(统计卡的筛选,视图与导出快照共用)。
+ *
+ * 比较发生在 `valueText` 投影上而不是原始值:select 列拿选项名比、勾选列拿
+ * `✓` 比、数字列拿 `String(number)` 比 —— 用户在设置里填的就是他**看见**的
+ * 文本,「所见即所比」不会出现填 `true` 却匹配不上勾选这种错位。
+ */
+export function filterRowsByValue(rows: readonly DataRow[], column: DataColumn, value: string): DataRow[] {
+  return rows.filter((row) => valueText(cellValue(row, column), column) === value)
+}
+
+/** 千分位分组 + 原样小数。统计块的数字显示形态,视图与导出快照共用,两处观感不漂移。 */
+/** 统计卡合计的缺省小数位数。缺省值不落盘（序列化/解析都以它兜底），改档显式存。 */
+export const STAT_PRECISION_DEFAULT = 2
+
+/** 统计卡小数位数的合法档位（设置菜单与解析宽容读取共用同一边界）。 */
+export const STAT_PRECISION_OPTIONS = [0, 1, 2, 3] as const
+
+/**
+ * 千分位分组 + 固定小数位。`precision` 缺省 = 统计卡的默认两位；`toFixed` 负责
+ * 四舍五入与补零，「保留 N 位」是显示层的事，不碰数据。
+ */
+export function formatGrouped(value: number, precision: number = STAT_PRECISION_DEFAULT): string {
+  const [whole, frac] = (Object.is(value, -0) ? 0 : value).toFixed(precision).split(".")
+  const sign = whole !== undefined && whole.startsWith("-") ? "-" : ""
+  const digits = sign === "-" ? (whole ?? "0").slice(1) : whole ?? "0"
+  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+  return `${sign}${grouped}${frac === undefined ? "" : `.${frac}`}`
+}
+
 // ---- select 选项 ----
 
 /**

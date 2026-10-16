@@ -37,6 +37,15 @@ export const TOP_BLOCK_ROW_SELECTOR = `:scope > [${DOM_ATTR.blockId}]`
 /** 拖拽手柄。只有手柄发起的 dragstart 才算块排序。 */
 export const DRAG_HANDLE_SELECTOR = `[${DOM_ATTR.dragHandle}]`
 
+/**
+ * 块拖拽的自定义 dataTransfer 类型。
+ *
+ * 拖进布局格子（ADR-0007）的落点判定靠它：`text/plain` 与选中文字的拖拽撞车，
+ * 自定义类型只在手柄发起的排序里出现 —— dragover 受保护模式读不到数据，但
+ * `types` 列表可以查，足够区分「这是块在拖」；drop 时再 getData 取 id。
+ */
+export const BLOCK_DRAG_TYPE = "application/x-block-id"
+
 /** 表格格子的可编辑体键：一个表格块里有多个可编辑体，只用块 id 定位不到具体格子。 */
 export function tableCellKey(blockId: string, row: number, column: number): string {
   return `${blockId}/${row}/${column}`

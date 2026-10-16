@@ -1,8 +1,8 @@
-import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, ImageBlock, KanbanBlock, LayoutBlock, LedgerBlock, MermaidBlock, TableCell, TextualBlock } from "@/types/workspace"
+import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, ImageBlock, KanbanBlock, LayoutBlock, LedgerBlock, MermaidBlock, StatBlock, TableCell, TextualBlock } from "@/types/workspace"
 import type { DataColumn, DataTable, DataRow } from "@/types/data-table"
 import { GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT, LAYOUT_COLUMNS_DEFAULT, isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
-import { cellValue, groupRows, kanbanCardColor, valueText } from "@/lib/data-table"
+import { cellValue, filterRowsByValue, formatGrouped, groupRows, kanbanCardColor, STAT_PRECISION_DEFAULT, sumColumn, valueText } from "@/lib/data-table"
 import { balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, sumRows } from "@/lib/ledger"
 import type { LedgerSection, LedgerTotals } from "@/lib/ledger"
 import { escapeHtml, escapeTextToHtml, linkIcon, runsText, runsToHtml } from "@/lib/inline"
@@ -86,6 +86,10 @@ export function blocksToHtml(blocks: readonly Block[], lookupTables?: DataTableL
     }
     if (block.type === "ledger") {
       out.push(ledgerHtml(block, lookup(block.path)))
+      continue
+    }
+    if (block.type === "stat") {
+      out.push(statHtml(block, lookup(block.path)))
       continue
     }
     if (block.type === "chat") {
@@ -520,6 +524,42 @@ function kanbanHtml(block: KanbanBlock, table: DataTable | null): string {
     return `  <section class="note-kcol">\n    <header><span class="t">${escapeHtml(lane.title)}</span><span class="n">${lane.rows.length}</span></header>\n    ${inner}</section>`
   })
   return `${openTag}\n${sections.join("\n")}\n</div>`
+}
+
+/**
+ * 统计块 → **展示快照 + 指针**(与画册 / 看板同一条 ADR-0006 立场)。
+ *
+ * 快照是导出时刻的列名与合计 —— 一个数字没有「可读全数据」可言,静态文件里它就是
+ * 一个摘录。指针属性(`data-stat` / `data-column`)挂在容器 `div` 上,解析端凭它认领
+ * 回活的统计块。未选列或表读不到时只写带属性的空容器:设置不蒸发,内容不瞎猜。
+ */
+function statHtml(block: StatBlock, table: DataTable | null): string {
+  const attrs = [`data-stat="${escapeHtml(block.path)}"`]
+  if (block.columnId !== "") attrs.push(`data-column="${escapeHtml(block.columnId)}"`)
+  // 精度是非默认才写的设置,与列 id 同一立场:默认两位不落盘。
+  if (block.precision !== undefined && block.precision !== STAT_PRECISION_DEFAULT) {
+    attrs.push(`data-precision="${block.precision}"`)
+  }
+  // 筛选只在列 id 非空时生效;value 即使空串也写出 —— 「字段 = 空值」是合法的筛选条件。
+  const filterColumnId = block.filterColumnId ?? ""
+  const filterColumn =
+    filterColumnId === "" || table === null
+      ? null
+      : table.columns.find((item) => item.id === filterColumnId) ?? null
+  if (filterColumnId !== "") {
+    attrs.push(`data-filter-column="${escapeHtml(filterColumnId)}"`)
+    attrs.push(`data-filter-value="${escapeHtml(block.filterValue ?? "")}"`)
+  }
+
+  const openTag = `<div class="note-stat" ${attrs.join(" ")}>`
+  const column = table === null ? null : table.columns.find((item) => item.id === block.columnId) ?? null
+  if (table === null || column === null) return openTag + "</div>"
+
+  // 筛选列被删后退回全表求和,与视图(filterColumn 落空)同一退化口径。
+  const rows = filterColumn === null ? table.rows : filterRowsByValue(table.rows, filterColumn, block.filterValue ?? "")
+  const filterText = filterColumn === null ? "" : ` · ${filterColumn.name} = ${block.filterValue ?? ""}`
+  const precision = block.precision ?? STAT_PRECISION_DEFAULT
+  return `${openTag}<span class="k">${escapeHtml(column.name + filterText)}</span><span class="v">${formatGrouped(sumColumn(rows, column), precision)}</span></div>`
 }
 
 function kanbanCardHtml(row: DataRow, fields: readonly DataColumn[]): string {

@@ -219,6 +219,7 @@ export const BLOCK_SPACING: Readonly<Record<BlockType, BlockSpacing>> = {
   bookmark: { top: 16, bottom: 16 },
   kanban: { top: 16, bottom: 16 },
   ledger: { top: 16, bottom: 16 },
+  stat: { top: 16, bottom: 16 },
   chat: { top: 16, bottom: 16 },
   layout: { top: 16, bottom: 16 },
 }
@@ -409,6 +410,11 @@ ${headingRules}
     .note-layout > section > :first-child { margin-top: 0; }
     .note-layout > section > :last-child { margin-bottom: 0; }
     .note-bookmark, .note-gallery, .note-kanban, .note-ledger { margin: ${BLOCK_SPACING.gallery.top}px 0; }
+    .note-stat { display: inline-flex; flex-direction: column; gap: 2px; min-width: 10rem;
+      margin: ${BLOCK_SPACING.gallery.top}px 0; padding: 12px 16px;
+      border: 1px solid var(--line); border-radius: 8px; background: var(--bg-soft); }
+    .note-stat .k { font-size: 11px; color: var(--muted); }
+    .note-stat .v { font-size: 26px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
     .note-ledger table { margin: 0; }
     .note-ledger th, .note-ledger td { padding: 0.35em 0.7em; }
     .note-ledger .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }

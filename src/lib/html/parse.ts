@@ -1,5 +1,6 @@
-import type { Block, BookmarkBlock, ChatMessage, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, LedgerBlock, LedgerGroupMode, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
-import { createBookmarkBlock, createChatBlock, createGalleryBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createLedgerBlock, createMermaidBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
+import type { Block, BookmarkBlock, ChatMessage, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, LedgerBlock, LedgerGroupMode, StatBlock, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
+import { createBookmarkBlock, createChatBlock, createGalleryBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createLedgerBlock, createMermaidBlock, createStatBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
+import { STAT_PRECISION_DEFAULT, STAT_PRECISION_OPTIONS } from "@/lib/data-table"
 import { runsText, textToRuns, trimRuns } from "@/lib/inline"
 import { isTableAlign } from "@/lib/table"
 import { runsFromNodes } from "./runs-dom"
@@ -165,6 +166,11 @@ function parseBlockElement(element: Element, state: ParseState, depth: number): 
       // 活数据从 `.tbl` 来,这里丢弃。没有指针的 div 照旧穿透。
       if (element.hasAttribute("data-ledger")) {
         state.blocks.push(parseLedger(element))
+        return
+      }
+      // 统计块的展示快照容器:指针在容器上,内容是导出时刻的列名与合计,这里丢弃。
+      if (element.hasAttribute("data-stat")) {
+        state.blocks.push(parseStat(element))
         return
       }
       break
@@ -459,6 +465,42 @@ function parseLedger(container: Element): LedgerBlock {
     groupMode,
     groupColumnId,
   )
+}
+
+/**
+ * `data-stat` 容器 → 统计块。没有 `data-stat` 不会走到这里(调用方已判)。
+ * 求和列的列 id 原样收下、不校验列还存在(指向的列被删后渲染时退化为未设置,
+ * 与画册残留 id 的立场一致)。路径没有默认值可落,留空串走「读不到」提示态。
+ */
+function parseStat(container: Element): StatBlock {
+  const block = createStatBlock(
+    container.getAttribute("data-stat") ?? "",
+    container.getAttribute("data-column") ?? "",
+  )
+  const precision = parseStatPrecision(container.getAttribute("data-precision"))
+  if (precision !== STAT_PRECISION_DEFAULT) block.precision = precision
+  // 筛选宽容读取:列 id 空串 = 不筛选(与序列化「非空才写」对齐);列 id 非空时
+  // value 原样收下,缺属性按「等于空值」处理 —— 那是合法条件,不是缺配置。
+  const filterColumnId = container.getAttribute("data-filter-column") ?? ""
+  if (filterColumnId !== "") {
+    block.filterColumnId = filterColumnId
+    block.filterValue = container.getAttribute("data-filter-value") ?? ""
+  }
+  return block
+}
+
+/**
+ * `data-precision` 的宽容读取:只认设置菜单同款档位(0..3 的整数),手工改出
+ * `2.5` 位或 `99` 这种没有意义的值一律落回默认两位 —— 与 `parseGalleryRatio`
+ * 的立场一致:解析端不吃离谱配置,显示端不为此设防。
+ */
+function parseStatPrecision(raw: string | null): number {
+  const value = Number(raw)
+  const legal =
+    raw !== null &&
+    Number.isInteger(value) &&
+    (STAT_PRECISION_OPTIONS as readonly number[]).includes(value)
+  return legal ? value : STAT_PRECISION_DEFAULT
 }
 
 /**

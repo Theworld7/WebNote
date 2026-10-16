@@ -26,6 +26,8 @@ const props = defineProps<{
   excludeTypes?: readonly BlockType[]
   /** 是否渲染在布局格子里：手柄贴内容左缘，而不是伸到行外 50px（格子外没地方伸）。 */
   inside?: boolean
+  /** 指针正悬在布局块的格子内块上:布局块自己的手柄让路,两套悬浮按钮互斥。 */
+  suspended?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -86,18 +88,22 @@ const POSITIONS = [
 </script>
 
 <template>
-  <div
-    class="absolute flex gap-0.5 transition-opacity"
-    :class="[openMenu === '' ? 'opacity-0 group-hover:opacity-100' : 'opacity-100', inside ? 'left-0' : 'left-[-50px]']"
-    :style="{ top: 'var(--tools-top, 2px)' }"
-  >
+    <div
+      class="absolute flex gap-0.5 transition-opacity"
+      :class="[
+        openMenu === '' ? (suspended === true ? 'opacity-0' : 'opacity-0 group-hover:opacity-100') : 'opacity-100',
+        // 左外负定位悬浮，不占文档流也不压内容：顶层与格内统一伸到块左缘外侧。
+        'left-[-50px]',
+      ]"
+      :style="{ top: 'var(--tools-top, 2px)' }"
+    >
     <!-- +：在当前块上/下方插入，方向由菜单里的位置两项决定。`/` 输入时复用同一个菜单，只是 mode 换成 convert。 -->
     <DropdownMenu
       :open="openMenu === 'type'"
       @update:open="(open: boolean) => emit('update:openMenu', open ? 'type' : '')"
     >
       <DropdownMenuTrigger as-child>
-        <Button variant="ghost" :class="TOOL" aria-label="添加块">
+        <Button variant="ghost" :class="[TOOL, inside && 'bg-background']" aria-label="添加块">
           <PlusIcon class="size-[15px]" />
         </Button>
       </DropdownMenuTrigger>
@@ -155,7 +161,7 @@ const POSITIONS = [
       <DropdownMenuTrigger as-child>
         <Button
           variant="ghost"
-          :class="GRIP"
+          :class="[GRIP, inside && 'bg-background']"
           draggable="true"
           data-drag-handle="true"
           aria-label="块操作菜单，拖动可重排"

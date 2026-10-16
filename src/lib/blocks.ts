@@ -15,6 +15,7 @@ import type {
   LedgerBlock,
   LedgerGroupMode,
   MermaidBlock,
+  StatBlock,
   TableBlock,
   TableCell,
   TextualBlock,
@@ -75,6 +76,8 @@ export const BLOCK_TYPES = [
   { type: "kanban", group: "媒体与数据", marker: "☰", label: "看板" },
   // 紧挨 kanban：账目块同样吃数据表的数据,按财务口径渲染成流水账(收入/支出/余额/小计)。
   { type: "ledger", group: "媒体与数据", marker: "¥", label: "账目" },
+  // 紧挨 ledger：统计块同样吃数据表的数据,把某列的数值求和成一个大数字。
+  { type: "stat", group: "媒体与数据", marker: "Σ", label: "统计" },
   // 紧挨 kanban 之后、布局压轴之前:聊天记录是内容块,不是版面级重结构。
   { type: "chat", group: "媒体与数据", marker: "◌", label: "聊天记录" },
   // 压轴：容器块是「版面级」的重结构,跟在内容块族的最后。
@@ -150,6 +153,7 @@ export function isTextualBlock(block: Block): block is TextualBlock {
     block.type !== "bookmark" &&
     block.type !== "kanban" &&
     block.type !== "ledger" &&
+    block.type !== "stat" &&
     block.type !== "chat" &&
     block.type !== "layout"
   )
@@ -162,7 +166,7 @@ export function isTextualBlock(block: Block): block is TextualBlock {
  * 这张表派生。serialize / parse 各自的读写分派虽仍逐块列出（编译器靠穷尽性兜住），
  * 但**凡是凭「有没有 path」区分的行为**都必须走这张表，不再各持一份会腐烂的清单。
  */
-export const REFERENCE_BLOCK_TYPES = ["datatable", "gallery", "bookmark", "kanban", "ledger"] as const
+export const REFERENCE_BLOCK_TYPES = ["datatable", "gallery", "bookmark", "kanban", "ledger", "stat"] as const
 export type ReferenceBlockType = (typeof REFERENCE_BLOCK_TYPES)[number]
 
 /** 是否是引用块。命中时收窄到四种带 `path` 的结构块。 */
@@ -198,13 +202,18 @@ export function refPathsOf(blocks: readonly Block[]): string[] {
 }
 
 /**
- * 格子内插入/转换菜单要滤掉的类型：容器块本身（一层容器）与引用块。
+ * 格子内插入/转换菜单要滤掉的类型：容器块本身（一层容器）与大部分引用块。
  *
- * 引用块（数据表/画册/书签/看板）要「先有文件才能指」，那条异步分流与选表对话框都长在顶层
- * 编辑器上，格子内不值得为此再铺一条路 —— 引用块放进布局格子的场景也足够边缘。
- * 名单从 `REFERENCE_BLOCK_TYPES` 派生，不另立清单。
+ * stat 是唯一的例外：它可以空指针创建（`createStatBlock()` 不带 path），落进格子后
+ * 由视图的「设置」菜单补指向，不需要顶层的选表对话框 —— 所以放行。其余引用块
+ * （数据表/画册/书签/看板/账目）要「先有文件才能指」，那条异步分流都长在顶层
+ * 编辑器上，格子内不值得为此再铺一条路。名单从 `REFERENCE_BLOCK_TYPES` 派生，
+ * 不另立清单；`moveBlockIntoCell`（拖块进格子）用同一份名单把关。
  */
-export const CELL_EXCLUDED_TYPES: readonly BlockType[] = ["layout", ...REFERENCE_BLOCK_TYPES]
+export const CELL_EXCLUDED_TYPES: readonly BlockType[] = [
+  "layout",
+  ...REFERENCE_BLOCK_TYPES.filter((type) => type !== "stat"),
+]
 
 /** 布局块网格模式的列数档位与缺省值。缺省即 2 不落存储，解析也以它兜底。 */
 export const LAYOUT_COLUMNS = [2, 3, 4] as const
@@ -333,6 +342,11 @@ export function createChatBlock(messages: ChatMessage[] = []): ChatBlock {
   return { id: createBlockId(), type: "chat", messages }
 }
 
+/** 造统计块。缺省不指列 —— 视图显示提示态引导去设置;解析器带全参数调用在此收口。 */
+export function createStatBlock(path = "", columnId = ""): StatBlock {
+  return { id: createBlockId(), type: "stat", path, columnId }
+}
+
 /**
  * 造布局块。`cells` 缺省为空 = 「尚未选择布局方式」，视图显示网格/弹性选择器；
  * 选择后由操作层初始化两个格子（各含一个空文本块，光标有处落）。
@@ -352,6 +366,7 @@ export function createBlock(type: BlockType, text = ""): Block {
   if (type === "bookmark") return createBookmarkBlock()
   if (type === "kanban") return createKanbanBlock()
   if (type === "ledger") return createLedgerBlock()
+  if (type === "stat") return createStatBlock()
   if (type === "chat") return createChatBlock()
   if (type === "layout") return createLayoutBlock()
   return createTextualBlock(type, textToRuns(text))
@@ -370,7 +385,7 @@ export function retypeBlock(block: Block, type: BlockType): Block {
   if (type === "mermaid") {
     return { ...createMermaidBlock(), source: isTextualBlock(block) ? runsText(block.runs) : blockText(block) }
   }
-  if (type === "image" || type === "table" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "chat" || type === "layout") {
+  if (type === "image" || type === "table" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat" || type === "chat" || type === "layout") {
     return createBlock(type)
   }
   if (!isTextualBlock(block)) return createTextualBlock(type, textToRuns(blockText(block)))
@@ -388,8 +403,8 @@ export function retypeBlock(block: Block, type: BlockType): Block {
  * `source` 是字符串，图片块那种平坦形态浅拷即可。
  */
 export function cloneBlock(block: Block, id: string): Block {
-  // 平坦形态浅拷即可：账目块与数据表 / 书签一样全是原始值字段。
-  if (block.type === "image" || block.type === "mermaid" || block.type === "datatable" || block.type === "bookmark" || block.type === "ledger") {
+  // 平坦形态浅拷即可：账目块与数据表 / 书签 / 统计一样全是原始值字段。
+  if (block.type === "image" || block.type === "mermaid" || block.type === "datatable" || block.type === "bookmark" || block.type === "ledger" || block.type === "stat") {
     return { ...block, id }
   }
   // 画册的 hiddenFields 是数组：更新总以整体替换发生，但拷贝不该共享同一份。
@@ -435,6 +450,8 @@ export function blockText(block: Block): string {
   if (block.type === "kanban") return block.path
   // 账目块只带路径 —— 收入 / 支出列与分组是财务展示设置,不是文本。
   if (block.type === "ledger") return block.path
+  // 统计块只带路径 —— 求和列是展示设置,不是文本。
+  if (block.type === "stat") return block.path
   // 布局块把格子里的块递归拼起来 —— 字数统计因此覆盖容器内的内容。
   if (block.type === "layout") {
     return block.cells.map((cell) => cell.map((item) => blockText(item)).join(" ")).join(" ")

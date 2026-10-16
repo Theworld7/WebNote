@@ -35,6 +35,7 @@ import DataTableBlockView from "./DataTableBlockView.vue"
 import GalleryBlockView from "./GalleryBlockView.vue"
 import KanbanBlockView from "./KanbanBlockView.vue"
 import LedgerBlockView from "./LedgerBlockView.vue"
+import StatBlockView from "./StatBlockView.vue"
 import { CheckIcon, CopyIcon } from "@lucide/vue"
 import { CELL_EXCLUDED_TYPES } from "@/lib/blocks"
 
@@ -64,6 +65,8 @@ const { setBlockRuns, toggleBlockChecked } = useWorkspace()
 const bodyRef = ref<HTMLElement | null>(null)
 const openMenu = ref<BlockMenuKind>("")
 const typeMenuMode = ref<"insert" | "convert">("insert")
+// 指针正悬在布局块的格子内块上(LayoutBlockView 上报):此时收起布局块自己的手柄。
+const layoutCellHover = ref(false)
 
 /** 承载 runs 的正文块才走下面那套 contenteditable；图片 / 表格 / mermaid 各有自己的视图组件。 */
 const textual = computed(() => (isTextualBlock(props.block) ? props.block : null))
@@ -400,9 +403,7 @@ const bodyClass = computed(() => {
         blockClass,
         // naive 的 :first-child / :last-child 归零：首块不额外下压、末块不留尾。
         'first:mt-0 last:mb-0',
-        // 格子内行首留出手柄位：手柄贴左缘悬浮（left-0），内容统一右缩让开它。
-        // 缩进按「把手 + 加号」两个按钮的总宽（约 46px）留足，hover 时才不压字。
-        inCell === true && 'pl-12',
+        // 格子内不再为手柄预留文档流空间：工具条 absolute 贴左缘悬浮，hover 时才浮现。
         inCell === true && PLACEHOLDER_IN_CELL,
         dragging && 'opacity-40',
         dropEdge === 'before' && DROP_BEFORE,
@@ -415,6 +416,7 @@ const bodyClass = computed(() => {
       :type-menu-mode="typeMenuMode"
       :exclude-types="inCell === true ? CELL_EXCLUDED_TYPES : undefined"
       :inside="inCell === true"
+      :suspended="layoutCellHover"
       @update:open-menu="onMenuChange"
       @insert="(type: BlockType, position: BlockInsertPosition) => (position === 'above' ? emit('insert-before', block.id, type) : emit('insert-after', block.id, type))"
       @retype="(type: BlockType) => emit('retype', block.id, type)"
@@ -455,9 +457,11 @@ const bodyClass = computed(() => {
 
     <LedgerBlockView v-else-if="block.type === 'ledger'" :block="block" />
 
+    <StatBlockView v-else-if="block.type === 'stat'" :block="block" />
+
     <ChatBlockView v-else-if="block.type === 'chat'" :block="block" />
 
-    <LayoutBlockView v-else-if="block.type === 'layout'" :block="block" />
+    <LayoutBlockView v-else-if="block.type === 'layout'" :block="block" @cell-hover="layoutCellHover = $event" />
 
     <div v-else-if="block.type === 'divider'" class="h-px bg-line" />
 

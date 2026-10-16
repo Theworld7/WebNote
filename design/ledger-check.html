@@ -17,8 +17,10 @@
 <div id="app"></div>
 <pre id="out">running…</pre>
 <script type="module">
-import { BLOCK_TYPES, createBlock, createLedgerBlock, createKanbanBlock, createGalleryBlock, blockText, cloneBlock, retypeBlock } from "../src/lib/blocks.ts"
+import { BLOCK_TYPES, CELL_EXCLUDED_TYPES, createBlock, createLedgerBlock, createKanbanBlock, createGalleryBlock, createStatBlock, blockText, cloneBlock, retypeBlock } from "../src/lib/blocks.ts"
+import { filterRowsByValue } from "../src/lib/data-table.ts"
 import { createLedgerPreset, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, sumRows, balanceMap } from "../src/lib/ledger.ts"
+import { sumColumn, formatGrouped } from "../src/lib/data-table.ts"
 import { blocksToHtml } from "../src/lib/html/serialize.ts"
 import { parseHtml } from "../src/lib/html/parse.ts"
 
@@ -196,6 +198,90 @@ const galHtml = blocksToHtml([createGalleryBlock("画.tbl")], lookup)
 check("data-gallery 不被当 ledger", parseHtml(galHtml).length === 1 && parseHtml(galHtml)[0].type === "gallery")
 check("data-kanban 不被当 ledger", parseHtml(blocksToHtml([createKanbanBlock("板.tbl", "c1")], lookup))[0].type === "kanban")
 check("data-ledger 不被当 gallery/kanban", parseHtml(html)[0].type === "ledger")
+
+// ---------- 十、统计块 ----------
+
+note("统计块:求和口径 / 快照+指针往返")
+check("BLOCK_TYPES 里有 stat, marker Σ, label 统计", BLOCK_TYPES.some((m) => m.type === "stat" && m.marker === "Σ" && m.label === "统计"))
+check("stat 紧挨 ledger（在它后面）", BLOCK_TYPES.findIndex((m) => m.type === "stat") === ledgerIdx + 1, `ledger=${ledgerIdx} stat=${BLOCK_TYPES.findIndex((m) => m.type === "stat")}`)
+check("sumColumn 收入 12510", sumColumn(rows, income) === 12510, String(sumColumn(rows, income)))
+check("sumColumn 非数字按空(支出列 r2=3800 其余空)", sumColumn(rows, expense) === 3800, String(sumColumn(rows, expense)))
+check("formatGrouped 缺省两位 + 千分位", formatGrouped(12510) === "12,510.00" && formatGrouped(-1234.5) === "-1,234.50", `${formatGrouped(12510)} / ${formatGrouped(-1234.5)}`)
+check("formatGrouped 按档取位数(0/1 位)", formatGrouped(12510, 0) === "12,510" && formatGrouped(-1234.5, 1) === "-1,234.5", `${formatGrouped(12510, 0)} / ${formatGrouped(-1234.5, 1)}`)
+
+const stat = createStatBlock("账.tbl", "c3")
+const statHtml = blocksToHtml([stat], lookup)
+check("导出带 data-stat/data-column", statHtml.includes('data-stat="账.tbl"') && statHtml.includes('data-column="c3"'), statHtml)
+check("快照带列名与合计", statHtml.includes("收入") && statHtml.includes("12,510"), statHtml)
+const statRound = parseHtml(statHtml)
+check("往返是 stat 且 path/column 一致", statRound.length === 1 && statRound[0].type === "stat" && statRound[0].path === "账.tbl" && statRound[0].columnId === "c3", JSON.stringify(statRound[0]))
+check("未设列不写 data-column", !blocksToHtml([createStatBlock("空.tbl")], lookup).includes("data-column="))
+const statHand = `<div class="note-stat" data-stat="手改.tbl"></div>`
+const statHm = parseHtml(statHand)
+check("宽容解析:缺列属性落空串", statHm.length === 1 && statHm[0].type === "stat" && statHm[0].path === "手改.tbl" && statHm[0].columnId === "", JSON.stringify(statHm[0]))
+
+// ---------- 十一、统计块进布局格子 ----------
+
+note("统计块进布局格子:格内快照+指针往返")
+const statInCell = createStatBlock("账.tbl", "c3")
+const layoutWithStat = {
+  id: "b-layout",
+  type: "layout",
+  mode: "grid",
+  cells: [[statInCell], []],
+}
+const layoutHtmlOut = blocksToHtml([layoutWithStat], lookup)
+check("格内 stat 序列化带指针与合计", layoutHtmlOut.includes('data-stat="账.tbl"') && layoutHtmlOut.includes("12,510"), layoutHtmlOut)
+const layoutRound = parseHtml(layoutHtmlOut)
+check(
+  "往返:layout 内格子里的 stat 原样回来",
+  layoutRound.length === 1 && layoutRound[0].type === "layout" && layoutRound[0].cells.length === 2 &&
+    layoutRound[0].cells[0].length === 1 && layoutRound[0].cells[0][0].type === "stat" &&
+    layoutRound[0].cells[0][0].path === "账.tbl" && layoutRound[0].cells[0][0].columnId === "c3",
+  JSON.stringify(layoutRound[0]),
+)
+check("CELL_EXCLUDED_TYPES 放行 stat", !CELL_EXCLUDED_TYPES.includes("stat") && CELL_EXCLUDED_TYPES.includes("kanban") && CELL_EXCLUDED_TYPES.includes("layout"))
+
+// ---------- 十二、统计块小数位数 ----------
+
+note("统计块小数位数:缺省两位不落盘,改档往返")
+const statP0 = createStatBlock("账.tbl", "c3")
+statP0.precision = 0
+const p0Html = blocksToHtml([statP0], lookup)
+check("precision=0 写 data-precision 且快照取整", p0Html.includes('data-precision="0"') && p0Html.includes("12,510<"), p0Html)
+const p0Round = parseHtml(p0Html)
+check("往返:precision=0 原样回来", p0Round[0].type === "stat" && p0Round[0].precision === 0, JSON.stringify(p0Round[0]))
+const pDefHtml = blocksToHtml([createStatBlock("账.tbl", "c3")], lookup)
+check("缺省两位不写 data-precision", !pDefHtml.includes("data-precision"))
+const pDefRound = parseHtml(pDefHtml)
+check("往返:缺省解析不落 precision 字段", pDefRound[0].type === "stat" && pDefRound[0].precision === undefined, JSON.stringify(pDefRound[0]))
+const pBad = parseHtml(`<div class="note-stat" data-stat="账.tbl" data-column="c3" data-precision="9"></div>`)
+check("宽容解析:离谱档位落回默认", pBad[0].type === "stat" && pBad[0].precision === undefined, JSON.stringify(pBad[0]))
+
+// ---------- 十三、统计块筛选 ----------
+
+note("统计块筛选:只合计指定字段指定值的行")
+check("filterRowsByValue 按显示文本筛(c2=工资 只剩 r1)", filterRowsByValue(rows, cols[1], "工资").length === 1 && filterRowsByValue(rows, cols[1], "工资")[0].id === "r1")
+check("filterRowsByValue 数字列按 String 比", filterRowsByValue(rows, expense, "0").length === 1 && filterRowsByValue(rows, expense, "0")[0].id === "r3")
+
+const statF = createStatBlock("账.tbl", "c3")
+statF.filterColumnId = "c2"
+statF.filterValue = "工资"
+const fHtml = blocksToHtml([statF], lookup)
+check("筛选写 data-filter-column/value 且快照是筛后合计(12,000)", fHtml.includes('data-filter-column="c2"') && fHtml.includes('data-filter-value="工资"') && fHtml.includes("12,000.00"), fHtml)
+check("筛选条件进快照标签(收入 · 摘要 = 工资)", fHtml.includes("收入 · 摘要 = 工资"), fHtml)
+const fRound = parseHtml(fHtml)
+check("往返:筛选字段/值原样回来", fRound[0].type === "stat" && fRound[0].filterColumnId === "c2" && fRound[0].filterValue === "工资", JSON.stringify(fRound[0]))
+check("不筛选不写 data-filter-*", !blocksToHtml([createStatBlock("账.tbl", "c3")], lookup).includes("data-filter-"))
+const fEmpty = createStatBlock("账.tbl", "c3")
+fEmpty.filterColumnId = "c2"
+fEmpty.filterValue = ""
+const fEmptyHtml = blocksToHtml([fEmpty], lookup)
+check("筛选值为空串也写出(字段=空值是合法条件)", fEmptyHtml.includes('data-filter-value=""') && fEmptyHtml.includes(">0.00<"), fEmptyHtml)
+const fEmptyRound = parseHtml(fEmptyHtml)
+check("往返:空值筛选回来", fEmptyRound[0].type === "stat" && fEmptyRound[0].filterColumnId === "c2" && fEmptyRound[0].filterValue === "", JSON.stringify(fEmptyRound[0]))
+const fHand = parseHtml(`<div class="note-stat" data-stat="账.tbl" data-column="c3" data-filter-column="c2"></div>`)
+check("宽容解析:缺 data-filter-value 按空值条件收下", fHand[0].type === "stat" && fHand[0].filterColumnId === "c2" && fHand[0].filterValue === "", JSON.stringify(fHand[0]))
 
 // ---------- 收尾 ----------
 

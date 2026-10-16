@@ -2,7 +2,7 @@ import type { InjectionKey } from "vue"
 import type { Block, BlockSettingsPatch, BlockType, ChatMessage, CloseStrategy, CreateTarget, FileNode, InlineRun, LayoutMode, OpenTab, TableAlign, TableCell } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref, watch } from "vue"
-import { cloneBlock, countChars, createBlock, createBlockId, createBookmarkBlock, createDataTableBlock, createGalleryBlock, createKanbanBlock, createLedgerBlock, isReferenceBlock, isTextualBlock, retypeBlock } from "@/lib/blocks"
+import { CELL_EXCLUDED_TYPES, cloneBlock, countChars, createBlock, createBlockId, createBookmarkBlock, createDataTableBlock, createGalleryBlock, createKanbanBlock, createLedgerBlock, createStatBlock, isReferenceBlock, isTextualBlock, retypeBlock } from "@/lib/blocks"
 import { createLedgerPreset } from "@/lib/ledger"
 import type { DataTable } from "@/types/data-table"
 import { describeError } from "@/lib/errors"
@@ -1132,6 +1132,24 @@ function createWorkspace() {
     return block.id
   }
 
+  /** 在当前笔记里插入一个统计块。与看板块同构:先有表才有块,`target` 为空时按 `stem` 新建、撞名直接引用。 */
+  async function insertStatBlock(index: number, target = "", stem = ""): Promise<string> {
+    const blocks = activeDocument.value
+    const notePath = activePath.value
+
+    let path = target
+    if (path === "") {
+      path = (await resolveDataTableForNote(notePath, stem)).path
+      if (path === "") return ""
+    }
+
+    const block = createStatBlock(path)
+    const at = Math.min(Math.max(index, 0), blocks.length)
+    blocks.splice(at, 0, block)
+    markDirty()
+    return block.id
+  }
+
   /**
    * 在当前笔记里插入一个账目块。与看板块同构(先有表才有块,`target` 为空时按 `stem`
    * 新建、撞名直接引用),差别在**新建**那一步:预置 `日期 / 摘要 / 收入 / 支出` 四列
@@ -1168,7 +1186,7 @@ function createWorkspace() {
    */
   async function convertBlockToFileType(
     id: string,
-    type: "datatable" | "gallery" | "bookmark" | "kanban" | "ledger",
+    type: "datatable" | "gallery" | "bookmark" | "kanban" | "ledger" | "stat",
     target = "",
     stem = "",
   ): Promise<string> {
@@ -1191,7 +1209,9 @@ function createWorkspace() {
             ? createKanbanBlock(path)
             : type === "ledger"
               ? createLedgerBlock(path)
-              : createDataTableBlock(path)
+              : type === "stat"
+                ? createStatBlock(path)
+                : createDataTableBlock(path)
     blocks[index] = block
     markDirty()
     return block.id
@@ -1281,6 +1301,45 @@ function createWorkspace() {
     const source = at === null ? undefined : at.list[at.index]
     if (at === null || source === undefined) return
     at.list.splice(at.index + 1, 0, cloneBlock(source, createBlockId()))
+    markDirty()
+  }
+
+  /**
+   * 把一个块移进布局格子（拖拽落格的唯一写入口）。
+   *
+   * 允许谁进格子由 `CELL_EXCLUDED_TYPES` 单独说了算 —— 与格子内插入菜单的过滤是
+   * 同一份名单（当前放行 stat），不另立第二份会腐烂的清单。容器块（一层容器）
+   * 与布局块自己不能进格子；已在目标格子里的块没有「再进一次」的语义，放过。
+   */
+  function moveBlockIntoCell(layoutId: string, cellIndex: number, blockId: string) {
+    const layout = activeBlock(layoutId)
+    if (layout === undefined || layout.type !== "layout") return
+    if (blockId === layoutId) return
+    const cell = layout.cells[cellIndex]
+    if (cell === undefined) return
+
+    const at = locateBlock(blockId)
+    const block = at === null ? undefined : at.list[at.index]
+    if (at === null || block === undefined) return
+    if (CELL_EXCLUDED_TYPES.some((type) => type === block.type)) return
+    if (at.list === cell) return
+
+    at.list.splice(at.index, 1)
+    cell.push(block)
+    markDirty()
+  }
+
+  /**
+   * 给统计块换指向的数据表。列 id 属于旧表 —— 换表必须一并清掉求和列，
+   * 让视图退回「未选择」，而不是拿旧表的列 id 去新表里碰运气。
+   */
+  function bindStatTable(id: string, path: string) {
+    const block = activeBlock(id)
+    if (block === undefined || block.type !== "stat") return
+    block.path = path
+    block.columnId = ""
+    delete block.filterColumnId
+    delete block.filterValue
     markDirty()
   }
 
@@ -1531,6 +1590,7 @@ function createWorkspace() {
     insertBookmarkBlock,
     insertKanbanBlock,
     insertLedgerBlock,
+    insertStatBlock,
     convertBlockToFileType,
     updateBlockSettings,
     tablePaths,
@@ -1539,6 +1599,8 @@ function createWorkspace() {
     duplicateBlock,
     removeBlock,
     moveBlock,
+    moveBlockIntoCell,
+    bindStatTable,
     // layout actions
     setLayoutMode,
     setLayoutColumns,
