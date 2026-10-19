@@ -465,6 +465,30 @@ check(
   outside.remove()
 }
 
+/**
+ * 自定义属性加前缀：`--muted` 这类名字与应用 token 撞车时，页面样式的 `:root` 声明会
+ * 随继承钻进编辑器自己的悬浮手柄（ghost 按钮 `hover:bg-muted` 从浅灰变深灰）。
+ * 断言只看原始串：这些名字必须带前缀出现，且不再以原名声明。
+ */
+{
+  const scoped = scopeCss(
+    ":root { --muted: #6b7280; --line: #e4e4e7 } .card { color: var(--muted); border-color: var(--line) }",
+    "#scope-probe",
+  )
+  check("预览：自定义属性声明加 --doc- 前缀", scoped.includes("--doc-muted: #6b7280") && scoped.includes("--doc-line: #e4e4e7"), scoped)
+  check("预览：不再以原名声明", !/--muted\s*:/.test(scoped) && !/--line\s*:/.test(scoped), scoped)
+  check("预览：var() 引用跟着改名", scoped.includes("var(--doc-muted)") && scoped.includes("var(--doc-line)"), scoped)
+
+  const important = scopeCss(".card { color: var(--fg) !important } :root { --fg: #111 }", "#scope-probe")
+  check("预览：改名后 !important 仍在", important.includes("var(--doc-fg) !important"), important)
+
+  const unknown = scopeCss(".card { color: var(--primary) }", "#scope-probe")
+  check("预览：没声明过的变量引用原样留（不替用户对上应用 token）", unknown.includes("var(--primary)"), unknown)
+
+  const media = scopeCss("@media (min-width: 1px) { :root { --fg: #222 } .card { color: var(--fg) } }", "#scope-probe")
+  check("预览：@media 里的自定义属性同样改名", media.includes("--doc-fg: #222") && media.includes("var(--doc-fg)"), media)
+}
+
 // ---------- 三·二、页面样式的落盘形态（紧凑化） ----------
 
 /**
