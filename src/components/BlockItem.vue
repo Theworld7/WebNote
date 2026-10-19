@@ -66,8 +66,6 @@ const { setBlockRuns, toggleBlockChecked } = useWorkspace()
 const bodyRef = ref<HTMLElement | null>(null)
 const openMenu = ref<BlockMenuKind>("")
 const typeMenuMode = ref<"insert" | "convert">("insert")
-// 指针正悬在布局块的格子内块上(LayoutBlockView 上报):此时收起布局块自己的手柄。
-const layoutCellHover = ref(false)
 
 /** 承载 runs 的正文块才走下面那套 contenteditable；图片 / 表格 / mermaid 各有自己的视图组件。 */
 const textual = computed(() => (isTextualBlock(props.block) ? props.block : null))
@@ -224,6 +222,12 @@ async function onMenuChange(value: BlockMenuKind) {
 }
 
 const markerText = computed(() => (props.block.type === "ol" ? `${props.orderedIndex}.` : "•"))
+
+/**
+ * 布局块已有格子 → 底部悬浮条在，手柄停靠进去；还没选布局方式时空布局没有悬浮条，
+ * 手柄照旧贴块左缘外挂。
+ */
+const layoutDocked = computed(() => props.block.type === "layout" && props.block.cells.length > 0)
 
 /**
  * 块外边距。折叠后的实际距离见 `@/lib/typography` 的 `BLOCK_SPACING`：
@@ -412,12 +416,13 @@ const bodyClass = computed(() => {
       ]"
       :style="rowStyle"
     >
+    <!-- 布局块的手柄不走这里：它投给 LayoutBlockView，停靠进底部悬浮条（见下方 #toolbar）。 -->
     <BlockToolbar
+      v-if="block.type !== 'layout'"
       :open-menu="openMenu"
       :type-menu-mode="typeMenuMode"
       :exclude-types="inCell === true ? CELL_EXCLUDED_TYPES : undefined"
       :inside="inCell === true"
-      :suspended="layoutCellHover"
       @update:open-menu="onMenuChange"
       @insert="(type: BlockType, position: BlockInsertPosition) => (position === 'above' ? emit('insert-before', block.id, type) : emit('insert-after', block.id, type))"
       @retype="(type: BlockType) => emit('retype', block.id, type)"
@@ -462,7 +467,26 @@ const bodyClass = computed(() => {
 
     <ChatBlockView v-else-if="block.type === 'chat'" :block="block" />
 
-    <LayoutBlockView v-else-if="block.type === 'layout'" :block="block" @cell-hover="layoutCellHover = $event" />
+    <LayoutBlockView v-else-if="block.type === 'layout'" :block="block">
+      <!--
+        布局块手柄的第二个落位。它与上面那份是同一条组件、同一套处理函数，只是外壳位置不同：
+        停靠时由悬浮条排布（底条最左侧），空布局时回到块左缘外挂。改动时两处一起改。
+      -->
+      <template #toolbar>
+        <BlockToolbar
+          :open-menu="openMenu"
+          :type-menu-mode="typeMenuMode"
+          :inside="inCell === true"
+          :docked="layoutDocked"
+          @update:open-menu="onMenuChange"
+          @insert="(type: BlockType, position: BlockInsertPosition) => (position === 'above' ? emit('insert-before', block.id, type) : emit('insert-after', block.id, type))"
+          @retype="(type: BlockType) => emit('retype', block.id, type)"
+          @duplicate="emit('duplicate', block.id)"
+          @copy-content="copyContent"
+          @remove="emit('remove', block.id)"
+        />
+      </template>
+    </LayoutBlockView>
 
     <HtmlBlockView v-else-if="block.type === 'html'" :block="block" />
 

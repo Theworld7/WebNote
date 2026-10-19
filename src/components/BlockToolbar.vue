@@ -26,8 +26,11 @@ const props = defineProps<{
   excludeTypes?: readonly BlockType[]
   /** 是否渲染在布局格子里：手柄贴内容左缘，而不是伸到行外 50px（格子外没地方伸）。 */
   inside?: boolean
-  /** 指针正悬在布局块的格子内块上:布局块自己的手柄让路,两套悬浮按钮互斥。 */
-  suspended?: boolean
+  /**
+   * 停靠进布局块的底部悬浮条：由悬浮条统一排布与开关，自己不再贴左缘外挂。
+   * 布局块的手柄若留在 `left:-50px`，会和格子里首个块的手柄落在同一坐标上被盖住。
+   */
+  docked?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -89,13 +92,18 @@ const POSITIONS = [
 
 <template>
     <div
-      class="absolute flex gap-0.5 transition-opacity"
+      class="flex gap-0.5"
       :class="[
-        openMenu === '' ? (suspended === true ? 'opacity-0' : 'opacity-0 group-hover:opacity-100') : 'opacity-100',
         // 左外负定位悬浮，不占文档流也不压内容：顶层与格内统一伸到块左缘外侧。
-        'left-[-50px]',
+        // 停靠态（docked）没有自己的定位与显隐，交给外部悬浮条。
+        docked === true ? '' : 'absolute left-[-50px] transition-opacity',
+        docked === true
+          ? ''
+          : openMenu === ''
+            ? 'opacity-0 group-hover:opacity-100'
+            : 'opacity-100',
       ]"
-      :style="{ top: 'var(--tools-top, 2px)' }"
+      :style="docked === true ? undefined : { top: 'var(--tools-top, 2px)' }"
     >
     <!-- +：在当前块上/下方插入，方向由菜单里的位置两项决定。`/` 输入时复用同一个菜单，只是 mode 换成 convert。 -->
     <DropdownMenu

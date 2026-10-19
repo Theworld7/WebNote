@@ -9,7 +9,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { ChevronDownIcon, MinusIcon, PlusIcon } from "@lucide/vue"
+import { ChevronDownIcon, Grid2x2PlusIcon, Grid2x2XIcon } from "@lucide/vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { LAYOUT_COLUMNS, orderedIndexes as orderedIndexesOf } from "@/lib/blocks"
 import { BLOCK_DRAG_TYPE, focusBlockById } from "@/lib/dom"
@@ -25,11 +25,6 @@ import BlockItem from "@/components/BlockItem.vue"
  * 格子内不支持拖拽排序（+/- 格子与回车增删够用），块手柄在这里只承担菜单。
  */
 const props = defineProps<{ block: LayoutBlock }>()
-
-const emit = defineEmits<{
-  /** 指针进出格子内的块:向上让顶层 BlockItem 收起自己的手柄,两套按钮互斥。 */
-  (event: "cell-hover", value: boolean): void
-}>()
 
 const { setLayoutMode, setLayoutColumns, addLayoutCell, removeLayoutCell, insertBlockAfter, insertBlockBefore, changeBlockType, duplicateBlock, removeBlock, moveBlockIntoCell } =
   useWorkspace()
@@ -83,13 +78,6 @@ function pickMode(value: string) {
 
 // ---- 拖块进格子 ----
 
-/**
- * 指针正悬在格子内的某个块上:这时只亮块自己的悬浮工具,布局工具条让路 ——
- * 两套悬浮按钮同时亮会互相抢注意力。悬停格子的空白/边框时仍算「悬停布局块」,
- * 布局工具条照常出现。块工具条的显隐由 BlockItem 自己的 group-hover 管,不归这里。
- */
-const hoveringCellBlock = ref(false)
-
 /** 正被悬停的格子下标，悬停期间给格子描高亮。null = 没有拖拽悬在任何格子上。 */
 const dragOverCell = ref<number | null>(null)
 
@@ -130,6 +118,8 @@ function onCellDrop(event: DragEvent, cellIndex: number) {
 <template>
   <!-- 未选布局方式：先挑形态。与空表格「先挑尺寸」同一套交互。 -->
   <div v-if="block.cells.length === 0" class="my-1 rounded-lg bg-muted p-3">
+    <!-- 还没有悬浮条可停靠，手柄照旧贴块左缘（定位祖先仍是 BlockItem 的 relative 根）。 -->
+    <slot name="toolbar" />
     <div class="mb-2 text-[11px] text-muted-foreground">选择布局方式</div>
     <div class="flex gap-2">
       <Button
@@ -175,8 +165,6 @@ function onCellDrop(event: DragEvent, cellIndex: number) {
           :dragging="false"
           drop-edge="none"
           in-cell
-          @mouseenter="hoveringCellBlock = true; emit('cell-hover', true)"
-          @mouseleave="hoveringCellBlock = false; emit('cell-hover', false)"
           @insert-after="(id: string, type: BlockType) => onInsertAt(id, type, 1)"
           @insert-before="(id: string, type: BlockType) => onInsertAt(id, type, 0)"
           @retype="onRetype"
@@ -187,14 +175,21 @@ function onCellDrop(event: DragEvent, cellIndex: number) {
     </div>
 
     <!--
-      悬浮工具条，三组功能用分隔线隔开：加/删格子｜布局方式｜列数（仅网格）。
+      悬浮工具条，四组功能用分隔线隔开：块手柄（＋/⋮⋮，由 BlockItem 经 #toolbar 插槽投进来）｜
+      加/删格子｜布局方式｜列数（仅网格）。块手柄停靠在这里而不是贴块左缘：布局块的左缘与
+      格子里首个块的左缘重合，两套手柄会叠在同一坐标上互相盖住。
       下拉触发器带 ChevronDown，与纯文字的「格子」区分「点了直接生效」和「点了弹菜单」。
-      指针在格子内的块上时整条让路（hoveringCellBlock），菜单开着（focus-within）除外。
+      悬停布局块整条就亮（含指针落在格子内的块上时）—— 两套手柄已分处上下两个位置，
+      没有互相遮挡，不必再互斥让路；菜单开着（focus-within）时也不收。
     -->
     <div
-      class="absolute -bottom-3.5 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-full bg-background p-0.5 shadow-island transition-opacity focus-within:opacity-100"
-      :class="hoveringCellBlock ? 'opacity-0' : 'opacity-0 group-hover/layout:opacity-100'"
+      class="absolute -bottom-3.5 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-full bg-background p-0.5 opacity-0 shadow-island transition-opacity group-hover/layout:opacity-100 focus-within:opacity-100"
     >
+      <slot name="toolbar" />
+
+      <span class="mx-0.5 h-4 w-px bg-line" aria-hidden="true" />
+
+      <!-- 加/删格子用网格图标：裸的 +/− 会和左侧块手柄的「＋ 插入块」混淆。 -->
       <Button
         variant="ghost"
         size="sm"
@@ -203,7 +198,7 @@ function onCellDrop(event: DragEvent, cellIndex: number) {
         title="添加格子"
         @click="addLayoutCell(block.id)"
       >
-        <PlusIcon class="size-3" />
+        <Grid2x2PlusIcon class="size-3.5" />
       </Button>
       <Button
         variant="ghost"
@@ -214,7 +209,7 @@ function onCellDrop(event: DragEvent, cellIndex: number) {
         title="删除末尾格子"
         @click="removeLayoutCell(block.id)"
       >
-        <MinusIcon class="size-3" />
+        <Grid2x2XIcon class="size-3.5" />
       </Button>
 
       <span class="mx-0.5 h-4 w-px bg-line" aria-hidden="true" />
