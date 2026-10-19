@@ -1,17 +1,23 @@
 /**
- * 页面级 CSS 的「编辑期格式化 / 落盘紧凑化」。
+ * 抽屉里的源码（页面级 CSS / HTML 块）在编辑期的格式化，以及 CSS 的落盘紧凑化。
  *
- * 文件里的那份 CSS 是**文档数据**，不是构建产物：它跟着笔记走、被人手改、被 git 比对。
+ * 文件里的那份源码是**文档数据**，不是构建产物：它跟着笔记走、被人手改、被 git 比对。
  * 但一条压成一行的 `body{font-family:…}h1{color:#333}` 在抽屉里没法读也没法改。两个
  * 需求方向相反，所以按阶段分开：
  *
- * - **打开抽屉时** `formatCss()` 把它排版成人能读的样子（prettier，只作用于编辑器里的
- *   文本缓冲）；
- * - **提交时** `compactCss()` 再压回紧凑形态 —— 磁盘上永远不会多出 prettier 的缩进。
+ * - **打开抽屉时** `formatCss()` / `formatHtml()` 把它排版成人能读的样子（prettier，
+ *   只作用于编辑器里的文本缓冲）；
+ * - **提交时** CSS 走 `compactCss()` 压回紧凑形态 —— 磁盘上永远不会多出 prettier 的缩进。
+ *
+ * HTML 没有对应的紧凑化：它本来就是按用户写的形态存进围栏注释的（见 `serialize.ts` 的
+ * `htmlBlockHtml`），排版结果直接落盘，文件里不再有「读不出来的单行」可言。
  *
  * 中间那一层刻意分开：格式化是可丢的显示层（prettier 加载失败就退化成原文，不影响读写），
  * 紧凑化是写入路径必须成功的纯函数（不能因为它失败就写不进去）。
  */
+
+/** 抽屉里会走格式化的两种语言。Monaco 的 language id 与 prettier 的 parser 名一一对上。 */
+export type FormatLanguage = "css" | "html"
 
 /** 加载好的 prettier 引擎；`null` = 加载过且失败（不再重试，抽屉退化成原文）。 */
 type Engine = {
@@ -19,51 +25,65 @@ type Engine = {
   plugin: Record<string, unknown>
 }
 
-let engine: Promise<Engine | null> | null = null
+/** 按语言各缓存一份 —— CSS 与 HTML 的插件是两个包，互不牵累。 */
+const engines = new Map<FormatLanguage, Promise<Engine | null>>()
 
 /**
  * 懒加载 prettier。
  *
- * 走 `standalone` + `postcss` 插件而不是完整包：这是浏览器环境，prettier 的 Node 入口
- * 依赖 `fs` / `process`。动态 import 让它只进「页面样式」那条链路 —— 不用这个功能的人
- * 不为它付启动成本。
+ * 走 `standalone` + 按语言的插件而不是完整包：这是浏览器环境，prettier 的 Node 入口
+ * 依赖 `fs` / `process`。动态 import 让它只进「源码抽屉」那条链路 —— 只开 HTML 块的人
+ * 不为 CSS 插件付加载成本，反过来也一样。
  */
-function loadEngine(): Promise<Engine | null> {
-  engine ??= (async () => {
+function loadEngine(language: FormatLanguage): Promise<Engine | null> {
+  const cached = engines.get(language)
+  if (cached !== undefined) return cached
+  const pending = (async () => {
     try {
-      const [standalone, postcss] = await Promise.all([
+      const [standalone, plugin] = await Promise.all([
         import("prettier/standalone"),
-        import("prettier/plugins/postcss"),
+        language === "css" ? import("prettier/plugins/postcss") : import("prettier/plugins/html"),
       ])
       return {
         format: standalone.format as Engine["format"],
         // 插件模块本身就是 `{ parsers, printers }`，没有 default 导出，整个命名空间当插件用。
-        plugin: postcss as unknown as Record<string, unknown>,
+        plugin: plugin as unknown as Record<string, unknown>,
       }
     } catch {
       return null
     }
   })()
-  return engine
+  engines.set(language, pending)
+  return pending
 }
 
 /**
- * 排版一段 CSS，供编辑器显示。
+ * 排版一段源码，供编辑器显示。
  *
- * 空串、解析失败（浏览器不认的写法、引擎没装起来）一律返回 `""`，调用方据此保留原文 ——
- * 格式化是锦上添花，任何情况下都不该挡住「打开抽屉」这件事。
+ * 空串、解析失败（浏览器不认的写法、引擎没装起来、HTML 片段本身残缺）一律返回 `""`，
+ * 调用方据此保留原文 —— 格式化是锦上添花，任何情况下都不该挡住「打开抽屉」这件事。
  */
-export async function formatCss(css: string): Promise<string> {
-  if (css.trim() === "") return ""
-  const loaded = await loadEngine()
+async function formatSource(language: FormatLanguage, source: string): Promise<string> {
+  if (source.trim() === "") return ""
+  const loaded = await loadEngine(language)
   if (loaded === null) return ""
   try {
-    const formatted = await loaded.format(css, { parser: "css", plugins: [loaded.plugin] })
+    const formatted = await loaded.format(source, { parser: language, plugins: [loaded.plugin] })
     // prettier 结尾恒有一个换行，摆进编辑器会多出一行空行。
     return formatted.replace(/\n+$/, "")
   } catch {
     return ""
   }
+}
+
+/** 排版页面级 CSS。 */
+export function formatCss(css: string): Promise<string> {
+  return formatSource("css", css)
+}
+
+/** 排版 HTML 块的原文。 */
+export function formatHtml(html: string): Promise<string> {
+  return formatSource("html", html)
 }
 
 /** 空格可以丢掉的「前一个字符」。 */

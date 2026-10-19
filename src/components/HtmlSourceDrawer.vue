@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue"
 import { Button } from "@/components/ui/button"
 import type { editor as monacoEditor } from "monaco-editor"
-import { compactCss, formatCss } from "@/lib/css-format"
+import { compactCss, formatCss, formatHtml } from "@/lib/source-format"
 import { loadMonaco } from "@/lib/monaco"
 
 /**
@@ -16,9 +16,11 @@ import { loadMonaco } from "@/lib/monaco"
  * 零加载成本。每次打开 `setValue(当前原文)` + 切语言 + 聚焦，不会看到上一次没提交的残稿。
  *
  * **CSS 的格式化只存在于编辑期**：打开时排版成人能读的样子，提交时压回紧凑形态。
- * 磁盘上是紧凑的原文（见 `lib/css-format.ts` 的取舍），由此产生一个必须处理的细节 ——
+ * 磁盘上是紧凑的原文（见 `lib/source-format.ts` 的取舍），由此产生一个必须处理的细节 ——
  * 「打开后什么都没改就点完成」时要把**原文**还回去，而不是把 prettier 的产物当改动
- * 落盘（那会让每次打开都在文件里留下缩进）。
+ * 落盘（那会让每次打开都在文件里留下缩进）。**HTML 同样按这个细节处理**：它没有紧凑化，
+ * 排版结果本来就是可落盘形态，但「没改过就还原文」这条不跟着变 —— 自动排版不该替用户
+ * 改文件。
  *
  * 提交 / 取消都由外层收口：commit 带最终文本上去，close 什么都不动。
  *
@@ -43,16 +45,23 @@ let openSeq = 0
 let shown = ""
 
 const cssMode = computed(() => props.language === "css")
+/** 两种源码都支持格式化；除此之外的语言（将来的 js 块之类）先不接。 */
+const formatMode = computed(() => props.language === "css" || props.language === "html")
+
+/** 按 Monaco 的 language id 选格式化器。只该在 `formatMode` 成立时调用。 */
+function formatFor(language: string, text: string): Promise<string> {
+  return language === "css" ? formatCss(text) : formatHtml(text)
+}
 
 function commit() {
   if (editor === null) return
   const value = editor.getValue()
-  if (!cssMode.value) {
-    emit("commit", value)
+  // 没改过 → 原样还回去（自动排版不算改动）；改过 → CSS 压紧凑，HTML 保留排版的形态。
+  if (value === shown) {
+    emit("commit", props.source)
     return
   }
-  // 没改过 → 原样还回去（连格式化的机会都不给它落盘）；改过 → 紧凑形态。
-  emit("commit", value === shown ? props.source : compactCss(value))
+  emit("commit", cssMode.value ? compactCss(value) : value)
 }
 
 /**
@@ -70,13 +79,13 @@ function replaceAll(text: string) {
   const model = editor.getModel()
   if (model === null) return
   const position = editor.getPosition()
-  editor.executeEdits("page-style-format", [{ range: model.getFullModelRange(), text }])
+  editor.executeEdits("source-format", [{ range: model.getFullModelRange(), text }])
   if (position !== null) editor.setPosition(position)
 }
 
 /** 打开的排版：异步、可放弃 —— 用户已经开始打字或者抽屉已被关掉就不动它。 */
 async function formatOnOpen(seq: number, source: string) {
-  const formatted = await formatCss(source)
+  const formatted = await formatFor(props.language, source)
   if (formatted === "" || formatted === source || seq !== openSeq) return
   if (editor === null || !props.open || editor.getValue() !== source) return
   editor.setValue(formatted)
@@ -87,7 +96,7 @@ async function formatOnOpen(seq: number, source: string) {
 async function formatNow() {
   if (editor === null) return
   const value = editor.getValue()
-  const formatted = await formatCss(value)
+  const formatted = await formatFor(props.language, value)
   if (formatted === "" || formatted === value || editor === null) return
   replaceAll(formatted)
 }
@@ -127,7 +136,7 @@ watch(
     editor.setValue(props.source)
     shown = props.source
     // 不 await：排版要动态加载 prettier（首次几百 KB），不等它才叫「打开就能写」。
-    if (cssMode.value) void formatOnOpen(seq, props.source)
+    if (formatMode.value) void formatOnOpen(seq, props.source)
     // **聚焦必须等滑入动画结束。** 动画进行中抽屉还在 translate-x-full，
     // 焦点元素在 overflow-hidden 表面之外 —— 浏览器会把表面当滚动容器横向滚
     // 去露出它（探针实测 scrollLeft 被顶到抽屉宽度 376px 再随动画弹回），
@@ -165,18 +174,23 @@ onBeforeUnmount(() => {
       >
         <div class="flex flex-none items-center gap-3 border-b border-line px-4 py-2">
           <span class="flex-none whitespace-nowrap text-[12.5px] font-medium">{{ title }}</span>
-          <!-- 排版是编辑期的临时形态，落盘会压回单行 —— 不写出来的话，下一次打开文件的人
-               会以为「格式化」丢了。CSS 模式多一个按钮，这条说明相应短一些。 -->
+          <!-- CSS 的排版是编辑期的临时形态，落盘会压回单行 —— 不写出来的话，下一次打开
+               文件的人会以为「格式化」丢了。HTML 没有紧凑化，排版就是落盘形态，按钮的
+               title 负责把这层差别说清。 -->
           <span class="truncate text-[11px] text-muted-foreground">
             {{ cssMode ? "保存压单行 · Esc 取消" : "Esc 取消 · ⌘/Ctrl + Enter 完成" }}
           </span>
           <div class="flex-1" />
           <Button
-            v-if="cssMode"
+            v-if="formatMode"
             size="sm"
             variant="ghost"
             class="h-7 flex-none px-2.5 text-[11.5px]"
-            title="按 prettier 重新排版（只影响编辑器里的文本，不影响落盘形态）"
+            :title="
+              cssMode
+                ? '按 prettier 重新排版（只影响编辑器里的文本，不影响落盘形态）'
+                : '按 prettier 重新排版（有改动时排版形态跟着落盘）'
+            "
             @click="formatNow"
           >
             格式化

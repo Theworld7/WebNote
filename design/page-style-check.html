@@ -110,7 +110,7 @@ check("抽屉里挂上 Monaco", document.querySelector("[data-html-source-drawer
 
 // ---------- 二、提交：模型、脏态、预览 ----------
 
-// 提交时会把排版过的文本压成紧凑形态（见 lib/css-format.ts），所以「期望值」是压过的样子。
+// 提交时会把排版过的文本压成紧凑形态（见 lib/source-format.ts），所以「期望值」是压过的样子。
 const CSS = "body{background-color:rgb(9,9,9)}p{color:rgb(1,2,3)}"
 const monaco = await import("monaco-editor")
 monaco.editor.getModels().at(-1)?.setValue("body { background-color: rgb(9, 9, 9) } p { color: rgb(1, 2, 3) }")
