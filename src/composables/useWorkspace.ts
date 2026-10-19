@@ -6,7 +6,7 @@ import { CELL_EXCLUDED_TYPES, cloneBlock, countChars, createBlock, createBlockId
 import { createLedgerPreset } from "@/lib/ledger"
 import type { DataTable } from "@/types/data-table"
 import { describeError } from "@/lib/errors"
-import { parseHtml, serializeHtml } from "@/lib/html"
+import { parseNote, serializeHtml } from "@/lib/html"
 import type { DataTableLookup } from "@/lib/html"
 import { createWorkspaceFs } from "@/lib/fs"
 import { NOTE_EXTENSION, TABLE_EXTENSION, checkName, defaultExpanded, fileStem, isNoteFile, isTableFile } from "@/lib/fs/policy"
@@ -89,6 +89,14 @@ function createWorkspace() {
   const tabs = ref<OpenTab[]>([])
   const activePath = ref("")
   const documents = ref<Record<string, Block[]>>({})
+  /**
+   * 每篇笔记的页面级 CSS（`<head>` 里 `<style data-note-style>` 的内容，按路径各一份）。
+   *
+   * 与 `documents` 分开存而不是塞进块列表：它是**文档级**的东西，不是块 —— 塞进块列表
+   * 就得为它造一个「不是块」的块类型，解析器、拖拽、菜单全要为它开特例（见 ADR-0011）。
+   * 生命周期与 `documents` 严格对齐：一起读、一起存、一起丢、一起改名。
+   */
+  const styles = ref<Record<string, string>>({})
   /** 已经读过盘的路径。与 `documents` 分开，见文件头第 1 条。 */
   const loadedPaths = ref(new Set<string>())
   const loadingPaths = ref(new Set<string>())
@@ -138,6 +146,9 @@ function createWorkspace() {
   )
 
   const activeDocument = computed<Block[]>(() => documents.value[activePath.value] ?? [])
+
+  /** 当前激活笔记的页面级 CSS。没有写过时为空串。 */
+  const activeStyle = computed<string>(() => styles.value[activePath.value] ?? "")
 
   /**
    * 当前标签是不是一个数据表。
@@ -201,6 +212,7 @@ function createWorkspace() {
     tabs.value = []
     activePath.value = ""
     documents.value = {}
+    styles.value = {}
     history.clear()
     loadedPaths.value = new Set()
     loadingPaths.value = new Set()
@@ -253,13 +265,16 @@ function createWorkspace() {
         if (tab.dirty || isTableFile(fileName(tab.path)) || !loadedPaths.value.has(tab.path)) continue
         if (tab.path === activePath.value) {
           try {
-            documents.value[tab.path] = parseHtml(await driver.readNote(current, tab.path))
+            const note = parseNote(await driver.readNote(current, tab.path))
+            documents.value[tab.path] = note.blocks
+            styles.value[tab.path] = note.style
           } catch (error) {
             fsError.value = `刷新「${fileName(tab.path)}」失败：${describeError(error)}`
           }
         } else {
           loadedPaths.value = withFlag(loadedPaths.value, tab.path, false)
           delete documents.value[tab.path]
+          delete styles.value[tab.path]
         }
       }
     } catch (error) {
@@ -371,15 +386,17 @@ function createWorkspace() {
 
     loadingPaths.value = withFlag(loadingPaths.value, path, true)
     try {
-      const source = await driver.readNote(current, path)
+      const note = parseNote(await driver.readNote(current, path))
       // 重新读盘 = 语境重开，旧历史对新内容是错位的，必须一并作废；基线随即定格 ——
       // 不等静默窗口，否则「打开即改」的头一笔编辑会并进读盘事件里，撤销不到它。
       history.delete(path)
-      documents.value[path] = parseHtml(source)
+      documents.value[path] = note.blocks
+      styles.value[path] = note.style
       historyOf(path)
     } catch (error) {
       history.delete(path)
       documents.value[path] = [createBlock("text")]
+      styles.value[path] = ""
       historyOf(path)
       fsError.value = `打开「${fileName(path)}」失败：${describeError(error)}`
     } finally {
@@ -448,6 +465,7 @@ function createWorkspace() {
       // 重读盘 = 语境重开，旧历史对新内容是错位的（同 loadDocument）。
       loadedPaths.value = withFlag(loadedPaths.value, path, false)
       delete documents.value[path]
+      delete styles.value[path]
       history.delete(path)
     }
     closeTab(path)
@@ -506,7 +524,7 @@ function createWorkspace() {
     // 引用块在这里被写成**快照**（当前的表格内容），不是指针 —— 导出的文件要能在
     // 没有那个 `.tbl` 的地方双击打开（ADR-0005）。这一步是同步的纯查询：表已经由
     // 数据表注册表读进内存了，这里只是把内容拼进去。
-    const html = serializeHtml(blocks, { title: titleOf(path) }, tableLookup.value)
+    const html = serializeHtml(blocks, { title: titleOf(path), style: styles.value[path] ?? "" }, tableLookup.value)
     try {
       await driver.writeNote(current, path, html)
     } catch (error) {
@@ -652,6 +670,9 @@ function createWorkspace() {
     loadingPaths.value = new Set([...loadingPaths.value].map((path) => migratePath(path, from, to)))
     documents.value = Object.fromEntries(
       Object.entries(documents.value).map(([path, blocks]) => [migratePath(path, from, to), blocks]),
+    )
+    styles.value = Object.fromEntries(
+      Object.entries(styles.value).map(([path, css]) => [migratePath(path, from, to), css]),
     )
   }
 
@@ -815,6 +836,9 @@ function createWorkspace() {
     }
     for (const key of Object.keys(documents.value)) {
       if (isUnder(key, path)) delete documents.value[key]
+    }
+    for (const key of Object.keys(styles.value)) {
+      if (isUnder(key, path)) delete styles.value[key]
     }
     loadedPaths.value = new Set([...loadedPaths.value].filter((key) => !isUnder(key, path)))
     loadingPaths.value = new Set([...loadingPaths.value].filter((key) => !isUnder(key, path)))
@@ -1401,6 +1425,23 @@ function createWorkspace() {
     markDirty()
   }
 
+  // ---- 页面级 CSS ----
+
+  /**
+   * 改当前笔记的页面级 CSS（ADR-0011）。
+   *
+   * 与块正文同一个保存出口（`saveTab` 写进 `<head>`），也共用脏态。**不进撤销历史**：
+   * 历史记的是块列表的快照，为一份 CSS 再造一条并行的撤销栈，成本远大于收益。
+   * 编辑器里改错了就再打开一次重写 —— 抽屉提交前是原文，取消即没有改动。
+   */
+  function setNoteStyle(css: string) {
+    const path = activePath.value
+    if (path === "" || isTableFile(fileName(path))) return
+    if ((styles.value[path] ?? "") === css) return
+    styles.value[path] = css
+    markDirty()
+  }
+
   // ---- 聊天记录 ----
 
   /**
@@ -1562,6 +1603,7 @@ function createWorkspace() {
     // derived
     activeTab,
     activeDocument,
+    activeStyle,
     isActiveTable,
     crumbs,
     charCount,
@@ -1646,6 +1688,8 @@ function createWorkspace() {
     setMermaidSource,
     // html actions
     setHtmlSource,
+    // page style
+    setNoteStyle,
     // chat actions
     setChatMessages,
     // table actions

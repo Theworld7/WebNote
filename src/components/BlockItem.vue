@@ -469,9 +469,13 @@ const bodyClass = computed(() => {
     <div v-else-if="block.type === 'divider'" class="h-px bg-line" />
 
     <div v-else class="relative">
+      <!-- `data-block-type` 是页面级 CSS 预览的选择器改写钩子（见 lib/note-style.ts）：
+           编辑器不把正文渲染成 `<p>` / `<h1>`，没有这个钩子，用户写的
+           `h1 { color: red }` 在编辑器里一条都命中不了。别删。 -->
       <div
         ref="bodyRef"
         :data-editable="block.id"
+        :data-block-type="block.type"
         contenteditable="true"
         spellcheck="false"
         :class="bodyClass"

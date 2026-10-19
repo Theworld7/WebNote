@@ -17,8 +17,11 @@
 <pre id="out">running…</pre>
 
 <script type="module">
-import { parseHtml } from "../src/lib/html/parse.ts"
+import { parseHtml, parseNote } from "../src/lib/html/parse.ts"
 import { blocksToHtml, serializeHtml } from "../src/lib/html/serialize.ts"
+import { scopeCss } from "../src/lib/note-style.ts"
+import { compactCss } from "../src/lib/css-format.ts"
+import { docStyle } from "../src/lib/typography.ts"
 import { orderedIndexes } from "../src/lib/blocks.ts"
 
 const SOURCES = import.meta.glob("../src/data/notes/**/*.html", {
@@ -379,6 +382,120 @@ check(
   mermaidDocHtml.includes('<pre><code class="language-mermaid">graph TD\n  A --&gt; B</code></pre>'),
 )
 check("导出文件里的 mermaid 能被重新解析", same(mermaidDoc, parseHtml(mermaidDocHtml)))
+
+// ---------- 三之二、页面级样式（ADR-0011） ----------
+
+const PAGE_CSS = "body { font-family: Georgia, serif }\nh1 { color: #b42318 }"
+const styledHtml = serializeHtml(sample, { title: "样本", style: PAGE_CSS })
+check("页面样式写进 head 的 data-note-style", styledHtml.includes(`<style data-note-style>\n${PAGE_CSS}\n</style>`))
+check("页面样式往返精确", parseNote(styledHtml).style === PAGE_CSS)
+check("有页面样式时正文不变", same(parseNote(styledHtml).blocks, sample))
+check("没有页面样式时不写该标签", !serializeHtml(sample, { title: "样本" }).includes("data-note-style"))
+check("基础样式不算页面样式", parseNote(serializeHtml(sample, { title: "样本" })).style === "")
+check(
+  "手工写在 head 里的无标记 style 会被收下",
+  parseNote("<!DOCTYPE html><html><head><style>p { color: red }</style></head><body><p>x</p></body></html>").style ===
+    "p { color: red }",
+)
+check(
+  "data-note-base 的基础样式被跳过",
+  parseNote('<html><head><style data-note-base>p{color:blue}</style></head><body><p>x</p></body></html>').style === "",
+)
+check(
+  "正文里的 style 不算页面样式（那是 HTML 块的原文）",
+  parseNote("<html><head></head><body><style>p{color:red}</style><p>x</p></body></html>").style === "",
+)
+
+// 旧版本（页面样式还没打 `data-note-base` 标记时）写的文件：基础样式的 textContent 是
+// `\n${DOC_STYLE}\n`，与 `docStyle()` 差两个边界换行。逐字比较会把**每一篇老笔记**的
+// 整页排版都当成页面样式收下来 —— 正文列被 `body { padding: 3rem }` 重排，HTML 块的
+// iframe 也会被塞进这份 CSS。
+const legacyBase = `<!DOCTYPE html><html><head><style>\n${docStyle()}\n</style></head><body><p>x</p></body></html>`
+check("旧版无标记的基础样式（带边界换行）不算页面样式", parseNote(legacyBase).style === "", parseNote(legacyBase).style.slice(0, 60))
+
+// 已经被那个 bug 存坏的文件：`data-note-style` 里躺着整份基础排版。它和「没写」等价，
+// 认作空，下次存盘就把标签清掉。
+check(
+  "页面样式等于基础排版时认作空（自愈）",
+  parseNote(`<html><head><style data-note-style>${docStyle()}</style></head><body><p>x</p></body></html>`).style === "",
+)
+check(
+  "页面样式只是碰巧以基础排版开头时照旧保留",
+  parseNote(`<html><head><style data-note-style>${docStyle()}p{color:red}</style></head><body><p>x</p></body></html>`).style !== "",
+)
+
+/**
+ * 预览改写：选择器限定到正文列，块级标签映射到块正文的类型钩子。
+ *
+ * 挂一棵真 DOM 比比对字符串可靠 —— `selectorText` 的序列化格式是浏览器的事，
+ * 这里要的只是「正文块被改到、外面的元素没被改到、`body` 落到正文列本身」。
+ */
+{
+  const scope = document.createElement("div")
+  scope.id = "scope-probe"
+  // `data-block-type` 是编辑器里承载 runs 的那个元素（见 BlockItem / lib/note-style.ts）。
+  scope.innerHTML = '<div data-block-type="text" class="lead">in</div><div data-block-type="h2">t</div>'
+  const outside = document.createElement("div")
+  outside.textContent = "out"
+  document.body.appendChild(scope)
+  document.body.appendChild(outside)
+  const styleEl = document.createElement("style")
+  styleEl.textContent = scopeCss(
+    "body { color: rgb(1, 2, 3) } p, :is(.lead, .missing) { font-weight: 700 } h2 { font-size: 40px } @media (min-width: 1px) { p { font-style: italic } }",
+    "#scope-probe",
+  )
+  document.head.appendChild(styleEl)
+  const inside = scope.querySelector(".lead")
+  const heading = scope.querySelector('[data-block-type="h2"]')
+  check("预览：body 落到正文列本身", getComputedStyle(scope).color === "rgb(1, 2, 3)", getComputedStyle(scope).color)
+  check(
+    "预览：p 映射到块正文（含 :is 列表）",
+    getComputedStyle(inside).fontWeight === "700",
+    getComputedStyle(inside).fontWeight,
+  )
+  check("预览：h1~h6 映射到同名标题块", getComputedStyle(heading).fontSize === "40px", getComputedStyle(heading).fontSize)
+  check("预览：@media 里的规则同样被限定", getComputedStyle(inside).fontStyle === "italic", getComputedStyle(inside).fontStyle)
+  check(
+    "预览：不越出正文列",
+    getComputedStyle(outside).fontWeight !== "700" && getComputedStyle(outside).color !== "rgb(1, 2, 3)",
+  )
+  check("预览：空 CSS 产出空串", scopeCss("  \n ", "#scope-probe") === "")
+  styleEl.remove()
+  scope.remove()
+  outside.remove()
+}
+
+// ---------- 三·二、页面样式的落盘形态（紧凑化） ----------
+
+/**
+ * 紧凑化只管空白与分号，**不改值、不删注释**。
+ *
+ * 这份 CSS 是用户的笔记数据，不是构建产物：少几十个字节不值得担一次「写坏了」的风险。
+ * 所以用例的重点是「该留的空白一个字都没少」（字符串、`calc`、后代选择器、转义），
+ * 而不是「压到最短」。
+ */
+const compactCases = [
+  ["基本压缩：换行与缩进消失，块尾分号去掉", "body {\n  color: red;\n}\n\np { margin: 0 }\n", "body{color:red}p{margin:0}"],
+  ["字符串里的空白原样保留", 'p::after {\n  content: "a  b";\n}', 'p::after{content:"a  b"}'],
+  // 注释前后的空格按「分隔符」处理（原本有就留一个），括号内的留白压掉。
+  ["注释保留，内部压成一行", "p /* 左\n   右 */ {\n  color: red;\n}", "p /*左 右*/{color:red}"],
+  ["两个记号之间的注释：补一个空格，别把两个记号粘成一个", "a/**/b {\n  color: red;\n}", "a/**/ b{color:red}"],
+  ["calc 里的空格一个不动", "p {\n  width: calc(100% - 10px);\n}", "p{width:calc(100% - 10px)}"],
+  ["后代选择器的空格保留（a :hover ≠ a:hover）", "a :hover {\n  color: red;\n}", "a :hover{color:red}"],
+  ["媒体查询的 and / 括号前的空格不能被粘掉", "@media (min-width: 600px) and (max-width: 900px) {\n  p {\n    color: red;\n  }\n}", "@media (min-width:600px) and (max-width:900px){p{color:red}}"],
+  ["重复分号与空声明去掉", "p {\n  color: red;;\n}", "p{color:red}"],
+  ["未加引号的 url 内容不动", "p {\n  background: url(data:image/svg+xml;base64,AAA);\n}", "p{background:url(data:image/svg+xml;base64,AAA)}"],
+  ["选择器里的转义整体保留", ".a\\:b {\n  color: red;\n}", ".a\\:b{color:red}"],
+  ["属性选择器的引号内容不动", '[data-x="a b"] {\n  color: red;\n}', '[data-x="a b"]{color:red}'],
+  ["空串与纯空白都产出空串", " \n\t ", ""],
+]
+
+for (const [name, source, expected] of compactCases) {
+  const got = compactCss(source)
+  check(`紧凑化：${name}`, got === expected, `期望 ${JSON.stringify(expected)}，得到 ${JSON.stringify(got)}`)
+  // 写进去的应该是稳定形态：同一份 CSS 再紧凑化一次不该继续变化。
+  check(`紧凑化幂等：${name}`, compactCss(got) === got, JSON.stringify(compactCss(got)))
+}
 
 // ---------- 四、有序列表编号 ----------
 

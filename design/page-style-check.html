@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>页面样式自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; display: flex; flex-direction: column; height: 420px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; }
+  .fail { color: #b42318; }
+</style>
+</head>
+<body>
+<h1>页面级样式：状态栏入口、抽屉提交、正文列预览、落盘与回读</h1>
+<!-- 要等 Monaco 动态加载与真实读盘，抓结果用 CDP 驱动跑：
+     node design/cdp-dump.mjs http://localhost:1420/design/page-style-check.html -->
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import EditorStatusBar from "../src/components/EditorStatusBar.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+
+const out = document.querySelector("#out")
+addEventListener("error", (event) => { out.textContent += "\nERROR " + event.message })
+addEventListener("unhandledrejection", (event) => {
+  out.textContent += "\nREJECT " + String(event.reason) + "\nSTACK " + String(event.reason?.stack ?? "").slice(0, 900)
+})
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  out.textContent = lines.join("\n")
+}
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+async function until(get, ms = 20000) {
+  for (let i = 0; i < ms / 100; i += 1) {
+    const value = get()
+    if (value) return value
+    await wait(100)
+  }
+  return null
+}
+
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("page-style-check", { create: true })
+const file = await dir.getFileHandle("a.html", { create: true })
+let writable = await file.createWritable()
+await writable.write("<p>占位</p>")
+await writable.close()
+window.showDirectoryPicker = async () => dir
+
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    provideSettings()
+    // 真应用里编辑区与状态栏同在 EditorSurface（`data-editor-surface`）之内 —— 抽屉的
+    // Teleport 锚点。检查页直接挂这两个组件，得自己补一个同款容器。
+    return () =>
+      h(
+        "div",
+        { "data-editor-surface": "", class: "relative flex min-h-0 flex-1 flex-col overflow-hidden" },
+        [h(TooltipProvider, null, { default: () => h(BlockEditor) }), h(EditorStatusBar)],
+      )
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+const note = workspace.tree.value.find((node) => node.kind === "note")
+workspace.openFile(note.id)
+for (let i = 0; i < 60 && workspace.activeDocument.value.length < 1; i += 1) {
+  await wait(50)
+}
+await nextTick()
+
+// ---------- 一、入口与抽屉 ----------
+
+const entry = [...document.querySelectorAll("button")].find((button) => button.textContent?.trim() === "页面样式")
+check("状态栏有「页面样式」入口", entry !== undefined, "")
+check("未写样式时编辑器里没有预览标签", document.head.querySelector("style[data-note-style-preview]") === null, "")
+
+check(
+  "抽屉容器常驻（v-show 控显隐）",
+  document.querySelector("[data-html-source-drawer]") !== null &&
+    document.querySelector("[data-html-source-drawer]")?.offsetParent === null,
+  document.querySelector("[data-html-source-drawer]") === null ? "容器不存在" : "容器可见",
+)
+
+entry?.click()
+const drawer = await until(() => document.querySelector("[data-html-source-drawer]"))
+check("点击后抽屉打开", drawer !== null && drawer.offsetParent !== null, "")
+check("抽屉标题是页面样式", drawer?.textContent?.includes("页面样式 · CSS") === true, drawer?.textContent?.slice(0, 40) ?? "")
+await until(() => document.querySelector("[data-html-source-drawer] .monaco-editor"))
+check("抽屉里挂上 Monaco", document.querySelector("[data-html-source-drawer] .monaco-editor") !== null, "")
+
+// ---------- 二、提交：模型、脏态、预览 ----------
+
+// 提交时会把排版过的文本压成紧凑形态（见 lib/css-format.ts），所以「期望值」是压过的样子。
+const CSS = "body{background-color:rgb(9,9,9)}p{color:rgb(1,2,3)}"
+const monaco = await import("monaco-editor")
+monaco.editor.getModels().at(-1)?.setValue("body { background-color: rgb(9, 9, 9) } p { color: rgb(1, 2, 3) }")
+const commit = [...document.querySelectorAll("[data-html-source-drawer] button")].find(
+  (button) => button.textContent?.trim() === "完成",
+)
+commit?.click()
+// v-show 的离开动画（150ms）跑完才落 display:none，等它收尾再断言显隐。
+await wait(300)
+await nextTick()
+
+check("提交后抽屉关闭", document.querySelector("[data-html-source-drawer]")?.offsetParent === null, "")
+check("CSS 进了工作区状态", workspace.activeStyle.value === CSS, JSON.stringify(workspace.activeStyle.value))
+check("笔记被标脏", workspace.activeTab.value?.dirty === true, String(workspace.activeTab.value?.dirty))
+
+const column = document.querySelector("[data-doc]")
+const body = document.querySelector('[data-doc] [data-block-type="text"]')
+check(
+  "预览：body 规则落到正文列",
+  column !== null && getComputedStyle(column).backgroundColor === "rgb(9, 9, 9)",
+  column === null ? "没有正文列" : getComputedStyle(column).backgroundColor,
+)
+check(
+  "预览：p 规则落到块正文（编辑器里正文不是 <p>）",
+  body !== null && getComputedStyle(body).color === "rgb(1, 2, 3)",
+  body === null ? "没有块正文" : getComputedStyle(body).color,
+)
+check("预览标签挂在 head 上且带标记", document.head.querySelector("style[data-note-style-preview]") !== null, "")
+
+// ---------- 三、落盘与回读 ----------
+
+await workspace.save()
+const reopened = await file.getFile()
+const saved = await reopened.text()
+check("盘上有 data-note-style", saved.includes(`<style data-note-style>\n${CSS}\n</style>`), saved.slice(0, 320))
+check("基础样式仍在，且打了 data-note-base", saved.includes("<style data-note-base>"), "")
+
+// 刷新 = 从盘上重读（非脏标签），样式要跟着回来。
+const before = workspace.activeStyle.value
+await workspace.refreshTree()
+await nextTick()
+check("重扫后样式从盘上读回", workspace.activeStyle.value === before && before === CSS, JSON.stringify(workspace.activeStyle.value))
+
+// ---------- 四、取消不改原文 ----------
+
+entry?.click()
+await until(() => document.querySelector("[data-html-source-drawer] .monaco-editor"))
+monaco.editor.getModels().at(-1)?.setValue("p { color: red }")
+const cancel = [...document.querySelectorAll("[data-html-source-drawer] button")].find(
+  (button) => button.textContent?.trim() === "取消",
+)
+cancel?.click()
+await wait(300)
+await nextTick()
+check("取消：样式不动、抽屉关闭", workspace.activeStyle.value === CSS && document.querySelector("[data-html-source-drawer]")?.offsetParent === null, JSON.stringify(workspace.activeStyle.value))
+
+// ---------- 五、编辑期格式化 / 落盘紧凑 ----------
+
+// prettier 是动态加载的，第一次等它排版完（真加载几百 KB，给足时间）。
+const pretty = await (async () => {
+  const baseline = workspace.activeStyle.value
+  entry?.click()
+  await until(() => document.querySelector("[data-html-source-drawer]")?.offsetParent !== null)
+  const text = await until(() => {
+    const value = monaco.editor.getModels().at(-1)?.getValue() ?? ""
+    return value !== baseline && value.includes("\n") ? value : null
+  }, 30000)
+  return { baseline, text }
+})()
+
+check("打开即格式化：单行 CSS 被排成多行", pretty.text !== null, String(pretty.text).slice(0, 120))
+check(
+  "格式化只改排版：选择器与值一个字不少",
+  pretty.text?.includes("background-color: rgb(9, 9, 9);") === true && pretty.text?.includes("p {") === true,
+  String(pretty.text).slice(0, 200),
+)
+
+// 没改就点完成：原文原样还回去 —— 否则每打开一次，文件里就多一层 prettier 的缩进。
+const dirtyBefore = workspace.activeTab.value?.dirty
+commit?.click()
+await wait(300)
+await nextTick()
+check(
+  "没改就完成：状态里的 CSS 仍是原紧凑串",
+  workspace.activeStyle.value === pretty.baseline,
+  JSON.stringify(workspace.activeStyle.value),
+)
+check("没改就完成：不标脏", workspace.activeTab.value?.dirty === dirtyBefore, `${dirtyBefore} → ${workspace.activeTab.value?.dirty}`)
+
+// 真改过才落盘，且落盘的是紧凑形态（单行、无缩进）。
+entry?.click()
+await until(() => document.querySelector("[data-html-source-drawer]")?.offsetParent !== null)
+monaco.editor.getModels().at(-1)?.setValue(
+  "body {\n  background-color: rgb(9, 9, 9);\n}\n\np {\n  color: rgb(4, 5, 6);\n}\n",
+)
+commit?.click()
+await wait(300)
+await nextTick()
+const COMPACT = "body{background-color:rgb(9,9,9)}p{color:rgb(4,5,6)}"
+check("改过就完成：压成单行", workspace.activeStyle.value === COMPACT, JSON.stringify(workspace.activeStyle.value))
+check("改过就完成：标脏", workspace.activeTab.value?.dirty === true, String(workspace.activeTab.value?.dirty))
+
+await workspace.save()
+const compactSaved = await (await file.getFile()).text()
+check("盘上是紧凑形态（不留格式化缩进）", compactSaved.includes(`<style data-note-style>\n${COMPACT}\n</style>`), compactSaved.slice(0, 320))
+
+// 抽屉里的「格式化」按钮：把当前（可能是粘进来的紧凑）文本排开，且可继续编辑。
+entry?.click()
+await until(() => document.querySelector("[data-html-source-drawer]")?.offsetParent !== null)
+const model = monaco.editor.getModels().at(-1)
+model?.setValue("a{color:red}")
+const formatButton = [...document.querySelectorAll("[data-html-source-drawer] button")].find(
+  (button) => button.textContent?.trim() === "格式化",
+)
+check("抽屉里有「格式化」按钮", formatButton !== undefined, "")
+formatButton?.click()
+const reformatted = await until(() => (model?.getValue().includes("\n") === true ? model.getValue() : null), 10000)
+check("点「格式化」当场排版", reformatted !== null && reformatted.startsWith("a {"), JSON.stringify(reformatted))
+
+// 「改一笔 → 点格式化 → 完成」不能把编辑丢掉：格式化只是排版，不是把缓冲还原成打开时的样子。
+commit?.click()
+await wait(300)
+await nextTick()
+check("改过再格式化：落盘仍带上这次编辑", workspace.activeStyle.value === "a{color:red}", JSON.stringify(workspace.activeStyle.value))
+
+// ---------- 六、页面样式里的类，在 HTML 块里生效 ----------
+
+/**
+ * HTML 块渲染在**不带 allow-same-origin** 的沙箱里，父页面读不到子文档 —— 所以让块里的
+ * 脚本自己量、自己报回来。这条链路同时验证了三件事：页面样式被送进了 srcdoc、送进去的
+ * 顺序能让它覆盖 iframe 的基础 reset、以及样式改了之后 iframe 会重载并重新生效。
+ */
+const probes = []
+addEventListener("message", (event) => {
+  if (typeof event.data?.bgProbe === "string") probes.push(event.data)
+})
+
+const anchor = workspace.activeDocument.value[0]
+const htmlBlockId = workspace.insertBlockAfter(anchor.id, "html")
+workspace.setHtmlSource(
+  htmlBlockId,
+  '<div class="bg-demo-block" style="height:24px">块</div>' +
+    "<script>(function(){var b=getComputedStyle(document.body);" +
+    'parent.postMessage({bgProbe:getComputedStyle(document.querySelector(".bg-demo-block")).backgroundColor,' +
+    'padProbe:b.paddingTop,maxProbe:b.maxWidth},"*")})()<\/script>',
+)
+// 页面样式里带一句整页版心：`body { padding: 3rem; max-width: 46rem }` 是导出时的页面边距，
+// 在编辑器里由正文列负责，不能把 HTML 块缩一圈。
+const CLASS_CSS = ".bg-demo-block{background-color:rgb(7,8,9)}body{padding:3rem;max-width:46rem;margin:0 auto}"
+workspace.setNoteStyle(CLASS_CSS)
+await nextTick()
+const firstReport = await until(() => probes[0] ?? null, 8000)
+check("HTML 块里的 class 吃到页面样式（真沙箱 iframe 自报）", firstReport?.bgProbe === "rgb(7, 8, 9)", JSON.stringify(firstReport))
+check("整页版心不进入块里：body padding 被压回 0", firstReport?.padProbe === "0px", String(firstReport?.padProbe))
+check("整页版心不进入块里：body max-width 被清空", firstReport?.maxProbe === "none", String(firstReport?.maxProbe))
+check(
+  "页面样式进了 iframe 的 srcdoc",
+  document.querySelector("iframe")?.getAttribute("srcdoc")?.includes(CLASS_CSS) === true,
+  "",
+)
+
+workspace.setNoteStyle(".bg-demo-block{background-color:rgb(9,8,7)}")
+const secondReport = await until(() => probes.find((entry) => entry.bgProbe === "rgb(9, 8, 7)") ?? null, 8000)
+check("页面样式改后 iframe 重载并重新生效", secondReport !== null, JSON.stringify(probes.map((entry) => entry.bgProbe)))
+
+// ---------- 汇总 ----------
+
+lines.push("")
+lines.push(`自检 ${passed}/${passed + failed}`)
+out.textContent = lines.join("\n")
+out.className = failed === 0 ? "ok" : "fail"
+</script>
+</body>
+</html>

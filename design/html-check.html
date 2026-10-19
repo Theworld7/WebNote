@@ -18,7 +18,7 @@
 
 <script type="module">
 import { parseHtml } from "../src/lib/html/parse.ts"
-import { blocksToHtml } from "../src/lib/html/serialize.ts"
+import { blocksToHtml, serializeHtml } from "../src/lib/html/serialize.ts"
 import { buildHtmlFrameDoc } from "../src/lib/html-frame.ts"
 import { createHtmlBlock, createLayoutBlock, createTextualBlock, blockText, cloneBlock, retypeBlock, BLOCK_TYPES, blockTypeMeta } from "../src/lib/blocks.ts"
 import { textToRuns } from "../src/lib/inline.ts"
@@ -128,6 +128,84 @@ const celledHtml = blocksToHtml(celled)
 check("围栏原样落在 section 内", celledHtml.includes("<section><!--note-html-->"), celledHtml)
 const celledBack = parseHtml(celledHtml)
 check("布局格子内的 HTML 块往返一致", same(celledBack, celled), JSON.stringify(strip(celledBack)))
+
+// ---------- 六·二、页面样式进入 HTML 块（类的可用性） ----------
+
+/**
+ * 导出侧本来就成立：HTML 块原文落在笔记 `<body>` 里，页面样式在 `<head>`，同处一份文档。
+ * 所以真正要验证的是**预览的 iframe** —— 它是独立文档，页面样式不送进去，类就只对导出的
+ * 文件生效。
+ *
+ * 这里用 `allow-same-origin` 是为了从父页面读子文档的 computed style，**只用于探针**；
+ * 真实渲染走 `allow-scripts`（没有 allow-same-origin），见 HtmlBlockView。
+ */
+const PAGE_CSS =
+  ".bg-demo-block{background-color:rgb(1,2,3);height:20px}" +
+  "body{font-family:Georgia,serif;font-size:20px;padding:3rem;max-width:46rem;margin:0 auto;min-height:100vh}"
+
+/** srcdoc = 带页面样式的帧；load 后把子文档里的量交回来。 */
+function probeFrame(source, css) {
+  return new Promise((resolve) => {
+    const frame = document.createElement("iframe")
+    frame.setAttribute("sandbox", "allow-same-origin allow-scripts")
+    frame.style.cssText = "width:600px;height:120px;border:0"
+    frame.srcdoc = buildHtmlFrameDoc(source, css)
+    frame.addEventListener("load", () => {
+      const doc = frame.contentDocument
+      const body = doc?.body
+      const bodyStyle = body === null || body === undefined ? null : getComputedStyle(body)
+      const target = doc?.querySelector(".bg-demo-block")
+      resolve({
+        hasStyleTag: doc?.head.querySelector("style[data-note-style]") !== null,
+        background: target === null || target === undefined ? null : getComputedStyle(target).backgroundColor,
+        fontFamily: bodyStyle === null ? null : bodyStyle.fontFamily,
+        fontSize: bodyStyle === null ? null : bodyStyle.fontSize,
+        paddingTop: bodyStyle === null ? null : bodyStyle.paddingTop,
+        maxWidth: bodyStyle === null ? null : bodyStyle.maxWidth,
+        minHeight: bodyStyle === null ? null : bodyStyle.minHeight,
+      })
+      frame.remove()
+    })
+    document.body.appendChild(frame)
+  })
+}
+
+const styled = await probeFrame('<div class="bg-demo-block">x</div>', PAGE_CSS)
+check("块里的 class 吃到页面样式", styled.background === "rgb(1, 2, 3)", String(styled.background))
+check("页面样式写进 iframe 的 head（带 data-note-style）", styled.hasStyleTag, "")
+check(
+  "页面样式的 body 规则在基础 reset 之后生效",
+  styled.fontFamily?.includes("Georgia") === true && styled.fontSize === "20px",
+  `${styled.fontFamily} / ${styled.fontSize}`,
+)
+// iframe 的 body 是页面上的一个洞：整页版心（padding / max-width / margin auto）由正文列负责，
+// 这里再套一遍就是双重内缩 —— 页面样式里一句 `body { padding: 3rem }` 会让块凭空缩一圈。
+check("整页版心不进入 iframe：body padding 被压回 0", styled.paddingTop === "0px", String(styled.paddingTop))
+check("整页版心不进入 iframe：body max-width 被清空", styled.maxWidth === "none", String(styled.maxWidth))
+// `min-height:100vh` 会把 body 绑到 iframe 视口上，而 iframe 又按上报的 body 高度长大 ——
+// 高度探针的正反馈，必须一并压掉。
+check("整页高度不进入 iframe：body min-height 被压回 0", styled.minHeight === "0px", String(styled.minHeight))
+
+const plain = await probeFrame('<div class="bg-demo-block">x</div>', "")
+check("没有页面样式时类不生效", plain.background !== "rgb(1, 2, 3)", String(plain.background))
+check(
+  "没有页面样式时不注入任何样式标签",
+  plain.hasStyleTag === false &&
+    !buildHtmlFrameDoc("x").includes("data-note-style") &&
+    !buildHtmlFrameDoc("x").includes("max-width:none!important"),
+  "",
+)
+
+// 导出侧同一份文档：类和规则都在文件里 —— 这条不测渲染，只钉住「两份东西没被拆开」。
+const exportedWithClass = serializeHtml([createHtmlBlock('<div class="bg-demo-block">x</div>')], {
+  title: "t",
+  style: PAGE_CSS,
+})
+check(
+  "导出文件里 class 与页面样式同处一份文档",
+  exportedWithClass.includes('class="bg-demo-block"') && exportedWithClass.includes(".bg-demo-block{background-color:rgb(1,2,3)"),
+  exportedWithClass.slice(0, 200),
+)
 
 // ---------- 七、iframe 高度探针（对真 iframe 验证，须等上报，CDP 驱动抓结果） ----------
 

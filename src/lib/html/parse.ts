@@ -3,6 +3,7 @@ import { createBookmarkBlock, createChatBlock, createGalleryBlock, createHtmlBlo
 import { STAT_PRECISION_DEFAULT, STAT_PRECISION_OPTIONS } from "@/lib/data-table"
 import { runsText, textToRuns, trimRuns } from "@/lib/inline"
 import { isTableAlign } from "@/lib/table"
+import { docStyle } from "@/lib/typography"
 import { runsFromNodes } from "./runs-dom"
 import { BLOCK_TAGS, IMAGE_TAG, SKIPPED_TAGS } from "./tags"
 
@@ -22,6 +23,28 @@ import { BLOCK_TAGS, IMAGE_TAG, SKIPPED_TAGS } from "./tags"
  * （见 `design/parse-check.html` 的自检），对脏 HTML 则是先规范化、再稳定。
  */
 export function parseHtml(source: string): Block[] {
+  return parseNote(source).blocks
+}
+
+/** 一篇笔记的解析结果：正文块 + 页面级 CSS。 */
+export interface ParsedNote {
+  blocks: Block[]
+  /** `<head>` 里用户写的页面级 CSS。没有时为空串。 */
+  style: string
+}
+
+/**
+ * 静态 HTML → 笔记。与 `parseHtml` 同一条路，只是把 `<head>` 里的页面样式一并交出来。
+ *
+ * 页面样式的读法（见 ADR-0011）：
+ * - 首选带 `data-note-style` 的那个 `<style>` —— 本程序的规范形态；
+ * - 没有标记的 `<style>` 照收（手工在 head 里写的样式一保存就被抹掉，那是静默丢失），
+ *   但跳过本程序写进去的基础样式：打了 `data-note-base` 的，以及旧版本写过、没有标记
+ *   却与当前 `docStyle()` 逐字相同的那份；
+ * - 只看 `<head>`。正文里的 `<style>`（剪藏页面、HTML 块里的）不进页面样式 ——
+ *   后者属于 HTML 块的原文，收进来会变成两份。
+ */
+export function parseNote(source: string): ParsedNote {
   const doc = new DOMParser().parseFromString(source, "text/html")
   const state: ParseState = { blocks: [] }
 
@@ -44,7 +67,44 @@ export function parseHtml(source: string): Block[] {
     if (title !== "") state.blocks.push(createTextualBlock("h1", textToRuns(title)))
   }
 
-  return state.blocks
+  return { blocks: state.blocks, style: pageStyleOf(doc) }
+}
+
+/** 页面级 CSS 的标签标记，与 `serialize.ts` 的 `pageStyleTag` 对偶。 */
+const NOTE_STYLE_ATTR = "data-note-style"
+const NOTE_BASE_ATTR = "data-note-base"
+
+/** 边界换行不算内容 —— 写端补的 `\n` 不该在往返里越攒越多。 */
+function trimCss(css: string): string {
+  return css.replace(/^\n+/, "").replace(/\n+$/, "")
+}
+
+function pageStyleOf(doc: Document): string {
+  // 写端给 `<style>` 内容补的边界换行不算差异。少了这一层归一化，**每一篇旧笔记**都会
+  // 凭空长出一份页面样式：老文件里基础样式没有 `data-note-base` 标记，它的 textContent 是
+  // `\n${docStyle()}\n`，与 `docStyle()` 差两个换行 —— 于是整页排版（`body { padding: 3rem … }`）
+  // 被当成用户 CSS，落到编辑器正文列上，还会被送进 HTML 块的 iframe。
+  const base = trimCss(docStyle())
+
+  const marked = doc.head.querySelector(`style[${NOTE_STYLE_ATTR}]`)
+  if (marked !== null) {
+    const text = trimCss(marked.textContent ?? "")
+    // 把基础排版原样抄成页面样式，等于什么都没写（它本来就生效）。被上面那个归一化缺位
+    // 误存过一次的文件正是这副样子 —— 认作空，下次存盘顺手清掉。
+    return text === base ? "" : text
+  }
+
+  const parts: string[] = []
+  for (const element of doc.head.querySelectorAll("style")) {
+    if (element.hasAttribute(NOTE_BASE_ATTR)) continue
+    const text = trimCss(element.textContent ?? "")
+    // 旧版本写过、还没打标记的基础样式 —— 与当前规格逐字相同（边界换行不算），
+    // 认作基础样式放行。更早版本的规格变了，那份会被当成页面样式收进来
+    // （用户能在抽屉里看到并删掉）。宁可看得见的冗余，也不要静默丢弃。
+    if (text === base) continue
+    parts.push(text)
+  }
+  return parts.join("\n")
 }
 
 interface ParseState {

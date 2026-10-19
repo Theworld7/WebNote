@@ -7,8 +7,12 @@
  *
  * **一处例外**：含数据表引用块的笔记不精确往返 —— 写出时它是当前表格内容的快照，
  * 读回来是普通表格块。见 ADR-0005 与 `CONTEXT.md` 的「Snapshot exception」。
+ *
+ * 页面级 CSS 也在这条契约里：`parseNote(serializeHtml(blocks, { title, style })).style`
+ * 与 `style` 相等（边界换行不计）。见 ADR-0011。
  */
-export { parseHtml } from "./parse"
+export { parseHtml, parseNote } from "./parse"
+export type { ParsedNote } from "./parse"
 export { blocksToHtml, serializeHtml } from "./serialize"
 export type { DocumentMeta, DataTableLookup } from "./serialize"
 export { runsFromNode, runsFromNodes } from "./runs-dom"

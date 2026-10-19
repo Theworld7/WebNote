@@ -17,6 +17,18 @@ A single document, stored as one `.html` file. It is also the working unit: one 
 in one Tab at a time.
 _Avoid_: Document, page, file
 
+**Page style**:
+The page-level CSS of one Note — what the user writes into the `<style data-note-style>`
+element in the file's `<head>`. It is the whole page's CSS, not content, so it is not a
+Block: it is stored beside the block list and shares its lifecycle. The generated
+typography (`<style data-note-base>`, from `lib/typography.ts`) is a separate element and
+is never part of it — the base regenerates with the app, the page style round-trips as text
+the user wrote (the CSSOM never re-serializes it; the drawer compacts it to one line on save,
+see ADR-0012). The editor previews it scoped to the content column, so `body { … }` reads as
+"this note's page"; HTML blocks live in a sandboxed frame that receives the same CSS
+unscoped, because in the file they are just markup inside that page (ADR-0013). See ADR-0011.
+_Avoid_: Theme, custom CSS (that would include the base typography), style block, stylesheet
+
 **Block**:
 The atomic unit a Note is made of. Blocks are a flat list, not a tree.
 _Avoid_: Element, node, item, paragraph

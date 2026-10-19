@@ -26,6 +26,16 @@ const DOC_STYLE = docStyle()
 export interface DocumentMeta {
   /** 文档标题，写进 `<title>`。一般取文件名去扩展名。 */
   title: string
+  /**
+   * 页面级 CSS —— `<style data-note-style>` 里的内容，用户自己写的。
+   *
+   * 与 `DOC_STYLE` **分两个 `<style>`**：基础排版由 `docStyle()` 生成、随版本更新，
+   * 用户的 CSS 单独一处、原样进出（见 ADR-0011）。合成一个标签的话，解析时要靠字符串
+   * 比对把基础样式剥出来，往返稳定性就悬在一次比对上了。
+   *
+   * 空串（或缺省）不写这个标签。
+   */
+  style?: string
 }
 
 /**
@@ -131,6 +141,9 @@ export function serializeHtml(
   lookupTables?: DataTableLookup,
 ): string {
   const title = meta.title === "" ? "未命名" : meta.title
+  // 边界换行不算内容：写出去的 `\n` 由写端补，解析端掐掉（与代码块的同一手法）。
+  const pageStyle = (meta.style ?? "").replace(/^\n+/, "").replace(/\n+$/, "")
+  const pageStyleTag = pageStyle === "" ? "" : `<style data-note-style>\n${pageStyle}\n</style>\n`
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -138,10 +151,10 @@ export function serializeHtml(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
-<style>
+<style data-note-base>
 ${DOC_STYLE}
 </style>
-</head>
+${pageStyleTag}</head>
 <body>
 ${blocksToHtml(blocks, lookupTables)}
 </body>

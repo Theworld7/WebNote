@@ -11,7 +11,7 @@ const scrollTops = new Map<string, number>()
 
 <script setup lang="ts">
 import type { BlockDropEdge, BlockType, InlineRun } from "@/types/workspace"
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useSettings, CONTENT_WIDTH_PX } from "@/composables/useSettings"
 import { useWorkspace } from "@/composables/useWorkspace"
@@ -19,6 +19,7 @@ import { isTextualBlock, orderedIndexes as orderedIndexesOf } from "@/lib/blocks
 import { BLOCK_DRAG_TYPE, DRAG_HANDLE_SELECTOR, TOP_BLOCK_ROW_SELECTOR, closestBlockId, findEditable, focusBlockById } from "@/lib/dom"
 import { isFileDrag, pickImageFiles, readImageFile } from "@/lib/image"
 import { rangeForOffsets, sliceRuns } from "@/lib/marks"
+import { scopeCss } from "@/lib/note-style"
 import { runsText, runsToHtml } from "@/lib/inline"
 import {
   copyPayload,
@@ -34,6 +35,7 @@ import GalleryInsertDialog from "./GalleryInsertDialog.vue"
 const {
   activePath,
   activeDocument,
+  activeStyle,
   insertBlockAfter,
   insertBlockBefore,
   insertBlockAt,
@@ -92,6 +94,40 @@ const orderedIndexes = computed(() => orderedIndexesOf(activeDocument.value))
 // 档位是运行时值，Tailwind 扫不到拼出来的候选（与 typography.ts 里「类名必须是字面量」同一条立场）。
 const { contentWidth } = useSettings()
 const docStyle = computed(() => ({ maxWidth: `${CONTENT_WIDTH_PX[contentWidth.value]}px` }))
+
+/**
+ * 页面级 CSS 在编辑器内的预览（ADR-0011）。
+ *
+ * 用户写的是整页语义（`body`、`:root`、`h1`），直接注进应用文档会连侧栏和对话框一起
+ * 改掉，所以先经 `scopeCss` 限定到正文列（`[data-doc]`）再挂 —— 改写规则与已知偏差
+ * 见 `lib/note-style.ts`。
+ *
+ * 挂在 `document.head` 而不是模板里渲染一个 `<style>`：`<style>` 元素放哪个位置都会
+ * 全局生效，挂在 head 上至少让它的生命周期一眼可见 —— 本组件卸载（切到数据表标签）
+ * 时一并摘掉。
+ */
+const SCOPE_ROOT = "[data-doc]"
+let previewStyle: HTMLStyleElement | null = null
+
+watchEffect(() => {
+  const css = scopeCss(activeStyle.value, SCOPE_ROOT)
+  if (css === "") {
+    previewStyle?.remove()
+    previewStyle = null
+    return
+  }
+  if (previewStyle === null) {
+    previewStyle = document.createElement("style")
+    previewStyle.dataset.noteStylePreview = ""
+    document.head.appendChild(previewStyle)
+  }
+  previewStyle.textContent = css
+})
+
+onBeforeUnmount(() => {
+  previewStyle?.remove()
+  previewStyle = null
+})
 
 /**
  * + 菜单的插入:`offset` 0 = 当前块上方,1 = 当前块下方。找不到 id(块已被删)

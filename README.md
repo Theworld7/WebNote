@@ -69,7 +69,7 @@ pnpm icon          # 重算应用图标（改 design/icon/icon.tokens.json 之�
 
 | 页面 | 覆盖 |
 |---|---|
-| `parse-check.html` | 解析 / 序列化的往返一致性、宽松解析、序列化产物、有序列表编号 |
+| `parse-check.html` | 解析 / 序列化的往返一致性、宽松解析、序列化产物、有序列表编号、页面级样式（`data-note-style` 往返、基础样式不被误认、**边界换行归一化：旧版无标记的基础样式不算页面样式、被误存成页面样式的基础排版认作空**、head 里手写的无标记 `style` 被收下、预览改写的选择器限定与不越界、落盘紧凑化只动空白） |
 | `inline-check.html` | 真实 `contenteditable` + Range：选区 ↔ 字符偏移、标记切换与切分 |
 | `tab-check.html` | 标签栏保存按钮的显隐规则（挂真实组件驱动状态） |
 | `drag-check.html` | 块拖拽的落点线：位置计算、松手提交、非块拖拽不放行（合成 `DragEvent` 走真实 handler） |
@@ -86,9 +86,10 @@ pnpm icon          # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | `ledger-edit-check.html` | 账目块就地增删改：渲染（行号列 = 整表行序、表头 + 余额列、带符号金额、逐行余额、tfoot 合计与结余）、改（点金额格进编辑态给的是**原始数字**、提交后格值与余额与合计一起重算）、回车跳下一行同列、末行回车退出编辑态、增（表底「记一笔」追加到末位并聚焦新行首格）、删（行号列悬停那颗钮，行号重排）、分组下新行落进「未分组」节、保存后读盘核对（数字类型、被删行不在盘上、新增行与空值键、笔记快照的分组设置与重算合计）；**抖动守卫**（进出编辑态前后表格几何逐项相同：表宽 / 行高 / 列宽，编辑框与格值按钮同框，右对齐列里的编辑框仍靠右 —— 理由见下方注） |
 | `layout-check.html` | 布局块：格子内块 HTML 的递归往返（grid 缺省与三列 / flex / 行内标记 / 多块格子 / 空格子 / 零格子）、宽容解析（非法 `data-layout` 回退 grid、`data-columns` 越界与非数字落回缺省、非 section 子元素忽略）、序列化形态（缺省列数不落存储、flex 不认列数）、`blockText` 投影、导出 CSS 的 grid/flex 规则 |
 | `cell-check.html` | 布局格子增删（挂真实编辑器）：插入/拖入时起底空文本块让位（上下插入、拖入、有内容的文本块不误删、顶层不受影响）、删掉尾随空文本块不回补、删空格子回补起底块、真实 Backspace 键盘链路 |
-| `html-check.html` | HTML 块：登记表（紧挨 mermaid）、序列化「写什么落什么」（注释围栏 `<!--note-html-->` 包原文、script 不转义不剔除、空原文也写围栏）、往返一致性（单块、夹正文中、空原文）、布局格子内嵌（围栏原样落 section、格子内往返）、宽容解析（终止栏缺失收到容器末尾、原文内普通注释保留、无围栏不认领）、模型行为（`blockText` 取原文、cloneBlock、正文转 html 带纯文本投影）、iframe 高度探针（对真 iframe 验证量 body 不量 documentElement：不同初始视口都报内容高度，无正反馈） |
+| `html-check.html` | HTML 块：登记表（紧挨 mermaid）、序列化「写什么落什么」（注释围栏 `<!--note-html-->` 包原文、script 不转义不剔除、空原文也写围栏）、往返一致性（单块、夹正文中、空原文）、布局格子内嵌（围栏原样落 section、格子内往返）、宽容解析（终止栏缺失收到容器末尾、原文内普通注释保留、无围栏不认领）、模型行为（`blockText` 取原文、cloneBlock、正文转 html 带纯文本投影）、iframe 高度探针（对真 iframe 验证量 body 不量 documentElement：不同初始视口都报内容高度，无正反馈）、页面样式进入 iframe（块里的 class 吃到页面样式、写进 head 且排在基础 reset 之后、**整页版心 padding / max-width / min-height 都被压回 0**、空样式不注入任何标签、导出文件里 class 与规则同处一份文档） |
 | `html-drawer-check.html` | HTML 源码抽屉（挂真实编辑器 + Monaco）：空块占位可聚焦、初始不弹抽屉、聚焦占位拉抽屉、Monaco 动态加载挂载、模型写入后「完成」提交进块原文、提交后关闭、「取消」不改原文（编辑器实例常驻复用，显隐开关） |
 | `drawer-jitter-probe.html` | 抽屉抖动守卫（挂真实编辑器 + Monaco）：开抽屉两次（第二次起 Monaco 已缓存、`focus()` 落点最危险），全程捕获 scroll 事件 + 采样表面滚动位置 —— 聚焦若发生在滑入动画期间，`overflow-hidden` 表面会被浏览器当滚动容器横滚（内容横移 = 用户看到的"撑宽抖动"），守卫断言两次打开都零 scroll 事件 |
+| `page-style-check.html` | 页面级样式（挂真实编辑器 + Monaco，ADR-0011 / 0012）：状态栏入口、抽屉常驻与打开、标题「页面样式 · CSS」、Monaco 挂载、提交进工作区并标脏、**正文列内的预览生效**（`body` 落列、`p` 映射到块正文）、落盘写 `data-note-style` 且基础样式仍带 `data-note-base`、重扫从盘上读回、「取消」不改样式、**打开即 prettier 排版 / 没改就完成原样回写 / 改过才压成单行落盘**、抽屉里的「格式化」按钮、**页面样式里的类在 HTML 块里生效**（真沙箱 iframe 自报 computed style、整页版心不进块、改样式后重载重建） |
 | `split-check.html` | 段落中间回车拆块：光标后内容带去新块、两侧保留 marks（跨加粗 run 切开）、DOM 与数据同步、焦点落新块、一步撤销 / 重做；Shift+Enter 软换行不被接管；软换行（`\n`）跟着后半走；段首回车整段后移、末尾回车仍是插空块 |
 
 页面会把每个用例输出成 `OK` / `FAIL` 行，便于用无头浏览器 `--dump-dom` 抠出来做回归。

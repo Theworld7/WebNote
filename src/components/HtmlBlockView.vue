@@ -21,7 +21,7 @@ import HtmlSourceDrawer from "./HtmlSourceDrawer.vue"
  */
 const props = defineProps<{ block: HtmlBlock }>()
 
-const { setHtmlSource } = useWorkspace()
+const { setHtmlSource, activeStyle } = useWorkspace()
 
 const drawerOpen = ref(false)
 
@@ -43,8 +43,15 @@ const height = ref(48)
 /**
  * srcdoc 文档出自 `lib/html-frame.ts` —— 探针量 body 不量 documentElement 的
  * 理由（视口正反馈会把 iframe 永远撑大）写在那边。
+ *
+ * 第二个参数是这篇笔记的页面级 CSS：导出时 HTML 块的原文就落在笔记 `<body>` 里，
+ * 页面样式里的 `.bg-demo-block` 因此能用在这块 HTML 上；沙箱文档是独立文档，不把
+ * 页面样式一起送进去，类就只对导出的文件生效、预览里看不见。
+ *
+ * 页面样式一改（存盘时）srcdoc 就变，iframe 整体重载、块里的脚本重新跑一遍 ——
+ * 在没有 allow-same-origin 的沙箱里，父页面碰不到子文档，srcdoc 是唯一通道。
  */
-const doc = computed(() => buildHtmlFrameDoc(props.block.source))
+const doc = computed(() => buildHtmlFrameDoc(props.block.source, activeStyle.value))
 
 /**
  * 高度上报的守卫：只认自己 iframe 发来的消息（按 `event.source` 认窗口，多个
