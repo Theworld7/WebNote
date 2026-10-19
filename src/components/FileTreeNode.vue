@@ -44,7 +44,8 @@ const isDropTarget = computed(() => isFolder.value && dropTargetPath.value === f
 // 缩进靠 padding 而非嵌套容器的 margin，这样 hover 底色仍是一整行。
 const rowStyle = computed(() => ({ paddingLeft: `${6 + props.depth * 16}px` }))
 
-const ROW = "flex h-7 cursor-default items-center gap-1.5 rounded-md pr-1.5 text-[13px] select-none hover:bg-muted group/row"
+const ROW =
+  "mb-0.5 flex h-7 cursor-default items-center gap-1.5 rounded-md pr-1.5 text-[13px] select-none hover:bg-muted group/row"
 
 /** 行尾菜单按钮：hover 才现身，与 `+` 按钮共用一套观感。 */
 const MENU_BUTTON =
