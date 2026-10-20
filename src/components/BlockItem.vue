@@ -133,10 +133,14 @@ function onInput() {
   setBlockRuns(props.block.id, runs)
   updateHighlight()
 
-  // 空行输入 `/` 唤起类型菜单（convert 模式）。触发字符被吃掉，不留在内容里。
+  // 空行输入 `/` 唤起类型菜单（convert 模式）。触发字符当场吃掉：`/` 是手势不是内容，
+  // 留着的话切成标题 / 引用会把它一起带进新块，取消菜单也会在块里留一个孤零零的斜杠。
   if (openMenu.value === "" && text.trim() === "/") {
     typeMenuMode.value = "convert"
     openMenu.value = "type"
+    element.innerHTML = ""
+    setBlockRuns(props.block.id, [])
+    updateHighlight()
   }
 }
 
