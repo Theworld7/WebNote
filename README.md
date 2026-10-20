@@ -1,175 +1,296 @@
-# WebNote
+<div align="center">
 
-本地优先的 HTML 笔记编辑器。笔记就是磁盘上的普通 `.html` 文件，应用只做**就地读写** ——
-没有私有格式、没有数据库、没有云端账号，删掉这个应用，那些文件照样能双击打开。
+<img src="src-tauri/icons/icon.png" width="104" height="104" alt="WebNote" />
+
+<h1>WebNote</h1>
+
+<p><strong>笔记，就是你自己的网页。</strong></p>
+
+<p>一个本地优先的块式笔记编辑器。<br />
+每篇笔记都是磁盘上一个普通的 <code>.html</code> 文件 —— 应用就地打开、就地保存，<br />
+没有私有格式、没有数据库、没有账号。删掉 WebNote，那些文件照样双击能看。</p>
+
+<p>
+  <a href="https://github.com/Theworld7/WebNote/releases"><img src="https://img.shields.io/github/v/release/Theworld7/WebNote?style=flat-square&color=1D4FD8&label=release" alt="latest release" /></a>
+  <img src="https://img.shields.io/badge/Windows%20%7C%20macOS-1D4FD8?style=flat-square" alt="Windows | macOS" />
+  <img src="https://img.shields.io/badge/Tauri%202%20%2B%20Vue%203-1D4FD8?style=flat-square" alt="Tauri 2 + Vue 3" />
+  <img src="https://img.shields.io/badge/offline-no%20account-64748b?style=flat-square" alt="offline, no account" />
+</p>
+
+<p>
+  <a href="#下载"><strong>下载</strong></a> &nbsp;·&nbsp;
+  <a href="#功能">功能</a> &nbsp;·&nbsp;
+  <a href="#设计取舍">设计取舍</a> &nbsp;·&nbsp;
+  <a href="#从源码构建">从源码构建</a> &nbsp;·&nbsp;
+  <a href="#文档">文档</a>
+</p>
+
+</div>
+
+## 三十秒了解
+
+| 笔记就是一个文件 | 数据在你自己手里 | 数据表不是附件 |
+| :-- | :-- | :-- |
+| 一篇笔记 = 一个 `.html`。应用读的、写的都是它本身，不另存一份。 | 文件躺在你选的任意文件夹里，交给备份盘、同步盘或 Git 管；应用不联网，也没有账号体系。 | `.tbl` 是独立文件，一份数据可被任意多篇笔记同时引用，改一处，所有引用同步。 |
+
+> 别的笔记应用把内容锁进自己的数据库，再给你一个「导出」按钮当出口。
+> WebNote 反过来：没有出口，因为从来没有进口 —— 磁盘上的 HTML 就是唯一真源，
+> 编辑器只是它的一种打开方式。
+
+保存一篇笔记时，写下去的是一个**完整的、能独立打开的网页**：`<!DOCTYPE html>`、`<head>` 里带着
+这份文档的排版样式、`<body>` 里是你写的块。把它发给别人、丢进任何浏览器、十年后再打开，
+看到的都是同一个样子 —— 不依赖 WebNote 存在。
+
+## 功能
+
+### 一块一块地写
+
+正文是一串**块**的平铺列表，不是一棵树。每块自带类型，在空块里敲 `/` 就地把这一块换成别的类型；
+左侧手柄可以把块拖到别的位置，也能拖进版面格子。列表类块用缩进表达层级，序号由编辑器与导出
+各自按同一套规则算出来。
+
+- 文档级撤销 / 重做（`Ctrl/Cmd+Z`、`Ctrl/Cmd+Shift+Z` 或 `Ctrl+Y`）—— 覆盖插入、删除、拖动、换类型，
+  不只是文字输入
+- 跨块选区：按住从一段拖到另一段，`Ctrl/Cmd+C` 连抄几刀，`Backspace` 整片删掉
+- 每篇笔记记住自己的滚动位置，切走再切回来还在原处
+
+### 二十六种块
+
+| 分组 | 块 |
+| :-- | :-- |
+| 基础 | 文本、标题 1–6 |
+| 列表 | 待办、无序列表、有序列表 |
+| 内容 | 引用、代码块（按语言着色）、Mermaid 图、HTML、标注、分割线 |
+| 媒体与数据 | 图片、表格、数据表、画册、书签、看板、账目、统计卡、对话记录 |
+| 版面 | 布局块（2–4 栏网格，或并排换行） |
+
+代码块的正文始终是纯文本，着色只画在重合的另一层上，所以复制出去不带颜色、也不会被颜色改写。
+Mermaid 与 HTML 的源码只在需要时加载，不画图的笔记不必为它们付启动成本。
+
+### 行内格式
+
+选中文字浮出格式条：**加粗**、*斜体*、<u>下划线</u>、~~删除线~~、`行内代码`、高亮，共六种标记，
+外加链接。链接有两种形态 —— 普通文本链接，或者一张小卡片（图标在上、名字在下）；
+卡片形态跟着链接地址一起存进文件，图标从地址推出来，不额外占字段。
+
+行内格式不走浏览器的 `execCommand`：那套 API 产出 `<b>` / `<span style>`，与序列化结果对不上，
+各平台 WebView 的行为也不一致。这里改的是正文的 run 结构，再自己重画。
+
+### 一份数据，六种看法
+
+数据表是一个独立的 `.tbl` 文件（标准 JSON）：列有 id、显示名和类型（文本、数字、日期、选项、勾选、图片），
+行按列 id 存值，数字就是数字、日期就是日期 —— 排序、筛选、求和都靠这一点。数据表没有行数上限。
+
+同一张表，在笔记里可以有六种呈现，**呈现方式是块自己的设置，不是表的一部分**：
+
+| 块 | 它做的事 | 块自己的设置 |
+| :-- | :-- | :-- |
+| 数据表 | 把这张表铺在笔记里，「打开」跳到它自己的标签页改它 | — |
+| 画册 | 每行一张海报卡：图在上、字段在下，就地改 | 列数、图比例、填充方式、隐藏哪些字段 |
+| 书签 | 每行一张链接卡，图标在上、名字在下 | 哪列当名字、哪列当地址 |
+| 看板 | 按某列的值分列，卡片在列间拖动**就是改那一行的值** | 分组列、卡片显示哪些字段 |
+| 账目 | 收入 / 支出两列、带符号金额、逐行余额、节小计与总计 | 两个金额列、是否显示余额、按月还是按列分组 |
+| 统计卡 | 把某一列的数值求和成一个大数字 | 求和列、小数位、可选筛选列 |
+
+所以同一张表可以在两篇笔记里长得完全不同：一篇按状态分组看进度，另一篇按月结算看余额，
+谁都不必复制数据。余额和合计都是**视图算出来的**，永远不写进文件。
+
+### 版面
+
+布局块是笔记里**唯一**的容器块：网格模式分成 2–4 个等宽格子，或者并排换行。每格是一个独立的块列表，
+块可以拖进去、拖出来，格子里的块支持同一套编辑。容器不嵌套 —— 顶层始终是平铺列表，层级只深一层。
+
+### 一篇笔记的 CSS
+
+每篇笔记都能带自己的页面样式，写在文件 `<head>` 的 `<style data-note-style>` 里。它属于这篇笔记，
+会被原样保存、原样导出，双击打开时照样生效。
+
+编辑器里的预览按**正文列**作用域化：你写 `body { max-width: 40rem }`，改的就是这篇笔记的页面版心，
+而不是整个应用。这段 CSS 用 VS Code 的编辑器内核（Monaco）写，打开时自动排版、保存时压成单行 ——
+写的人看结构，文件里不多一行空白。
+
+页面样式里的「浅色 / 深色两套」按**应用当前外观**解析，不是按这台机器的系统外观：`color-scheme` 与
+`@media (prefers-color-scheme: …)` 都会收成当前那一种。读者是应用，就该跟应用走。而导出的文件里
+那段 CSS 保持原样，谁打开它就跟谁的系统。
+
+### HTML 块
+
+需要一点 CSS 才能做出来的东西（分栏、小演示、贴一段现成代码），用一个 HTML 块解决。
+
+源码**逐字**落盘，不转义、不改写，两头用一对 `<!--note-html-->` / `<!--/note-html-->` 注释标记边界
+（浏览器不渲染注释，所以别人双击文件时看到的就是你写的那段）。编辑器里它渲染在沙箱 iframe 里，
+高度跟着内容长，不给滚动条；块里拿得到这篇笔记的页面样式，因为导出的文件里它们本来就是同一份文档。
+
+块里的那张纸也跟着应用外观走：作者没写底色时，画布刷成当前背景色，深色界面里不会突然出现一块白。
+
+### 外观
+
+标签栏最右那颗按钮随时切换，设置面板的**外观**分区里配规则：
+
+| 模式 | 行为 |
+| :-- | :-- |
+| 浅色 / 深色 | 定死，不随任何东西变 |
+| 跟随系统 | 系统换外观时跟着换 |
+| 固定时间 | 两个时刻，到点切换 |
+| 日出日落 | 按城市坐标算本地日出日落（可改成自己的经纬度） |
+
+推导方式是「以此刻反推当前时段」，不是到点执行一次 —— 休眠唤醒、改系统时间、跨时区都不会错位。
+自动模式下那颗按钮只覆盖**当前时段**，下一个切换点（日出、日落、固定时刻、系统外观翻转）就交回自动，
+设置本身不被改掉。日出日落走本地 NOAA 近似式，误差约一分钟，不联网。
+
+切换真的会走遍全应用：正文、表格、浮层、源码抽屉里那套 Monaco（纸面、正文、选区、光标、行号、补全
+浮层都从同一批 token 取色）、HTML 块里的纸，以及**窗口自己那圈原生边框** —— 最后这项是 DWM 画的，
+CSS 碰不到，得由 Rust 侧直接跟系统说话。
+
+### 文件与标签
+
+左侧是你选的目录树，顶部一行搜索按名字过筛。点一下开一篇笔记，一个标签一篇，未保存的标签打点标记，
+关掉它会先问一次。
+
+- 新建笔记 / 数据表 / 文件夹；重命名；删除（文件夹连同其下所有内容，会要求确认）
+- 拖动笔记或文件夹到别的文件夹 —— 是**移动**，不是排序：磁盘上没有「谁在上面」这回事，树永远按名字重排
+- 重名直接拒绝，不会悄悄给你加个 ` (1)`：盘上的名字必须是你打的那个
+- 数据表有未保存改动时，删除会被拒绝 —— 不能出现「保存把已删的文件写回来」这种事
+- 偏好（表格效果、字体、外观）存在应用自己的设置里，工作区打开时另存一份 `webnote.json` 在目录根，
+  换机器重读同一份；它不会写进你的笔记，也就不会让标签变脏
+
+### 观感
+
+界面是浮岛式的：画布一层底色，文件树、标签栏、正文各自是圆角卡片，侧栏宽度可拖。没有多余的边框和分隔线，
+层级靠明暗关系表达。
+
+- **一套排版规格**驱动两处渲染：编辑器里看到的字号、行高、块间距，与导出文件里的完全同源 ——
+  不会出现「编辑器里挺好、双击打开全变了」
+- **表格效果**可选：内容自适应换行不滚动（默认，也是导出的形态），或撑开横向滚动（6px 细滚动条，
+  右缘在还有内容时压一层软阴影）
+- **字体**可换：内容与代码各一个选择框，候选读自本机已安装的字体，缺字自动回落到系统栈
+- 左下角是路径面包屑与字数，右下角是「页面样式」入口
+
+## 设计取舍
+
+没有免费的架构。下面每一条都是选了一个方向、并接受了它的代价：
+
+| 选择 | 得到 | 付出 |
+| :-- | :-- | :-- |
+| 笔记 = 标准 HTML | 任何浏览器都能开，任何工具都能处理，文件寿命与应用无关 | 没有双链图谱、没有数据库式查询；结构比私有格式松 |
+| 数据表是独立文件 | 一份数据多处引用，改一处全同步 | 移动笔记不会带走表；表丢了块会显示「表找不到了」，可以重新指过去 |
+| 引用块导出时写成快照 `<table>` | 导出的文件单独打开也能看到表格内容 | 把这个文件再读回来，得到的是普通表格块 —— 这是**有意的、有边界的不精确往返** |
+| 本地图片内联成 data URI | 笔记自包含，拷给别人不丢图，不依赖「图在哪个相对路径」 | 文件体积约增加三分之一 |
+| 偏好不进笔记 | 同一个文件在哪台机器上都渲染得一样 | 每台机器的显示偏好各自独立 |
+| 只发桌面端（Windows / macOS） | 交互可以只为桌面取舍：拖拽、分栏、内嵌 Monaco | 手机和平板上不能记；Linux 需要自己构建 |
+| 不做云同步、不做账号 | 没有服务端就没有服务端故障、订阅与迁移问题 | 同步要你自己用同步盘或 Git 解决 |
+
+### 它可能不适合你，如果
+
+- 你的笔记主要靠**双向链接和图谱**组织，而不是靠目录与搜索
+- 你需要在**手机或平板上**随时记一笔
+- 你希望有一个账号替你管好备份与多端一致
+
+反过来，如果你写的东西里有表格、代码、图、账本，如果你希望十年后这些文件还能被打开，
+如果你已经在用一个文件夹同步或版本管理自己的资料 —— 它大概正好。
+
+## 下载
+
+安装包在 [Releases](https://github.com/Theworld7/WebNote/releases) 页面：
+
+| 平台 | 文件 |
+| :-- | :-- |
+| Windows 10 / 11（x64） | `WebNote_<版本>_x64-setup.exe`（安装包）、`WebNote_<版本>_x64_en-US.msi` |
+| macOS（Apple Silicon） | `WebNote_<版本>_aarch64.dmg` |
+
+首次打开工作区时选一个文件夹即可 —— 里面已有的 `.html` 会直接出现在树上，不需要导入。
+
+构建产物没有做代码签名，Windows SmartScreen 或 macOS Gatekeeper 可能提示一次确认；不想用预编译包
+就按下一节自己构建。
+
+## 从源码构建
+
+需要 [Node.js](https://nodejs.org/) 22+、[pnpm](https://pnpm.io/)、Rust stable，以及
+[Tauri 2 的系统依赖](https://tauri.app/start/prerequisites/)（Windows 上是 WebView2 + MSVC 工具链，
+macOS 上是 Xcode 命令行工具）。
+
+```bash
+pnpm install
+pnpm tauri dev      # 桌面端：Rust 外壳 + WebView
+pnpm tauri build    # 打包安装包，产物在 src-tauri/target/release/bundle/
+```
+
+其它常用命令：
+
+```bash
+pnpm dev            # 只跑前端，在浏览器里用 File System Access API 读写你选的目录
+pnpm build          # vue-tsc 类型检查 + vite build
+pnpm icon           # 重算应用图标（改 design/icon/icon.tokens.json 之后跑）
+```
+
+浏览器模式走的是同一份前端代码，不是 mock —— 调试、截图、自检页都靠它。差别只有一处：目录句柄
+没法跨会话恢复，所以每次打开都要重新选一次目录。
 
 ## 技术栈
 
 | 层 | 选型 |
-|---|---|
-| 外壳 | Tauri 2（Rust 侧只做目录授权、目录扫描与文本读写） |
+| :-- | :-- |
+| 外壳 | Tauri 2（Rust 侧保持很薄：目录授权、目录扫描、文本读写、原生窗口外观） |
 | 前端 | Vue 3 + TypeScript（`strict` + `noUnusedLocals`，全项目零类型断言） |
 | 构建 | Vite + pnpm |
 | 样式 | Tailwind v4 + shadcn-vue（neutral 主题） |
-
-## 开发
-
-```bash
-pnpm install
-pnpm tauri dev     # 桌面端：Rust + WebView
-pnpm dev           # 只跑前端，走浏览器文件系统实现（调试用）
-pnpm build         # vue-tsc 类型检查 + vite build
-pnpm icon          # 重算应用图标（改 design/icon/icon.tokens.json 之后跑）
-```
-
-## 现在能做什么
-
-- **块模型编辑**：文本、H1–H3、待办、无序 / 有序列表、引用、代码块、标注、分割线、图片、表格、数据表引用块、看板块、账目块（可就地增删改条目）
-- **行内格式**：加粗、高亮 —— 选中文字浮出格式条，键盘走 `Cmd/Ctrl+B` 与 `Cmd/Ctrl+Shift+H`
-- **文件侧**：左侧目录树、标签栏、未保存标记、关标签时拦截确认，新建笔记 / 文件夹 / 数据表，拖动笔记进出文件夹
-- **数据表**：`.tbl` 文件（标准 JSON）是一份**独立文档**，有自己的标签页，能被**任意多篇笔记同时引用**
-  —— 同一路径在运行时映射到同一个响应式对象，改一处立刻反映到所有引用它的窗口（见 ADR-0005）。
-  列有类型（`text` / `number` / `date` / `select` / `checkbox`），可在笔记里通过 `/` 菜单插入引用块，
-  引用块会**顺手新建**同名 `.tbl`（撞名则直接引用已存在的那个）。导出时引用块写成**当前数据的快照 `<table>`**，
-  所以导出的单文件双击就能看到表格，不依赖那个 `.tbl` 在旁
-- **格式透明**：读的是通用 HTML（`<p>` / `<h2>` / `<ul>` / `<table>` / `<mark>` …），
-  别人的文档导进来会被规范化成本项目的写法
-- **设置**：浮岛右侧齿轮打开右侧抽屉，分区（「显示」/「外观」）+ 选项。**显示**首项为
-  **表格效果**：`内容自适应换行不滚动`（默认）/ `表格滚动`。改设置只影响编辑器显示，
-  不写盘、不进笔记文件 —— 导出永远是规范形态，保证「同一个文件在哪台机器上打开都一样」。
-  滚动模式把系统那条 15px 粗滚动条换成 6px 圆角细条（无箭头、色压淡），并用 8px 下内边距
-  把它从表格底边推开（与表格外框圆角同档，不切进弧线），在「右边还有内容」时于右缘压一层内阴影
-- **明暗外观**：标签栏最右那颗按钮手动切，**外观**分区里配规则：`浅色` / `深色`（定死）、
-  `跟随系统`、`固定时间`（两个时刻）、`日出日落`（按系统时区的城市坐标算，可手改成自己的经纬度）。
-  推导是「以此刻反推当前时段」而非到点执行，休眠唤醒 / 改系统时间都不会错位；自动模式下那颗按钮
-  只覆盖当前时段，到下一个切换点（日出、日落、固定时刻、系统外观翻转）就交回自动，设置不会被改掉。
-  **源码抽屉里那套 VS Code 内核的编辑器跟着一起换**：纸面 / 正文 / 选区 / 光标 / 行号 / 补全浮层都从
-  同一批 token 取色（否则深色界面里拉开就是一块纯白），HTML 与 CSS 的语法高亮沿用 VS Code 自带的
-  两套，不另造配色。  **笔记自带的页面样式里「浅色 / 深色两套」也按应用外观解析**（`color-scheme: light dark`
-  与 `@media (prefers-color-scheme: …)`）：预览的读者是应用，不是这台机器的系统 —— 系统浅色而应用深色时，
-  `body { background: Canvas }` 不该把纸面画成白的。**HTML 块里那张纸同样跟应用走**：块是独立文档，
-  父页面的 `.dark` 与 token 都跨不过去，不补的话「自己没画底色」的内容（透明渐变的留白、
-  `.bg-demo-block` 这种只给尺寸的容器）在深色界面里就是一块白；现在画布刷成 `--background`、
-  `color-scheme` 一并钉住，作者在页面样式里明写的底色仍然优先。
-  **窗口自己那圈边框（原生标题栏 + 关闭按钮）也一起换** —— 它是 DWM 画的，读不到 CSS，
-  由 Rust 侧 `set_window_theme` 写 `DWMWA_USE_IMMERSIVE_DARK_MODE`；只调框架的 `setTheme`
-  不够（实测能返回成功、标题栏却纹丝不动）。
-  日出日落走本地 NOAA 近似式（±1 分钟，不联网），极昼极夜整天不断言，坐标填错时面板里那两个
-  今日时刻就是唯一的征兆。见 ADR-0014
+| 编辑器内核 | Monaco（源码抽屉 / 页面样式）、highlight.js（代码块）、mermaid（图块） |
 
 ## 架构约定
 
-项目小，但有几条硬约定，改代码前值得先读：
+项目不大，但有几条硬约定，改代码前值得先读：
 
-- **单一真源**。块类型标识符只在 `lib/blocks.ts` 的 `BLOCK_TYPES`；工作区路径格式只在
-  `lib/paths.ts`；目录扫描的过滤与排序只在 `lib/fs/policy.ts`（桌面端与浏览器端两份
-  `WorkspaceFs` 实现共用）；「什么算列表族」只在 `isListBlock()` 一处；数据表的列类型
-  只在 `lib/data-table.ts` 的 `COLUMN_TYPES`。
-- **正文是 `InlineRun[]`**，不是字符串。需要纯文本时投影（`runsText` / `blockText`），
-  不另存一份字符串字段。
-- **`contenteditable` 必须非受控**：DOM 只在 `onMounted` 写一次，Vue 不回写；格式化后由
-  编辑逻辑自己重画并复原选区。
-- **行内格式走 runs，不走 `execCommand`**：后者产出 `<b>` / `<span style>`，与序列化产物
-  对不上，且各 WebView 行为不一致。
-- **有序列表序号与序列化的分组对齐**：`orderedIndexes()` 镜像 `blocksToHtml` 的建树规则，
-  所以**不相邻的 `<ol>` 各自从 1 起**。两边漂移会让编辑器显示的数字与导出文件里的对不上。
-- **引用块里的 `entry` 必须用 `shallowRef`**：`useTables()` 返回的 `TableEntry` 三个字段
-  本身就是 `Ref`，用 `ref()` 装它会被 Vue 深度解包，`entry.value.table` 退化成
-  `DataTable | null`，于是 `.value` 读到 `undefined`、视图永远停在「正在读取」。
-- **读盘留在 composable、拼 HTML 留在纯函数**：`blocksToHtml` 不能 `await`，
-  所以引用块的表由 `useWorkspace.saveTab` 先 `preload` 进内存，再用可选的
-  `DataTableLookup` 同步查询注入 —— 两边各自仍然可测。
+- **单一真源**。块类型标识符只在 `lib/blocks.ts` 的 `BLOCK_TYPES`；工作区路径格式只在 `lib/paths.ts`；
+  目录扫描的过滤与排序只在 `lib/fs/policy.ts`（桌面端与浏览器端两份 `WorkspaceFs` 实现共用）；
+  「什么算列表族」只在 `isListBlock()` 一处；数据表的列类型只在 `lib/data-table.ts` 的 `COLUMN_TYPES`。
+- **正文是 `InlineRun[]`**，不是字符串。需要纯文本时投影（`runsText` / `blockText`），不另存一份字符串字段。
+- **`contenteditable` 必须非受控**：DOM 只在 `onMounted` 写一次，Vue 不回写；格式化后由编辑逻辑自己
+  重画并复原选区。
+- **行内格式走 runs，不走 `execCommand`**：后者产出 `<b>` / `<span style>`，与序列化产物对不上，
+  且各 WebView 行为不一致。
+- **有序列表序号与序列化的分组对齐**：`orderedIndexes()` 镜像 `blocksToHtml` 的建树规则，所以
+  **不相邻的 `<ol>` 各自从 1 起**。两边漂移会让编辑器显示的数字与导出文件里的对不上。
+- **引用块里的 `entry` 必须用 `shallowRef`**：`useTables()` 返回的 `TableEntry` 三个字段本身就是 `Ref`，
+  用 `ref()` 装它会被 Vue 深度解包，`entry.value.table` 退化成 `DataTable | null`，于是 `.value` 读到
+  `undefined`、视图永远停在「正在读取」。
+- **读盘留在 composable、拼 HTML 留在纯函数**：`blocksToHtml` 不能 `await`，所以引用块的表由
+  `useWorkspace.saveTab` 先 `preload` 进内存，再用可选的 `DataTableLookup` 同步查询注入 ——
+  两边各自仍然可测。
 
 ## 自检
 
-`design/*.html` 是能在浏览器里直接跑的自检页（`pnpm dev` 后访问 `/design/<名字>.html`）：
+没有测试框架，回归靠两条：`pnpm build` 的类型门，以及 `design/*.html` 这批能直接在浏览器里跑的
+自检页（`pnpm dev` 后访问 `/design/<名字>.html`，每个用例输出 `OK` / `FAIL` 行）。
 
-| 页面 | 覆盖 |
-|---|---|
-| `parse-check.html` | 解析 / 序列化的往返一致性、宽松解析、序列化产物、有序列表编号、页面级样式（`data-note-style` 往返、基础样式不被误认、**边界换行归一化：旧版无标记的基础样式不算页面样式、被误存成页面样式的基础排版认作空**、head 里手写的无标记 `style` 被收下、预览改写的选择器限定与不越界、**预览里「浅色 / 深色两套」按应用外观解析**（`color-scheme: light dark` 收成单一值、`Canvas` 跟着变、写死一侧时不改、`prefers-color-scheme` 分支按外观取或丢、混合条件只摘外观那一段）、落盘紧凑化只动空白） |
-| `inline-check.html` | 真实 `contenteditable` + Range：选区 ↔ 字符偏移、标记切换与切分 |
-| `tab-check.html` | 标签栏保存按钮的显隐规则（挂真实组件驱动状态） |
-| `drag-check.html` | 块拖拽的落点线：位置计算、松手提交、非块拖拽不放行（合成 `DragEvent` 走真实 handler） |
-| `typography-check.html` | 排版规格：各级字号 / 行高 / 字重、块间距（含 margin 折叠）、手柄与列表标记的纵向居中、引用与行内 code 的形态、导出文件同一套规格 |
-| `theme-check.html` | 主题色：品牌色 = 图标 tokens 的 `themes.light.bg` 中档（逐通道比对）、`--primary`/`--ring`/`--color-selection-foreground`/`--sidebar-*` 是否都指它、**改 `--color-brand` 时四处一起动**（护住 var() 链不在 `:root` 僵住）、深浅两套的对比度门槛（主按钮字 ≥4.5、选中字 ≥4.5，实测 6.36 / 5.82 / 6.06 / 8.84）、深色选中底比卡片亮、**深色的画布 / 描边与卡片的明暗关系**（画布更暗、描边更亮，照抄浅色常量会让边界糊掉）、语义色没被品牌化（高亮仍黄、危险仍红、脏标记仍橙）。页面同时是可视预览：浅色 / 深色两块面板，挂真实 `Button` 与 `Checkbox` |
-| `theme-mode-check.html` | 外观（ADR-0014，挂真实标签栏）：太阳位置（北京 9 月的日出日落按 UTC 断言、赤道春分昼长、南半球季节、极昼极夜、非法坐标不抛错）、跳变推导（固定时刻的边界与跨零点、非法时刻的规则被跳过、回溯到前一天、下一个跳变跨日）、日出日落模式的两个跳变、**手动覆盖只在当前时段槽有效**、设置整组落盘与合并写、坏值逐字段退回默认（未知模式 / 非法时刻 / 越界或只有一个轴的坐标）、**`.dark` 真的挂上且 `body` 真的画成深底**（计算值走 canvas 转 sRGB，`oklch()` 不能正则抠数字）、按钮文案说「切到哪」 |
-| `create-check.html` | 新建：名字合法性（非法字符 / 保留名 / 首尾空格）、重名与「文件 vs 文件夹同名」拒绝、写盘后单层重扫、文件夹行 `+` 与顶部全局 `+` |
-| `move-check.html` | 移动：`migratePath` 前缀边界、合法/非法落点、冲突拒绝、同目录空操作、源行与落点高亮、五个以路径为键的状态整体换键（含保存落到新路径） |
-| `settings-check.html` | 设置：默认值、面板两选项与勾选态、切换落盘（`webnote:table-effect`）、**两种表格效果的实际渲染几何**（换行=不超容器 / 滚动=撑开且容器可横向滚动）、**细滚动条**（类名挂上、样式表有 6px 的 `::-webkit-scrollbar`、滚动条占高 ≈6px、未退回原生粗条）、**滚动条与表格的间距**（容器下内边距 = 8px、表格底边与滚动条之间有间距）、**右端内阴影的显隐跟随滚动位置**（不在最右显示、最右隐藏、换行模式不出现）及其底边避开滚动条、**字体偏好**（内容 / 代码两个选择框、选择后 `webnote:content-font` / `webnote:code-font` 落盘、`<html>` 的 `--font-sans` / `--font-mono` 换成用户字体并真的被 `body` / `.font-mono` 消费、清回系统默认后存空串且变量回落系统栈）、非法存量值退回默认 |
-| `table-align-check.html` | 表格：列对齐模型（整列一起写、插行列继承）、编辑器与导出的对齐一致、外框/内线/四角内弧的几何 |
-| `data-table-check.html` | 数据表：`.tbl` schema 往返（列顺序 / 原生值 / `null` 空值 / `select` 选项）、宽容解析（认不出的列类型退回 `text`、对不上列的键丢掉、version 超范围抛错）、引用块 → 快照 `<table>` 导出（含无 lookup 的提示态与「读回来是普通表格块」这个有意的不精确往返）、注册表（同路径同一对象、`missing` vs `failed`、preload / 引用计数 / mutate 落盘）、引用块与数据表编辑器的真实渲染 |
-| `gallery-check.html` | 画册块：登记表（紧挨数据表、工厂默认值、cloneBlock 深拷 `hiddenFields`）、快照+指针导出（`data-gallery` 恒写、非默认设置才写 `data-columns`/`data-ratio`/`data-fit`/`data-fields`、图片格 `<img>` 内联、表读不到仍带指针的空表）、宽容解析（缺属性/非法列数/非法与越界比例落回默认、无 `data-gallery` 退化成普通表格块） |
-| `kanban-check.html` | 看板块：登记表（紧挨 bookmark、marker ☰、工厂默认值、cloneBlock 深拷 `displayColumnIds`）、快照+指针导出（`data-kanban` 恒写、非空才写 `data-group`/`data-fields`、缺省不落存储、表头表体快照、`data-fields` 存显示列正向语义）、解析往返（path/groupColumnId/displayColumnIds 一致、快照行丢弃）、宽容解析（缺 `data-group` 落空、缺 `data-fields` 落空数组、无 `data-kanban` 走普通表格）、与画册不混淆（`data-gallery`/`data-kanban` 各按其块认领） |
-| `ledger-check.html` | 账目块：登记表（紧挨 kanban、marker ¥、工厂默认值、cloneBlock 独立）、财务口径纯函数（求和 / 逐行累计余额 / 千分位与带符号金额 / 按月与按列分节 / 预置四列）、快照+指针导出（`data-ledger` 恒写、非空才写 `data-income`/`data-expense`/`data-group-mode`、`data-balance="false"` 才写、节标题行带小计、tfoot 合计带结余、未设列退化为纯表格）、解析往返、宽容解析（缺属性落默认、非法 `data-group-mode` 落 none、无 `data-ledger` 走普通表格）、与画册/看板不混淆 |
-| `ledger-edit-check.html` | 账目块就地增删改：渲染（行号列 = 整表行序、表头 + 余额列、带符号金额、逐行余额、tfoot 合计与结余）、改（点金额格进编辑态给的是**原始数字**、提交后格值与余额与合计一起重算）、回车跳下一行同列、末行回车退出编辑态、增（表底「记一笔」追加到末位并聚焦新行首格）、删（行号列悬停那颗钮，行号重排）、分组下新行落进「未分组」节、保存后读盘核对（数字类型、被删行不在盘上、新增行与空值键、笔记快照的分组设置与重算合计）；**抖动守卫**（进出编辑态前后表格几何逐项相同：表宽 / 行高 / 列宽，编辑框与格值按钮同框，右对齐列里的编辑框仍靠右 —— 理由见下方注） |
-| `layout-check.html` | 布局块：格子内块 HTML 的递归往返（grid 缺省与三列 / flex / 行内标记 / 多块格子 / 空格子 / 零格子）、宽容解析（非法 `data-layout` 回退 grid、`data-columns` 越界与非数字落回缺省、非 section 子元素忽略）、序列化形态（缺省列数不落存储、flex 不认列数）、`blockText` 投影、导出 CSS 的 grid/flex 规则 |
-| `cell-check.html` | 布局格子增删（挂真实编辑器）：插入/拖入时起底空文本块让位（上下插入、拖入、有内容的文本块不误删、顶层不受影响）、删掉尾随空文本块不回补、删空格子回补起底块、真实 Backspace 键盘链路 |
-| `html-check.html` | HTML 块：登记表（紧挨 mermaid）、序列化「写什么落什么」（注释围栏 `<!--note-html-->` 包原文、script 不转义不剔除、空原文也写围栏）、往返一致性（单块、夹正文中、空原文）、布局格子内嵌（围栏原样落 section、格子内往返）、宽容解析（终止栏缺失收到容器末尾、原文内普通注释保留、无围栏不认领）、模型行为（`blockText` 取原文、cloneBlock、正文转 html 带纯文本投影）、iframe 高度探针（对真 iframe 验证量 body 不量 documentElement：不同初始视口都报内容高度，无正反馈）、页面样式进入 iframe（块里的 class 吃到页面样式、写进 head 且排在基础 reset 之后、**整页版心 padding / max-width / min-height 都被压回 0**、空样式不注入任何标签、导出文件里 class 与规则同处一份文档、**块里那张纸跟应用外观走**（纸 = 应用 `--background` 的实绘色、深色下不是白、`.bg-demo-block` 自己不画底色、子文档的 `color-scheme` 被钉住且 `Canvas` 跟着变、写死 `light` 的不被掰弯、`@media (prefers-color-scheme)` 按外观取分支、作者明写 `html` 底色时作者赢） |
-| `html-drawer-check.html` | HTML 源码抽屉（挂真实编辑器 + Monaco）：空块占位可聚焦、初始不弹抽屉、聚焦占位拉抽屉、Monaco 动态加载挂载、模型写入后「完成」提交进块原文、提交后关闭、「取消」不改原文（编辑器实例常驻复用，显隐开关）、**外观跟随**（编辑器纸面在浅色 / 深色下都等于 `--background`、深色下确实变暗而不是纯白、换外观不重建实例与 model、切回去跟着回来） |
-| `drawer-jitter-probe.html` | 抽屉抖动守卫（挂真实编辑器 + Monaco）：开抽屉两次（第二次起 Monaco 已缓存、`focus()` 落点最危险），全程捕获 scroll 事件 + 采样表面滚动位置 —— 聚焦若发生在滑入动画期间，`overflow-hidden` 表面会被浏览器当滚动容器横滚（内容横移 = 用户看到的"撑宽抖动"），守卫断言两次打开都零 scroll 事件 |
-| `page-style-check.html` | 页面级样式（挂真实编辑器 + Monaco，ADR-0011 / 0012）：状态栏入口、抽屉常驻与打开、标题「页面样式 · CSS」、Monaco 挂载、提交进工作区并标脏、**正文列内的预览生效**（`body` 落列、`p` 映射到块正文）、落盘写 `data-note-style` 且基础样式仍带 `data-note-base`、重扫从盘上读回、「取消」不改样式、**打开即 prettier 排版 / 没改就完成原样回写 / 改过才压成单行落盘**、抽屉里的「格式化」按钮、**页面样式里的类在 HTML 块里生效**（真沙箱 iframe 自报 computed style、整页版心不进块、改样式后重载重建）、**深色外观下 `background: Canvas` 的纸面不再是白的**（`color-scheme` 与 `@media (prefers-color-scheme)` 都按应用外观取，切回浅色跟着白回来，写死 `light` 的不被掰弯） |
-| `split-check.html` | 段落中间回车拆块：光标后内容带去新块、两侧保留 marks（跨加粗 run 切开）、DOM 与数据同步、焦点落新块、一步撤销 / 重做；Shift+Enter 软换行不被接管；软换行（`\n`）跟着后半走；段首回车整段后移、末尾回车仍是插空块 |
+| 区域 | 页面 |
+| :-- | :-- |
+| 解析与往返 | `parse-check`、`inline-check` |
+| 编辑器交互 | `tab-check`、`toolbar-check`、`sidebar-check`、`drag-check`、`split-check`、`cell-check`、`undo-check` |
+| 块类型 | `table-check`、`table-align-check`、`data-table-check`、`gallery-check`、`kanban-check`、`ledger-check`、`ledger-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`mermaid-check` |
+| 样式与外观 | `typography-check`、`theme-check`、`theme-mode-check`、`page-style-check`、`settings-check` |
+| 文件操作 | `create-check`、`move-check` |
+| 其它 | `drawer-jitter-probe`（抽屉抖动守卫）、`icon-check`（图标观感） |
 
-页面会把每个用例输出成 `OK` / `FAIL` 行，便于用无头浏览器 `--dump-dom` 抠出来做回归。
+其中有几页要等一次真实的读盘（挂真实编辑器、有顶层 `await`），`--dump-dom` 抓不到结果，用配套的
+CDP 驱动：`node design/cdp-dump.mjs http://localhost:1420/design/<名字>.html`（加 `SHOT=/tmp/x.png`
+可整页截图）。改到哪一层就跑哪一页，映射写在 [AGENTS.md](AGENTS.md)。
 
-> `drag-check.html` 与 `typography-check.html` 要等一次真实读盘（`bootstrap` → 扫目录 → 读笔记），
-> 脚本里有顶层 `await`，`--dump-dom` 在 load 时就 dump 了、抓不到结果。用配套的 CDP 驱动：
-> `node design/cdp-dump.mjs http://localhost:1420/design/drag-check.html`。
-> 想看排版观感就加个环境变量整页截图：`SHOT=/tmp/x.png node design/cdp-dump.mjs <url>`。
->
-> `data-table-check.html` 同理（它要挂真实组件、等读盘回来）。
-> `ledger-edit-check.html` 也是（挂真实编辑器 + OPFS，合成事件走一遍增删改，末了真写盘再读回来核对）。
-> `undo-check.html` 与 `split-check.html` 也是（挂真实编辑器 + OPFS）。
->
-> 账目块的格值按钮与编辑框为什么一个在流里、一个绝对定位浮在上面（而不是直接二选一渲染）：
-> 表格是 auto 布局，列宽由「格里内容的最大宽度」算出来。`<input>` 自带约 20 字符的
-> intrinsic 宽度（`size` 属性的默认值），而 `w-full` 这类百分比宽度在**算内在尺寸时退化为
-> auto** —— 一旦让输入框顶掉按钮，它就把整列从 ~126px 撑到 ~220px，其余列被挤走，点一下
-> 整张表横向抖一次。让按钮留在流里定住列宽、输入框 `inset-0` 浮上去，几何就一动不动；
-> 顺带把 `text-align` 显式写死（`input` 的计算值是 UA 的 `start`，不继承 `td` 的 `right`，
-> 否则数字一进编辑态就跳到左边）。看板卡没这个问题：卡片宽度被 `w-56 shrink-0` 的列定死，
-> 输入框不参与列宽计算。
+> `src/data/notes/**` 是本地私人的测试工作区，已从仓库排除。缺它时 `parse-check.html` 会改跑内置样本，
+> 不会因此变红。
 
-> `src/data/notes/**` 是本地私人的测试工作区，已从仓库排除。缺它时 `parse-check.html`
-> 会改跑内置样本，不会因此变红。
+## 文档
 
-## 应用图标
+| 文件 | 内容 |
+| :-- | :-- |
+| [CONTEXT.md](CONTEXT.md) | 领域词汇与「避免用词」—— 命名、注释、界面文案之前先读它 |
+| [AGENTS.md](AGENTS.md) | 给智能体/新人的入口：硬约定索引、改哪层跑哪页 |
+| [docs/adr](docs/adr) | 架构决策记录 —— 每个反直觉的设计都有一篇解释 |
 
-macOS 26（Tahoe）风格：**全出血超椭圆**（`|x/512|^5 + |y/512|^5 = 1`，铺满 1024 画布）、
-玻璃分层、上缘镜面高光、明暗两套外观。
+应用图标的真源是 `design/icon/icon.tokens.json`（几何、配色、构图），界面主题色 `--color-brand`
+直接取图标背景蓝的中间档，所以「主题色」在全项目只有一个地方可改；`pnpm icon` 会重新生成 SVG、
+跑结构自检、再渲染出各档位图。相关取舍见 [docs/adr/0010](docs/adr/0010-theme-color-is-the-icon-background.md)。
 
-真源只有 `design/icon/icon.tokens.json`（几何 + 配色 + 构图），两边都只读它：
-
-| 产出 | 由谁生成 | 给谁用 |
-|---|---|---|
-| `src-tauri/icons/webnote-icon.svg`、`layers/*.svg` | `design/icon/icon.mjs` | 人看、以及拖进 Icon Composer 做原生 `.icon` |
-| `src-tauri/icons/*.png` / `icon.icns` / `icon.ico` | `design/icon/rasterize.py` | Tauri 打包、Dock、窗口图标 |
-| `design/icon-check.html` | 手写 | 浏览器里核观感（分档尺寸 / 深浅底 / Dock） |
-| `src/style.css` 的 `--color-brand` | 手写（**取值镜像 tokens**） | 界面主题色：主按钮 / 勾选 / 焦点环 / 选中态字色 |
-
-```bash
-pnpm icon                                      # 三件套：生成 SVG → 自检 → 渲染位图
-node design/icon/verify.mjs                    # 只跑 SVG 结构自检
-python design/icon/rasterize.py --preview      # 只出预览图，不动 icons/
-```
-
-`verify.mjs` 不只是「文件存在」：它把 SVG 重新解析一遍，验外接盒正好 1024×1024、
-背景锚点回代超椭圆方程残差 < 0.5px、面板与折角的每个锚点都落在 tokens 上、
-所有 `url(#…)` 引用都有定义。**为什么位图用 Python 而不是无头浏览器光栅化 SVG**：
-这台机器的 DSH 沙箱里 Vite dev server 起不来（`spawn EPERM`），浏览器这条路不可靠；
-改成「同一份 tokens、两个渲染器」，代价是两者一致性得靠 `icon-check.html` 肉眼兜底。
-
-`design/icon/size-ladder.png` 是 256 → 16 的分档对照（上排浅色、下排深色）。
-16px 那一档只剩一个蓝色圆角方块是正常的 —— 换任何图标都一样。
-`design/icon/preview-{light,dark}.png` 是两套外观的 1024 原图（`rasterize.py --preview` 的产物）。
-
-### 图标背景色 = 界面主题色
-
-界面那支蓝不是另定的色号，就是图标背景渐变（`themes.light.bg` 的中档 `#1D4FD8`）；
-深色外观取图标深色变体的高光蓝（`themes.dark.glow`）、选中态字色取深色变体的字形蓝
-（`themes.dark.glyph`）。`--color-brand` 是主题色的**唯一**定义处，`--primary`、
-`--ring`、`--color-selection-foreground`、`--sidebar-primary` 全都指它，
-所以「主题色」在代码里只有一个地方可改。改图标配色的同时要改 `--color-brand`，
-`design/theme-check.html` 会核对两边是否还对得上，并守住对比度门槛 —— 详见
-`docs/adr/0010`。
-
+<div align="center">
+<br />
+<sub>笔记是你写的，文件也该是你的。</sub>
+</div>

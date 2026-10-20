@@ -42,7 +42,7 @@ WebNote:本地优先的块式笔记编辑器。笔记 = 磁盘上的普通 `.htm
 (挂真实编辑器,走 CDP 驱动),改写规则与紧凑化本身在 `parse-check`;动 HTML 块的沙箱文档 /
 高度探针 / 块里那张纸(画布底色与 `pinScheme`)→ `html-check`;动源码抽屉(打开 / 提交 / 取消)或抽屉里 Monaco 的配色
 (`lib/monaco-theme.ts`)→ `html-drawer-check`。
-覆盖明细见 README「自检」一节。
+自检页清单见 README「自检」一节,每页具体断言读该页脚本里的 `check(...)` 用例。
 
 ## 写代码
 
