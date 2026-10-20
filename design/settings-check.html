@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <title>设置面板自检</title>
 <style>
-  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  /* 不写 font 简写：body 的家族必须由应用样式表的 @apply font-sans 决定，
+     探针自己写一套会把被测链路盖掉（量到的就是探针的字体栈）。 */
+  body { font-size: 13px; line-height: 1.6; margin: 0; padding: 24px; color: #1c1c1e; }
   h1 { font-size: 15px; margin: 0 0 12px; }
   #app { margin: 0 0 16px; }
   pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
@@ -53,6 +55,10 @@ const STORAGE_KEY = "webnote:table-effect"
 window.localStorage.removeItem(STORAGE_KEY)
 const WIDTH_KEY = "webnote:content-width"
 window.localStorage.removeItem(WIDTH_KEY)
+const FONT_KEY = "webnote:content-font"
+const CODE_FONT_KEY = "webnote:code-font"
+window.localStorage.removeItem(FONT_KEY)
+window.localStorage.removeItem(CODE_FONT_KEY)
 
 // ---------- 挂真实组件：设置面板 + 一个宽表格 ----------
 
@@ -423,6 +429,91 @@ if (shadow instanceof HTMLElement && getComputedStyle(shadow).display !== "none"
       `同一容器内阴影数量=${shadow.parentElement?.querySelectorAll(".table-scroll-shadow").length}`,
   )
 }
+
+// ---------- 四点五、字体 ----------
+//
+// 两层分开验：偏好落盘（localStorage）与它真的长到渲染上（<html> 内联的
+// --font-sans / --font-mono，以及 body、.font-mono 元素确实消费到它们）。
+// 浏览器路径下字体列表走内置候选（headless 没有 queryLocalFonts 权限），
+// 所以候选项里一定有下面点名的那两个 —— 量的是链路，不是「这台机器装没装」。
+
+note("字体")
+await new Promise((resolve) => setTimeout(resolve, 700))
+
+function fontTriggers() {
+  return [...document.querySelectorAll('button[aria-label^="字体："]')]
+}
+function fontVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+}
+
+check("面板里有内容 / 代码两个字体选择框", fontTriggers().length === 2, String(fontTriggers().length))
+check(
+  "初始两项都是「系统默认」",
+  fontTriggers().length === 2 && fontTriggers().every((node) => node.textContent.includes("系统默认")),
+  JSON.stringify(fontTriggers().map((node) => node.textContent.trim())),
+)
+check("默认下 --font-sans 是系统栈", fontVar("--font-sans").includes("sans-serif"), fontVar("--font-sans"))
+
+/** 点开第 index 个选择框并选一项。列表项文本就是字体名（对勾没有文字），trim 后精确匹配。 */
+async function pickFont(index, name) {
+  const trigger = fontTriggers()[index]
+  if (trigger === undefined) return false
+  trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))
+  trigger.click()
+  await new Promise((resolve) => setTimeout(resolve, 250))
+  const pop = document.querySelector('[data-slot="popover-content"]')
+  if (pop === null) return false
+  const item = [...pop.querySelectorAll("button")].find((node) => node.textContent.trim() === name)
+  if (item === undefined) return false
+  item.click()
+  await new Promise((resolve) => setTimeout(resolve, 120))
+  return true
+}
+
+check("能选到内容字体", await pickFont(0, "Microsoft YaHei"))
+check(
+  "内容字体落盘",
+  window.localStorage.getItem(FONT_KEY) === "Microsoft YaHei",
+  String(window.localStorage.getItem(FONT_KEY)),
+)
+check(
+  "--font-sans 前置了用户字体",
+  fontVar("--font-sans").startsWith('"Microsoft YaHei"'),
+  fontVar("--font-sans"),
+)
+check(
+  "body 实际用上（computed 含该字体）",
+  getComputedStyle(document.body).fontFamily.includes("Microsoft YaHei"),
+  getComputedStyle(document.body).fontFamily,
+)
+
+// .font-mono 这条 utility 页面里没人用，挂个探针元素量它 —— 与代码块消费的是同一条规则。
+const monoProbe = document.createElement("div")
+monoProbe.className = "font-mono"
+document.body.appendChild(monoProbe)
+check("能选到代码字体", await pickFont(1, "Consolas"))
+check(
+  "代码字体落盘",
+  window.localStorage.getItem(CODE_FONT_KEY) === "Consolas",
+  String(window.localStorage.getItem(CODE_FONT_KEY)),
+)
+check(
+  "--font-mono 前置了用户字体",
+  fontVar("--font-mono").startsWith('"Consolas"'),
+  fontVar("--font-mono"),
+)
+check(
+  ".font-mono 元素 computed 含该字体",
+  getComputedStyle(monoProbe).fontFamily.includes("Consolas"),
+  getComputedStyle(monoProbe).fontFamily,
+)
+monoProbe.remove()
+
+check("能清回系统默认", await pickFont(0, "系统默认"))
+check("清回后变量里没有用户字体", !fontVar("--font-sans").includes("Microsoft YaHei"), fontVar("--font-sans"))
+check("清回后存的是空串（表示跟随系统）", window.localStorage.getItem(FONT_KEY) === "",
+  String(window.localStorage.getItem(FONT_KEY)))
 
 // ---------- 五、坏值防御 ----------
 

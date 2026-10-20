@@ -1,7 +1,9 @@
 import type { InjectionKey, Ref } from "vue"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
+import type { FontFaceKind } from "@/lib/fonts"
 import type { TableEffect } from "@/types/workspace"
 import { inject, provide, ref, watch } from "vue"
+import { CODE_FONT_VAR, CONTENT_FONT_VAR, fontStack } from "@/lib/fonts"
 
 /**
  * 应用设置 —— 用户偏好，与工作区数据完全正交。
@@ -90,6 +92,24 @@ function readMenuGroupLayout(): MenuGroupLayout {
 }
 
 /**
+ * 字体 —— 内容字体与代码字体各一项，值是一个 family 名，空串表示「系统默认」。
+ *
+ * 存 family 名而不是整条 CSS 栈：栈由 `lib/fonts.ts` 现拼（用户字体 + 系统栈兜底），
+ * 系统栈改了旧值不用迁移。名字为空的语义是「没选」，比存一个哨兵字符串干净。
+ */
+const CONTENT_FONT_KEY = "webnote:content-font"
+const CODE_FONT_KEY = "webnote:code-font"
+
+/** family 名的长度上限：容得下任何真实字体名，也挡住把整份 CSS 塞进配置文件的坏值。 */
+const FONT_NAME_MAX = 120
+
+function readFontName(key: string): string {
+  const raw = window.localStorage.getItem(key)
+  if (raw === null) return ""
+  return raw.length <= FONT_NAME_MAX ? raw : ""
+}
+
+/**
  * 工作区根目录下的应用配置文件。
  *
  * localStorage 跟着浏览器走，换目录 / 换机器就丢了；这份文件让偏好**跟着工作区走**。
@@ -103,6 +123,8 @@ interface PreferenceFile {
   tableEffect?: TableEffect
   contentWidth?: ContentWidth
   menuGroupLayout?: MenuGroupLayout
+  contentFont?: string
+  codeFont?: string
 }
 
 /** 从盘上文本解析偏好。文件坏了 / 字段非法都不抛错，非法字段退回「不覆盖」。 */
@@ -117,10 +139,15 @@ function parsePreferenceFile(text: string): PreferenceFile {
   const source = data
   const pick = <T extends string>(candidates: readonly T[], value: unknown): T | undefined =>
     candidates.find((item) => item === value)
+  // 字体名不做候选表收窄（本机字体集因人而异），只卡类型和长度；空串是合法值（系统默认）。
+  const pickFont = (value: unknown): string | undefined =>
+    typeof value === "string" && value.length <= FONT_NAME_MAX ? value : undefined
   return {
     tableEffect: pick(TABLE_EFFECTS, source["tableEffect"]),
     contentWidth: pick(CONTENT_WIDTHS, source["contentWidth"]),
     menuGroupLayout: pick(MENU_GROUP_LAYOUTS, source["menuGroupLayout"]),
+    contentFont: pickFont(source["contentFont"]),
+    codeFont: pickFont(source["codeFont"]),
   }
 }
 
@@ -140,6 +167,12 @@ interface Settings {
   /** 块菜单分组的排布方向。同上，`ref` 且只经 setter 写。 */
   menuGroupLayout: Ref<MenuGroupLayout>
   setMenuGroupLayout: (value: MenuGroupLayout) => void
+  /** 内容字体（正文与界面）。空串 = 系统默认栈。 */
+  contentFont: Ref<string>
+  setContentFont: (value: string) => void
+  /** 代码字体（代码块、行内 code、HTML 抽屉的 Monaco）。空串 = 系统默认栈。 */
+  codeFont: Ref<string>
+  setCodeFont: (value: string) => void
   /**
    * 接上工作区这对 driver / root。接上后工作区根的 `webnote.json`（见
    * `PREFERENCE_FILE`）成为第二份存储：启动 / 换目录时读取并应用，文件内容
@@ -174,6 +207,40 @@ function createSettings(): Settings {
     void persistToStore()
   }
 
+  const contentFont = ref(readFontName(CONTENT_FONT_KEY))
+
+  function setContentFont(value: string) {
+    contentFont.value = value
+    window.localStorage.setItem(CONTENT_FONT_KEY, value)
+    void persistToStore()
+  }
+
+  const codeFont = ref(readFontName(CODE_FONT_KEY))
+
+  function setCodeFont(value: string) {
+    codeFont.value = value
+    window.localStorage.setItem(CODE_FONT_KEY, value)
+    void persistToStore()
+  }
+
+  /**
+   * 字体偏好 → CSS 变量。
+   *
+   * 写的是 `<html>` 的内联样式：优先级高过 `:root` 上的 `@theme` 定义，所以不用重建
+   * 样式表；空串就撤掉内联覆盖，回落到系统栈。导出文件不跟随 —— 那边是
+   * `lib/typography.ts` 自己的栈，Preference 只驱动编辑器这一侧。
+   */
+  function applyFontName(name: string, kind: FontFaceKind) {
+    const variable = kind === "code" ? CODE_FONT_VAR : CONTENT_FONT_VAR
+    const stack = fontStack(name, kind)
+    if (stack === "") document.documentElement.style.removeProperty(variable)
+    else document.documentElement.style.setProperty(variable, stack)
+  }
+
+  // immediate：存过的字体要在首帧就生效，不能等用户再动一次设置。
+  watch(contentFont, (name) => applyFontName(name, "content"), { immediate: true })
+  watch(codeFont, (name) => applyFontName(name, "code"), { immediate: true })
+
   /**
    * 工作区侧的读写。`attachStore` 接上前是 null —— 那时偏好只走 localStorage，
    * 这是「没打开目录也想能设置」的退化路径，不是缺功能。
@@ -181,12 +248,14 @@ function createSettings(): Settings {
   let storeDriver: Ref<WorkspaceFs | null> | null = null
   let storeRoot: Ref<FsRoot | null> | null = null
 
-  /** 把当前三份偏好序列化成配置文件文本。全量写，不做「只写非默认值」的省略。 */
+  /** 把当前偏好序列化成配置文件文本。全量写，不做「只写非默认值」的省略。 */
   function serializePrefs(): string {
     const file: PreferenceFile = {
       tableEffect: tableEffect.value,
       contentWidth: contentWidth.value,
       menuGroupLayout: menuGroupLayout.value,
+      contentFont: contentFont.value,
+      codeFont: codeFont.value,
     }
     return `${JSON.stringify(file, null, 2)}\n`
   }
@@ -221,6 +290,16 @@ function createSettings(): Settings {
     if (prefs.menuGroupLayout !== undefined && prefs.menuGroupLayout !== menuGroupLayout.value) {
       menuGroupLayout.value = prefs.menuGroupLayout
       window.localStorage.setItem(MENU_GROUP_LAYOUT_KEY, prefs.menuGroupLayout)
+      changed = true
+    }
+    if (prefs.contentFont !== undefined && prefs.contentFont !== contentFont.value) {
+      contentFont.value = prefs.contentFont
+      window.localStorage.setItem(CONTENT_FONT_KEY, prefs.contentFont)
+      changed = true
+    }
+    if (prefs.codeFont !== undefined && prefs.codeFont !== codeFont.value) {
+      codeFont.value = prefs.codeFont
+      window.localStorage.setItem(CODE_FONT_KEY, prefs.codeFont)
       changed = true
     }
     return changed
@@ -260,7 +339,19 @@ function createSettings(): Settings {
     )
   }
 
-  return { tableEffect, setTableEffect, contentWidth, setContentWidth, menuGroupLayout, setMenuGroupLayout, attachStore }
+  return {
+    tableEffect,
+    setTableEffect,
+    contentWidth,
+    setContentWidth,
+    menuGroupLayout,
+    setMenuGroupLayout,
+    contentFont,
+    setContentFont,
+    codeFont,
+    setCodeFont,
+    attachStore,
+  }
 }
 
 export type { Settings }

@@ -117,6 +117,29 @@ fn set_workspace_root(app: AppHandle, path: String) -> Result<String, String> {
     adopt(&app, &path)
 }
 
+/// 本机已安装字体的 family 名（去重、按字母序）。
+///
+/// 字体偏好落盘只存 family 名，这一层只回答「本机有哪些」—— 选择框与渲染都在前端。
+/// 每次调用全量扫一遍系统字体（Windows 走注册表 + 字体目录）：装字体不是高频动作，
+/// 缓存反而要额外处理「刚装了字体列表却是旧的」。
+///
+/// 只取每个字面的第一个 family 名（fontdb 保证第一个是英文 US 名，缺失时才取别的）：
+/// 同一个字体往往还有本地化名，一并收进列表会出现「微软雅黑 / Microsoft YaHei」两条。
+#[tauri::command]
+fn list_system_fonts() -> Vec<String> {
+    let mut database = fontdb::Database::new();
+    database.load_system_fonts();
+
+    let mut names: Vec<String> = database
+        .faces()
+        .filter_map(|face| face.families.first().map(|(name, _)| name.clone()))
+        .collect();
+
+    names.sort_by_key(|name| name.to_lowercase());
+    names.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+    names
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -125,7 +148,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             restore_workspace_root,
-            set_workspace_root
+            set_workspace_root,
+            list_system_fonts
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

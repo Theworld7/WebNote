@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from "vue"
 import { Button } from "@/components/ui/button"
 import type { editor as monacoEditor } from "monaco-editor"
 import { compactCss, formatCss, formatHtml } from "@/lib/source-format"
+import { currentFontStack } from "@/lib/fonts"
 import { loadMonaco } from "@/lib/monaco"
 
 /**
@@ -122,13 +123,16 @@ watch(
         minimap: { enabled: false },
         wordWrap: "on",
         fontSize: 13,
-        fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+        // 代码字体偏好落在 --font-mono 上，这里跟着读当前值 —— Monaco 不认 CSS 变量，
+        // 只能取出来喂给它。实例是复用的，下面每次打开还会再刷一次。
+        fontFamily: currentFontStack("code"),
         scrollBeyondLastLine: false,
         padding: { top: 12 },
       })
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, commit)
       editor.addCommand(monaco.KeyCode.Escape, () => emit("close"))
     }
+    editor.updateOptions({ fontFamily: currentFontStack("code") })
     // 实例是复用的，语言得每次打开按 props 重设 —— 否则开过 HTML 块之后，
     // 页面样式那份会沿用 html 的高亮与校验。
     const model = editor.getModel()

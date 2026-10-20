@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ContentWidth, MenuGroupLayout, TableEffect } from "@/composables/useSettings"
 import type { Component } from "vue"
+import { onMounted, ref } from "vue"
 import { CheckIcon, Columns2Icon, ListIcon, MoveHorizontalIcon, WrapTextIcon, XIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -12,6 +13,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { CONTENT_WIDTH_PX, useSettings } from "@/composables/useSettings"
+import { listSystemFonts } from "@/lib/fonts"
+import FontPicker from "./FontPicker.vue"
 
 /**
  * 设置面板。
@@ -25,7 +28,17 @@ import { CONTENT_WIDTH_PX, useSettings } from "@/composables/useSettings"
  */
 const open = defineModel<boolean>("open", { required: true })
 
-const { tableEffect, setTableEffect, contentWidth, setContentWidth, menuGroupLayout, setMenuGroupLayout } = useSettings()
+const { tableEffect, setTableEffect, contentWidth, setContentWidth, menuGroupLayout, setMenuGroupLayout, contentFont, setContentFont, codeFont, setCodeFont } = useSettings()
+
+/**
+ * 本机字体列表。打开面板时才去取（桌面端要扫一遍系统字体），拿到之前选择框里
+ * 只有「系统默认」一项 —— 用户可以就地等一下，不会看到空下拉。
+ * 取不到时 `listSystemFonts` 自己降级，这里不需要错误分支。
+ */
+const fonts = ref<string[]>([])
+onMounted(() => {
+  void listSystemFonts().then((names) => (fonts.value = names))
+})
 
 /** 分区。加新分区时在这里加一条，右侧内容按 `CURRENT` 分派。 */
 const SECTIONS = [{ id: "display", label: "显示" }] as const
@@ -257,6 +270,32 @@ function optionClass(isActive: boolean): string {
                   <span class="text-[13px] leading-[1.4] text-foreground">{{ option.label }}</span>
                   <span class="text-[11.5px] leading-[1.45] text-muted-foreground">{{ option.hint }}</span>
                 </button>
+              </div>
+            </section>
+
+            <section class="flex flex-col gap-2">
+              <h3 class="text-[13px] font-medium text-foreground">字体</h3>
+              <SheetDescription>候选列表读自本机已安装的字体。</SheetDescription>
+
+              <div class="mt-0.5 flex flex-col gap-2">
+                <div class="flex flex-col gap-1">
+                  <span class="text-[12px] leading-[1.4] text-muted-foreground">内容</span>
+                  <FontPicker
+                    :model-value="contentFont"
+                    :options="fonts"
+                    kind="content"
+                    @update:model-value="setContentFont"
+                  />
+                </div>
+                <div class="flex flex-col gap-1">
+                  <span class="text-[12px] leading-[1.4] text-muted-foreground">代码</span>
+                  <FontPicker
+                    :model-value="codeFont"
+                    :options="fonts"
+                    kind="code"
+                    @update:model-value="setCodeFont"
+                  />
+                </div>
               </div>
             </section>
 
