@@ -25,6 +25,11 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "windows": {
+      "wix": {
+        "language": "zh-CN"
+      }
+    },
     "icon": [
       "icons/webnote-icon.svg",
       "icons/icon.png",
