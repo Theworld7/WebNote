@@ -1,14 +1,14 @@
 <div align="center">
 
-<img src="src-tauri/icons/icon.png" width="104" height="104" alt="WebNote" />
+<img src="src-tauri/icons/icon.png" width="104" height="104" alt="玉简" />
 
-<h1>WebNote</h1>
+<h1>玉简</h1>
 
 <p><strong>笔记，就是你自己的网页。</strong></p>
 
 <p>一个本地优先的块式笔记编辑器。<br />
 每篇笔记都是磁盘上一个普通的 <code>.html</code> 文件 —— 应用就地打开、就地保存，<br />
-没有私有格式、没有数据库、没有账号。删掉 WebNote，那些文件照样双击能看。</p>
+没有私有格式、没有数据库、没有账号。删掉玉简，那些文件照样双击能看。</p>
 
 <p>
   <a href="https://github.com/Theworld7/WebNote/releases"><img src="https://img.shields.io/github/v/release/Theworld7/WebNote?style=flat-square&color=1D4FD8&label=release" alt="latest release" /></a>
@@ -34,12 +34,12 @@
 | 一篇笔记 = 一个 `.html`。应用读的、写的都是它本身，不另存一份。 | 文件躺在你选的任意文件夹里，交给备份盘、同步盘或 Git 管；应用不联网，也没有账号体系。 | `.tbl` 是独立文件，一份数据可被任意多篇笔记同时引用，改一处，所有引用同步。 |
 
 > 别的笔记应用把内容锁进自己的数据库，再给你一个「导出」按钮当出口。
-> WebNote 反过来：没有出口，因为从来没有进口 —— 磁盘上的 HTML 就是唯一真源，
+> 玉简 反过来：没有出口，因为从来没有进口 —— 磁盘上的 HTML 就是唯一真源，
 > 编辑器只是它的一种打开方式。
 
 保存一篇笔记时，写下去的是一个**完整的、能独立打开的网页**：`<!DOCTYPE html>`、`<head>` 里带着
 这份文档的排版样式、`<body>` 里是你写的块。把它发给别人、丢进任何浏览器、十年后再打开，
-看到的都是同一个样子 —— 不依赖 WebNote 存在。
+看到的都是同一个样子 —— 不依赖玉简存在。
 
 ## 功能
 
@@ -195,8 +195,8 @@ CSS 碰不到，得由 Rust 侧直接跟系统说话。
 
 | 平台 | 文件 |
 | :-- | :-- |
-| Windows 10 / 11（x64） | `WebNote_<版本>_x64-setup.exe`（安装包）、`WebNote_<版本>_x64_en-US.msi` |
-| macOS（Apple Silicon） | `WebNote_<版本>_aarch64.dmg` |
+| Windows 10 / 11（x64） | `玉简_<版本>_x64-setup.exe`（安装包）、`玉简_<版本>_x64_en-US.msi` |
+| macOS（Apple Silicon） | `玉简_<版本>_aarch64.dmg` |
 
 首次打开工作区时选一个文件夹即可 —— 里面已有的 `.html` 会直接出现在树上，不需要导入。
 

@@ -53,7 +53,7 @@ function setQuery(value: string | number) {
     :style="{ width: `${width}px` }"
   >
     <div class="flex h-[42px] flex-none items-center gap-1 pr-2 pl-4">
-      <span class="text-[13px] font-medium tracking-[0.01em]">WebNote</span>
+      <span class="text-[13px] font-medium tracking-[0.01em]">玉简</span>
       <span class="flex-1" />
       <!-- 全局新建：落在工作区根目录。每个文件夹行另有自己的 `+`，这一处是根层入口，
            也是空库时唯一的入口（此时树里一行都没有）。没选目录时不给点 ——

@@ -1,4 +1,4 @@
-# WebNote
+# 玉简 (WebNote)
 
 A block-based note editor. A note is a standalone `.html` file on disk; the editor reads
 and writes those files directly, and the on-disk HTML is the canonical form of the note —

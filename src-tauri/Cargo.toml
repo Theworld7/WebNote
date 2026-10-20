@@ -1,7 +1,7 @@
 [package]
 name = "webnote"
 version = "0.3.0"
-description = "A Tauri App"
+description = "玉简 —— 本地优先的块式笔记编辑器"
 authors = ["you"]
 edition = "2021"
 

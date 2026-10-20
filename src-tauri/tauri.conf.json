@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "WebNote",
+  "productName": "玉简",
   "version": "0.3.0",
   "identifier": "com.webnote.app",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "WebNote",
+        "title": "玉简",
         "width": 1200,
         "height": 900,
         "dragDropEnabled": false

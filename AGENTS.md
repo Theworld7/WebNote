@@ -1,6 +1,6 @@
 # AGENTS.md
 
-WebNote:本地优先的块式笔记编辑器。笔记 = 磁盘上的普通 `.html` 文件,就地读写,盘上 HTML
+玉简(代号 WebNote):本地优先的块式笔记编辑器。笔记 = 磁盘上的普通 `.html` 文件,就地读写,盘上 HTML
 即规范形态;数据表 `.tbl`(标准 JSON)是独立文档,可被任意多篇笔记同时引用。
 技术栈:Tauri 2 + Vue 3 + TypeScript(strict)+ Tailwind v4,包管理用 pnpm。
 
