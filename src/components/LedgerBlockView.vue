@@ -16,7 +16,7 @@ import TableRefNotice from "@/components/TableRefNotice.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
 import * as dt from "@/lib/data-table"
-import { LEDGER_EXPENSE_COLOR, LEDGER_INCOME_COLOR, balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, sumRows } from "@/lib/ledger"
+import { LEDGER_EXPENSE_COLOR, LEDGER_INCOME_COLOR, balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, ledgerSort, sortRows, sumRows } from "@/lib/ledger"
 
 /**
  * 账目块:把一张数据表按财务口径渲染成流水账 —— 收入列 / 支出列带符号的金额、
@@ -62,16 +62,23 @@ const groupColumn = computed<DataColumn | null>(() =>
     : columns.value.find((column) => column.id === props.block.groupColumnId) ?? null,
 )
 
+/** 生效的排序:排序列被删后退化为不排序;月节序跟随方向(不排序时恒升序)。 */
+const sort = computed(() => ledgerSort(columns.value, props.block.sortColumnId, props.block.sortDirection))
+
+/** 展示序 = 表内行序按块的排序设置排过 —— 分节、行号、回车跳格都读它。 */
+const orderedRows = computed(() => sortRows(rows.value, sort.value))
+
 /** 分节(按月 / 按列 / 平铺)+ 节小计,含末尾的落空节。公式在 `ledgerSections`,与导出快照共用。 */
 const allSections = computed(() => {
-  const { sections, loose } = ledgerSections(rows.value, incomeColumn.value, expenseColumn.value, {
+  const { sections, loose } = ledgerSections(orderedRows.value, incomeColumn.value, expenseColumn.value, {
     mode: groupColumn.value === null ? "none" : props.block.groupMode,
     column: groupColumn.value,
+    monthOrder: sort.value.monthOrder,
   })
   return loose === null ? sections : [...sections, loose]
 })
 
-/** 逐行累计余额(键 = 行 id)。按**原始行序**算 —— 分组只改展示顺序,不改发生序。 */
+/** 逐行累计余额(键 = 行 id)。按**原始行序**算 —— 排序与分组只改展示顺序,不改发生序。 */
 const balances = computed<Map<string, number> | null>(() =>
   props.block.showBalance && hasMoney.value ? balanceMap(rows.value, incomeColumn.value, expenseColumn.value) : null,
 )
@@ -113,10 +120,10 @@ const labelIndex = computed(() =>
   columns.value.findIndex((column) => column !== incomeColumn.value && column !== expenseColumn.value),
 )
 
-/** 行号:按**整表行序**编号(分组只改展示顺序),对账时报「第几笔」用得上。 */
+/** 行号:按**展示序**编号 —— 表里从上往下第几行,与眼前看到的顺序一致。 */
 const rowNumbers = computed(() => {
   const numbers = new Map<string, number>()
-  rows.value.forEach((row, index) => numbers.set(row.id, index + 1))
+  orderedRows.value.forEach((row, index) => numbers.set(row.id, index + 1))
   return numbers
 })
 
@@ -164,13 +171,13 @@ function commitOnBlur(row: DataRow, column: DataColumn, event: Event): void {
   editing.value = ""
 }
 
-/** 回车:提交 + 跳到下一行同列(纵向录一列最快);已经是最后一行就退出编辑态。 */
+/** 回车:提交 + 跳到**展示序**的下一行同列(纵向录一列最快);已是最后一行就退出编辑态。 */
 function commitOnEnter(row: DataRow, column: DataColumn, event: Event): void {
   const target = event.target
   if (!(target instanceof HTMLInputElement)) return
   commit(row, column, target.value)
-  const index = rows.value.findIndex((item) => item.id === row.id)
-  const next = rows.value[index + 1]
+  const index = orderedRows.value.findIndex((item) => item.id === row.id)
+  const next = orderedRows.value[index + 1]
   editing.value = next === undefined ? "" : cellKey(next, column)
 }
 
@@ -227,6 +234,19 @@ function toggleBalance(checked: boolean): void {
   updateBlockSettings(props.block.id, { showBalance: checked })
 }
 
+/** 排序字段。空串 = 不排序(回到表内行序)。方向留着不动,下次选字段即生效。 */
+function setSortColumn(event: Event): void {
+  const target = event.target
+  if (!(target instanceof HTMLSelectElement)) return
+  updateBlockSettings(props.block.id, { sortColumnId: target.value })
+}
+
+function setSortDirection(event: Event): void {
+  const target = event.target
+  if (!(target instanceof HTMLSelectElement)) return
+  updateBlockSettings(props.block.id, { sortDirection: target.value === "asc" ? "asc" : "desc" })
+}
+
 /**
  * 分组下拉的合并取值:空串 = 不分组;`month:<列id>` = 按月 · 某日期列;`<列id>` =
  * 按某列。设置落盘时拆回 groupMode + groupColumnId 两个字段。
@@ -245,6 +265,9 @@ const groupSelection = computed({
 })
 
 const dateColumns = computed(() => columns.value.filter((column) => column.type === "date"))
+
+/** 可排序列:图片列除外(data URI 排序没有意义,投影也是空串)。 */
+const sortableColumns = computed(() => columns.value.filter((column) => column.type !== "image"))
 
 const MENU = "w-[210px] rounded-island p-1.5 shadow-pop ring-0"
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
@@ -310,6 +333,23 @@ function openTable() {
               <option value="">不分组</option>
               <option v-for="column in dateColumns" :key="'m' + column.id" :value="'month:' + column.id">按月 · {{ column.name }}</option>
               <option v-for="column in columns" :key="'c' + column.id" :value="column.id">按列 · {{ column.name }}</option>
+            </select>
+          </div>
+          <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">排序</DropdownMenuLabel>
+          <div class="flex gap-1 px-2 pb-1.5">
+            <select class="min-w-0 flex-1 cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none" :value="props.block.sortColumnId" @change="setSortColumn">
+              <option value="">不排序</option>
+              <option v-for="column in sortableColumns" :key="column.id" :value="column.id">{{ column.name }}</option>
+            </select>
+            <select
+              class="w-[62px] cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none disabled:opacity-40"
+              :value="props.block.sortDirection"
+              :disabled="props.block.sortColumnId === ''"
+              @change="setSortDirection"
+            >
+              <option value="desc">倒序</option>
+              <option value="asc">正序</option>
             </select>
           </div>
           <DropdownMenuSeparator class="mx-2 my-1 bg-line" />

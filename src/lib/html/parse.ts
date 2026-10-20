@@ -560,11 +560,12 @@ function parseBookmark(container: Element): BookmarkBlock {
 
 /**
  * `data-ledger` 容器 → 账目块。没有 `data-ledger` 不会走到这里(调用方已判),
- * 手工编辑过的文件按属性**宽容**读取:收入 / 支出列与分组列的列 id 原样收下、
+ * 手工编辑过的文件按属性**宽容**读取:收入 / 支出列与分组列、排序列的列 id 原样收下、
  * 不校验列还存在(指向的列被删后渲染时退化为未设置,与画册残留 id 的立场一致);
  * `data-group-mode` 只认 "month" / "column",其余落回 none;`data-balance` 只认
- * 字面 "false"(缺省即显示余额,与「缺省不落存储」咬合)。路径没有默认值可落,
- * 留空串走「读不到」提示态。
+ * 字面 "false"(缺省即显示余额,与「缺省不落存储」咬合);`data-sort-dir` 只认
+ * 字面 "asc",缺省即倒序(`data-sort` 空 = 不排序,方向一起留着但不生效)。
+ * 路径没有默认值可落,留空串走「读不到」提示态。
  */
 function parseLedger(container: Element): LedgerBlock {
   const path = container.getAttribute("data-ledger") ?? ""
@@ -580,6 +581,8 @@ function parseLedger(container: Element): LedgerBlock {
     container.getAttribute("data-balance") !== "false",
     groupMode,
     groupColumnId,
+    container.getAttribute("data-sort") ?? "",
+    container.getAttribute("data-sort-dir") === "asc" ? "asc" : "desc",
   )
 }
 

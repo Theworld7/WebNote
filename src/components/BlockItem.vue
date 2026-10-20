@@ -7,7 +7,6 @@ import { useInlineToolbar } from "@/composables/useInlineToolbar"
 import { blockText, hasLeadingMarker, isListType, isTextualBlock, tableToTsv } from "@/lib/blocks"
 import { tableHtml } from "@/lib/html/serialize"
 import { requestEditableFocus } from "@/lib/dom"
-import { highlightCode } from "@/lib/highlight"
 import { runsFromNode } from "@/lib/html"
 import { runsText, runsToHtml } from "@/lib/inline"
 import { caretOffsetIn, shortcutMark, splitRunsAt } from "@/lib/marks"
@@ -30,6 +29,7 @@ import InlineToolbar from "./InlineToolbar.vue"
 import LayoutBlockView from "./LayoutBlockView.vue"
 import LinkPopover from "./LinkPopover.vue"
 import MermaidBlockView from "./MermaidBlockView.vue"
+import CodeBlockView from "./CodeBlockView.vue"
 import TableBlockView from "./TableBlockView.vue"
 import DataTableBlockView from "./DataTableBlockView.vue"
 import GalleryBlockView from "./GalleryBlockView.vue"
@@ -37,7 +37,6 @@ import HtmlBlockView from "./HtmlBlockView.vue"
 import KanbanBlockView from "./KanbanBlockView.vue"
 import LedgerBlockView from "./LedgerBlockView.vue"
 import StatBlockView from "./StatBlockView.vue"
-import { CheckIcon, CopyIcon } from "@lucide/vue"
 import { CELL_EXCLUDED_TYPES } from "@/lib/blocks"
 
 const props = defineProps<{
@@ -116,7 +115,6 @@ onMounted(() => {
   const block = textual.value
   if (element === null || block === null) return
   element.innerHTML = runsToHtml(block.runs)
-  updateHighlight()
 })
 
 // 转换类型时按数据重画正文(转换会带着 runs 走)。块对象被替换但 id 未变,组件实例
@@ -130,7 +128,6 @@ watch(
       const block = textual.value
       if (element === null) return
       element.innerHTML = block === null ? "" : runsToHtml(block.runs)
-      updateHighlight()
     })
   },
 )
@@ -147,12 +144,10 @@ function onInput() {
   if (text === "") {
     element.innerHTML = ""
     setBlockRuns(props.block.id, [])
-    updateHighlight()
     return
   }
 
   setBlockRuns(props.block.id, runs)
-  updateHighlight()
 
   // 空行输入 `/` 唤起类型菜单（convert 模式）。触发字符当场吃掉：`/` 是手势不是内容，
   // 留着的话切成标题 / 引用会把它一起带进新块，取消菜单也会在块里留一个孤零零的斜杠。
@@ -161,7 +156,6 @@ function onInput() {
     openMenu.value = "type"
     element.innerHTML = ""
     setBlockRuns(props.block.id, [])
-    updateHighlight()
   }
 }
 
@@ -185,7 +179,6 @@ function splitAtCaret(): InlineRun[] | null {
   // contenteditable 非受控：本块的 DOM 与高亮层要自己按前半重画（焦点马上移去新块，无需复原选区）。
   element.innerHTML = runsToHtml(head)
   setBlockRuns(props.block.id, head)
-  updateHighlight()
   return tail
 }
 
@@ -287,39 +280,6 @@ const rowStyle = computed(() => {
 const BODY_BASE = "min-h-6 outline-none whitespace-pre-wrap break-words"
 
 /**
- * 代码块的排版常量。正文（contenteditable）与高亮层必须逐项一致 ——
- * 两层是靠「同样的字体、字号、行距、内边距、换行规则画出同样的字形」对齐的，
- * 任何一项漂了高亮就会错位。改动时两层一起改。
- */
-const CODE_TEXT = "px-3.5 py-2.5 font-mono text-[12.5px] leading-[1.7] whitespace-pre-wrap break-words"
-
-/** 高亮层的 HTML。非代码块为空串，模板里就不渲染该层。 */
-const highlighted = ref("")
-
-/** 由当前 runs 重画高亮层。挂载、输入、类型变更三条路都会走到。 */
-function updateHighlight() {
-  const block = textual.value
-  if (block === null || block.type !== "code") {
-    highlighted.value = ""
-    return
-  }
-  highlighted.value = highlightCode(runsText(block.runs), block.lang ?? "")
-}
-
-/** 代码块复制按钮的反馈态：点完短暂变 ✓，提示已进剪贴板。 */
-const copied = ref(false)
-let copiedTimer: number | undefined
-
-async function copyCode() {
-  const block = textual.value
-  if (block === null) return
-  await navigator.clipboard.writeText(runsText(block.runs))
-  copied.value = true
-  window.clearTimeout(copiedTimer)
-  copiedTimer = window.setTimeout(() => (copied.value = false), 1500)
-}
-
-/**
  * 手柄菜单「复制内容」:表格同时写 text/html(在线表格只认 HTML 网格)与
  * text/plain(TSV,给不支持 HTML flavor 的接收方兜底),其余块走纯文本投影。
  */
@@ -402,14 +362,6 @@ const bodyClass = computed(() => {
     // 引用：左侧 4px 竖线 + 12px 左内边距，无底色无圆角（naive blockquote 的形态）。
     case "quote":
       return cn(BODY_BASE, PLACEHOLDER, "border-l-4 border-line pl-3", BODY_TEXT_CLASS)
-    case "code":
-      // 文字本体透明，颜色由下方的高亮层承担（见模板双层结构）；caret 单独上色。
-      return cn(
-        BODY_BASE,
-        PLACEHOLDER,
-        CODE_TEXT,
-        "relative rounded-lg bg-muted-strong text-transparent caret-[oklch(0.3_0_0)]",
-      )
     case "callout":
       return cn(
         BODY_BASE,
@@ -479,6 +431,8 @@ const bodyClass = computed(() => {
 
     <MermaidBlockView v-else-if="block.type === 'mermaid'" :block="block" />
 
+    <CodeBlockView v-else-if="block.type === 'code'" :block="block" />
+
     <DataTableBlockView v-else-if="block.type === 'datatable'" :block="block" />
 
     <GalleryBlockView v-else-if="block.type === 'gallery'" :block="block" />
@@ -533,31 +487,7 @@ const bodyClass = computed(() => {
         @input="onInput"
         @keydown="onKeydown"
       />
-
-      <!-- 代码块高亮层：与正文同排版地画一份着色文字，正文本体透明。
-           必须排在编辑层之后 —— 编辑层带着色背景，画在下面会被整层盖住。
-           两层对齐靠排版常量逐项一致（见 CODE_TEXT），高亮只是显示，不进 runs。 -->
-      <div
-        v-if="highlighted !== ''"
-        aria-hidden="true"
-        class="pointer-events-none absolute inset-0 rounded-lg text-[oklch(0.3_0_0)]"
-        :class="CODE_TEXT"
-        v-html="highlighted"
-      />
     </div>
-
-    <!-- 代码块右上角的复制按钮：hover 才出现，点完短暂变 ✓。 -->
-    <button
-      v-if="block.type === 'code'"
-      type="button"
-      class="absolute right-1.5 top-1.5 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
-      :title="copied ? '已复制' : '复制'"
-      @mousedown.prevent
-      @click="copyCode"
-    >
-      <CheckIcon v-if="copied" class="size-3.5" />
-      <CopyIcon v-else class="size-3.5" />
-    </button>
 
     <!-- 传送到 body：格式条用 fixed 定位，留在块里的话，祖先一旦有 transform
          （滚动容器、后续可能的动效）就会改成相对那个祖先定位，位置会漂。 -->

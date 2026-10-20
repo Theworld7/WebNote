@@ -1,7 +1,7 @@
-import type { DataColumn, DataRow, DataTable } from "@/types/data-table"
-import type { LedgerGroupMode } from "@/types/workspace"
+import type { DataCellValue, DataColumn, DataRow, DataTable } from "@/types/data-table"
+import type { LedgerGroupMode, LedgerSortDirection } from "@/types/workspace"
 import { DATA_TABLE_VERSION } from "@/types/data-table"
-import { cellValue, emptyColumn, emptyRow, groupRows } from "@/lib/data-table"
+import { cellValue, emptyColumn, emptyRow, groupRows, valueText } from "@/lib/data-table"
 
 /**
  * 账目块的财务口径 —— 求和、余额、金额格式化、分组小计。
@@ -26,17 +26,22 @@ export interface LedgerTotals {
 }
 
 /**
- * 新建账目表的预置内容:`日期 / 摘要 / 收入 / 支出` 四列 + 一空行,附上收入 / 支出
- * 两列的 id —— 插入账目块时按它把块指好,三种记账场景开箱即录。预置列是**普通列**
- * (date / text / number),不引入新的列类型;用户后续改名、加列都不受影响。
+ * 新建账目表的预置内容:`日期 / 摘要 / 收入 / 支出` 四列 + 一空行,附上日期列与收入 /
+ * 支出两列的 id —— 插入账目块时按它把块指好(并按日期倒序起手),三种记账场景开箱即录。
+ * 预置列是**普通列**(date / text / number),不引入新的列类型;用户后续改名、加列都不受影响。
  */
-export function createLedgerPreset(): { table: DataTable; incomeColumnId: string; expenseColumnId: string } {
+export function createLedgerPreset(): {
+  table: DataTable
+  dateColumnId: string
+  incomeColumnId: string
+  expenseColumnId: string
+} {
   const date = emptyColumn("日期", "date")
   const summary = emptyColumn("摘要")
   const income = emptyColumn("收入", "number")
   const expense = emptyColumn("支出", "number")
   const columns = [date, summary, income, expense]
-  return { table: { version: DATA_TABLE_VERSION, columns, rows: [emptyRow(columns)] }, incomeColumnId: income.id, expenseColumnId: expense.id }
+  return { table: { version: DATA_TABLE_VERSION, columns, rows: [emptyRow(columns)] }, dateColumnId: date.id, incomeColumnId: income.id, expenseColumnId: expense.id }
 }
 
 /** 某一列在某行上的数值。非数字(null / 文本)按 0 求和,但返回 null 让展示层区分「空格」。 */
@@ -110,6 +115,72 @@ export function formatExpense(value: number): string {
   return value > 0 ? `−${formatAmount(value)}` : formatAmount(value)
 }
 
+// ---- 排序 ----
+
+/** 生效的排序:列(被删后落空)+ 方向 + 月份节的读向。 */
+export interface LedgerSort {
+  column: DataColumn | null
+  direction: LedgerSortDirection
+  /** 月份节的排序方向:有排序时跟随它,不排序时保持月份升序(既有口径不变)。 */
+  monthOrder: LedgerSortDirection
+}
+
+/**
+ * 块上的两个排序字段 → 一次渲染要用的排序。
+ *
+ * 「不排序」是 `sortColumnId` 为空串,不是方向为空 —— 方向此时无意义、留着下次用;
+ * 但月份节不能跟着一个没生效的方向翻转,所以不排序时 `monthOrder` 恒为升序。
+ * 指向的列被删后退化为不排序(与收入 / 支出列的同一自愈立场)。
+ */
+export function ledgerSort(
+  columns: readonly DataColumn[],
+  sortColumnId: string,
+  direction: LedgerSortDirection,
+): LedgerSort {
+  const column = sortColumnId === "" ? null : columns.find((item) => item.id === sortColumnId) ?? null
+  return { column, direction, monthOrder: column === null ? "asc" : direction }
+}
+
+/** 空格:null 与空串。`false`(未勾)是一个值,不在这里 —— 勾选列排序时它该排在「勾上」之前。 */
+function isBlank(value: DataCellValue): boolean {
+  return value === null || value === ""
+}
+
+/**
+ * 一格参与排序时的可比形态:数字比数字、布尔比布尔,其余比**文本投影**
+ * (select 翻选项名、日期是 `YYYY-MM-DD` 的字典序即时间序)。
+ */
+function compareCells(a: DataCellValue, b: DataCellValue, column: DataColumn): number {
+  if (typeof a === "number" && typeof b === "number") return a - b
+  if (typeof a === "boolean" && typeof b === "boolean") return Number(a) - Number(b)
+  return valueText(a, column).localeCompare(valueText(b, column), "zh-Hans-CN", { numeric: true })
+}
+
+/**
+ * 按某列排序行,返回**新数组**(不改入参,与 `lib/data-table` 的纯函数性格一致)。
+ *
+ * 两条口径:
+ * - **空格恒在末尾**,不随方向翻转 —— 空不是「最小」,是「不在这条轴上」;让它跟着
+ *   倒序跑到最前面,读账时先看见一片空白,那是排序制造的噪声。
+ * - **稳定**:同值行保持表内原有先后(`Array.prototype.sort` 在 ES2019 起稳定)。
+ *   于是「按类型排序」这类同值成片的排序,片内仍是记账序。
+ *
+ * 余额不在这里算 —— 累计按表内原始行序走(见 `balanceMap`),排序只改展示。
+ */
+export function sortRows(rows: readonly DataRow[], sort: LedgerSort): DataRow[] {
+  const column = sort.column
+  if (column === null) return [...rows]
+  const sign = sort.direction === "desc" ? -1 : 1
+  return [...rows].sort((a, b) => {
+    const va = cellValue(a, column)
+    const vb = cellValue(b, column)
+    const blankA = isBlank(va)
+    const blankB = isBlank(vb)
+    if (blankA || blankB) return blankA === blankB ? 0 : blankA ? 1 : -1
+    return sign * compareCells(va, vb, column)
+  })
+}
+
 // ---- 分组与小计 ----
 
 /** 一个账目节:分组键、标题、节内行与节小计。`none` 模式整表一节,标题空串。 */
@@ -131,17 +202,19 @@ export interface LedgerSections {
  *
  * - `none`:整表一节,不画标题,只有底部合计。
  * - `month`:按日期列的 `YYYY-MM-DD` 值派生 `YYYY-MM` 节,节序按月升序 —— 流水账
- *   的自然读法,不需要手排。日期缺失或不像日期的行进 `loose`(标题「无日期」)。
+ *   的自然读法,不需要手排。`monthOrder` 传 desc 时翻成降序(最近一月在最上),
+ *   与块的排序方向一致。日期缺失或不像日期的行进 `loose`(标题「无日期」)。
  * - `column`:复用 `dt.groupRows`(与看板列 / 画册节同一套归桶),组序跟首现序;
  *   空值行进 `loose`(标题「未分组」)。
  *
+ * 传进来的行序就是**展示序** —— 调用方先用 `sortRows` 排好再分节,这里不再排序行。
  * 指向的列被删后由调用方落成 `mode: "none"` 的等价调用 —— 渲染时自愈,这里不清洗。
  */
 export function ledgerSections(
   rows: readonly DataRow[],
   income: DataColumn | null,
   expense: DataColumn | null,
-  group: { mode: LedgerGroupMode; column: DataColumn | null },
+  group: { mode: LedgerGroupMode; column: DataColumn | null; monthOrder?: LedgerSortDirection },
 ): LedgerSections {
   const totals = sumRows(rows, income, expense)
 
@@ -170,7 +243,9 @@ export function ledgerSections(
       if (bucket === undefined) buckets.set(month, [row])
       else bucket.push(row)
     }
-    const sections = [...buckets.keys()].sort().map((month) => sectionOf(month, month, buckets.get(month) ?? []))
+    const keys = [...buckets.keys()].sort()
+    if (group.monthOrder === "desc") keys.reverse()
+    const sections = keys.map((month) => sectionOf(month, month, buckets.get(month) ?? []))
     return { sections, loose: loose.length > 0 ? sectionOf("__nodate__", "无日期", loose) : null }
   }
 

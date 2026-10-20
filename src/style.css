@@ -32,6 +32,32 @@
     --color-dirty: oklch(0.7 0.15 65);
     --color-dirty-soft: oklch(0.96 0.035 75);
 
+    /* 代码块的语法配色（浅色一套，深色在 .dark 里重取）。
+       取值来源是 GitHub 自己的两个主题：浅色 = github.css、深色 = github-dark.css，
+       不自己调色 —— 语法高亮的色相是约定，另造一套只会让人读不顺。
+
+       为什么把取值抄进来而不是 `import "highlight.js/styles/github.css"`：那份文件是
+       **一份全局 `.hljs` 规则、只有浅色一套**，highlight.js 的深色主题同样是全局规则，
+       两个同时 import 只会后者盖前者，挂不到 `.dark` 上。于是深色界面里正文
+       `#24292e`、字符串 `#032f62`、常量 `#005cc5` 全铺在 oklch(0.33) 的块底上，
+       实测对比度 1.1~2.0 —— 代码看起来像被抹掉了。
+       只抄 token 类，不抄 `pre code.hljs` 那几条排版规则：它们要求根元素带 `hljs` 类，
+       而 `highlightCode` 的输出只有内层 `<span class="hljs-*">`（外壳是我们自己的
+       `[data-block-type="code"]`）。同理原来的 `.hljs { background }` 从未生效过，
+       块底色一直是 `--color-muted-strong`。 */
+    --color-code-foreground: oklch(0.3 0 0);
+    --color-code-keyword: #d73a49;
+    --color-code-entity: #6f42c1;
+    --color-code-constant: #005cc5;
+    --color-code-string: #032f62;
+    --color-code-variable: #e36209;
+    --color-code-comment: #6a737d;
+    --color-code-tag: #22863a;
+    --color-code-heading: #005cc5;
+    --color-code-bullet: #735c0f;
+    --color-code-added: #22863a;
+    --color-code-deleted: #b31d28;
+
     --radius-block: 18px;
     --radius-island: 14px;
 
@@ -139,6 +165,23 @@
     --color-canvas: oklch(0.105 0 0);
     --color-line: oklch(0.32 0 0);
     --color-muted-strong: oklch(0.33 0 0);
+    /* 代码块语法配色：github-dark.css 的取值。两处偏离原值，都因为块底比 GitHub 深色
+       主题的 #0d1117 亮（我们用 oklch(0.33) ≈ #353535），原值在这块底上够不到 4.5：
+       - comment  #8b949e (3.99) → #96a0ab (4.62)：注释也是正文，不该比别的 token 更难读；
+       - heading  #1f6feb (2.65) → #79c0ff：浅色主题里 section 本就与 constant 同色，
+         照这条对应取深色的常量蓝，而不是那个为 #0d1117 调暗的链接蓝。 */
+    --color-code-foreground: oklch(0.86 0 0);
+    --color-code-keyword: #ff7b72;
+    --color-code-entity: #d2a8ff;
+    --color-code-constant: #79c0ff;
+    --color-code-string: #a5d6ff;
+    --color-code-variable: #ffa657;
+    --color-code-comment: #96a0ab;
+    --color-code-tag: #7ee787;
+    --color-code-heading: #79c0ff;
+    --color-code-bullet: #f2cc60;
+    --color-code-added: #aff5b4;
+    --color-code-deleted: #ffdcd7;
     --color-scroll-shadow: oklch(1 0 0 / 14%);
     --color-highlight: oklch(0.44 0.08 95);
     /* 深色外观的品牌色 = 图标深色变体的高光蓝（themes.dark.glow）。
@@ -355,4 +398,140 @@
   &::-webkit-scrollbar {
     display: none;
   }
+}
+
+/*
+ * 代码块的语法高亮 —— 只着色，不管排版。
+ *
+ * 选择器是 highlight.js 的 token 类（`.hljs-*`），由 `lib/highlight.ts` 的
+ * `highlightCode` 生成；取值全部指向上面那组 `--color-code-*`，所以换色只改 token，
+ * 不用碰这里。分组照 GitHub 主题的角色名（keyword / entity / constant / string /
+ * variable / comment / tag），一个角色一条规则。
+ *
+ * `hljs-char.escape_` / `hljs-link` / `hljs-params` / `hljs-property` / `hljs-punctuation`
+ * / `hljs-tag` 故意不写：GitHub 两个主题里都标注 "purposely ignored"，它们该跟正文同色。
+ * 所以**未着色的 token 必须由块自己的文字色兜住** —— 那是 `--color-code-foreground`，
+ * 写死在组件里会在深色下变成近黑压深灰（试过，整段关键字消失）。
+ */
+.hljs-doctag,
+.hljs-keyword,
+.hljs-meta .hljs-keyword,
+.hljs-template-tag,
+.hljs-template-variable,
+.hljs-type,
+.hljs-variable.language_ {
+    color: var(--color-code-keyword);
+}
+.hljs-title,
+.hljs-title.class_,
+.hljs-title.class_.inherited__,
+.hljs-title.function_ {
+    color: var(--color-code-entity);
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-literal,
+.hljs-meta,
+.hljs-number,
+.hljs-operator,
+.hljs-variable,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-selector-id {
+    color: var(--color-code-constant);
+}
+.hljs-regexp,
+.hljs-string,
+.hljs-meta .hljs-string {
+    color: var(--color-code-string);
+}
+.hljs-built_in,
+.hljs-symbol {
+    color: var(--color-code-variable);
+}
+.hljs-comment,
+.hljs-code,
+.hljs-formula {
+    color: var(--color-code-comment);
+}
+.hljs-name,
+.hljs-quote,
+.hljs-selector-tag,
+.hljs-selector-pseudo {
+    color: var(--color-code-tag);
+}
+.hljs-subst {
+    color: var(--color-code-foreground);
+}
+.hljs-section {
+    color: var(--color-code-heading);
+    font-weight: bold;
+}
+.hljs-bullet {
+    color: var(--color-code-bullet);
+}
+.hljs-emphasis {
+    color: var(--color-code-foreground);
+    font-style: italic;
+}
+.hljs-strong {
+    color: var(--color-code-foreground);
+    font-weight: bold;
+}
+/* diff：底色也按主题来。深色下那两块底是 GitHub 深色主题的取值，
+   浅色的淡绿/淡红铺在深底上会是一块扎眼的高亮。 */
+.hljs-addition {
+    color: var(--color-code-added);
+    background-color: #f0fff4;
+}
+.hljs-deletion {
+    color: var(--color-code-deleted);
+    background-color: #ffeef0;
+}
+.dark .hljs-addition {
+    background-color: #033a16;
+}
+.dark .hljs-deletion {
+    background-color: #67060c;
+}
+
+/*
+ * 原生 <select> 展开后的弹层。
+ *
+ * 那个列表不是 DOM，是浏览器自己画的：它读不到我们的 token，只认两样东西 ——
+ * 元素自己的背景色（作为弹层的面），和 option 上的显式背景/文字色（作为每一行）。
+ * 组件里给 select 写的是 `bg-transparent`，弹层于是拿不到底色，退回**系统主题**的菜单色：
+ * Windows 浅色模式下就是一张白纸，而文字是我们给的 `text-muted-foreground` ——
+ * 深色界面里正好是白纸配浅灰字。`color-scheme: dark` 管不到它（实测计算值是 dark，
+ * 弹层照样白），所以只能把颜色直接喂给元素。
+ *
+ * 两处分工：
+ * - option 那几条是**行**的颜色，任何时候都生效，且不影响闭合态 —— 这才是真正让
+ *   深色下弹层变暗的地方；
+ * - select 自身只在**聚焦/展开时**换成不透明底（弹层是那一刻建出来的）。静止态保持
+ *   `bg-transparent`：数据表、看板里的下拉是「单元格里的一段文字」，常驻底色会凭空
+ *   多出一个方块，把表格的分隔感抹掉。
+ *
+ * **这几条不进 @layer** —— 要压过组件上的 `bg-transparent` / `text-muted-foreground`，
+ * 那些工具类正是问题的来源。
+ */
+select:focus {
+    background-color: var(--popover);
+    color: var(--popover-foreground);
+}
+/* 与 `:focus` 分开写而不是合成一条选择器列表：不认 `:open` 的引擎会把**整条列表**
+   判为非法、连 `:focus` 一起丢掉。展开时它才是精确的那一刻。 */
+select:open {
+    background-color: var(--popover);
+    color: var(--popover-foreground);
+}
+select option,
+select optgroup {
+    background-color: var(--popover);
+    color: var(--popover-foreground);
+}
+/* 当前选中的那一项。系统高亮在深色弹层里可能落成黑字，把字色钉住更稳。 */
+select option:checked {
+    background-color: var(--color-selection);
+    color: var(--color-selection-foreground);
 }

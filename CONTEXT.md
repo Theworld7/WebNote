@@ -57,6 +57,25 @@ the left) — and plain text: no runs, no inline marks, same stance as a Mermaid
 source.
 _Avoid_: Conversation, dialogue, message block (the block is the whole transcript)
 
+**Code block**:
+A textual block whose body is source code, shown as **static highlighted text** at rest and
+edited in a **Monaco instance that only exists while the block is being edited** — one
+application-wide, created on entry and disposed on exit (ADR-0017). `lang` is a field of the
+block (not of the editor) and travels as `class="language-x"` on the exported `<code>`. The
+edit toolbar offers **source formatting** for the languages prettier can parse. Its colors are
+our own tokens (`--color-code-*`, one set per appearance) rather than an imported highlight.js
+theme (ADR-0019); the block's **own** text color is a token too, because highlight.js leaves
+several token classes uncolored and those inherit it.
+_Avoid_: Code editor (the editor is the editing state, not the block)
+
+**Source formatting**:
+Rewriting source text through prettier so a human can read it — indentation, spacing, line
+breaks at the print width. It is a **buffer-only** operation: the page style is formatted when
+its drawer opens and compacted on save (ADR-0012), a code block only when its toolbar button is
+pressed (ADR-0018), and in both cases what lands in the file is decided by the write path, not
+by the formatter. Not to be confused with a Mark, which is character-level emphasis.
+_Avoid_: Beautify, pretty-print (both name the tool, not the act)
+
 **HTML block**:
 A structural Block whose content is a fragment of HTML the user wrote by hand. The source
 lands in the file **verbatim** — no escaping, no re-encoding — fenced by a pair of
@@ -201,8 +220,11 @@ expense column (either may be unset — a gift ledger sets only the income), sig
 amounts, a derived running-balance column, per-section subtotals and a grand total. Sections
 come from month grouping (a date column folded to YYYY-MM) or plain column grouping. It
 points at the same `.tbl` a Data table block would, but adds **financial settings** (the two
-money columns, the balance toggle, the grouping) that belong to the block. The balance is
-computed over row order every render — never stored. On disk it travels as a snapshot **with**
+money columns, the balance toggle, the grouping, the sort column and direction) that belong to
+the block. Rows are ordered by that sort column before they are sectioned (blank cells last,
+newest first by default — ADR-0016). The balance is computed over the table's own row order
+every render — never stored, and never re-derived from the sorted order. On disk it travels as a
+snapshot **with**
 a pointer (`data-ledger` + settings on a `<div>` wrapping a totals table), on the same terms
 as the Gallery block. Amounts are plain numbers in the `.tbl`; formatting is the view's job.
 _Avoid_: Account block, bookkeeping view, money column (there is no money column type),

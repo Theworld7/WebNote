@@ -136,7 +136,7 @@ function onKeydown(event: KeyboardEvent) {
         :placeholder="PLACEHOLDER"
         spellcheck="false"
         rows="2"
-        class="w-full resize-none bg-transparent font-mono text-[12.5px] leading-[1.7] text-[oklch(0.3_0_0)] outline-none placeholder:text-muted-foreground/60"
+        class="w-full resize-none bg-transparent font-mono text-[12.5px] leading-[1.7] text-code-foreground outline-none placeholder:text-muted-foreground/60"
         @input="autosize"
         @keydown="onKeydown"
       />

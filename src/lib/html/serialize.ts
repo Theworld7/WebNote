@@ -3,7 +3,7 @@ import type { DataColumn, DataTable, DataRow } from "@/types/data-table"
 import { GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT, LAYOUT_COLUMNS_DEFAULT, isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
 import { cellValue, filterRowsByValue, formatGrouped, groupRows, kanbanCardColor, STAT_PRECISION_DEFAULT, sumColumn, valueText } from "@/lib/data-table"
-import { balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, sumRows } from "@/lib/ledger"
+import { balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, ledgerSort, sortRows, sumRows } from "@/lib/ledger"
 import type { LedgerSection, LedgerTotals } from "@/lib/ledger"
 import { escapeHtml, escapeTextToHtml, linkIcon, runsText, runsToHtml } from "@/lib/inline"
 import { docStyle } from "@/lib/typography"
@@ -611,10 +611,11 @@ function kanbanFieldHtml(row: DataRow, column: DataColumn): string {
  *
  * 导出与编辑器视图同构:一张带节标题行(按月 / 按列分组,标题行内带节小计)、
  * 余额列与合计行(`tfoot`)的普通表格 —— 双击打开就是一本可读的账,不依赖 `.tbl`。
- * 求和 / 格式化 / 分节全部走 `lib/ledger` 的同一份函数,与编辑器视图不算两遍。
+ * 求和 / 格式化 / 分节 / 排序全部走 `lib/ledger` 的同一份函数,与编辑器视图不算两遍。
  *
  * 指针属性(`data-income` / `data-expense` / `data-balance` / `data-group-mode` /
- * `data-group`)原样挂在容器 `div` 上,解析端凭 `data-ledger` 认领回活的账目块;
+ * `data-group` / `data-sort` / `data-sort-dir`)原样挂在容器 `div` 上,解析端凭
+ * `data-ledger` 认领回活的账目块;
  * 剥掉属性后剩下的就是一张普通表格,按表格读是「正确的读法」。未设收入 / 支出列时
  * 快照退化成纯数据表格(没有金额格式化、余额列与合计),设置不蒸发。表读不到时仍
  * 写出带属性的空容器:指针跟着笔记走,重开时块自己走「读不到」的提示态。
@@ -628,6 +629,11 @@ function ledgerHtml(block: LedgerBlock, table: DataTable | null): string {
     attrs.push(`data-group-mode="${block.groupMode}"`)
     attrs.push(`data-group="${escapeHtml(block.groupColumnId)}"`)
   }
+  if (block.sortColumnId !== "") {
+    attrs.push(`data-sort="${escapeHtml(block.sortColumnId)}"`)
+    // 方向只在正序时落盘:倒序是缺省,缺省不写(与 data-balance / data-link-shape 同一口径)。
+    if (block.sortDirection === "asc") attrs.push(`data-sort-dir="asc"`)
+  }
 
   const openTag = `<div class="note-ledger" ${attrs.join(" ")}>`
   if (table === null || table.rows.length === 0) return openTag + "</div>"
@@ -637,10 +643,15 @@ function ledgerHtml(block: LedgerBlock, table: DataTable | null): string {
   const groupColumn = block.groupMode === "none" ? null : table.columns.find((column) => column.id === block.groupColumnId) ?? null
   const hasMoney = income !== null || expense !== null
   const showBalance = block.showBalance && hasMoney
-  const { sections, loose } = ledgerSections(table.rows, income, expense, {
+  // 快照按**展示序**写出(排序 → 分节),否则「编辑器里看到什么,双击打开就是什么」不成立。
+  const sort = ledgerSort(table.columns, block.sortColumnId, block.sortDirection)
+  const ordered = sortRows(table.rows, sort)
+  const { sections, loose } = ledgerSections(ordered, income, expense, {
     mode: groupColumn === null ? "none" : block.groupMode,
     column: groupColumn,
+    monthOrder: sort.monthOrder,
   })
+  // 余额按表内原始行序累计 —— 排序只改展示序,不改「这一笔之后账户里剩多少」。
   const balances = showBalance ? balanceMap(table.rows, income, expense) : null
 
   const allSections = loose === null ? sections : [...sections, loose]

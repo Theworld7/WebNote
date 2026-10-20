@@ -1204,9 +1204,10 @@ function createWorkspace() {
       const preset = createLedgerPreset()
       const resolved = await resolveDataTableForNote(notePath, stem, preset.table)
       if (resolved.path === "") return ""
-      // 只有真的新建才按预置列指好金额列;撞名引用的是别人的表,id 对不上。
+      // 只有真的新建才按预置列指好金额列与排序列;撞名引用的是别人的表,id 对不上。
+      // 排序起手是「日期列 + 倒序」—— 流水账先看见最近一笔,这也是块的缺省读法。
       block = resolved.created
-        ? createLedgerBlock(resolved.path, preset.incomeColumnId, preset.expenseColumnId)
+        ? createLedgerBlock(resolved.path, preset.incomeColumnId, preset.expenseColumnId, true, "none", "", preset.dateColumnId, "desc")
         : createLedgerBlock(resolved.path)
     }
 
@@ -1400,6 +1401,23 @@ function createWorkspace() {
     const block = activeBlock(id)
     if (block === undefined || block.type !== "image") return
     block.src = src
+    markDirty()
+  }
+
+  // ---- 代码块 ----
+
+  /**
+   * 改代码块的语言标识。
+   *
+   * 只影响**怎么读**这段文字（语法高亮），不动正文 —— 所以和 `setBlockRuns` 分开：
+   * 编辑态里换语言不该把还没提交的草稿写进文档。
+   * 空串表示纯文本，序列化时 `language-` 前缀整个不写（与解析端的宽容读取对称）。
+   */
+  function setBlockLang(id: string, lang: string) {
+    const block = activeBlock(id)
+    if (block === undefined || block.type !== "code") return
+    if ((block.lang ?? "") === lang) return
+    block.lang = lang
     markDirty()
   }
 
@@ -1693,6 +1711,8 @@ function createWorkspace() {
     removeLayoutCell,
     // image actions
     setImageSource,
+    // code actions
+    setBlockLang,
     // mermaid actions
     setMermaidSource,
     // html actions

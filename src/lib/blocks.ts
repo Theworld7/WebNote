@@ -15,6 +15,7 @@ import type {
   LayoutMode,
   LedgerBlock,
   LedgerGroupMode,
+  LedgerSortDirection,
   MermaidBlock,
   StatBlock,
   TableBlock,
@@ -344,10 +345,12 @@ export function createKanbanBlock(
 }
 
 /**
- * 造账目块。缺省不设收入 / 支出列、不分组 —— 视图显示提示态引导去设置;新建路径
- * (`useWorkspace.insertLedgerBlock`)会按预置列把收入 / 支出指好,开箱即录。
+ * 造账目块。缺省不设收入 / 支出列、不分组、不排序 —— 视图显示提示态引导去设置;
+ * 新建路径(`useWorkspace.insertLedgerBlock`)会按预置列把收入 / 支出指好、并按
+ * 「日期列 + 倒序」起手,开箱即录。
  * 带全参数的调用来自解析器 —— 盘上属性宽容读取后的值在这里收口成合法类型。
- * `showBalance` 缺省 true;`groupMode` 传 month / column 时必须带 `groupColumnId`。
+ * `showBalance` 缺省 true;`groupMode` 传 month / column 时必须带 `groupColumnId`;
+ * `sortColumnId` 空串即不排序(方向此时无意义,留着不影响往返)。
  */
 export function createLedgerBlock(
   path = "",
@@ -356,8 +359,21 @@ export function createLedgerBlock(
   showBalance = true,
   groupMode: LedgerGroupMode = "none",
   groupColumnId = "",
+  sortColumnId = "",
+  sortDirection: LedgerSortDirection = "desc",
 ): LedgerBlock {
-  const block: LedgerBlock = { id: createBlockId(), type: "ledger", path, incomeColumnId, expenseColumnId, showBalance, groupMode, groupColumnId }
+  const block: LedgerBlock = {
+    id: createBlockId(),
+    type: "ledger",
+    path,
+    incomeColumnId,
+    expenseColumnId,
+    showBalance,
+    groupMode,
+    groupColumnId,
+    sortColumnId,
+    sortDirection,
+  }
   if (groupMode === "none") block.groupColumnId = ""
   return block
 }

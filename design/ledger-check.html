@@ -19,7 +19,7 @@
 <script type="module">
 import { BLOCK_TYPES, CELL_EXCLUDED_TYPES, createBlock, createLedgerBlock, createKanbanBlock, createGalleryBlock, createStatBlock, blockText, cloneBlock, retypeBlock } from "../src/lib/blocks.ts"
 import { filterRowsByValue } from "../src/lib/data-table.ts"
-import { createLedgerPreset, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, sumRows, balanceMap } from "../src/lib/ledger.ts"
+import { createLedgerPreset, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, ledgerSort, sortRows, sumRows, balanceMap } from "../src/lib/ledger.ts"
 import { sumColumn, formatGrouped } from "../src/lib/data-table.ts"
 import { blocksToHtml } from "../src/lib/html/serialize.ts"
 import { parseHtml } from "../src/lib/html/parse.ts"
@@ -104,13 +104,14 @@ check("createLedgerPreset 四列:日期/摘要/收入/支出",
   JSON.stringify(preset.table.columns.map((c) => [c.name, c.type])))
 check("预置表带一空行", preset.table.rows.length === 1)
 check("返回收入/支出列 id", preset.incomeColumnId === preset.table.columns[2].id && preset.expenseColumnId === preset.table.columns[3].id)
+check("返回日期列 id(新建块按它倒序起手)", preset.dateColumnId === preset.table.columns[0].id)
 
 // ---------- 四、工厂与投影 ----------
 
 note("工厂与投影")
 const empty = createLedgerBlock()
-check("createLedgerBlock 默认:未设列/显示余额/不分组",
-  empty.type === "ledger" && empty.path === "" && empty.incomeColumnId === "" && empty.expenseColumnId === "" && empty.showBalance === true && empty.groupMode === "none",
+check("createLedgerBlock 默认:未设列/显示余额/不分组/不排序",
+  empty.type === "ledger" && empty.path === "" && empty.incomeColumnId === "" && empty.expenseColumnId === "" && empty.showBalance === true && empty.groupMode === "none" && empty.sortColumnId === "" && empty.sortDirection === "desc",
   JSON.stringify(empty))
 check("createLedgerBlock(none) 清空 groupColumnId",
   createLedgerBlock("a.tbl", "c1", "c2", true, "none", "c3").groupColumnId === "")
@@ -166,6 +167,7 @@ const bare = createLedgerBlock("空.tbl")
 const bareHtml = blocksToHtml([bare], lookup)
 check("未设列不写 data-income/data-expense", !bareHtml.includes("data-income=") && !bareHtml.includes("data-expense="))
 check("showBalance 缺省不写 data-balance", !bareHtml.includes("data-balance="))
+check("不排序不写 data-sort/data-sort-dir", !bareHtml.includes("data-sort=") && !bareHtml.includes("data-sort-dir="))
 check("不分组不写 data-group-mode/data-group", !bareHtml.includes("data-group-mode=") && !bareHtml.includes("data-group="))
 check("但恒写 data-ledger", bareHtml.includes('data-ledger="空.tbl"'))
 check("未设列时快照是纯表格(无 tfoot 合计)", !bareHtml.includes("<tfoot>"))
@@ -282,6 +284,62 @@ const fEmptyRound = parseHtml(fEmptyHtml)
 check("往返:空值筛选回来", fEmptyRound[0].type === "stat" && fEmptyRound[0].filterColumnId === "c2" && fEmptyRound[0].filterValue === "", JSON.stringify(fEmptyRound[0]))
 const fHand = parseHtml(`<div class="note-stat" data-stat="账.tbl" data-column="c3" data-filter-column="c2"></div>`)
 check("宽容解析:缺 data-filter-value 按空值条件收下", fHand[0].type === "stat" && fHand[0].filterColumnId === "c2" && fHand[0].filterValue === "", JSON.stringify(fHand[0]))
+
+// ---------- 十四、排序 ----------
+
+note("排序:倒序 / 正序 / 空格末尾 / 稳定 / 月节跟随方向")
+
+const sortDateDesc = ledgerSort(cols, "c1", "desc")
+check("倒序:日期从新到旧,空格在末尾",
+  sortRows(rows, sortDateDesc).map((r) => r.id).join(",") === "r2,r1,r3,r4",
+  sortRows(rows, sortDateDesc).map((r) => r.id).join(","))
+check("正序:日期从旧到新,空格仍在末尾",
+  sortRows(rows, ledgerSort(cols, "c1", "asc")).map((r) => r.id).join(",") === "r3,r1,r2,r4",
+  sortRows(rows, ledgerSort(cols, "c1", "asc")).map((r) => r.id).join(","))
+check("数字列倒序(收入 12000/500/10,空格末尾)",
+  sortRows(rows, ledgerSort(cols, "c3", "desc")).map((r) => r.id).join(",") === "r1,r3,r4,r2",
+  sortRows(rows, ledgerSort(cols, "c3", "desc")).map((r) => r.id).join(","))
+check("不排序:原样返回表内行序",
+  sortRows(rows, ledgerSort(cols, "", "desc")).map((r) => r.id).join(",") === "r1,r2,r3,r4")
+check("排序列被删退化为不排序", ledgerSort(cols, "c9", "desc").column === null)
+check("月节序跟随方向;不排序时恒升序",
+  ledgerSort(cols, "c1", "desc").monthOrder === "desc" && ledgerSort(cols, "", "desc").monthOrder === "asc")
+
+const tie = [
+  { id: "t1", values: { c1: "2026-10-05", c2: "a", c3: null, c4: 1 } },
+  { id: "t2", values: { c1: "2026-10-05", c2: "b", c3: null, c4: 2 } },
+]
+check("同值行保持表内序(稳定排序)", sortRows(tie, sortDateDesc).map((r) => r.id).join(",") === "t1,t2")
+
+const monthDesc = ledgerSections(sortRows(rows, sortDateDesc), income, expense, {
+  mode: "month",
+  column: cols[0],
+  monthOrder: sortDateDesc.monthOrder,
+})
+check("按月 + 倒序:最近的月在最上,月内也倒序",
+  monthDesc.sections.map((s) => s.key).join(",") === "2026-10,2026-09" &&
+  monthDesc.sections[0].rows.map((r) => r.id).join(",") === "r2,r1",
+  `${monthDesc.sections.map((s) => s.key).join(",")} / ${monthDesc.sections[0].rows.map((r) => r.id).join(",")}`)
+check("按月 + 倒序时无日期节仍在末尾", monthDesc.loose !== null && monthDesc.loose.rows[0].id === "r4")
+
+const sortedBlock = createLedgerBlock("账.tbl", "c3", "c4", true, "month", "c1", "c1", "desc")
+const sortedHtml = blocksToHtml([sortedBlock], lookup)
+check("写 data-sort,倒序是缺省不写 data-sort-dir",
+  sortedHtml.includes('data-sort="c1"') && !sortedHtml.includes("data-sort-dir"), sortedHtml.slice(0, 140))
+check("快照按展示序:2026-10 节排在 2026-09 之前", sortedHtml.indexOf("2026-10") < sortedHtml.indexOf("2026-09"))
+check("排序不改余额口径(10-03 那笔余额仍是 8,200.00)", sortedHtml.includes("8,200.00"), sortedHtml)
+
+const ascHtml = blocksToHtml([createLedgerBlock("账.tbl", "c3", "c4", true, "month", "c1", "c1", "asc")], lookup)
+check("正序写 data-sort-dir=asc", ascHtml.includes('data-sort-dir="asc"'), ascHtml.slice(0, 140))
+check("正序快照:2026-09 在前", ascHtml.indexOf("2026-09") < ascHtml.indexOf("2026-10"))
+
+const sortRound = parseHtml(sortedHtml)
+check("往返 sortColumnId/sortDirection(倒序)",
+  sortRound[0].type === "ledger" && sortRound[0].sortColumnId === "c1" && sortRound[0].sortDirection === "desc",
+  JSON.stringify(sortRound[0]))
+check("往返 sortDirection(正序)", parseHtml(ascHtml)[0].sortDirection === "asc")
+const sortHand = parseHtml(`<div class="note-ledger" data-ledger="手改.tbl" data-sort="c1" data-sort-dir="xx"></div>`)
+check("宽容解析:缺/非法 data-sort-dir 落倒序", sortHand[0].sortColumnId === "c1" && sortHand[0].sortDirection === "desc", JSON.stringify(sortHand[0]))
 
 // ---------- 收尾 ----------
 

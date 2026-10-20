@@ -266,14 +266,15 @@ pnpm icon           # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | :-- | :-- |
 | 解析与往返 | `parse-check`、`inline-check` |
 | 编辑器交互 | `tab-check`、`toolbar-check`、`sidebar-check`、`drag-check`、`split-check`、`cell-check`、`undo-check`、`menu-nav-check`、`focus-check` |
-| 块类型 | `table-check`、`table-align-check`、`data-table-check`、`gallery-check`、`kanban-check`、`ledger-check`、`ledger-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`mermaid-check` |
+| 块类型 | `table-check`、`table-align-check`、`data-table-check`、`gallery-check`、`kanban-check`、`ledger-check`、`ledger-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check` |
 | 样式与外观 | `typography-check`、`theme-check`、`theme-mode-check`、`page-style-check`、`settings-check` |
 | 文件操作 | `create-check`、`move-check` |
 | 其它 | `drawer-jitter-probe`（抽屉抖动守卫）、`icon-check`（图标观感） |
 
 其中有几页要等一次真实的读盘（挂真实编辑器、有顶层 `await`），`--dump-dom` 抓不到结果，用配套的
 CDP 驱动：`node design/cdp-dump.mjs http://localhost:1420/design/<名字>.html`（加 `SHOT=/tmp/x.png`
-可整页截图）。改到哪一层就跑哪一页，映射写在 [AGENTS.md](AGENTS.md)。
+可整页截图）。代码块那页想肉眼看深色下的观感，URL 上带 `?theme=dark` 收尾在深色外观。
+改到哪一层就跑哪一页，映射写在 [AGENTS.md](AGENTS.md)。
 
 > `src/data/notes/**` 是本地私人的测试工作区，已从仓库排除。缺它时 `parse-check.html` 会改跑内置样本，
 > 不会因此变红。

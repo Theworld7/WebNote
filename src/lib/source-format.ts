@@ -1,5 +1,5 @@
 /**
- * 抽屉里的源码（页面级 CSS / HTML 块）在编辑期的格式化，以及 CSS 的落盘紧凑化。
+ * 源码的格式化（prettier），以及页面级 CSS 的落盘紧凑化。
  *
  * 文件里的那份源码是**文档数据**，不是构建产物：它跟着笔记走、被人手改、被 git 比对。
  * 但一条压成一行的 `body{font-family:…}h1{color:#333}` 在抽屉里没法读也没法改。两个
@@ -14,41 +14,84 @@
  *
  * 中间那一层刻意分开：格式化是可丢的显示层（prettier 加载失败就退化成原文，不影响读写），
  * 紧凑化是写入路径必须成功的纯函数（不能因为它失败就写不进去）。
+ *
+ * 代码块编辑态的「格式化」按钮（ADR-0018）用的是同一台引擎，但**不自动**：代码块的正文
+ * 就是笔记内容本身，打开即改写会在文件里凭空多出一层 diff。它只在按下按钮时排版缓冲，
+ * 落盘仍走 blur / 完成那条路。
  */
 
-/** 抽屉里会走格式化的两种语言。Monaco 的 language id 与 prettier 的 parser 名一一对上。 */
-export type FormatLanguage = "css" | "html"
+/**
+ * 有格式化器的语言。键是 **Monaco 的 language id**，也正是 `block.lang` 的取值 ——
+ * 两边同一个名字，调用方不必再翻译一次。
+ *
+ * prettier 覆盖不到的（python / shell / sql / go / rust）不在这里，按钮据此置灰。
+ */
+export type FormatLanguage = "css" | "html" | "javascript" | "typescript" | "json" | "yaml" | "markdown"
 
-/** 加载好的 prettier 引擎；`null` = 加载过且失败（不再重试，抽屉退化成原文）。 */
-type Engine = {
-  format: (source: string, options: Record<string, unknown>) => Promise<string>
-  plugin: Record<string, unknown>
+/** prettier 的插件包。按**包**缓存而不是按语言：`javascript` 与 `json` 共用 babel，不各下两份。 */
+type PluginPackage = "postcss" | "html" | "babel" | "estree" | "typescript" | "yaml" | "markdown"
+
+interface FormatSpec {
+  /** prettier 的 parser 名 —— 不总等于语言 id：`javascript` 走 babel，`json` 也走 babel。 */
+  parser: string
+  /** 见下：babel / typescript 都只出 AST，printer 在 estree 里，必须成对加载。 */
+  plugins: readonly PluginPackage[]
 }
 
-/** 按语言各缓存一份 —— CSS 与 HTML 的插件是两个包，互不牵累。 */
+/**
+ * estree 不是可选优化：prettier 的 babel / typescript 插件只负责把源码解析成
+ * `astFormat: "estree"`，打印器住在 `plugins/estree` 里。少了它 standalone 会直接报
+ * `Couldn't find plugin for AST format "estree"`。CSS / HTML / YAML / Markdown 的
+ * parser 与 printer 在同一个包里，不需要它。
+ */
+const SPECS: Record<FormatLanguage, FormatSpec> = {
+  css: { parser: "css", plugins: ["postcss"] },
+  html: { parser: "html", plugins: ["html"] },
+  javascript: { parser: "babel", plugins: ["babel", "estree"] },
+  typescript: { parser: "typescript", plugins: ["typescript", "estree"] },
+  json: { parser: "json", plugins: ["babel", "estree"] },
+  yaml: { parser: "yaml", plugins: ["yaml"] },
+  markdown: { parser: "markdown", plugins: ["markdown"] },
+}
+
+/** 加载好的引擎；`null` = 加载过且失败（不再重试，退化成原文）。 */
+type Engine = {
+  /** prettier 的 `formatWithCursor` —— 排版的同时把光标偏移翻译到新文本里。 */
+  format: typeof import("prettier/standalone").formatWithCursor
+  plugins: readonly import("prettier").Plugin[]
+}
+
+/** 按语言缓存 —— 一门语言加载一次，之后重排不再碰网络。 */
 const engines = new Map<FormatLanguage, Promise<Engine | null>>()
 
 /**
  * 懒加载 prettier。
  *
  * 走 `standalone` + 按语言的插件而不是完整包：这是浏览器环境，prettier 的 Node 入口
- * 依赖 `fs` / `process`。动态 import 让它只进「源码抽屉」那条链路 —— 只开 HTML 块的人
- * 不为 CSS 插件付加载成本，反过来也一样。
+ * 依赖 `fs` / `process`。动态 import 让它只进「格式化」那条链路 —— 只排 CSS 的会话
+ * 不为 babel / typescript 那几百 KB 付钱。
  */
+const LOADERS: Record<PluginPackage, () => Promise<import("prettier").Plugin>> = {
+  postcss: () => import("prettier/plugins/postcss"),
+  html: () => import("prettier/plugins/html"),
+  babel: () => import("prettier/plugins/babel"),
+  estree: () => import("prettier/plugins/estree"),
+  typescript: () => import("prettier/plugins/typescript"),
+  yaml: () => import("prettier/plugins/yaml"),
+  markdown: () => import("prettier/plugins/markdown"),
+}
+
 function loadEngine(language: FormatLanguage): Promise<Engine | null> {
   const cached = engines.get(language)
   if (cached !== undefined) return cached
-  const pending = (async () => {
+  const pending = (async (): Promise<Engine | null> => {
     try {
-      const [standalone, plugin] = await Promise.all([
+      const [standalone, ...plugins] = await Promise.all([
         import("prettier/standalone"),
-        language === "css" ? import("prettier/plugins/postcss") : import("prettier/plugins/html"),
+        ...SPECS[language].plugins.map((name) => LOADERS[name]()),
       ])
-      return {
-        format: standalone.format as Engine["format"],
-        // 插件模块本身就是 `{ parsers, printers }`，没有 default 导出，整个命名空间当插件用。
-        plugin: plugin as unknown as Record<string, unknown>,
-      }
+      // 插件模块本身就是 `{ parsers, printers }`，没有 default 导出，整个命名空间当插件用。
+      return { format: standalone.formatWithCursor, plugins }
     } catch {
       return null
     }
@@ -57,33 +100,57 @@ function loadEngine(language: FormatLanguage): Promise<Engine | null> {
   return pending
 }
 
+/** 类型守卫：把任意 `block.lang` 收窄成有格式化器的那些。 */
+function isFormatLanguage(language: string): language is FormatLanguage {
+  return Object.prototype.hasOwnProperty.call(SPECS, language)
+}
+
+/** 这门语言有没有格式化器 —— 工具栏据此决定「格式化」按钮是否置灰。 */
+export function supportsFormat(language: string): boolean {
+  return isFormatLanguage(language)
+}
+
+export interface FormattedSource {
+  /** 排版后的全文（结尾不留空行）。 */
+  text: string
+  /** 调用方给的 `cursorOffset` 在排版后文本里的对应位置。 */
+  cursorOffset: number
+}
+
 /**
- * 排版一段源码，供编辑器显示。
+ * 排版一段源码。
  *
- * 空串、解析失败（浏览器不认的写法、引擎没装起来、HTML 片段本身残缺）一律返回 `""`，
- * 调用方据此保留原文 —— 格式化是锦上添花，任何情况下都不该挡住「打开抽屉」这件事。
+ * 空串、语言没有格式化器、解析失败（编辑到一半的代码、引擎没装起来）一律返回 `null`，
+ * 调用方据此保留原文 —— 格式化是锦上添花，任何情况下都不该挡住编辑。
+ *
+ * `cursorOffset` 必须落在 `[0, source.length]` 内（prettier 会断言），越界由调用方夹紧。
  */
-async function formatSource(language: FormatLanguage, source: string): Promise<string> {
-  if (source.trim() === "") return ""
+export async function formatCode(language: string, source: string, cursorOffset: number): Promise<FormattedSource | null> {
+  if (!isFormatLanguage(language) || source.trim() === "") return null
   const loaded = await loadEngine(language)
-  if (loaded === null) return ""
+  if (loaded === null) return null
   try {
-    const formatted = await loaded.format(source, { parser: language, plugins: [loaded.plugin] })
+    const result = await loaded.format(source, {
+      parser: SPECS[language].parser,
+      plugins: [...loaded.plugins],
+      cursorOffset,
+    })
     // prettier 结尾恒有一个换行，摆进编辑器会多出一行空行。
-    return formatted.replace(/\n+$/, "")
+    const text = result.formatted.replace(/\n+$/, "")
+    return { text, cursorOffset: Math.min(result.cursorOffset, text.length) }
   } catch {
-    return ""
+    return null
   }
 }
 
 /** 排版页面级 CSS。 */
-export function formatCss(css: string): Promise<string> {
-  return formatSource("css", css)
+export async function formatCss(css: string): Promise<string> {
+  return (await formatCode("css", css, 0))?.text ?? ""
 }
 
 /** 排版 HTML 块的原文。 */
-export function formatHtml(html: string): Promise<string> {
-  return formatSource("html", html)
+export async function formatHtml(html: string): Promise<string> {
+  return (await formatCode("html", html, 0))?.text ?? ""
 }
 
 /** 空格可以丢掉的「前一个字符」。 */
