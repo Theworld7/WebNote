@@ -335,8 +335,14 @@ function openTable() {
       金额求和、余额与合计才会出现。
     </p>
 
-    <div class="overflow-x-auto rounded-lg border border-line">
-      <table class="w-full border-collapse text-[12px]">
+    <!--
+      不换行 + 横向滚动,与数据表 scroll 档同一套几何(typography.ts 的 TABLE_SCROLL):
+      格子 nowrap 让列宽由内容决定;表要 `w-max min-w-full` 而不是 `w-full` —— w-full
+      被容器宽钉死,内容再宽也只会溢出格子,w-max 才产生可滚动量;容器 pb-2 把细滚动条
+      从圆角底边推开。
+    -->
+    <div class="table-scrollbar overflow-x-auto rounded-lg border border-line pb-2">
+      <table class="w-max min-w-full whitespace-nowrap border-collapse text-[12px]">
         <thead>
           <tr class="border-b border-line bg-muted/40 text-left text-muted-foreground">
             <!-- 行号列(空表头):宽度定死,行号与悬停删除钮共用这一格。 -->
