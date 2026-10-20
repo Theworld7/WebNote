@@ -6,7 +6,7 @@ import { useWorkspace } from "@/composables/useWorkspace"
 import { useInlineToolbar } from "@/composables/useInlineToolbar"
 import { blockText, hasLeadingMarker, isListType, isTextualBlock, tableToTsv } from "@/lib/blocks"
 import { tableHtml } from "@/lib/html/serialize"
-import { focusEditable } from "@/lib/dom"
+import { requestEditableFocus } from "@/lib/dom"
 import { highlightCode } from "@/lib/highlight"
 import { runsFromNode } from "@/lib/html"
 import { runsText, runsToHtml } from "@/lib/inline"
@@ -82,6 +82,27 @@ const { toolbar, linkEdit, applyMark, applyColor, openLink, applyLink } = useInl
  * 这时候菜单关闭的回调必须让位，否则会把焦点抢回当前块。
  */
 let yieldFocus = false
+
+/**
+ * 菜单里的动作项一挑，焦点就归这次动作的结果（新块 / 转换后的块 / 上一块）。
+ * 三个 emit 统一在这里打让位标记：漏一个，菜单关闭的回调就会把焦点抢回本块，
+ * 用户点完菜单还得自己去点新块才能打字。
+ */
+function onInsertFromMenu(type: BlockType, position: BlockInsertPosition) {
+  yieldFocus = true
+  if (position === "above") emit("insert-before", props.block.id, type)
+  else emit("insert-after", props.block.id, type)
+}
+
+function onRetypeFromMenu(type: BlockType) {
+  yieldFocus = true
+  emit("retype", props.block.id, type)
+}
+
+function onRemoveFromMenu() {
+  yieldFocus = true
+  emit("remove", props.block.id)
+}
 
 /**
  * contenteditable 走非受控：DOM 内容只在挂载时由数据写入一次，
@@ -212,17 +233,17 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
-async function onMenuChange(value: BlockMenuKind) {
+function onMenuChange(value: BlockMenuKind) {
   openMenu.value = value
   if (value !== "") return
   typeMenuMode.value = "insert"
   const shouldRefocus = !yieldFocus
   yieldFocus = false
   if (!shouldRefocus) return
-  // 菜单关掉后焦点默认落在触发按钮上，得手动送回正文。
-  await nextTick()
+  // 菜单关掉后焦点默认落在触发按钮上，得手动送回正文。菜单项这时还在卸载，
+  // 当场聚焦会被它一起带走的 —— 交给菜单的关闭回调落（`requestEditableFocus`）。
   const element = bodyRef.value
-  if (element) focusEditable(element, "end")
+  if (element) requestEditableFocus(element, "end")
 }
 
 const markerText = computed(() => (props.block.type === "ol" ? `${props.orderedIndex}.` : "•"))
@@ -423,16 +444,17 @@ const bodyClass = computed(() => {
     <!-- 布局块的手柄不走这里：它投给 LayoutBlockView，停靠进底部悬浮条（见下方 #toolbar）。 -->
     <BlockToolbar
       v-if="block.type !== 'layout'"
+      :block-type="block.type"
       :open-menu="openMenu"
       :type-menu-mode="typeMenuMode"
       :exclude-types="inCell === true ? CELL_EXCLUDED_TYPES : undefined"
       :inside="inCell === true"
       @update:open-menu="onMenuChange"
-      @insert="(type: BlockType, position: BlockInsertPosition) => (position === 'above' ? emit('insert-before', block.id, type) : emit('insert-after', block.id, type))"
-      @retype="(type: BlockType) => emit('retype', block.id, type)"
+      @insert="onInsertFromMenu"
+      @retype="onRetypeFromMenu"
       @duplicate="emit('duplicate', block.id)"
       @copy-content="copyContent"
-      @remove="emit('remove', block.id)"
+      @remove="onRemoveFromMenu"
     />
 
     <span
@@ -478,16 +500,17 @@ const bodyClass = computed(() => {
       -->
       <template #toolbar>
         <BlockToolbar
+          :block-type="block.type"
           :open-menu="openMenu"
           :type-menu-mode="typeMenuMode"
           :inside="inCell === true"
           :docked="layoutDocked"
           @update:open-menu="onMenuChange"
-          @insert="(type: BlockType, position: BlockInsertPosition) => (position === 'above' ? emit('insert-before', block.id, type) : emit('insert-after', block.id, type))"
-          @retype="(type: BlockType) => emit('retype', block.id, type)"
+          @insert="onInsertFromMenu"
+          @retype="onRetypeFromMenu"
           @duplicate="emit('duplicate', block.id)"
           @copy-content="copyContent"
-          @remove="emit('remove', block.id)"
+          @remove="onRemoveFromMenu"
         />
       </template>
     </LayoutBlockView>

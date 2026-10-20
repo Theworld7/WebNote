@@ -24,6 +24,7 @@ import BlockEditor from "../src/components/BlockEditor.vue"
 import { provideSettings } from "../src/composables/useSettings.ts"
 import { provideTheme } from "../src/composables/useTheme.ts"
 import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { blockTypeMeta } from "../src/lib/blocks.ts"
 
 const lines = []
 let passed = 0
@@ -102,6 +103,23 @@ function texts() { return workspace.activeDocument.value.map((b) => b.runs.map((
 function lined() { return rows().filter((r) => r.className.includes("before:absolute") || r.className.includes("after:absolute")).map((r) => r.dataset.blockId) }
 
 check("文档渲染出 4 个块", rows().length === 4, `实际 ${rows().length}：${JSON.stringify(texts())}`)
+
+// ---- 把手里的类型标识（hover 就能看出在操作什么块）----
+// 标识与类型菜单同源（BLOCK_TYPES 的 marker），逐块比对，防两处各写一套。
+if (rows().length === 4) {
+  // 笔记是 <h1> + 三个 <p>：marker 必须分别是 H1 与 ¶，才说明读的是块类型而不是写死的字。
+  const shown = rows().map((row) => row.querySelector("[data-drag-handle] span")?.textContent?.trim() ?? "")
+  const expected = rows().map((row) => blockTypeMeta(row.querySelector("[data-block-type]").dataset.blockType).marker)
+  check("把手里是各块的 marker", JSON.stringify(shown) === JSON.stringify(expected), `实际 ${JSON.stringify(shown)}，应为 ${JSON.stringify(expected)}`)
+  check("首块是标题、其余是正文", shown[0] === "H1" && shown[1] === "¶", JSON.stringify(shown))
+
+  // 把手加宽后右缘仍要停在正文左缘之外 —— 越过去就会压住首字。
+  const overlap = rows().map((row) => {
+    const grip = row.querySelector("[data-drag-handle]").getBoundingClientRect()
+    return grip.right - row.getBoundingClientRect().left
+  })
+  check("把手右缘不压正文", overlap.every((gap) => gap <= 0), `各块超出 ${JSON.stringify(overlap)}`)
+}
 
 // 块数不对就别往下跑：后面每条断言都会因为拿不到行而炸，掩盖掉真原因。
 if (rows().length === 4) await run()

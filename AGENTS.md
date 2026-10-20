@@ -18,7 +18,7 @@
   色(0010)、页面样式是文档级的 `<style>` 且编辑器内按正文列预览、页面样式里的浅深两套按应用
   外观解析(0011)、页面样式只在编辑期格式化、落盘压成单行(0012)、HTML 块的沙箱 iframe 带着
   页面样式重新生成、块里那张纸也跟应用外观走(0013)、外观是一份带调度的偏好且手动切换只覆盖
-  当前时段(0014)。改对应行为前先读那篇。
+  当前时段(0014)、转换是换一个新块所以焦点按返回的 id 找(0015)。改对应行为前先读那篇。
 
 ## 验证
 
@@ -28,12 +28,15 @@
    用类型收窄和类型守卫表达。
 2. **自检页**:`design/*.html` 是能直接跑的回归页,每个用例输出 `OK` / `FAIL` 行。
    `pnpm dev` 后访问 `/design/<名字>.html`;其中 `drag-check`、`typography-check`、
-   `data-table-check`、`ledger-edit-check` 含顶层 `await`,要抓结果用
+   `data-table-check`、`ledger-edit-check`、`menu-nav-check` 含顶层 `await`,要抓结果用
    `node design/cdp-dump.mjs http://localhost:1420/design/<名字>.html`。
 
 改哪层跑哪页:动 `lib/html` → `parse-check`;动块拖拽 / 标签栏 → `drag-check` / `tab-check`;
+动块菜单的方向键寻路(`lib/menu-nav.ts`、横向布局的列间移动)→ `menu-nav-check`(挂真实菜单,
+走 CDP);
 动数据表 → `data-table-check`;动排版样式 → `typography-check`;动新建 / 移动 →
 `create-check` / `move-check`;动设置 → `settings-check`;动布局块 → `layout-check`;
+动落块 / 转换之后的焦点(菜单插入、`/` 转换、`转为…` 子菜单、Esc 关菜单)→ `focus-check`;
 动格子的增删行为 → `cell-check`(挂真实编辑器,走 CDP);
 动账目块的财务口径 → `ledger-check`,动它的就地增删改 → `ledger-edit-check`(挂真实编辑器,
 走 CDP 驱动);动主题色 / 品牌色 → `theme-check`(对齐图标 tokens,守对比度);动外观 / 主题模式 / 定时与

@@ -49,42 +49,42 @@ type MenuGroup = (typeof MENU_GROUPS)[number]
 type BlockTypeMenuEntry = BlockTypeMeta & { group: MenuGroup }
 
 export const BLOCK_TYPES = [
-  { type: "text", group: "基础", marker: "¶", label: "文本" },
-  { type: "h1", group: "基础", marker: "H1", label: "标题 1" },
-  { type: "h2", group: "基础", marker: "H2", label: "标题 2" },
-  { type: "h3", group: "基础", marker: "H3", label: "标题 3" },
-  { type: "h4", group: "基础", marker: "H4", label: "标题 4" },
-  { type: "h5", group: "基础", marker: "H5", label: "标题 5" },
-  { type: "h6", group: "基础", marker: "H6", label: "标题 6" },
-  { type: "todo", group: "列表", marker: "[ ]", label: "待办列表" },
-  { type: "ul", group: "列表", marker: "•", label: "无序列表" },
-  { type: "ol", group: "列表", marker: "1.", label: "有序列表" },
-  { type: "quote", group: "内容", marker: '"', label: "引用" },
-  { type: "code", group: "内容", marker: "</>", label: "代码块" },
+  { type: "text", group: "基础", marker: "¶", label: "文本", initials: "wb" },
+  { type: "h1", group: "基础", marker: "H1", label: "标题 1", initials: "bt1" },
+  { type: "h2", group: "基础", marker: "H2", label: "标题 2", initials: "bt2" },
+  { type: "h3", group: "基础", marker: "H3", label: "标题 3", initials: "bt3" },
+  { type: "h4", group: "基础", marker: "H4", label: "标题 4", initials: "bt4" },
+  { type: "h5", group: "基础", marker: "H5", label: "标题 5", initials: "bt5" },
+  { type: "h6", group: "基础", marker: "H6", label: "标题 6", initials: "bt6" },
+  { type: "todo", group: "列表", marker: "[ ]", label: "待办列表", initials: "dbl" },
+  { type: "ul", group: "列表", marker: "•", label: "无序列表", initials: "wxl" },
+  { type: "ol", group: "列表", marker: "1.", label: "有序列表", initials: "yxl" },
+  { type: "quote", group: "内容", marker: '"', label: "引用", initials: "yy" },
+  { type: "code", group: "内容", marker: "</>", label: "代码块", initials: "dmk" },
   // 紧挨 code：mermaid 的心智来源就是「用代码块写图」，摆一起最容易找。
-  { type: "mermaid", group: "内容", marker: "◇", label: "Mermaid 图" },
+  { type: "mermaid", group: "内容", marker: "◇", label: "Mermaid 图", initials: "mermaidt" },
   // 紧挨 mermaid：HTML 块的心智来源同为「写一段源码」，只是源码直接渲染成内容。
-  { type: "html", group: "内容", marker: "<>", label: "HTML" },
-  { type: "callout", group: "内容", marker: "!", label: "标注" },
-  { type: "divider", group: "内容", marker: "—", label: "分割线" },
-  { type: "image", group: "媒体与数据", marker: "▧", label: "图片" },
-  { type: "table", group: "媒体与数据", marker: "⊞", label: "表格" },
+  { type: "html", group: "内容", marker: "<>", label: "HTML", initials: "html" },
+  { type: "callout", group: "内容", marker: "!", label: "标注", initials: "bz" },
+  { type: "divider", group: "内容", marker: "—", label: "分割线", initials: "fgx" },
+  { type: "image", group: "媒体与数据", marker: "▧", label: "图片", initials: "tp" },
+  { type: "table", group: "媒体与数据", marker: "⊞", label: "表格", initials: "bg" },
   // 紧挨 table：数据表在用户眼里就是「更正式的表格」，摆一起最容易找。
-  { type: "datatable", group: "媒体与数据", marker: "▤", label: "数据表" },
+  { type: "datatable", group: "媒体与数据", marker: "▤", label: "数据表", initials: "sjb" },
   // 紧挨 datatable：画册展示的就是数据表的数据，只是换了一身衣服。
-  { type: "gallery", group: "媒体与数据", marker: "▦", label: "画册" },
+  { type: "gallery", group: "媒体与数据", marker: "▦", label: "画册", initials: "hc" },
   // 紧挨 gallery：书签块同样吃数据表的数据，渲染成链接卡片宫格。
-  { type: "bookmark", group: "媒体与数据", marker: "⚑", label: "书签" },
+  { type: "bookmark", group: "媒体与数据", marker: "⚑", label: "书签", initials: "sq" },
   // 紧挨 bookmark：看板块同样吃数据表的数据,按某列分组铺成几列,卡片可拖拽改值。
-  { type: "kanban", group: "媒体与数据", marker: "☰", label: "看板" },
+  { type: "kanban", group: "媒体与数据", marker: "☰", label: "看板", initials: "kb" },
   // 紧挨 kanban：账目块同样吃数据表的数据,按财务口径渲染成流水账(收入/支出/余额/小计)。
-  { type: "ledger", group: "媒体与数据", marker: "¥", label: "账目" },
+  { type: "ledger", group: "媒体与数据", marker: "¥", label: "账目", initials: "zm" },
   // 紧挨 ledger：统计块同样吃数据表的数据,把某列的数值求和成一个大数字。
-  { type: "stat", group: "媒体与数据", marker: "Σ", label: "统计" },
+  { type: "stat", group: "媒体与数据", marker: "Σ", label: "统计", initials: "tj" },
   // 紧挨 kanban 之后、布局压轴之前:聊天记录是内容块,不是版面级重结构。
-  { type: "chat", group: "媒体与数据", marker: "◌", label: "聊天记录" },
+  { type: "chat", group: "媒体与数据", marker: "◌", label: "聊天记录", initials: "ltjl" },
   // 压轴：容器块是「版面级」的重结构,跟在内容块族的最后。
-  { type: "layout", group: "版面", marker: "⬚", label: "布局" },
+  { type: "layout", group: "版面", marker: "⬚", label: "布局", initials: "bj" },
 ] satisfies readonly BlockTypeMenuEntry[]
 
 /**
@@ -110,6 +110,22 @@ export function blockTypeMeta(type: BlockType): BlockTypeMeta {
   const meta = TYPE_META.get(type)
   if (meta === undefined) throw new Error(`未登记的块类型：${type}`)
   return meta
+}
+
+/**
+ * 按检索词筛块类型，登记表顺序返回 —— `/` 菜单里敲 `dmk` 就只剩代码块。
+ *
+ * 前缀匹配、忽略大小写，与中文输入法的「简拼」同一个口径：敲 `d` 列出代码块与待办列表，
+ * 敲 `dm` 收窄到代码块。空检索词即全部（滤掉 `exclude` 的那几种）。
+ *
+ * 菜单渲染与 Enter 落块都走这一处：两边的可见项必须一致 —— 否则「只剩一项」时
+ * Enter 落下的块可能根本不在眼前那张清单里。
+ */
+export function blockTypeOptions(query: string, exclude?: readonly BlockType[]): BlockTypeMeta[] {
+  const wanted = query.trim().toLowerCase()
+  return BLOCK_TYPES.filter(
+    (meta) => exclude?.includes(meta.type) !== true && (wanted === "" || meta.initials.startsWith(wanted)),
+  )
 }
 
 /** 带序号的列表类型：这两种要在块左侧渲染 marker。 */

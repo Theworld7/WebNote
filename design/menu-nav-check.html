@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>横向块菜单的方向键自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { height: 120px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>横向布局的块菜单：方向键按几何位置走（←/→ 换列，↓ 留在本列）</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+// 不引 style.css 的话 Tailwind 类不存在，菜单的 flex 列排布不成立，几何断言会假通过。
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick, ref } from "vue"
+import BlockToolbar from "../src/components/BlockToolbar.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { arrowTargetIndex } from "../src/lib/menu-nav.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+
+// ---- 一、纯函数：给坐标，挑目标 ----
+// 三列 × 两行，列宽 100 / 行高 24 / 列间距 12。
+const cell = (col, row) => ({ left: col * 112, right: col * 112 + 100, top: row * 30, bottom: row * 30 + 24 })
+const grid = [cell(0, 0), cell(0, 1), cell(1, 0), cell(1, 1), cell(2, 0), cell(2, 1)]
+
+check("↓ 留在本列", arrowTargetIndex(grid, 0, "down") === 1, `实得 ${arrowTargetIndex(grid, 0, "down")}`)
+check("列底 ↓ 不出列", arrowTargetIndex(grid, 1, "down") === null, `实得 ${arrowTargetIndex(grid, 1, "down")}`)
+check("→ 落到右列同一行", arrowTargetIndex(grid, 0, "right") === 2, `实得 ${arrowTargetIndex(grid, 0, "right")}`)
+check("← 落到左列同一行", arrowTargetIndex(grid, 2, "left") === 0, `实得 ${arrowTargetIndex(grid, 2, "left")}`)
+check("最右列 → 到边", arrowTargetIndex(grid, 4, "right") === null, `实得 ${arrowTargetIndex(grid, 4, "right")}`)
+check("← 到边返回 null", arrowTargetIndex(grid, 2, "left") === 0 && arrowTargetIndex(grid, 0, "left") === null)
+
+// 右边那列更长时，左列列底按 ↓ 仍要返回 null —— 不能因为别处还有更靠下的项就串过去。
+const uneven = [cell(0, 0), cell(0, 1), cell(1, 0), cell(1, 1), cell(1, 2)]
+check("列高不齐时列底 ↓ 仍不出列", arrowTargetIndex(uneven, 1, "down") === null, `实得 ${arrowTargetIndex(uneven, 1, "down")}`)
+
+// 相邻列 1px 亚像素错位不该把整列筛掉（容差 1px）。
+const offset = [{ left: 0, right: 100, top: 0, bottom: 24 }, { left: 100.4, right: 200.4, top: 0, bottom: 24 }]
+check("亚像素错位仍认作右邻", arrowTargetIndex(offset, 0, "right") === 1, `实得 ${arrowTargetIndex(offset, 0, "right")}`)
+
+// ---- 二、端到端：真实菜单里的焦点落点 ----
+localStorage.setItem("webnote:menu-group-layout", "horizontal")
+
+const openMenu = ref("type")
+/** 菜单发出来的落块动作。检索词只管筛，落哪一块得看 Enter 发的这条。 */
+const picked = []
+const Root = defineComponent({
+  setup() {
+    provideSettings()
+    return () =>
+      h(BlockToolbar, {
+        blockType: "text",
+        openMenu: openMenu.value,
+        typeMenuMode: "insert",
+        "onUpdate:openMenu": (value) => (openMenu.value = value),
+        onInsert: (type, position) => picked.push({ type, position }),
+      })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+
+const contentOf = () => document.querySelector('[data-slot="dropdown-menu-content"]')
+for (let i = 0; i < 60 && contentOf() === null; i += 1) await new Promise((resolve) => setTimeout(resolve, 50))
+
+check("类型菜单打开了", contentOf() !== null)
+
+if (contentOf() !== null) {
+  const itemsOf = () =>
+    [...contentOf().querySelectorAll('[role="menuitem"]:not([aria-disabled="true"])')].filter(
+      (item) => item.getBoundingClientRect().width > 0,
+    )
+  const textOf = (element) => element.textContent.trim()
+  /** 顶部检索回显那一行 —— 菜单里没有输入框，敲进去的字母靠它显示。 */
+  const echoText = () => contentOf()?.querySelector('[data-type-query="true"]')?.textContent.trim() ?? ""
+  const leftOf = (element) => element.getBoundingClientRect().left
+  const middleY = (element) => {
+    const box = element.getBoundingClientRect()
+    return (box.top + box.bottom) / 2
+  }
+  /** 在焦点元素上按一个方向键。捕获阶段的监听挂在菜单外壳上，事件要真的冒泡上去。 */
+  const press = (key) => {
+    document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }))
+  }
+
+  const items = itemsOf()
+  // 列数按左缘去重数：位置 + 五个类型组。
+  const columns = new Set(items.map((item) => Math.round(leftOf(item))))
+  check("菜单真的排成多列", columns.size >= 5, `列数 ${columns.size}`)
+
+  const first = items[0]
+  first.focus()
+  check("首项（位置列第一行）能落焦点", document.activeElement === first, `text=${textOf(document.activeElement)}`)
+
+  // ↓ 留在本列：位置列 0 → 1，绝不能跳到右边「基础」列的标题 1。
+  press("ArrowDown")
+  const afterDown = document.activeElement
+  check(
+    "↓ 留在本列第二项",
+    afterDown !== first && sameColumn(leftOf(afterDown), leftOf(first)),
+    `落到 ${textOf(afterDown)}（left ${Math.round(leftOf(afterDown))} vs ${Math.round(leftOf(first))}）`,
+  )
+  check("↓ 没有翻到旁边的列", textOf(afterDown).includes("在下方插入"), `落到 ${textOf(afterDown)}`)
+
+  // 列底再按 ↓：停住，不换列。
+  press("ArrowDown")
+  check("列底 ↓ 焦点不动", document.activeElement === afterDown, `落到 ${textOf(document.activeElement)}`)
+
+  // → 换到右列同一行，← 再回来。
+  press("ArrowRight")
+  const afterRight = document.activeElement
+  check("→ 落到了右列", afterRight !== afterDown && leftOf(afterRight) > leftOf(afterDown), `落到 ${textOf(afterRight)}`)
+  check(
+    "→ 落在同一行（中心差 ≤ 4px）",
+    Math.abs(middleY(afterRight) - middleY(afterDown)) <= 4,
+    `y 差 ${Math.round(Math.abs(middleY(afterRight) - middleY(afterDown)))}px`,
+  )
+
+  press("ArrowLeft")
+  check("← 回到原列原项", document.activeElement === afterDown, `落到 ${textOf(document.activeElement)}`)
+
+  // 类型列里 ↓ 逐项下移，而不是按完一列就串到下一列（这页要防的老毛病）。
+  // 菜单项的文字是「marker + 标签」两段，按标签包含匹配。
+  const byLabel = (label) => items.find((item) => textOf(item).includes(label))
+  const textBlock = byLabel("文本")
+  textBlock.focus()
+  press("ArrowDown")
+  check("类型列 ↓ 落到下一项", textOf(document.activeElement).includes("标题 1"), `落到 ${textOf(document.activeElement)}`)
+
+  const h6 = byLabel("标题 6")
+  h6.focus()
+  press("ArrowDown")
+  check("类型列列底 ↓ 不出列", document.activeElement === h6, `落到 ${textOf(document.activeElement)}`)
+
+  // → 从「基础」列列底出发：右边没有同一行的项，按最近行挑（不该原地不动）。
+  press("ArrowRight")
+  check("列底 → 仍能换列", leftOf(document.activeElement) > leftOf(h6), `落到 ${textOf(document.activeElement)}`)
+
+  // ---- 三、拼音首字母检索：敲 dmk 只剩代码块 ----
+  // 位置列不是块类型，检索词管不着它，断言前先摘出去。
+  const typeLabels = () =>
+    itemsOf()
+      .filter((item) => !textOf(item).includes("插入"))
+      .map(textOf)
+  /** 敲一个键，等 Vue 把清单刷出来再断言。 */
+  const typeKey = async (key) => {
+    press(key)
+    await nextTick()
+  }
+  /** 焦点落在哪儿 —— Enter 走哪个分支，全看焦点在「块类型」上还是别的项上。 */
+  const activeText = () => {
+    const active = document.activeElement
+    if (active === null) return "无"
+    return active === contentOf() ? "菜单外壳" : `${active.tagName}「${textOf(active).slice(0, 12)}」`
+  }
+  /** 按标签找一个可见项 —— 找不到就返回 null，别让探针页崩成一句 running…。 */
+  const findByLabel = (label) => itemsOf().find((item) => textOf(item).includes(label)) ?? null
+
+  await typeKey("d")
+  check(
+    "敲 d 落到代码块与待办列表",
+    typeLabels().length === 2 && typeLabels().some((label) => label.includes("代码块")) && typeLabels().some((label) => label.includes("待办列表")),
+    `实得 ${typeLabels().join(" / ")}`,
+  )
+
+  await typeKey("m")
+  check("敲 dm 收窄到代码块", typeLabels().length === 1 && typeLabels()[0].includes("代码块"), `实得 ${typeLabels().join(" / ")}`)
+
+  await typeKey("k")
+  check("敲 dmk 仍是代码块", typeLabels().length === 1 && typeLabels()[0].includes("代码块"), `实得 ${typeLabels().join(" / ")}`)
+  check("检索词原样回显在菜单顶部", echoText().includes("dmk"), `实得「${echoText()}」`)
+  check("检索时焦点留在菜单里", contentOf() !== null && contentOf().contains(document.activeElement), `焦点 ${activeText()}`)
+
+  // 退格逐个还回来：dmk → dm → d → 全量。
+  for (const _ of [0, 1, 2]) await typeKey("Backspace")
+  check("退格退空后清单复原", typeLabels().length === 26, `实得 ${typeLabels().length} 项`)
+  check("退空后回显退回提示语", echoText().includes("拼音首字母筛选"), `实得「${echoText()}」`)
+
+  // 筛不中：清单里没有块类型，但菜单还得开着，并给一句话让人知道是筛空的。
+  await typeKey("z")
+  await typeKey("z")
+  check("筛不中时菜单仍开着", contentOf() !== null)
+  check("筛不中时没有块类型可选项", typeLabels().length === 0, `实得 ${typeLabels().length} 项`)
+  check("筛不中时给出提示", contentOf() !== null && contentOf().textContent.includes("没有匹配的块类型"))
+
+  for (const _ of [0, 1]) await typeKey("Backspace")
+  check("退回空检索词后又能看到文本块", typeLabels().some((label) => label.includes("文本")), `实得 ${typeLabels().join(" / ")}`)
+
+  // ---- 四、检索结果怎么落块 ----
+  // 落在块类型上会顺手关掉菜单，所以这一段的断言放最后；落块前先把检索词敲回来。
+  for (const key of ["d", "m", "k"]) await typeKey(key)
+
+  // 焦点在插入位置项上（菜单一打开键盘焦点就被挪到那儿）：Enter 得按检索结果落块，
+  // 不能因为焦点恰好在位置项上就去改插入位置。
+  const positionItem = findByLabel("在上方插入")
+  check("插入位置项不受检索词影响", positionItem !== null)
+  positionItem?.focus()
+  press("Enter")
+  await nextTick()
+  check(
+    "位置项上按 Enter 按检索结果落块",
+    picked.length === 1 && picked[0].type === "code" && picked[0].position === "below",
+    `实得 ${JSON.stringify(picked)}，焦点 ${activeText()}`,
+  )
+
+  // 焦点在块类型上（用户自己挑的那一项）：Enter 归菜单，落的就是它自己。
+  // 这里不钉插入位置 —— 上一按顺手激活了位置项（它自己的行为），位置已经翻到上方了。
+  picked.length = 0
+  const codeItem = findByLabel("代码块")
+  check("筛出来的块类型还在", codeItem !== null)
+  codeItem?.focus()
+  press("Enter")
+  await nextTick()
+  check(
+    "块类型上按 Enter 落的是它自己",
+    picked.length === 1 && picked[0].type === "code",
+    `实得 ${JSON.stringify(picked)}，焦点 ${activeText()}`,
+  )
+}
+
+lines.push(`自检 ${passed}/${passed + failed}`)
+document.getElementById("out").textContent = lines.join("\n")
+
+/** 同一列的两项左缘完全相同，浮点比较留 1px 缝。 */
+function sameColumn(a, b) {
+  return Math.abs(a - b) <= 1
+}
+</script>
+</body>
+</html>

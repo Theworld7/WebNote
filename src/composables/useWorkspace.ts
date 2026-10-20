@@ -1324,15 +1324,24 @@ function createWorkspace() {
     return insertBlockAt(activeDocument.value.length, type)
   }
 
-  function changeBlockType(id: string, type: BlockType) {
+  /**
+   * 换块类型，返回**转换后那个块的 id**。
+   *
+   * 转换是换一个块（`retypeBlock` 生成新 id），不是改同一个块的类型 —— 调用方要聚焦 /
+   * 要接着操作，都得按返回值找。拿旧 id 找只会落空：块还在，按 id 却查不到，
+   * 表现是「转换完光标没了」。转换被拒（块不存在 / 格子内想嵌布局块）时返回 null。
+   */
+  function changeBlockType(id: string, type: BlockType): string | null {
     const at = locateBlock(id)
     const current = at === null ? undefined : at.list[at.index]
-    if (at === null || current === undefined) return
+    if (at === null || current === undefined) return null
     // 一层容器（ADR-0007）：格子内不再嵌布局块。UI 菜单在格子内已把它滤掉，
     // 这里再挡一道是防程序化路径（快捷键、未来的批量操作）漏进来。
-    if (type === "layout" && at.list !== activeDocument.value) return
-    at.list[at.index] = retypeBlock(current, type)
+    if (type === "layout" && at.list !== activeDocument.value) return null
+    const next = retypeBlock(current, type)
+    at.list[at.index] = next
     markDirty()
+    return next.id
   }
 
   function duplicateBlock(id: string) {

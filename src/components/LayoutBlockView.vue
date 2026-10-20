@@ -49,8 +49,7 @@ function onInsertAt(id: string, type: BlockType, offset: 0 | 1) {
 
 /** 格子内「转换为」。目标类型同样已被菜单滤过；changeBlockType 里还有一层容器守卫。 */
 function onRetype(id: string, type: BlockType) {
-  changeBlockType(id, type)
-  void focusBlockById(id)
+  void focusBlockById(changeBlockType(id, type) ?? id)
 }
 
 /**

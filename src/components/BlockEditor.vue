@@ -183,8 +183,8 @@ function handleRetype(id: string, type: BlockType) {
     })
     return
   }
-  changeBlockType(id, type)
-  void focusBlockById(id)
+  const nextId = changeBlockType(id, type)
+  void focusBlockById(nextId ?? id)
 }
 
 function handleRemove(id: string) {

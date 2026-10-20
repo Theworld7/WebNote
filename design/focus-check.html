@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>落块后的焦点自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>落块后的焦点：+ 菜单插入、`/` 转完，光标都该在新块里</h1>
+<!-- 脚本里有顶层 await（要等真实读盘），抓结果用 CDP 驱动跑：
+     node design/cdp-dump.mjs http://localhost:1420/design/focus-check.html -->
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { BLOCK_ROW_SELECTOR, DOM_ATTR } from "../src/lib/dom.ts"
+
+/** 可编辑体的选择器。`editableSelector` 在 lib/dom 里是私有的，这里按同一约定拼。 */
+const editableSelectorOf = (blockId) => `[${DOM_ATTR.editable}="${blockId}"]`
+
+const out = document.querySelector("#out")
+const lines = []
+let passed = 0
+let failed = 0
+/** 第二段转出来的代码块 id：第四段要把它和自己的结果区分开。 */
+let convertedId = ""
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  out.textContent = lines.join("\n")
+}
+
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("focus-check", { create: true })
+const file = await dir.getFileHandle("a.html", { create: true })
+const writable = await file.createWritable()
+await writable.write("<p>占位</p>")
+await writable.close()
+window.showDirectoryPicker = async () => dir
+
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    provideTheme(provideSettings())
+    return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+const note = workspace.tree.value.find((node) => node.kind === "note")
+workspace.openFile(note.id)
+for (let i = 0; i < 60 && workspace.activeDocument.value.length < 1; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 50))
+}
+await nextTick()
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+/** 等菜单出现 / 消失。菜单走 portal，得查 body。 */
+async function menuContent() {
+  for (let i = 0; i < 40; i += 1) {
+    const content = document.querySelector('[data-slot="dropdown-menu-content"]')
+    if (content !== null) return content
+    await wait(50)
+  }
+  return null
+}
+/**
+ * 点菜单里的一项。reka 的 menuitem 走指针事件选，光 `.click()` 不一定触发，
+ * 三条一起发（pointerdown → pointerup → click）最接近真鼠标。
+ */
+const SUB_CONTENT = '[data-slot="dropdown-menu-sub-content"]'
+
+async function clickItem(label, scope = '[data-slot="dropdown-menu-content"]') {
+  const content = scope === SUB_CONTENT ? document.querySelector(SUB_CONTENT) : await menuContent()
+  if (content === null) return false
+  const item = [...content.querySelectorAll('[role="menuitem"][data-type-option]')].find((node) =>
+    node.textContent.includes(label),
+  )
+  if (item === undefined) return false
+  item.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerType: "mouse" }))
+  item.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerType: "mouse" }))
+  item.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }))
+  return true
+}
+/** 当前键盘焦点所在的块 id（焦点不在任何块里则为 null）。 */
+function focusedBlockId() {
+  const active = document.activeElement
+  if (!(active instanceof HTMLElement)) return null
+  const host = active.closest(BLOCK_ROW_SELECTOR)
+  return host instanceof HTMLElement ? host.getAttribute(DOM_ATTR.blockId) : null
+}
+/** 焦点落在哪儿 —— 失败时的证据。 */
+function describeActive() {
+  const active = document.activeElement
+  if (active === null) return "无"
+  if (!(active instanceof HTMLElement)) return `${active.nodeName}`
+  return `${active.tagName.toLowerCase()}.${active.className.toString().slice(0, 40)}#${active.getAttribute(DOM_ATTR.editable) ?? ""}`
+}
+/** 光标是否真的落在块的可编辑体里（有 collapsed 选区才算能直接打字）。 */
+function caretIn(blockId) {
+  const element = document.querySelector(editableSelectorOf(blockId))
+  const selection = window.getSelection()
+  if (!(element instanceof HTMLElement) || selection === null) return false
+  const anchor = selection.anchorNode
+  return anchor !== null && element.contains(anchor)
+}
+
+// ---------- 一、鼠标在 + 菜单里挑一个类型 ----------
+
+const first = workspace.activeDocument.value[0]
+const plus = document.querySelector(`${BLOCK_ROW_SELECTOR}[${DOM_ATTR.blockId}="${first.id}"] button[aria-label="添加块"]`)
+check("找得到首块的 + 按钮", plus instanceof HTMLElement)
+plus?.click()
+check("+ 点开了类型菜单", (await menuContent()) !== null)
+check("点得到「标题 2」", await clickItem("标题 2"))
+await wait(300)
+await nextTick()
+
+const inserted = workspace.activeDocument.value[1]
+check("新块落在下面且是标题 2", inserted !== undefined && inserted.type === "h2", `实得 ${inserted?.type}`)
+check(
+  "焦点落在新块里",
+  inserted !== undefined && focusedBlockId() === inserted.id,
+  `焦点在 ${focusedBlockId() ?? "块外"}；activeElement = ${describeActive()}`,
+)
+check("新块里有可用光标", inserted !== undefined && caretIn(inserted.id))
+check("菜单已经关掉", document.querySelector('[data-slot="dropdown-menu-content"]') === null)
+
+// ---------- 二、空块里敲 `/` 再用鼠标选类型 ----------
+
+const second = workspace.activeDocument.value[1]
+const editable = document.querySelector(editableSelectorOf(second.id))
+check("找得到新块的可编辑体", editable instanceof HTMLElement)
+if (editable instanceof HTMLElement) {
+  editable.focus()
+  editable.textContent = "/"
+  editable.dispatchEvent(new InputEvent("input", { bubbles: true }))
+  check("`/` 唤起了转换菜单", (await menuContent()) !== null)
+  check("点得到「代码块」", await clickItem("代码块"))
+  await wait(300)
+  await nextTick()
+
+  const converted = workspace.activeDocument.value[1]
+  convertedId = converted.id
+  check("块已转成代码块", converted.type === "code", `实得 ${converted.type}`)
+  check("转换后焦点还在这个块里", focusedBlockId() === converted.id, `焦点在 ${focusedBlockId() ?? "块外"}；activeElement = ${describeActive()}`)
+  check("转换后光标可用", caretIn(converted.id))
+}
+
+// ---------- 三、Esc 关掉菜单：焦点该回本块，不该丢给触发按钮 ----------
+
+const third = workspace.appendBlock("text")
+await nextTick()
+await wait(100)
+const thirdEditable = document.querySelector(editableSelectorOf(third))
+check("找得到新加块的可编辑体", thirdEditable instanceof HTMLElement)
+if (thirdEditable instanceof HTMLElement) {
+  thirdEditable.focus()
+  thirdEditable.textContent = "/"
+  thirdEditable.dispatchEvent(new InputEvent("input", { bubbles: true }))
+  check("`/` 再次唤起菜单", (await menuContent()) !== null)
+  const focused = document.activeElement
+  focused?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))
+  await wait(300)
+  await nextTick()
+  check("Esc 关掉了菜单", document.querySelector('[data-slot="dropdown-menu-content"]') === null)
+  check("Esc 后焦点回到本块", focusedBlockId() === third, `焦点在 ${focusedBlockId() ?? "块外"}；activeElement = ${describeActive()}`)
+  check("Esc 后光标可用", caretIn(third))
+}
+
+// ---------- 四、手柄菜单「转为…」子菜单里挑类型 ----------
+
+const fourth = workspace.appendBlock("text")
+await nextTick()
+await wait(100)
+const fourthRow = document.querySelector(`${BLOCK_ROW_SELECTOR}[${DOM_ATTR.blockId}="${fourth}"]`)
+const grip = [...(fourthRow?.querySelectorAll("button") ?? [])].find((node) =>
+  (node.getAttribute("aria-label") ?? "").includes("块操作菜单"),
+)
+check("找得到手柄菜单按钮", grip instanceof HTMLElement)
+grip?.click()
+const actionMenu = await menuContent()
+check("手柄菜单打开了", actionMenu !== null)
+// 「转为…」是子菜单触发器：焦点落上去按 → 由菜单自己展开。
+const subTrigger = [...(actionMenu?.querySelectorAll('[role="menuitem"]') ?? [])].find((node) =>
+  node.textContent.includes("转为"),
+)
+check("找得到「转为…」", subTrigger instanceof HTMLElement)
+if (subTrigger instanceof HTMLElement) {
+  subTrigger.focus()
+  subTrigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }))
+  for (let i = 0; i < 40 && document.querySelector(SUB_CONTENT) === null; i += 1) await wait(50)
+  check("子菜单展开了", document.querySelector(SUB_CONTENT) !== null)
+  check("子菜单里点得到「代码块」", await clickItem("代码块", SUB_CONTENT))
+  await wait(300)
+  await nextTick()
+
+  const retyped = workspace.activeDocument.value.find((item) => item.type === "code" && item.id !== convertedId)
+  check("子菜单转换生效", retyped !== undefined, `文档里 ${workspace.activeDocument.value.map((b) => b.type).join(",")}`)
+  check(
+    "子菜单转换后焦点在这个块里",
+    retyped !== undefined && focusedBlockId() === retyped.id,
+    `焦点在 ${focusedBlockId() ?? "块外"}；activeElement = ${describeActive()}`,
+  )
+  check("子菜单转换后光标可用", retyped !== undefined && caretIn(retyped.id))
+}
+
+lines.push(`自检 ${passed}/${passed + failed}`)
+out.textContent = lines.join("\n")
+</script>
+</body>
+</html>

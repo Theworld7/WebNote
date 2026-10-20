@@ -379,6 +379,11 @@ export interface BlockTypeMeta {
   /** 菜单左侧的等宽字符标记，替代图标 SVG。 */
   marker: string
   label: string
+  /**
+   * 检索词：拼音首字母（简拼），`/` 菜单里敲 `dmk` 筛出代码块。
+   * 含英文标签的块（HTML / Mermaid）把英文原样收进来 —— 敲整个词比敲首字母顺手。
+   */
+  initials: string
 }
 
 /**

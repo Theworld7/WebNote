@@ -195,7 +195,7 @@ CSS 碰不到，得由 Rust 侧直接跟系统说话。
 
 | 平台 | 文件 |
 | :-- | :-- |
-| Windows 10 / 11（x64） | `玉简_<版本>_x64-setup.exe`（安装包）、`玉简_<版本>_x64_en-US.msi` |
+| Windows 10 / 11（x64） | `玉简_<版本>_x64-setup.exe`（安装包）、`玉简_<版本>_x64_zh-CN.msi` |
 | macOS（Apple Silicon） | `玉简_<版本>_aarch64.dmg` |
 
 首次打开工作区时选一个文件夹即可 —— 里面已有的 `.html` 会直接出现在树上，不需要导入。
@@ -265,7 +265,7 @@ pnpm icon           # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | 区域 | 页面 |
 | :-- | :-- |
 | 解析与往返 | `parse-check`、`inline-check` |
-| 编辑器交互 | `tab-check`、`toolbar-check`、`sidebar-check`、`drag-check`、`split-check`、`cell-check`、`undo-check` |
+| 编辑器交互 | `tab-check`、`toolbar-check`、`sidebar-check`、`drag-check`、`split-check`、`cell-check`、`undo-check`、`menu-nav-check`、`focus-check` |
 | 块类型 | `table-check`、`table-align-check`、`data-table-check`、`gallery-check`、`kanban-check`、`ledger-check`、`ledger-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`mermaid-check` |
 | 样式与外观 | `typography-check`、`theme-check`、`theme-mode-check`、`page-style-check`、`settings-check` |
 | 文件操作 | `create-check`、`move-check` |

@@ -20,6 +20,8 @@ export const DOM_ATTR = {
   dragHandle: "data-drag-handle",
   /** 可编辑体，值为块 id（表格格子是 `块id/行/列`）。 */
   editable: "data-editable",
+  /** 类型菜单里的「块类型选项」，值恒为 `"true"`。位置项、动作项不带它。 */
+  typeOption: "data-type-option",
 } as const
 
 /** 所有块根节点。遍历它算落点、量几何。 */
@@ -36,6 +38,14 @@ export const TOP_BLOCK_ROW_SELECTOR = `:scope > [${DOM_ATTR.blockId}]`
 
 /** 拖拽手柄。只有手柄发起的 dragstart 才算块排序。 */
 export const DRAG_HANDLE_SELECTOR = `[${DOM_ATTR.dragHandle}]`
+
+/**
+ * 类型菜单里的块类型选项。
+ *
+ * 键盘检索要靠它把「焦点落在用户自己挑的块类型上」和「焦点落在插入位置项上」分开：
+ * 前者 Enter 归菜单（点那一项），后者 Enter 得按检索结果落块。也用它找筛选后该聚焦的项。
+ */
+export const TYPE_OPTION_SELECTOR = `[${DOM_ATTR.typeOption}]`
 
 /**
  * 块拖拽的自定义 dataTransfer 类型。
@@ -124,7 +134,49 @@ function editableSelector(key: string): string {
 export async function focusBlockById(blockId: string, at: "start" | "end" = "end"): Promise<void> {
   await nextTick()
   const el = findEditable(blockId)
-  if (el !== null) focusEditable(el, at)
+  if (el !== null) requestEditableFocus(el, at)
+}
+
+/**
+ * 菜单内容（含子菜单）。`data-slot` 是 shadcn 组件挂的，这里是唯一的读取方。
+ *
+ * 用它判断「菜单还开着吗」：菜单摘掉的那一刻，焦点会跟着菜单项一起掉回 body，
+ * 在这之前设的焦点等于白设。
+ */
+export const MENU_CONTENT_SELECTOR =
+  '[data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"]'
+
+/**
+ * 菜单开着时被压住的那一次聚焦。
+ *
+ * 类型菜单 / 动作菜单是弹层：点完一项以后菜单项要先卸载，焦点才轮到块。
+ * 在卸载之前聚焦，菜单项一摘就把焦点甩回 body —— 表现是「点完菜单，光标没了，
+ * 得再点一下正文才能打字」。所以菜单还开着时只记账，由菜单的关闭回调
+ * （`close-auto-focus`，它跑在菜单摘干净之后）来落：见 `flushPendingEditableFocus`。
+ */
+let pendingFocus: { element: HTMLElement; at: "start" | "end" } | null = null
+
+/** 把焦点交给可编辑体；菜单还开着就先记账。 */
+export function requestEditableFocus(el: HTMLElement, at: "start" | "end" = "end"): void {
+  if (document.querySelector(MENU_CONTENT_SELECTOR) !== null) {
+    pendingFocus = { element: el, at }
+    return
+  }
+  pendingFocus = null
+  focusEditable(el, at)
+}
+
+/**
+ * 菜单关掉时调用：把先前记下的那次聚焦落下去。
+ *
+ * 没有记账（用户只是按 Esc 关掉菜单）时什么也不做，焦点归菜单的调用方处理。
+ */
+export function flushPendingEditableFocus(): void {
+  const request = pendingFocus
+  pendingFocus = null
+  // 记的块可能已经被删掉 / 被重渲染换掉，落在一个脱离文档的元素上等于没落。
+  if (request === null || !request.element.isConnected) return
+  focusEditable(request.element, request.at)
 }
 
 /**
