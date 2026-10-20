@@ -1,3 +1,5 @@
+import type { Theme } from "@/types/workspace"
+
 /**
  * 页面级 CSS 的编辑器内预览：把用户写的选择器限定到正文列之内。
  *
@@ -10,7 +12,13 @@
  *   `h1` → `[data-block-type="h1"]`…）—— 编辑器不把正文渲染成 `<p>` / `<h1>`，
  *   不映射的话 `h1 { color: red }` 在编辑器里一条都命中不了；
  * - 其余选择器前挂正文列 → `p strong` 变成 `[data-doc] [data-block-type="text"] strong`；
- * - 自定义属性统一加 `--doc-` 前缀（声明与 `var()` 引用一起改）—— 见 `VAR_PREFIX`。
+ * - 自定义属性统一加 `--doc-` 前缀（声明与 `var()` 引用一起改）—— 见 `VAR_PREFIX`；
+ * - `color-scheme: light dark` 与 `@media (prefers-color-scheme: …)` 按**应用**此刻的
+ *   外观判一次 —— 见 `resolveScheme` / `resolveSchemeMedia`。预览的读者是应用本身，
+ *   不是这台机器的系统外观。
+ *
+ * 只判外观、不改选择器的那一份是 `pinScheme`：沙箱 iframe（HTML 块）用的是页面样式的
+ * **原文**，没有正文列可限定、也没有应用 token 可撞名，但同样得按应用外观解析。
  *
  * **改写用浏览器自己的 CSSOM，不自己写解析器**：`CSSStyleSheet.replaceSync` 拿到
  * 的就是规范解析结果，`selectorText` / `cssText` 是规范序列化，`@media` / `@supports`
@@ -23,6 +31,8 @@
  *
  * 已知偏差（改写不了的不假装支持）：`@import` 会被丢掉（外部表不受这里的限定，
  * 放进来等于把不受控的整张表引进程），`@layer` / `@container` 里的规则不改写，
+ * 用 `or` 把外观与别的条件并起来的媒体查询不判（`and` 链才判 —— `or` 的短路语义
+ * 会让「摘掉一段」不再是等价改写），
  * 其余 `@font-face` / `@keyframes` / `@property` 原样保留 —— 它们只注册名字、不按
  * 选择器生效，外泄无从谈起；表格 / 图片 / 行内标记在编辑器里本就是真元素，无需映射。
  */
@@ -190,7 +200,86 @@ function prefixVars(rules: CSSRuleList, names: ReadonlySet<string>): void {
   }
 }
 
-function scopeRules(rules: CSSRuleList, root: string): string[] {
+/** `prefers-color-scheme` 那一段条件（`and` 链里的一项）。 */
+const SCHEME_TERM = /^\(\s*prefers-color-scheme\s*:\s*(light|dark)\s*\)$/i
+
+/**
+ * 媒体条件里的 `and` 链按顶层切段。
+ *
+ * 只切顶层的 `and`：`(min-width: 600px) and (prefers-color-scheme: dark)` 要把中间那段
+ * 单独摘掉，而 `or` 与函数参数里的括号不能切坏。
+ */
+function splitMediaTerms(text: string): string[] {
+  const terms: string[] = []
+  let depth = 0
+  let current = ""
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index] ?? ""
+    if (char === "(") depth += 1
+    else if (char === ")") depth -= 1
+    const isAnd =
+      depth === 0 &&
+      /\s/.test(char) &&
+      text.slice(index + 1, index + 4).toLowerCase() === "and" &&
+      /\s/.test(text[index + 4] ?? "")
+    if (isAnd) {
+      terms.push(current.trim())
+      current = ""
+      // 跳过 " and " 的四个字符（循环本身还会再加一）。
+      index += 4
+      continue
+    }
+    current += char
+  }
+  terms.push(current.trim())
+  return terms.filter((term) => term !== "")
+}
+
+/**
+ * 对照应用外观判一条媒体查询：`null` = 与外观无关（原样保留），否则给出结论。
+ *
+ * 成立时把 `prefers-color-scheme` 那几段摘掉 —— 外层可以直接摊平，也可以与剩下的条件重拼。
+ */
+function resolveSchemeMedia(text: string, scheme: Theme): { matched: boolean; terms: string[] } | null {
+  const terms = splitMediaTerms(text)
+  const schemeTerms = terms.filter((term) => SCHEME_TERM.test(term))
+  if (schemeTerms.length === 0) return null
+  const matched = schemeTerms.every((term) => SCHEME_TERM.exec(term)?.[1]?.toLowerCase() === scheme)
+  return { matched, terms: terms.filter((term) => !SCHEME_TERM.test(term)) }
+}
+
+/** 声明的值是不是「两种都收」（`light dark` / `dark light`，顺序无关）。 */
+function declaresBothSchemes(value: string): boolean {
+  const tokens = value.toLowerCase().split(/\s+/)
+  return tokens.includes("light") && tokens.includes("dark")
+}
+
+/**
+ * `color-scheme: light dark` 收到应用此刻的外观上。
+ *
+ * 导出文件里这条声明是写给**读者**的：打开它的那台机器是深就深。但预览的读者是应用 ——
+ * 应用被手动切成深色、系统还停在浅色时，正文列的用色方案会退回浅色，正文列上的系统色
+ * 关键词（`Canvas` 之类）就画成一张白纸（真实 bug：深色界面里笔记纸面全白，浅色文字
+ * 压在上面）。同一条道理也管着 `@media (prefers-color-scheme: …)` 那一支，见
+ * `resolveSchemeMedia`。
+ *
+ * 只动「两种都收」的写法：`normal` / `light` / `dark` 是作者明说要哪一侧，照他写的 ——
+ * 一张写死浅色的卡片在深色界面里本来就该是浅色的。
+ */
+function resolveScheme(rules: CSSRuleList, scheme: Theme): void {
+  for (const rule of rules) {
+    const style = declarationsOf(rule)
+    if (style !== null) {
+      if (!declaresBothSchemes(style.getPropertyValue("color-scheme"))) continue
+      style.setProperty("color-scheme", scheme, style.getPropertyPriority("color-scheme"))
+      continue
+    }
+    const inner = childRules(rule)
+    if (inner !== null) resolveScheme(inner, scheme)
+  }
+}
+
+function scopeRules(rules: CSSRuleList, root: string, scheme: Theme): string[] {
   const out: string[] = []
   for (const rule of rules) {
     if (rule instanceof CSSStyleRule) {
@@ -198,9 +287,22 @@ function scopeRules(rules: CSSRuleList, root: string): string[] {
       out.push(rule.cssText)
       continue
     }
-    if (rule instanceof CSSMediaRule || rule instanceof CSSSupportsRule) {
-      // 条件本身不动，只把块内的规则逐条改写：`cssText` 序列化的是改写后的子规则。
-      scopeRules(rule.cssRules, root)
+    if (rule instanceof CSSMediaRule) {
+      const verdict = resolveSchemeMedia(rule.media.mediaText, scheme)
+      if (verdict === null) {
+        // 与外观无关：条件不动，只把块内的规则逐条改写（`cssText` 序列化的是改写后的子规则）。
+        scopeRules(rule.cssRules, root, scheme)
+        out.push(rule.cssText)
+        continue
+      }
+      // 与外观有关：按应用此刻的外观判一次，不成立就整条丢掉。
+      if (!verdict.matched) continue
+      const inner = scopeRules(rule.cssRules, root, scheme).join("\n")
+      out.push(verdict.terms.length === 0 ? inner : `@media ${verdict.terms.join(" and ")} { ${inner} }`)
+      continue
+    }
+    if (rule instanceof CSSSupportsRule) {
+      scopeRules(rule.cssRules, root, scheme)
       out.push(rule.cssText)
       continue
     }
@@ -214,10 +316,13 @@ function scopeRules(rules: CSSRuleList, root: string): string[] {
 /**
  * 把一份页面级 CSS 限定到 `root`（一个 CSS 选择器，如 `[data-doc]`）。
  *
+ * `scheme` 是**应用此刻的外观**：页面样式里「浅色 / 深色两套」的写法按它解析，不按系统
+ * （理由见 `resolveScheme`）。
+ *
  * 解析不了（浏览器不认的写法、构造器不可用）时返回空串 —— 预览少一块，比把
  * 半份错误的 CSS 贴进应用文档要好。落盘那份始终是原文，不受这里影响。
  */
-export function scopeCss(css: string, root: string): string {
+export function scopeCss(css: string, root: string, scheme: Theme): string {
   if (css.trim() === "") return ""
   let sheet: CSSStyleSheet
   try {
@@ -230,8 +335,66 @@ export function scopeCss(css: string, root: string): string {
     const names = new Set<string>()
     collectVarNames(sheet.cssRules, names)
     if (names.size > 0) prefixVars(sheet.cssRules, names)
-    return scopeRules(sheet.cssRules, root).join("\n")
+    resolveScheme(sheet.cssRules, scheme)
+    return scopeRules(sheet.cssRules, root, scheme)
+      .filter((chunk) => chunk !== "")
+      .join("\n")
   } catch {
     return ""
   }
+}
+
+/**
+ * 只把「浅色 / 深色两套」按外观判一次，**不动选择器、不动自定义属性名**。
+ *
+ * 沙箱 iframe（HTML 块）用的就是这一份：那里没有 `[data-doc]` 正文列可限定，也没有会
+ * 撞名的应用 token —— 它就是这篇笔记的一个洞，选择器语义与导出侧完全相同（见 ADR-0013）。
+ * 唯一要改的是「听读者的」那类写法，因为读者是**应用**：`color-scheme: light dark`
+ * 收成单一值，`@media (prefers-color-scheme: …)` 成立就摊平、不成立就丢掉。
+ *
+ * 不改写是行不通的：iframe 是独立文档，`color-scheme: light dark` 会退到这台机器的系统
+ * 外观，而应用可以手动切到深色 —— 那时块里 `body { background: Canvas }` 就在深色界面上
+ * 画一张白纸。
+ *
+ * 解析失败的 CSS 原样返回（不是空串）：iframe 此前一直吃原文，解析器不认的写法也不该
+ * 因为这件事整份消失。
+ */
+export function pinScheme(css: string, scheme: Theme): string {
+  if (css.trim() === "") return ""
+  // 没有跟外观有关的写法就原样放行：改一句话不该把整份 CSS 过一遍 CSSOM 重新序列化
+  // （注释会掉、格式会变，而块里的样式本来是和导出共用的那份原文）。
+  if (!/color-scheme/i.test(css) && !/prefers-color-scheme/i.test(css)) return css
+  let sheet: CSSStyleSheet
+  try {
+    sheet = new CSSStyleSheet()
+    sheet.replaceSync(css)
+  } catch {
+    return css
+  }
+  try {
+    resolveScheme(sheet.cssRules, scheme)
+    return flattenSchemeMedia(sheet.cssRules, scheme).join("\n")
+  } catch {
+    return css
+  }
+}
+
+/** `scopeRules` 的无改写版：只处理与外观有关的 `@media`，其余规则原样序列化。 */
+function flattenSchemeMedia(rules: CSSRuleList, scheme: Theme): string[] {
+  const out: string[] = []
+  for (const rule of rules) {
+    if (rule instanceof CSSMediaRule) {
+      const verdict = resolveSchemeMedia(rule.media.mediaText, scheme)
+      if (verdict === null) {
+        out.push(rule.cssText)
+        continue
+      }
+      if (!verdict.matched) continue
+      const inner = flattenSchemeMedia(rule.cssRules, scheme).join("\n")
+      out.push(verdict.terms.length === 0 ? inner : `@media ${verdict.terms.join(" and ")} { ${inner} }`)
+      continue
+    }
+    out.push(rule.cssText)
+  }
+  return out
 }

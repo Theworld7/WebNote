@@ -182,6 +182,25 @@ check(`深色选中字对比度 ≥ 4.5（实测 ${darkSelection.toFixed(2)}）`
 check("深色选中底比卡片亮（选中在深色下靠更亮表达，不是压暗）",
   luminance(rgbOf("--color-selection", darkScope)) > luminance(rgbOf("--card", darkScope)))
 
+// ---- 三支中性档的深浅对应（ADR-0014 给深色补的） ----
+// 它们在 @theme 里是浅色常量，深色重取时最容易犯的错是「照抄浅色」—— 那会让画布、描边、
+// 加重底一起变成近白，浮岛与卡片的边界全糊掉。这里只守相对关系，不守具体色号。
+const lightCanvas = rgbOf("--color-canvas")
+const lightLine = rgbOf("--color-line")
+const lightCard = rgbOf("--card")
+const darkCanvas = rgbOf("--color-canvas", darkScope)
+const darkLine = rgbOf("--color-line", darkScope)
+const darkCard = rgbOf("--card", darkScope)
+check("浅色：画布与描边都比卡片暗",
+  luminance(lightCanvas) < luminance(lightCard) && luminance(lightLine) < luminance(lightCard),
+  `${show(lightCanvas)} / ${show(lightLine)} vs ${show(lightCard)}`)
+check("深色：画布比卡片暗（浮岛仍能从底上浮起来）",
+  luminance(darkCanvas) < luminance(darkCard) - 0.005,
+  `${show(darkCanvas)} vs ${show(darkCard)}`)
+check("深色：描边比卡片亮（边界不会糊成一片）",
+  luminance(darkLine) > luminance(darkCard) + 0.01,
+  `${show(darkLine)} vs ${show(darkCard)}`)
+
 // ---- 语义色不许被品牌化 ----
 const highlight = rgbOf("--color-highlight")
 const destructive = rgbOf("--destructive")

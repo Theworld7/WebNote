@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>主题模式自检</title>
+<style>
+  /* 不写 font 简写：家族要由应用样式表决定，探针自己写一套会把被测链路盖掉。 */
+  body { font-size: 13px; line-height: 1.6; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; }
+  .fail { color: #b42318; }
+</style>
+</head>
+<body>
+<h1>主题模式：日出日落 / 跳变推导 / 手动覆盖 / 设置落盘 / DOM 落地 自检</h1>
+<div id="app"></div>
+<div id="probe"></div>
+<div id="probe2"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { createApp, defineComponent, h, nextTick } from "vue"
+// 必须引应用样式表：`.dark` 那套 token 与 color-scheme 都在里面，不引就量不到真实换色。
+import "../src/style.css"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import EditorTabBar from "../src/components/EditorTabBar.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
+import { dayOf, sunTimes } from "../src/lib/sun.ts"
+import { applyOverride, displayFor, minutesOf, nextTransition, scheduledAt, transitionsOn } from "../src/lib/theme-mode.ts"
+
+const out = document.getElementById("out")
+const lines = []
+let passed = 0
+let failed = 0
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+window.addEventListener("unhandledrejection", (e) => {
+  out.textContent = "REJECT " + (e.reason?.stack ?? String(e.reason))
+})
+window.addEventListener("error", (e) => { out.textContent = "ERROR " + e.message })
+
+let step = "准备"
+function note(next) {
+  step = next
+  out.textContent = `running: ${step}`
+}
+note(step)
+
+const THEME_KEY = "webnote:theme"
+window.localStorage.removeItem(THEME_KEY)
+
+/** 断言两个时刻相差不超过给定的分钟数。UTC 口径，与本机时区无关。 */
+function nearMinutes(actual, expectedIso, tolerance) {
+  if (actual === null) return false
+  const delta = Math.abs(actual.getTime() - new Date(expectedIso).getTime()) / 60000
+  return delta <= tolerance
+}
+const iso = (date) => (date === null ? "null" : date.toISOString().slice(0, 16) + "Z")
+
+// ---------- 一、太阳位置（纯函数，按 UTC 断言） ----------
+
+note("太阳位置")
+// 北京 2026-09-11 的真实日出 05:54 / 日落 18:26（UTC+8）→ UTC 21:54 / 10:26。
+// 容差 10 分钟：NOAA 近似式本身 ±1 分钟，剩下的留给「真实值取整」。
+const beijing = sunTimes({ year: 2026, month: 9, day: 11 }, 39.9042, 116.4074)
+check("北京 2026-09-11 日出 ≈ 05:54（UTC+8）", nearMinutes(beijing.sunrise, "2026-09-10T21:54:00Z", 10),
+  iso(beijing.sunrise))
+check("北京 2026-09-11 日落 ≈ 18:26（UTC+8）", nearMinutes(beijing.sunset, "2026-09-11T10:26:00Z", 10),
+  iso(beijing.sunset))
+check("非极区不带极昼极夜标记", beijing.polar === null, String(beijing.polar))
+
+const equator = sunTimes({ year: 2026, month: 3, day: 21 }, 0, 0)
+const equatorSpan = (equator.sunset.getTime() - equator.sunrise.getTime()) / 60000
+// 春分赤道昼长 12 小时，加上折射与日面半径修正约 +7 分钟。
+check(`赤道春分昼长 ≈ 12 小时（实测 ${equatorSpan.toFixed(1)} 分钟）`, Math.abs(equatorSpan - 727) <= 10)
+
+const sydney = sunTimes({ year: 2026, month: 9, day: 11 }, -33.8688, 151.2093)
+const sydneySpan = (sydney.sunset.getTime() - sydney.sunrise.getTime()) / 60000
+check(`南半球 9 月昼短夜长（实测 ${sydneySpan.toFixed(1)} 分钟）`, sydneySpan < 720)
+
+const polarNight = sunTimes({ year: 2026, month: 12, day: 21 }, 78.2232, 15.6469)
+check("朗伊尔城冬至 = 极夜", polarNight.polar === "night" && polarNight.sunrise === null && polarNight.sunset === null)
+const polarDay = sunTimes({ year: 2026, month: 6, day: 21 }, 78.2232, 15.6469)
+check("朗伊尔城夏至 = 极昼", polarDay.polar === "day" && polarDay.sunrise === null && polarDay.sunset === null)
+const bogus = sunTimes({ year: 2026, month: 6, day: 21 }, 999, 0)
+check("非法纬度不抛错，只交出空结果", bogus.sunrise === null && bogus.polar === null)
+
+// ---------- 二、跳变点与时段槽 ----------
+
+note("跳变点")
+check("时刻解析：07:00 → 420 分钟", minutesOf("07:00") === 420)
+check("时刻解析：拒绝 7:00 / 24:00 / 空串",
+  minutesOf("7:00") === null && minutesOf("24:00") === null && minutesOf("") === null)
+
+const BEIJING = { latitude: 39.9042, longitude: 116.4074, zone: "Asia/Shanghai", label: "北京" }
+/** 本地时刻构造。用本机时区，和运行时看到的钟一致。 */
+const at = (hour, minute = 0, day = 20) => new Date(2026, 9, day, hour, minute, 0, 0)
+
+const fixed = { mode: "fixed", lightAt: "07:00", darkAt: "19:00", latitude: null, longitude: null }
+
+check("固定时间模式一天两个跳变，按时刻升序",
+  (() => {
+    const list = transitionsOn(fixed, BEIJING, dayOf(at(0)))
+    return list.length === 2 && list[0].theme === "light" && list[1].theme === "dark" && list[0].at < list[1].at
+  })())
+
+const morning = scheduledAt(fixed, BEIJING, at(9))
+check("09:00 落在 07:00 那个浅色槽", morning !== null && morning.theme === "light")
+const boundary = scheduledAt(fixed, BEIJING, at(19))
+check("19:00 整点算进深色槽（边界归后一段）", boundary !== null && boundary.theme === "dark")
+check("21:00 仍在深色槽", scheduledAt(fixed, BEIJING, at(21))?.theme === "dark")
+
+// 顺序反过来（先暗后亮）：跨零点要靠回溯，不能只看当天。
+const crossed = { mode: "fixed", lightAt: "22:00", darkAt: "06:00", latitude: null, longitude: null }
+const afterMidnight = scheduledAt(crossed, BEIJING, at(3))
+check("跨零点：03:00 沿用昨晚 22:00 的浅色槽", afterMidnight?.theme === "light" &&
+  new Date(afterMidnight.at).getDate() === 19,
+  `${afterMidnight?.theme} @ ${iso(new Date(afterMidnight?.at ?? 0))}`)
+check("跨零点：07:00 是当天 06:00 的深色槽", scheduledAt(crossed, BEIJING, at(7))?.theme === "dark")
+check("跨零点：23:00 用的是当天 22:00 的浅色槽", scheduledAt(crossed, BEIJING, at(23))?.theme === "light")
+
+// 只有一条合法规则时，回溯 8 天要能一直沿用（非法时刻不进表，不猜）。
+const halfBroken = { mode: "fixed", lightAt: "07:00", darkAt: "99:99", latitude: null, longitude: null }
+check("非法时刻的那条规则被跳过，剩下的仍能定时段",
+  scheduledAt(halfBroken, BEIJING, at(3))?.theme === "light",
+  String(scheduledAt(halfBroken, BEIJING, at(3))?.theme))
+
+const next = nextTransition(fixed, BEIJING, at(9))
+check("09:00 的下一个跳变是当天 19:00 深色", next !== null && next.theme === "dark" &&
+  new Date(next.at).getHours() === 19)
+const tomorrow = nextTransition(fixed, BEIJING, at(21))
+check("21:00 的下一个跳变跨到次日 07:00 浅色", tomorrow !== null && tomorrow.theme === "light" &&
+  new Date(tomorrow.at).getDate() === 21)
+
+const sunMode = { mode: "sun", lightAt: "07:00", darkAt: "19:00", latitude: null, longitude: null }
+const sunTransitions = transitionsOn(sunMode, BEIJING, dayOf(at(0)))
+check("日出日落模式：日出切浅色、日落切深色",
+  sunTransitions.length === 2 && sunTransitions[0].theme === "light" && sunTransitions[1].theme === "dark")
+check("日出日落：日出时刻早于日落",
+  sunTransitions[0].at < sunTransitions[1].at)
+
+const polarMode = { mode: "sun", lightAt: "07:00", darkAt: "19:00", latitude: null, longitude: null }
+const SVALBARD = { latitude: 78.2232, longitude: 15.6469, zone: "Arctic/Longyearbyen", label: "朗伊尔城" }
+const polarSlot = scheduledAt(polarMode, SVALBARD, new Date(2026, 11, 21, 12, 0))
+check("极夜当天不靠回溯：零点就断言成深色", polarSlot !== null && polarSlot.theme === "dark")
+
+// ---------- 三、推导与手动覆盖 ----------
+
+note("推导与覆盖")
+const manualLight = displayFor({ ...fixed, mode: "light" }, BEIJING, at(21), "dark")
+check("手动浅色：无视时段与系统外观", manualLight.theme === "light")
+check("手动深色：同上", displayFor({ ...fixed, mode: "dark" }, BEIJING, at(9), "light").theme === "dark")
+
+const sysLight = displayFor({ ...fixed, mode: "system" }, BEIJING, at(21), "light")
+const sysDark = displayFor({ ...fixed, mode: "system" }, BEIJING, at(21), "dark")
+check("跟随系统：直接取系统外观", sysLight.theme === "light" && sysDark.theme === "dark")
+check("跟随系统：系统翻面就换槽", sysLight.slot !== sysDark.slot)
+
+const evening = displayFor(fixed, BEIJING, at(21), "light")
+const morningSlot = displayFor(fixed, BEIJING, at(9), "light")
+check("时段槽按跳变点身份区分（早上 / 晚上不同槽）", morningSlot.slot !== evening.slot)
+
+const override = { theme: "dark", slot: evening.slot }
+check("手动覆盖：在自己那个槽里生效", applyOverride(evening, override) === "dark")
+check("手动覆盖：槽对不上就忽略", applyOverride(morningSlot, override) === "light")
+check("手动覆盖：没有覆盖时就是推导值", applyOverride(morningSlot, null) === "light")
+
+// ---------- 四、挂真实应用：DOM 落地 + 标签栏按钮 ----------
+
+note("DOM 落地")
+let ctx = null
+let settings = null
+
+const Root = defineComponent({
+  setup() {
+    provideWorkspace()
+    settings = provideSettings()
+    ctx = provideTheme(settings)
+    return () => h(TooltipProvider, null, { default: () => h(EditorTabBar, { sidebarCollapsed: false }) })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+
+const html = document.documentElement
+
+/**
+ * 计算值 → sRGB 字节。不能正则抠数字：Chromium 对 oklch() 的计算值原样保留
+ * `oklch(0.145 0 0)`，抠出来会当成 rgb(0.145, 0, 0)。走 canvas 让它自己解析。
+ * （theme-check.html 里同一个坑，同一套解法。）
+ */
+const canvas = document.createElement("canvas")
+canvas.width = 1
+canvas.height = 1
+const ctx2d = canvas.getContext("2d", { willReadFrequently: true })
+function toRgb(value) {
+  ctx2d.fillStyle = "#000000"
+  ctx2d.fillStyle = value
+  ctx2d.clearRect(0, 0, 1, 1)
+  ctx2d.fillRect(0, 0, 1, 1)
+  const data = ctx2d.getImageData(0, 0, 1, 1).data
+  return [data[0], data[1], data[2]]
+}
+const bodyBg = () => toRgb(getComputedStyle(document.body).backgroundColor)
+
+// 默认跟随系统：至少类名要和推导结果一致（本机系统是浅是深都成立）。
+check("首帧就把 .dark 按推导结果挂上",
+  html.classList.contains("dark") === (ctx.theme.value === "dark"),
+  `class=${[...html.classList].join(" ")} theme=${ctx.theme.value}`)
+check("color-scheme 跟着配色走（UA 自绘的滚动条 / 表单也换）",
+  getComputedStyle(html).colorScheme === ctx.theme.value,
+  getComputedStyle(html).colorScheme)
+
+settings.setTheme({ mode: "dark" })
+await nextTick()
+check("切到深色：html 带 .dark", html.classList.contains("dark"))
+check("切到深色：body 真的画成深底（token 被消费了，不只是类名）",
+  Math.max(...bodyBg()) < 80, `rgb(${bodyBg().join(" ")})`)
+
+settings.setTheme({ mode: "light" })
+await nextTick()
+check("切到浅色：html 不带 .dark", !html.classList.contains("dark"))
+check("切到浅色：body 画成白底", bodyBg().every((v) => v > 240), `rgb(${bodyBg().join(" ")})`)
+
+const toggleButton = () =>
+  document.querySelector('[aria-label="切换到深色"], [aria-label="切换到浅色"]')
+check("标签栏有一颗主题按钮", toggleButton() !== null)
+check("按钮文案说的是「切到哪」（浅色时提示切深色）",
+  settings.theme.value.mode === "light" && toggleButton()?.getAttribute("aria-label") === "切换到深色",
+  toggleButton()?.getAttribute("aria-label") ?? "（没渲染）")
+
+// 手动模式：按钮改的就是设置本身。
+ctx.toggle()
+await nextTick()
+check("手动模式下按一下：模式翻成深色并落盘",
+  settings.theme.value.mode === "dark" &&
+  JSON.parse(window.localStorage.getItem(THEME_KEY)).mode === "dark",
+  window.localStorage.getItem(THEME_KEY))
+check("手动模式下按一下：html 同步变深", html.classList.contains("dark"))
+check("翻成深色后按钮提示改成「切换到浅色」",
+  toggleButton()?.getAttribute("aria-label") === "切换到浅色",
+  toggleButton()?.getAttribute("aria-label") ?? "（没渲染）")
+
+// 自动模式：按钮只覆盖当前这一段。
+settings.setTheme({ mode: "sun" })
+await nextTick()
+const autoTheme = ctx.theme.value
+ctx.toggle()
+await nextTick()
+check("自动模式下手动切换立刻改配色", ctx.theme.value !== autoTheme, `${autoTheme} → ${ctx.theme.value}`)
+check("自动模式下手动切换不改设置里的模式",
+  settings.theme.value.mode === "sun" &&
+  JSON.parse(window.localStorage.getItem(THEME_KEY)).mode === "sun",
+  window.localStorage.getItem(THEME_KEY))
+
+// 换模式 = 换槽，覆盖当场作废。
+settings.setTheme({ mode: autoTheme })
+await nextTick()
+check("换模式后手动覆盖作废（回到模式的答案）", ctx.theme.value === autoTheme,
+  `${ctx.theme.value} 应为 ${autoTheme}`)
+
+// ---------- 五、偏好持久化与坏值容错 ----------
+
+note("持久化")
+settings.setTheme({ mode: "sun", lightAt: "06:30", darkAt: "20:15", latitude: 31.2304, longitude: 121.4737 })
+await nextTick()
+const stored = JSON.parse(window.localStorage.getItem(THEME_KEY))
+check("整组写进一条 webnote:theme",
+  stored.mode === "sun" && stored.lightAt === "06:30" && stored.darkAt === "20:15" &&
+  stored.latitude === 31.2304 && stored.longitude === 121.4737,
+  window.localStorage.getItem(THEME_KEY))
+check("合并写：只给 mode 时不把其它字段打回默认",
+  (() => {
+    settings.setTheme({ mode: "light" })
+    const after = JSON.parse(window.localStorage.getItem(THEME_KEY))
+    return after.mode === "light" && after.lightAt === "06:30" && after.latitude === 31.2304
+  })())
+
+// 坏值：一份被手改坏的配置不该把面板整体弄丢。
+window.localStorage.setItem(THEME_KEY, JSON.stringify({
+  mode: "nope", lightAt: "99:99", darkAt: "abc", latitude: 999, longitude: null,
+}))
+let probeTheme = null
+const Probe = defineComponent({
+  setup() {
+    const probeSettings = provideSettings()
+    probeTheme = probeSettings.theme.value
+    return () => h("div")
+  },
+})
+createApp(Probe).mount("#probe")
+await nextTick()
+check("坏值逐字段退回默认（未知模式 → 跟随系统）", probeTheme.mode === "system", String(probeTheme.mode))
+check("坏值逐字段退回默认（非法时刻 → 07:00 / 19:00）",
+  probeTheme.lightAt === "07:00" && probeTheme.darkAt === "19:00",
+  `${probeTheme.lightAt} / ${probeTheme.darkAt}`)
+check("越界坐标 → 退回系统时区（两个轴一起空）",
+  probeTheme.latitude === null && probeTheme.longitude === null,
+  `${probeTheme.latitude}, ${probeTheme.longitude}`)
+
+// 只填一个轴也是坏值：日出日落要两个坐标。
+window.localStorage.setItem(THEME_KEY, JSON.stringify({ mode: "sun", latitude: 39.9, longitude: null }))
+let singleAxis = null
+const Probe2 = defineComponent({
+  setup() {
+    singleAxis = provideSettings().theme.value
+    return () => h("div")
+  },
+})
+createApp(Probe2).mount("#probe2")
+await nextTick()
+check("只设了一个轴 → 退回系统时区",
+  singleAxis.latitude === null && singleAxis.longitude === null,
+  `${singleAxis.latitude}, ${singleAxis.longitude}`)
+
+window.localStorage.removeItem(THEME_KEY)
+
+out.textContent = [...lines, failed === 0 ? `自检 ${passed}/${passed}` : `自检 ${passed} 过 / ${failed} 败`].join("\n")
+globalThis.__themeModeCheckDone = true
+</script>
+</body>
+</html>

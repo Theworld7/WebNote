@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import { LocateFixedIcon, PanelLeftIcon, SettingsIcon } from "@lucide/vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { LocateFixedIcon, MoonIcon, PanelLeftIcon, SettingsIcon, SunIcon } from "@lucide/vue"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWorkspace } from "@/composables/useWorkspace"
+import { useTheme } from "@/composables/useTheme"
 import SettingsPanel from "./SettingsPanel.vue"
 import EditorTab from "./EditorTab.vue"
 
@@ -32,6 +33,13 @@ const {
 } = useWorkspace()
 
 const ACTION = "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foreground"
+
+/**
+ * 主题开关。图标画的是**点下去会变成什么**（深色时给太阳），不是当前状态 ——
+ * 一颗只有两个态的按钮，用户点它时想知道的是结果。
+ */
+const { theme, toggle: toggleTheme } = useTheme()
+const themeActionLabel = computed(() => (theme.value === "dark" ? "切换到浅色" : "切换到深色"))
 
 /** 设置抽屉的开合。放在工具栏这一层：它是浮岛上的一个动作，不是工作区状态。 */
 const settingsOpen = ref(false)
@@ -137,6 +145,18 @@ watch(() => tabs.value.length, () => nextTick(updateOverflow))
           </Button>
         </TooltipTrigger>
         <TooltipContent>{{ sidebarCollapsed ? "展开侧栏" : "折叠侧栏" }}</TooltipContent>
+      </Tooltip>
+
+      <!-- 主题开关与设置同属全局动作，收在动作组右端；自动模式下它只覆盖当前时段，
+           具体到下一个跳变点会不会被自动接管，看设置面板里的「外观」。 -->
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button variant="ghost" :class="ACTION" :aria-label="themeActionLabel" @click="toggleTheme">
+            <SunIcon v-if="theme === 'dark'" class="size-[15px]" />
+            <MoonIcon v-else class="size-[15px]" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{{ themeActionLabel }}</TooltipContent>
       </Tooltip>
 
       <!-- 设置放在动作组最右：它不针对当前标签，是全局入口，与左侧那几个「对当前文档做事」的按钮分开。 -->

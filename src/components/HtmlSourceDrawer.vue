@@ -4,7 +4,10 @@ import { Button } from "@/components/ui/button"
 import type { editor as monacoEditor } from "monaco-editor"
 import { compactCss, formatCss, formatHtml } from "@/lib/source-format"
 import { currentFontStack } from "@/lib/fonts"
+import { applyMonacoTheme, monacoThemeName } from "@/lib/monaco-theme"
 import { loadMonaco } from "@/lib/monaco"
+import type { Monaco } from "@/lib/monaco"
+import { useTheme } from "@/composables/useTheme"
 
 /**
  * HTML 源码抽屉：从笔记编辑区右缘滑出，宽度 = 编辑区一半。
@@ -39,6 +42,9 @@ const emit = defineEmits<{
 }>()
 
 const hostRef = ref<HTMLDivElement | null>(null)
+const { theme } = useTheme()
+/** Monaco 的模块命名空间。加载过才有值 —— 换配色只在它非空时才碰。 */
+let monaco: Monaco | null = null
 let editor: monacoEditor.IStandaloneCodeEditor | null = null
 /** 打开序号：快速开关时用来丢弃过期的聚焦（下面 setTimeout 的竞态守卫）。 */
 let openSeq = 0
@@ -102,6 +108,16 @@ async function formatNow() {
   replaceAll(formatted)
 }
 
+/**
+ * 外观换了就地重绘（`setTheme` 是全局的，实例不用重建）。
+ *
+ * **不在这里 await 加载**：抽屉没开过时 Monaco 根本没加载，为了给一个没人看着的
+ * 编辑器换色去拉整包（几 MB 加四个 worker）说不过去。首次打开时补上就行。
+ */
+watch(theme, () => {
+  if (monaco !== null) applyMonacoTheme(monaco, theme.value)
+})
+
 watch(
   () => props.open,
   async (open) => {
@@ -112,13 +128,17 @@ watch(
       return
     }
     const seq = ++openSeq
-    const monaco = await loadMonaco()
+    const api = await loadMonaco()
+    monaco = api
     const host = hostRef.value
     if (host === null || seq !== openSeq) return
+    // 先定义再 create：主题名没定义过时 Monaco 会静默退回 `vs`（浅色），
+    // 深色界面下这就是那块白眼的第一帧。
+    applyMonacoTheme(api, theme.value)
     if (editor === null) {
-      editor = monaco.editor.create(host, {
+      editor = api.editor.create(host, {
         language: props.language,
-        theme: "vs",
+        theme: monacoThemeName(theme.value),
         automaticLayout: true,
         minimap: { enabled: false },
         wordWrap: "on",
@@ -129,14 +149,14 @@ watch(
         scrollBeyondLastLine: false,
         padding: { top: 12 },
       })
-      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, commit)
-      editor.addCommand(monaco.KeyCode.Escape, () => emit("close"))
+      editor.addCommand(api.KeyMod.CtrlCmd | api.KeyCode.Enter, commit)
+      editor.addCommand(api.KeyCode.Escape, () => emit("close"))
     }
     editor.updateOptions({ fontFamily: currentFontStack("code") })
     // 实例是复用的，语言得每次打开按 props 重设 —— 否则开过 HTML 块之后，
     // 页面样式那份会沿用 html 的高亮与校验。
     const model = editor.getModel()
-    if (model !== null) monaco.editor.setModelLanguage(model, props.language)
+    if (model !== null) api.editor.setModelLanguage(model, props.language)
     editor.setValue(props.source)
     shown = props.source
     // 不 await：排版要动态加载 prettier（首次几百 KB），不等它才叫「打开就能写」。

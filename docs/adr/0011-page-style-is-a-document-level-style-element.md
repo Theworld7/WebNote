@@ -46,6 +46,23 @@ rule at `0,0,1` would lose to them — producing the exact "works in the file, i
 the editor" split this preview exists to prevent. A plain descendant prefix lands at
 `0,1,1`, matching the cascade order on the export side.
 
+**A note's two appearances resolve against the app, not the OS.** A note that adapts —
+`color-scheme: light dark`, `@media (prefers-color-scheme: dark)` — is asking whoever opens it,
+and in the editor that reader is the app. Scoped as written, the declaration handed the
+column's used colour scheme back to the operating system: with Windows in light mode and the
+app switched to dark, `body { background: Canvas }` painted a white page underneath the app's
+light text (the reported bug: dark window, white note, unreadable). The rewrite now collapses
+a both-schemes `color-scheme` onto the app's current appearance and evaluates
+`prefers-color-scheme` terms against it — in place, so
+`(prefers-color-scheme: dark) and (min-width: 600px)` keeps its width term, and a false branch
+disappears whole. A pinned `color-scheme: light` / `dark` / `normal` is left alone: the author
+said which side they want, and a hard-coded light card has every right to stay light in a dark
+window. Because the appearance is now a dependency of the preview, switching it re-derives the
+same page style — see ADR-0014 for what "the app's appearance" means. An HTML block's frame is not rewritten
+this way — it is a document of its own, with no column to scope a media query to — but the same
+two forms are resolved against the same appearance there too, by `pinScheme` inside
+`buildHtmlFrameDoc` (ADR-0013).
+
 **Consequences.** `@import` is dropped from the preview (it would pull in an unlimited
 sheet), `@layer` / `@container` bodies are not rewritten, and `@font-face` / `@keyframes` /
 `@property` pass through untouched — they register names rather than styling selectors, so

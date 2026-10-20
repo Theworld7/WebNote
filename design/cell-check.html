@@ -24,6 +24,7 @@ import { createApp, defineComponent, h, nextTick } from "vue"
 import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
 import BlockEditor from "../src/components/BlockEditor.vue"
 import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
 import { provideWorkspace } from "../src/composables/useWorkspace.ts"
 import { createBlock, createHtmlBlock } from "../src/lib/blocks.ts"
 
@@ -50,7 +51,7 @@ let workspace = null
 const Root = defineComponent({
   setup() {
     workspace = provideWorkspace()
-    provideSettings()
+    provideTheme(provideSettings())
     return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
   },
 })

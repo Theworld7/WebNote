@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue"
 import { PencilIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { useWorkspace } from "@/composables/useWorkspace"
+import { useTheme } from "@/composables/useTheme"
 import { buildHtmlFrameDoc } from "@/lib/html-frame"
 import HtmlSourceDrawer from "./HtmlSourceDrawer.vue"
 
@@ -22,6 +23,8 @@ import HtmlSourceDrawer from "./HtmlSourceDrawer.vue"
 const props = defineProps<{ block: HtmlBlock }>()
 
 const { setHtmlSource, activeStyle } = useWorkspace()
+// iframe 是独立文档，拿不到父页面的 `.dark` 与 token —— 外观得作为参数带进去。
+const { theme } = useTheme()
 
 const drawerOpen = ref(false)
 
@@ -50,8 +53,12 @@ const height = ref(48)
  *
  * 页面样式一改（存盘时）srcdoc 就变，iframe 整体重载、块里的脚本重新跑一遍 ——
  * 在没有 allow-same-origin 的沙箱里，父页面碰不到子文档，srcdoc 是唯一通道。
+ *
+ * 外观同理：它也是这张纸的一部分（`--background` + `color-scheme`），换外观时整块重载。
+ * 一天两次（日出日落）的代价，比让块里留着一块白、或者另开一条只在「换色」时才走的
+ * 消息通道便宜。
  */
-const doc = computed(() => buildHtmlFrameDoc(props.block.source, activeStyle.value))
+const doc = computed(() => buildHtmlFrameDoc(props.block.source, activeStyle.value, theme.value))
 
 /**
  * 高度上报的守卫：只认自己 iframe 发来的消息（按 `event.source` 认窗口，多个

@@ -84,6 +84,9 @@
 }
 
 :root {
+    /* 让 UA 自绘的那部分（原生滚动条、日期选择器、输入框自动填充）跟着配色走。
+       `--background` 只影响我们自己画的元素，管不到这些。 */
+    color-scheme: light;
     --background: oklch(1 0 0);
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
@@ -107,6 +110,9 @@
     /* 焦点环走品牌色：全界面出现频率最高的「主题色」显形处（base 层那条
        `* { outline-ring/50 }` 与按钮的 focus-visible:ring-ring 都取它）。 */
     --ring: var(--color-brand);
+    /* 表格横向滚动的右端内阴影（见下方 table-scroll-shadow）。放在这里而不是 @theme：
+       它不是一份「颜色 token」，只是那条渐变的取色处，不需要生成 bg-* 类。 */
+    --color-scroll-shadow: oklch(0 0 0 / 10%);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
@@ -126,6 +132,14 @@
 }
 
 .dark {
+    color-scheme: dark;
+    /* 三支自有的中性档在深色下必须重取。它们写在 @theme 里是**常量**（浅色口径），
+       深色下沿用会得到「近白画布 + 近白描边 + 近白加重底」：界面边界被抹平，
+       浮岛和卡片分不出层次。取值与浅色的相对关系对齐（画布比卡片暗、描边比卡片亮）。 */
+    --color-canvas: oklch(0.105 0 0);
+    --color-line: oklch(0.32 0 0);
+    --color-muted-strong: oklch(0.33 0 0);
+    --color-scroll-shadow: oklch(1 0 0 / 14%);
     --color-highlight: oklch(0.44 0.08 95);
     /* 深色外观的品牌色 = 图标深色变体的高光蓝（themes.dark.glow）。
        不沿用浅色那支：同一支蓝在深底上会发暗、被吃掉纯度，而图标自己在深色下
@@ -282,11 +296,11 @@
  * 实测会把容器背景整个盖住（试过 scroll-shadows 那套 local/scroll 双背景技巧，
  * 截图里完全看不见）。所以阴影必须是一层压在表格**上面**的元素。
  *
- * 只做右侧：滚动方向 LTR，左端那点阴影意义不大。颜色取 `--color-line`
- * （与表格外框同一支灰）再压淡，避免盖过边框。
+ * 只做右侧：滚动方向 LTR，左端那点阴影意义不大。颜色取一支可换的变量
+ * （浅色下压暗、深色下提亮 —— 黑阴影铺在深底上等于没画）。
  */
 @utility table-scroll-shadow {
-  background-image: linear-gradient(to left, oklch(0 0 0 / 10%) 0, transparent 100%);
+  background-image: linear-gradient(to left, var(--color-scroll-shadow) 0, transparent 100%);
 }
 
 /*

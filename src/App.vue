@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { provideWorkspace } from "@/composables/useWorkspace"
 import { provideTables } from "@/composables/useTables"
 import { provideSettings } from "@/composables/useSettings"
+import { provideTheme } from "@/composables/useTheme"
 import { useResizableWidth } from "@/composables/useResizableWidth"
 import { refPathsOf } from "@/lib/blocks"
 import AppSidebar from "@/components/AppSidebar.vue"
@@ -39,6 +40,9 @@ attachTableCreate(async (fsDriver, fsRoot, path, initial) => {
 // 接上 driver / root 这对引用后，偏好才多落一份到工作区根的 webnote.json（换目录重读）。
 const settings = provideSettings()
 settings.attachStore(fs, root)
+// 配色推导读上面那份偏好，所以在它之后 provide；它顺手把 `.dark` 挂到 <html> 上，
+// 之后标签栏那颗按钮与设置面板都从这里取同一份状态。
+provideTheme(settings)
 
 const { width: sidebarWidth, dragging, startDrag } = useResizableWidth()
 const sidebarCollapsed = ref(false)

@@ -140,7 +140,96 @@ fn list_system_fonts() -> Vec<String> {
     names
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// 让**原生标题栏**跟着应用外观走。
+///
+/// 界面本身是 `<html class="dark">` 的事（CSS token 全在那一侧），但窗口的边框与
+/// 标题栏是 DWM 画的，WebView 里碰不到它 —— 得从这一层说一声。
+///
+/// **为什么不只用 `window.set_theme`。** 那是跨平台的正路，走的是 tao 的
+/// `preferred_theme` 状态机。实测（Windows 11 25H2 / tauri 2.12.3 / tao 0.37.1）：
+/// 命令返回 `Ok`、`theme()` 读出来也对，但 `DwmGetWindowAttribute(hwnd, 20)` 始终是 0，
+/// 标题栏一直浅色 —— 界面深了、只有窗口边框没深。所以这里再直接写一次
+/// `DWMWA_USE_IMMERSIVE_DARK_MODE`，并像 tao 那样手动触发一次非客户区重绘。
+///
+/// 两件事都做而不是只做后者：`set_theme` 是框架认可的入口（macOS 上改的正是它），
+/// 而直接写 DWM 只在 Windows 上有意义。谁先修好都不影响另一条。
+#[tauri::command]
+fn set_window_theme(window: tauri::Window, dark: bool) -> Result<(), String> {
+    let theme = if dark {
+        tauri::Theme::Dark
+    } else {
+        tauri::Theme::Light
+    };
+    window
+        .set_theme(Some(theme))
+        .map_err(|error| format!("设置窗口主题失败：{error}"))?;
+
+    #[cfg(windows)]
+    {
+        let hwnd = window.hwnd().map_err(|error| error.to_string())?.0 as isize;
+        window_frame::paint(hwnd, dark)?;
+    }
+
+    Ok(())
+}
+
+/// Windows 上「把窗口边框涂成深色」这件事。
+///
+/// 不用 `windows` crate：只要三个 P/Invoke，为它加一整个依赖不划算。
+#[cfg(windows)]
+mod window_frame {
+    /// `DWMWA_USE_IMMERSIVE_DARK_MODE`。Win10 17763~18985 上是 19，往后是 20，
+    /// 而本应用的下限远高过那条线，只认 20。
+    const USE_IMMERSIVE_DARK_MODE: u32 = 20;
+    /// `WM_NCACTIVATE`：非客户区的「激活状态变了」，DWM 收到它才会重画边框配色。
+    const WM_NCACTIVATE: u32 = 0x0086;
+
+    #[link(name = "dwmapi")]
+    extern "system" {
+        fn DwmSetWindowAttribute(
+            hwnd: isize,
+            attribute: u32,
+            value: *const i32,
+            size: u32,
+        ) -> i32;
+    }
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn DefWindowProcW(hwnd: isize, message: u32, wparam: usize, lparam: isize) -> isize;
+    }
+
+    /// `hwnd` 由调用方从 `tauri::Window::hwnd()` 取好并转成 `isize` —— 那个类型来自
+    /// `windows` crate，为了传个参把依赖引进来不值当。
+    pub fn paint(hwnd: isize, dark: bool) -> Result<(), String> {
+        let handle = hwnd;
+        let value: i32 = i32::from(dark);
+
+        // 返回值是 HRESULT：负数才算失败。
+        let result = unsafe {
+            DwmSetWindowAttribute(
+                handle,
+                USE_IMMERSIVE_DARK_MODE,
+                &value,
+                std::mem::size_of::<i32>() as u32,
+            )
+        };
+        if result < 0 {
+            return Err(format!("DwmSetWindowAttribute 失败：{result:#x}"));
+        }
+
+        // 和 tao 里那段一样：DWM 只缓存了新的配色，要主动请它重画非客户区。
+        // 两次 WM_NCACTIVATE 的 wparam 顺序按窗口是否在前台分，这里一律「先否后是」，
+        // 后台窗口同样能刷到。
+        unsafe {
+            DefWindowProcW(handle, WM_NCACTIVATE, 0, 0);
+            DefWindowProcW(handle, WM_NCACTIVATE, 1, 0);
+        }
+
+        Ok(())
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -149,7 +238,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             restore_workspace_root,
             set_workspace_root,
-            list_system_fonts
+            list_system_fonts,
+            set_window_theme
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

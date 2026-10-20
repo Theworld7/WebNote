@@ -7,7 +7,7 @@ the page style lives in the parent document, so every class the user relies on i
 until they export. That is the wrong direction for a preview: the editor is where the HTML
 block is written.
 
-**`buildHtmlFrameDoc(source, pageStyle)` writes the page CSS into the frame's `<head>`,**
+**`buildHtmlFrameDoc(source, pageStyle, theme)` writes the page CSS into the frame's `<head>`,**
 after the frame's base reset and marked `data-note-style`. Order is the mechanism again: the
 frame's reset stands in for `DOC_STYLE`, the user's rules come later, so `body { font-family }`
 overrides the reset exactly as it overrides the generated base in the file. `HtmlBlockView`
@@ -40,6 +40,21 @@ block on screen reloads and its scripts re-run. That is accepted: style commits 
 drawer closes, not per keystroke, and "the CSS changed, the frame re-rendered" is a coherent
 thing for the user to see.
 
+**The frame's own paper follows the app.** Every nested document is painted on a canvas of its
+own, and that canvas is opaque white by default — `body { background: transparent }` does not make
+an iframe see-through, and the parent's `.dark` class and its tokens stop at the document edge.
+So whatever part of a block paints nothing — the `transparent` half of a gradient, a
+`.bg-demo-block` that only sets a size, the corners a `conic-gradient` punches out — showed that
+canvas, and in the dark app that was a white sheet. `buildHtmlFrameDoc` takes the appearance and
+writes `html { color-scheme: <theme>; background: <--background> }` between the base reset and the
+page style. Taking `--background` rather than `Canvas` is what removes the seam: the paper is the
+same token the content column is painted with, so a block blends into the page instead of sitting
+on a slightly different dark. The page style still wins where it says otherwise — the injection
+answers "nobody painted this", not "we know better" — and the appearance also runs through
+`pinScheme`, so `color-scheme: light dark` and `@media (prefers-color-scheme: …)` resolve against
+the app rather than the OS (ADR-0011's rule, applied to the one document that cannot be scoped).
+A theme switch rebuilds the frame the same way a style commit does.
+
 **Consequences.** A page style that sets `body { background }` now paints that background inside
 each HTML block as well as on the content column — identical for a flat colour, visibly offset
 for a gradient or a background image. The preview stays approximate (ADR-0011), and the file
@@ -54,4 +69,10 @@ changes; the reload it avoids is not one the user sees as a cost. *Stripping `ht
 rules before injecting* — kills the main reason to inject at all (`body { font-family }` on the
 block's text), and special-cases the cascade the export does not special-case. *Injecting the
 scoped CSS* — cannot match: the frame has no `[data-doc]`. *A separate "styles" field on the
-HTML block* — would fork page style into two places for one document.
+HTML block* — would fork page style into two places for one document. *Only pinning
+`color-scheme` and leaving the canvas to the browser* — that paints the browser's dark default
+(`#121212`), a different shade from `--background`, so every block grows a faint rectangle.
+*Painting the iframe element instead of its document* — the element sits under an opaque canvas;
+nothing outside the frame can show through. *A message channel that repaints on theme change* —
+no reload, but it needs a protocol, the parent's refs and a ready state, to save one reload per
+theme switch.

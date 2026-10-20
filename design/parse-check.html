@@ -443,6 +443,7 @@ check(
   styleEl.textContent = scopeCss(
     "body { color: rgb(1, 2, 3) } p, :is(.lead, .missing) { font-weight: 700 } h2 { font-size: 40px } @media (min-width: 1px) { p { font-style: italic } }",
     "#scope-probe",
+    "light",
   )
   document.head.appendChild(styleEl)
   const inside = scope.querySelector(".lead")
@@ -459,7 +460,7 @@ check(
     "预览：不越出正文列",
     getComputedStyle(outside).fontWeight !== "700" && getComputedStyle(outside).color !== "rgb(1, 2, 3)",
   )
-  check("预览：空 CSS 产出空串", scopeCss("  \n ", "#scope-probe") === "")
+  check("预览：空 CSS 产出空串", scopeCss("  \n ", "#scope-probe", "light") === "")
   styleEl.remove()
   scope.remove()
   outside.remove()
@@ -474,19 +475,98 @@ check(
   const scoped = scopeCss(
     ":root { --muted: #6b7280; --line: #e4e4e7 } .card { color: var(--muted); border-color: var(--line) }",
     "#scope-probe",
+    "light",
   )
   check("预览：自定义属性声明加 --doc- 前缀", scoped.includes("--doc-muted: #6b7280") && scoped.includes("--doc-line: #e4e4e7"), scoped)
   check("预览：不再以原名声明", !/--muted\s*:/.test(scoped) && !/--line\s*:/.test(scoped), scoped)
   check("预览：var() 引用跟着改名", scoped.includes("var(--doc-muted)") && scoped.includes("var(--doc-line)"), scoped)
 
-  const important = scopeCss(".card { color: var(--fg) !important } :root { --fg: #111 }", "#scope-probe")
+  const important = scopeCss(".card { color: var(--fg) !important } :root { --fg: #111 }", "#scope-probe", "light")
   check("预览：改名后 !important 仍在", important.includes("var(--doc-fg) !important"), important)
 
-  const unknown = scopeCss(".card { color: var(--primary) }", "#scope-probe")
+  const unknown = scopeCss(".card { color: var(--primary) }", "#scope-probe", "light")
   check("预览：没声明过的变量引用原样留（不替用户对上应用 token）", unknown.includes("var(--primary)"), unknown)
 
-  const media = scopeCss("@media (min-width: 1px) { :root { --fg: #222 } .card { color: var(--fg) } }", "#scope-probe")
+  const media = scopeCss("@media (min-width: 1px) { :root { --fg: #222 } .card { color: var(--fg) } }", "#scope-probe", "light")
   check("预览：@media 里的自定义属性同样改名", media.includes("--doc-fg: #222") && media.includes("var(--doc-fg)"), media)
+}
+
+/**
+ * 预览里的「浅色 / 深色两套」按**应用**的外观解析，不按系统。
+ *
+ * 来自一个真实 bug：系统停在浅色、应用被切成深色时，笔记页面样式里的
+ * `:root { color-scheme: light dark }` 把正文列的用色方案交回「跟随系统」，
+ * 于是 `body { background: Canvas }` 画成一张白纸，浅色文字压在上面。
+ */
+{
+  const scope = document.createElement("div")
+  scope.id = "scheme-probe"
+  document.body.appendChild(scope)
+  const styleEl = document.createElement("style")
+  styleEl.textContent = scopeCss(
+    ":root { color-scheme: light dark } body { background: Canvas }",
+    "#scheme-probe",
+    "dark",
+  )
+  document.head.appendChild(styleEl)
+  const dark = getComputedStyle(scope)
+  check("预览：color-scheme 两套按应用外观收成单一值", dark.colorScheme === "dark", dark.colorScheme)
+  check(
+    "预览：系统色关键词 Canvas 跟着应用外观（深色界面里不是白纸）",
+    dark.backgroundColor === "rgb(18, 18, 18)",
+    dark.backgroundColor,
+  )
+  styleEl.remove()
+
+  // 同一份样式在浅色外观下就该是白的 —— 证明上一条不是恒真。
+  const lightStyle = document.createElement("style")
+  lightStyle.textContent = scopeCss(":root { color-scheme: light dark } body { background: Canvas }", "#scheme-probe", "light")
+  document.head.appendChild(lightStyle)
+  check(
+    "预览：浅色外观下同一份样式画出白底",
+    getComputedStyle(scope).backgroundColor === "rgb(255, 255, 255)",
+    getComputedStyle(scope).backgroundColor,
+  )
+  lightStyle.remove()
+
+  // 作者写死一侧时照他写的：`light` / `normal` 不许被外观掰弯。
+  const pinned = scopeCss(":root { color-scheme: normal } .card { color-scheme: light }", "#scheme-probe", "dark")
+  check(
+    "预览：作者写死 light / normal 时不改（写死浅色的卡片在深色界面里仍是浅色）",
+    pinned.includes("color-scheme: normal") && pinned.includes("color-scheme: light") && !pinned.includes("color-scheme: dark"),
+    pinned,
+  )
+
+  // `@media (prefers-color-scheme: …)` 按应用外观判，判不成立就整条丢掉。
+  const darkMedia = scopeCss(
+    "@media (prefers-color-scheme: dark) { .card { color: rgb(9, 9, 9) } }",
+    "#scope-probe",
+    "dark",
+  )
+  check(
+    "预览：深色分支在深色外观下摊平（不留 @media，规则直接生效）",
+    darkMedia.includes("color: rgb(9, 9, 9)") && !darkMedia.includes("@media"),
+    darkMedia,
+  )
+  const lightMedia = scopeCss(
+    "@media (prefers-color-scheme: dark) { .card { color: rgb(9, 9, 9) } }",
+    "#scope-probe",
+    "light",
+  )
+  check("预览：深色分支在浅色外观下整条丢掉", lightMedia.trim() === "", lightMedia)
+
+  const mixed = scopeCss(
+    "@media (prefers-color-scheme: dark) and (min-width: 600px) { .card { color: rgb(9, 9, 9) } }",
+    "#scope-probe",
+    "dark",
+  )
+  check(
+    "预览：混合条件只摘掉外观那一段，宽度条件留着",
+    mixed.includes("@media (min-width: 600px)") && mixed.includes("color: rgb(9, 9, 9)"),
+    mixed,
+  )
+
+  scope.remove()
 }
 
 // ---------- 三·二、页面样式的落盘形态（紧凑化） ----------

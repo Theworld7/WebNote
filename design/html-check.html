@@ -144,12 +144,12 @@ const PAGE_CSS =
   "body{font-family:Georgia,serif;font-size:20px;padding:3rem;max-width:46rem;margin:0 auto;min-height:100vh}"
 
 /** srcdoc = 带页面样式的帧；load 后把子文档里的量交回来。 */
-function probeFrame(source, css) {
+function probeFrame(source, css, theme = "light") {
   return new Promise((resolve) => {
     const frame = document.createElement("iframe")
     frame.setAttribute("sandbox", "allow-same-origin allow-scripts")
     frame.style.cssText = "width:600px;height:120px;border:0"
-    frame.srcdoc = buildHtmlFrameDoc(source, css)
+    frame.srcdoc = buildHtmlFrameDoc(source, css, theme)
     frame.addEventListener("load", () => {
       const doc = frame.contentDocument
       const body = doc?.body
@@ -191,8 +191,8 @@ check("没有页面样式时类不生效", plain.background !== "rgb(1, 2, 3)", 
 check(
   "没有页面样式时不注入任何样式标签",
   plain.hasStyleTag === false &&
-    !buildHtmlFrameDoc("x").includes("data-note-style") &&
-    !buildHtmlFrameDoc("x").includes("max-width:none!important"),
+    !buildHtmlFrameDoc("x", "", "light").includes("data-note-style") &&
+    !buildHtmlFrameDoc("x", "", "light").includes("max-width:none!important"),
   "",
 )
 
@@ -207,6 +207,126 @@ check(
   exportedWithClass.slice(0, 200),
 )
 
+// ---------- 六·三、外观：块里那张纸跟着应用走 ----------
+
+/**
+ * 深色界面里 HTML 块露出白纸，根因不在块自己。`.bg-demo-block` 这种容器只给尺寸、不给
+ * 底色，透明段（渐变的 `transparent`、内切角）露到 iframe 文档的**画布**上 —— 而嵌套
+ * 文档的画布默认是不透明的 `Canvas`（浅色方案下就是纯白），父页面的 `.dark` 与 token
+ * 都跨不过文档边界。所以要断言的是「块里的纸 = 应用画布」，不是「你设了哪个值」。
+ *
+ * 这一页不是应用本体，`--background` 按应用那两支的取值声明在这里；期望值现场从
+ * **画出来的元素**（`background: var(--background)`）读 computed，不硬编码颜色 ——
+ * 调色板改了，这条跟着走，而不是写死成另一支。
+ */
+document.head.insertAdjacentHTML(
+  "beforeend",
+  "<style>:root{--background:oklch(1 0 0)}.dark{--background:oklch(0.145 0 0)}</style>",
+)
+const paper = document.createElement("div")
+paper.style.cssText = "position:absolute;width:1px;height:1px;background:var(--background)"
+document.body.append(paper)
+
+const colorCanvas = document.createElement("canvas")
+colorCanvas.width = 1
+colorCanvas.height = 1
+const colorContext = colorCanvas.getContext("2d", { willReadFrequently: true })
+/** 任意 CSS 颜色 → `rgb(r, g, b)`。`oklch()` 的计算值原样返回，只能让 canvas 解析。 */
+function toRgb(value) {
+  colorContext.fillStyle = "#010203"
+  colorContext.fillStyle = value
+  colorContext.clearRect(0, 0, 1, 1)
+  colorContext.fillRect(0, 0, 1, 1)
+  const [red, green, blue] = colorContext.getImageData(0, 0, 1, 1).data
+  return `rgb(${red}, ${green}, ${blue})`
+}
+
+/**
+ * 带指定外观跑一遍，把子文档里量到的值交回来。
+ *
+ * 外观是 `buildHtmlFrameDoc` 的**输入**（取色发生在构建那一刻），所以先切类、再建
+ * srcdoc、最后才把类摘掉 —— 顺序反了量到的就是另一套。
+ */
+async function probeAppearance(theme, css = "", source = '<div class="bg-demo-block">x</div><div id="m">m</div>') {
+  document.documentElement.classList.toggle("dark", theme === "dark")
+  // 期望值取自**画出来的元素**，但要把 `oklch()` 投到 sRGB —— 两边都换成 rgb 才比得动。
+  const expectedPaper = toRgb(getComputedStyle(paper).backgroundColor)
+  const frame = await new Promise((resolve) => {
+    const element = document.createElement("iframe")
+    element.setAttribute("sandbox", "allow-same-origin allow-scripts")
+    element.style.cssText = "width:600px;height:120px;border:0"
+    element.srcdoc = buildHtmlFrameDoc(source, css, theme)
+    element.addEventListener("load", () => resolve(element))
+    document.body.appendChild(element)
+  })
+  const doc = frame.contentDocument
+  const block = doc?.querySelector(".bg-demo-block")
+  // 系统色关键词要另挂一支探针：`Canvas` 的分辨率取决于文档的用色方案。
+  const keyword = doc?.createElement("div")
+  if (doc !== undefined && doc !== null && keyword !== undefined && keyword !== null) {
+    keyword.style.background = "Canvas"
+    doc.body.append(keyword)
+  }
+  const measured = {
+    expectedPaper,
+    paper: doc === null || doc === undefined ? null : getComputedStyle(doc.documentElement).backgroundColor,
+    scheme: doc === null || doc === undefined ? null : getComputedStyle(doc.documentElement).colorScheme,
+    block: block === null || block === undefined ? null : getComputedStyle(block).backgroundColor,
+    canvas: keyword === undefined || keyword === null ? null : getComputedStyle(keyword).backgroundColor,
+    media: doc?.querySelector("#m") === null || doc?.querySelector("#m") === undefined
+      ? null
+      : getComputedStyle(doc.querySelector("#m")).color,
+  }
+  frame.remove()
+  document.documentElement.classList.remove("dark")
+  return measured
+}
+
+const isWhite = (rgb) => /\d+/.test(rgb ?? "") && (rgb.match(/\d+/g) ?? []).slice(0, 3).every((c) => Number(c) >= 250)
+
+const darkPaper = await probeAppearance("dark")
+check(
+  "深色下块里的纸 = 应用画布（与正文列同一支底色）",
+  darkPaper.paper === darkPaper.expectedPaper,
+  `块 ${darkPaper.paper} / 应用 ${darkPaper.expectedPaper}`,
+)
+check("深色下块里的纸不再是白的", !isWhite(darkPaper.paper), String(darkPaper.paper))
+check(
+  "白不在 .bg-demo-block 身上：它自己仍然不画底色",
+  darkPaper.block === "rgba(0, 0, 0, 0)",
+  String(darkPaper.block),
+)
+check("深色下子文档的用色方案被钉成 dark", darkPaper.scheme === "dark", String(darkPaper.scheme))
+check("深色下 Canvas 关键词解析成深色（不再是白）", !isWhite(darkPaper.canvas), String(darkPaper.canvas))
+check(
+  "页面样式写死 color-scheme: light 时不被掰弯",
+  (await probeAppearance("dark", ":root{color-scheme:light}")).canvas === "rgb(255, 255, 255)",
+  "",
+)
+
+const lightPaper = await probeAppearance("light")
+check(
+  "浅色下块里的纸 = 应用画布",
+  lightPaper.paper === lightPaper.expectedPaper,
+  `块 ${lightPaper.paper} / 应用 ${lightPaper.expectedPaper}`,
+)
+check("两套外观的纸确实不同（上一条不是「都没变」）", lightPaper.paper !== darkPaper.paper, `${lightPaper.paper} vs ${darkPaper.paper}`)
+
+// 页面样式里的「浅色 / 深色两套」按应用外观判，与正文列的预览同一条道理（ADR-0014）。
+const SCHEME_CSS =
+  ":root{color-scheme:light dark}" +
+  "@media (prefers-color-scheme: dark){#m{color:rgb(250, 1, 2)}}" +
+  "@media (prefers-color-scheme: light){#m{color:rgb(1, 2, 250)}}"
+const darkScheme = await probeAppearance("dark", SCHEME_CSS)
+check("深色下走的是页面样式的深色分支", darkScheme.media === "rgb(250, 1, 2)", String(darkScheme.media))
+check("深色下 `color-scheme: light dark` 被收成 dark", darkScheme.scheme === "dark", String(darkScheme.scheme))
+const lightScheme = await probeAppearance("light", SCHEME_CSS)
+check("浅色下走的是浅色分支", lightScheme.media === "rgb(1, 2, 250)", String(lightScheme.media))
+
+// 作者画了这一页，我们补的只是「没人画」时的那张纸：写死底色的块不该被我们改掉。
+const authorCss = await probeAppearance("dark", "html{background:rgb(9, 8, 7)}")
+check("页面样式明写 html 底色时作者赢", authorCss.paper === "rgb(9, 8, 7)", String(authorCss.paper))
+
 // ---------- 七、iframe 高度探针（对真 iframe 验证，须等上报，CDP 驱动抓结果） ----------
 
 /** 造一只初始高度任意的沙箱 iframe，等第一次高度上报。超时 resolve null。 */
@@ -215,7 +335,7 @@ function measureFrame(initialHeight) {
     const frame = document.createElement("iframe")
     frame.setAttribute("sandbox", "allow-scripts")
     frame.style.cssText = `width:600px;height:${initialHeight}px;border:0`
-    frame.srcdoc = buildHtmlFrameDoc('<div style="height:230px;background:#000"></div>')
+    frame.srcdoc = buildHtmlFrameDoc('<div style="height:230px;background:#000"></div>', "", "light")
     const onMessage = (event) => {
       if (event.source !== frame.contentWindow) return
       window.removeEventListener("message", onMessage)

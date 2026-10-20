@@ -1,3 +1,7 @@
+import type { Theme } from "@/types/workspace"
+import { pinScheme } from "./note-style"
+import { readThemeColor } from "./theme-color"
+
 /**
  * HTML 块的沙箱 srcdoc 文档。
  *
@@ -24,6 +28,16 @@
  * 代价是 `body { background: … }` 会在这一块里再画一遍（导出时它铺满整页）—— 纯色看不出，
  * 渐变 / 背景图会对不齐。这条预览本来就是近似的（见 ADR-0011 / 0013）。
  *
+ * **这一块文档自己也有一张纸，而那张纸得跟应用走。** 嵌套文档的画布默认是不透明的
+ * `Canvas`（浅色方案下就是纯白），父页面的 `.dark` 与 token 都跨不过文档边界。于是
+ * 一块「自己没画底色」的内容 —— 比如透明渐变的留白、`.bg-demo-block` 这种只有尺寸的
+ * 容器 —— 在深色界面里会露出一整片白。第三参数把应用此刻的外观带进来：画布刷成
+ * `--background`，`color-scheme` 一并钉住，页面样式里「浅色 / 深色两套」交给
+ * `pinScheme` 按同一外观判（理由与正文列的预览相同，见 ADR-0014）。
+ *
+ * 注入顺序是 base → 外观 → 页面样式：作者在页面样式里明写 `html` / `body` 底色时仍然
+ * 是他赢 —— 他画的是这一页，我们补的只是「没人画」时的那张纸。
+ *
  * 但**盒模型例外**：整页的版心（`padding` / `max-width` / `margin: 0 auto`）在编辑器里由
  * 正文列负责，iframe 再套一遍就是双重内缩 —— 页面样式里一句 `body { padding: 3rem }`
  * 会让每个 HTML 块凭空缩一圈。所以注入之后紧跟一条只重置盒模型的规则，见 `FRAME_BOX_RESET`。
@@ -47,13 +61,28 @@ const FRAME_BOX_RESET =
   "<style>html,body{margin:0!important;padding:0!important;max-width:none!important;width:auto!important;min-height:0!important}</style>"
 
 /**
- * 空样式不落任何标签：没有页面样式的笔记，生成的文档与加这个功能之前逐字节相同。
+ * 这张纸的颜色：应用此刻的 `--background`。
+ *
+ * 与周围正文列取同一支 token 才无缝 —— 差一档就是块边缘一道看得见的接缝。token 读不到
+ * （样式还没上、探针拿不到画布）时退回 `Canvas`：它在钉住的 `color-scheme` 下至少是同
+ * 一侧的颜色，不会突然冒出一块白。
  */
-export function buildHtmlFrameDoc(source: string, pageStyle = ""): string {
+function canvasColor(theme: Theme): string {
+  return readThemeColor(theme, "--background") ?? "Canvas"
+}
+
+/**
+ * 空样式不落任何标签：没有页面样式的笔记，生成的文档与加这个功能之前逐字节相同
+ * （外观那条除外 —— 它是块能看清的前提，不是页面样式的一部分）。
+ */
+export function buildHtmlFrameDoc(source: string, pageStyle: string, theme: Theme): string {
   const probe =
     "<script>(function(){var send=function(){parent.postMessage({height:Math.ceil(document.body.scrollHeight)},'*')};window.addEventListener('load',send);send();new ResizeObserver(send).observe(document.body)})()<\/script>"
   const base = `<style>body{margin:0;display:flow-root;background:transparent;font:14px/1.6 -apple-system,"PingFang SC","Helvetica Neue",sans-serif}</style>`
+  const appearance = `<style>html{color-scheme:${theme};background:${canvasColor(theme)}}</style>`
   const style =
-    pageStyle.trim() === "" ? "" : `<style data-note-style>${pageStyle}</style>${FRAME_BOX_RESET}`
-  return `<!DOCTYPE html><html><head><meta charset="utf-8">${base}${style}</head><body>${source}${probe}</body></html>`
+    pageStyle.trim() === ""
+      ? ""
+      : `<style data-note-style>${pinScheme(pageStyle, theme)}</style>${FRAME_BOX_RESET}`
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">${base}${appearance}${style}</head><body>${source}${probe}</body></html>`
 }

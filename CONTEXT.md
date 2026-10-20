@@ -348,6 +348,16 @@ admits `.html` / `.htm` / `.tbl`.
 _Avoid_: Setting (the panel is the settings panel, but a single item is a Preference),
 option, config
 
+**Appearance**:
+Whether the editor is drawn light or dark, and the rule that decides it. It is a Preference,
+never part of a Note — the exported file keeps its own `prefers-color-scheme` query, so a
+Note opened elsewhere follows *that* machine. The rule has five **theme modes**: pinned
+(light or dark), follow the system, two fixed times, or sunrise / sunset at a place. The
+tab-bar toggle writes the mode when it is pinned; under an automatic mode it overrides only
+the current slot and expires at the next transition (see ADR-0014).
+_Avoid_: Theme (that word belongs to Page style), skin, colour scheme, "dark mode" as the
+name of the setting (the setting is the mode, and half its values are not dark)
+
 **Table effect**:
 The Preference that decides what happens when a table in a Note is wider than the Note's
 content column. It applies to Tables and to the table a Data table block renders as — but

@@ -29,6 +29,7 @@ import BlockEditor from "../src/components/BlockEditor.vue"
 import SettingsPanel from "../src/components/SettingsPanel.vue"
 import TableBlockView from "../src/components/TableBlockView.vue"
 import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
 import { provideWorkspace } from "../src/composables/useWorkspace.ts"
 import { createTableBlock } from "../src/lib/blocks.ts"
 import { textToRuns } from "../src/lib/inline.ts"
@@ -76,7 +77,7 @@ const open = ref(true)
 
 const Root = defineComponent({
   setup() {
-    provideSettings()
+    provideTheme(provideSettings())
     provideWorkspace()
     // BlockEditor 也挂上：内容宽度偏好的几何断言量的是它那层 [data-doc] 容器
     // （computed maxWidth），比只验数据落盘多走一整段「设置 → 渲染」链路。
@@ -523,7 +524,7 @@ window.localStorage.setItem(WIDTH_KEY, "bogus")
 const badOpen = ref(true)
 const BadRoot = defineComponent({
   setup() {
-    provideSettings()
+    provideTheme(provideSettings())
     provideWorkspace()
     return () => h("div", { class: "doc" }, [
       h(TableBlockView, { block }),

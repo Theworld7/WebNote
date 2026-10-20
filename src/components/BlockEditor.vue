@@ -14,6 +14,7 @@ import type { BlockDropEdge, BlockType, InlineRun } from "@/types/workspace"
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useSettings, CONTENT_WIDTH_PX } from "@/composables/useSettings"
+import { useTheme } from "@/composables/useTheme"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { isTextualBlock, orderedIndexes as orderedIndexesOf } from "@/lib/blocks"
 import { BLOCK_DRAG_TYPE, DRAG_HANDLE_SELECTOR, TOP_BLOCK_ROW_SELECTOR, closestBlockId, findEditable, focusBlockById } from "@/lib/dom"
@@ -93,6 +94,8 @@ const orderedIndexes = computed(() => orderedIndexesOf(activeDocument.value))
 // 内容宽度（正文列最大宽度）来自用户偏好。走内联 style 而不是 `max-w-[Npx]` 类名：
 // 档位是运行时值，Tailwind 扫不到拼出来的候选（与 typography.ts 里「类名必须是字面量」同一条立场）。
 const { contentWidth } = useSettings()
+// 页面样式里的「浅色 / 深色两套」按应用外观解析，不按系统 —— 见 `lib/note-style.ts`。
+const { theme } = useTheme()
 const docStyle = computed(() => ({ maxWidth: `${CONTENT_WIDTH_PX[contentWidth.value]}px` }))
 
 /**
@@ -110,7 +113,9 @@ const SCOPE_ROOT = "[data-doc]"
 let previewStyle: HTMLStyleElement | null = null
 
 watchEffect(() => {
-  const css = scopeCss(activeStyle.value, SCOPE_ROOT)
+  // `theme` 也是依赖：外观一变，同一份页面样式要按新外观重新解析（含被摊平的
+  // `prefers-color-scheme` 分支），否则深色界面里还挂着浅色那套。
+  const css = scopeCss(activeStyle.value, SCOPE_ROOT, theme.value)
   if (css === "") {
     previewStyle?.remove()
     previewStyle = null

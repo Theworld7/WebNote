@@ -445,6 +445,41 @@ export interface TreeTarget {
 }
 
 /**
+ * 界面配色。只有两档 —— 没有「高对比」「护眼」这些变体，深色就是 `style.css` 里
+ * `.dark` 那一套 token，浅色就是 `:root` 那一套。
+ */
+export type Theme = "light" | "dark"
+
+/**
+ * 主题模式（见 ADR-0014）。
+ *
+ * `light` / `dark` 是手动定死；另三种是自动：`system` 跟随系统外观，`fixed` 按两个
+ * 固定时刻，`sun` 按当地日出日落。自动模式下标签栏那颗按钮改成「临时覆盖当前时段」，
+ * 不破坏这里的选择 —— 覆盖只活到下一个时段槽。
+ */
+export type ThemeMode = "light" | "dark" | "system" | "fixed" | "sun"
+
+/**
+ * 主题偏好。整组存成一个值而不是五个独立偏好：它们只在「怎么定当前配色」这一件事上
+ * 有意义，拆开存会出现「mode=sun 却没有经纬度」这种半截状态。
+ *
+ * `lightAt` / `darkAt` 存 `"HH:mm"`（`<input type="time">` 的原生格式，配置文件也读得懂）；
+ * `latitude` / `longitude` 同时为 `null` 表示「按系统时区推测」—— 两个一起设或一起空，
+ * 不存在只设一个的合法态。
+ */
+export interface ThemeSettings {
+  mode: ThemeMode
+  /** 固定时间模式下切浅色的时刻，`"HH:mm"`。 */
+  lightAt: string
+  /** 固定时间模式下切深色的时刻，`"HH:mm"`。 */
+  darkAt: string
+  /** 纬度（-90..90），`null` = 交给系统时区。 */
+  latitude: number | null
+  /** 经度（-180..180），`null` = 交给系统时区。 */
+  longitude: number | null
+}
+
+/**
  * 表格效果 —— 宽表格装不下时怎么办。详见 `CONTEXT.md` 的「Preference / Table effect」。
  *
  * - `wrap`：格子内文字换行，列被挤窄，表格永远与正文同宽（默认，也是导出文件永远采用的那份）。

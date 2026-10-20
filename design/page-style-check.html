@@ -25,6 +25,7 @@ import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
 import BlockEditor from "../src/components/BlockEditor.vue"
 import EditorStatusBar from "../src/components/EditorStatusBar.vue"
 import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
 import { provideWorkspace } from "../src/composables/useWorkspace.ts"
 
 const out = document.querySelector("#out")
@@ -61,10 +62,12 @@ await writable.close()
 window.showDirectoryPicker = async () => dir
 
 let workspace = null
+let settings = null
 const Root = defineComponent({
   setup() {
     workspace = provideWorkspace()
-    provideSettings()
+    settings = provideSettings()
+    provideTheme(settings)
     // 真应用里编辑区与状态栏同在 EditorSurface（`data-editor-surface`）之内 —— 抽屉的
     // Teleport 锚点。检查页直接挂这两个组件，得自己补一个同款容器。
     return () =>
@@ -275,6 +278,61 @@ check(
 workspace.setNoteStyle(".bg-demo-block{background-color:rgb(9,8,7)}")
 const secondReport = await until(() => probes.find((entry) => entry.bgProbe === "rgb(9, 8, 7)") ?? null, 8000)
 check("页面样式改后 iframe 重载并重新生效", secondReport !== null, JSON.stringify(probes.map((entry) => entry.bgProbe)))
+
+// ---------- 七、预览的「浅色 / 深色两套」按应用外观解析 ----------
+
+/**
+ * 真实 bug 的回归：系统停在浅色、应用被切成深色时，笔记页面样式里的
+ * `:root { color-scheme: light dark }` 会把正文列的用色方案交回系统，
+ * `body { background: Canvas }` 于是画成一张白纸（浅色文字压在上面）。
+ *
+ * 预览的读者是应用，不是这台机器的系统 —— 两套都收的写法按应用此刻的外观收成一套。
+ */
+const columnOf = () => document.querySelector("[data-doc]")
+const SYSTEM_COLOR_CSS = ":root{color-scheme:light dark}body{background:Canvas}"
+
+settings.setTheme({ mode: "dark" })
+workspace.setNoteStyle(SYSTEM_COLOR_CSS)
+await nextTick()
+await wait(120)
+const darkScheme = getComputedStyle(columnOf()).colorScheme
+const darkPaper = getComputedStyle(columnOf()).backgroundColor
+check("预览：正文列的 color-scheme 跟着应用（不是系统）", darkScheme === "dark", darkScheme)
+check("预览：深色外观下 Canvas 纸面不再是白纸", darkPaper !== "rgb(255, 255, 255)", darkPaper)
+
+// 同一个 `prefers-color-scheme` 分支，也要按应用外观判 —— 否则纸面深了、里面那套变量
+// 还是浅色的，代码块 / 引用块会糊成一片。
+const MEDIA_CSS = `${SYSTEM_COLOR_CSS}@media (prefers-color-scheme: dark){body{background:rgb(3,4,5)}}`
+workspace.setNoteStyle(MEDIA_CSS)
+await nextTick()
+await wait(120)
+check(
+  "预览：深色分支按应用外观摊平（规则在深色下生效）",
+  getComputedStyle(columnOf()).backgroundColor === "rgb(3, 4, 5)",
+  getComputedStyle(columnOf()).backgroundColor,
+)
+
+settings.setTheme({ mode: "light" })
+await nextTick()
+await wait(120)
+const lightPaper = getComputedStyle(columnOf()).backgroundColor
+check("预览：切回浅色，canvas 纸面跟着白回来", lightPaper === "rgb(255, 255, 255)", lightPaper)
+check(
+  "预览：深色分支在浅色外观下不再生效",
+  getComputedStyle(columnOf()).backgroundColor !== "rgb(3, 4, 5)",
+  getComputedStyle(columnOf()).backgroundColor,
+)
+
+// 作者写死一侧时照他写的：写死浅色的卡片在深色界面里仍是浅色。
+settings.setTheme({ mode: "dark" })
+workspace.setNoteStyle("body{color-scheme:light;background:Canvas}")
+await nextTick()
+await wait(120)
+check(
+  "预览：作者写死 light 的纸面不被应用外观掰成深色",
+  getComputedStyle(columnOf()).backgroundColor === "rgb(255, 255, 255)",
+  getComputedStyle(columnOf()).backgroundColor,
+)
 
 // ---------- 汇总 ----------
 

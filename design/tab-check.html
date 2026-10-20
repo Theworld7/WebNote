@@ -24,6 +24,7 @@ import "../src/style.css"
 import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
 import EditorTabBar from "../src/components/EditorTabBar.vue"
 import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
 import { provideWorkspace } from "../src/composables/useWorkspace.ts"
 
 const lines = []
@@ -63,7 +64,8 @@ let workspace = null
 const Root = defineComponent({
   setup() {
     // 设置抽屉并进 EditorTabBar 后，它 setup 里会 useSettings —— 不 provide 就当场抛。
-    provideSettings()
+    // 主题开关同理：它 setup 里会 useTheme，而配色推导读的是那份设置。
+    provideTheme(provideSettings())
     workspace = provideWorkspace()
     return () => h(TooltipProvider, null, { default: () => h(EditorTabBar, { sidebarCollapsed: false }) })
   },
@@ -133,8 +135,8 @@ workspace.tabs.value = []
 workspace.activePath.value = ""
 await nextTick()
 check(
-  "未打开文件时动作组只剩「折叠侧栏 + 设置」",
-  JSON.stringify(actionLabels()) === JSON.stringify(["折叠侧栏", "设置"]),
+  "未打开文件时动作组只有「折叠侧栏 + 主题 + 设置」",
+  JSON.stringify(actionLabels()) === JSON.stringify(["折叠侧栏", "切换到深色", "设置"]),
   JSON.stringify(actionLabels()),
 )
 check("未打开文件时不显示「在目录中定位」", !hasLocate())
@@ -145,8 +147,8 @@ workspace.activePath.value = "a.html"
 await nextTick()
 check("打开文件后出现「在目录中定位」", hasLocate())
 check(
-  "动作组为「定位 + 折叠侧栏 + 设置」",
-  JSON.stringify(actionLabels()) === JSON.stringify(["在目录中定位", "折叠侧栏", "设置"]),
+  "动作组为「定位 + 折叠侧栏 + 主题 + 设置」",
+  JSON.stringify(actionLabels()) === JSON.stringify(["在目录中定位", "折叠侧栏", "切换到深色", "设置"]),
   JSON.stringify(actionLabels()),
 )
 

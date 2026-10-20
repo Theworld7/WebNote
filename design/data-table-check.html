@@ -23,6 +23,7 @@ import "../src/style.css"
 import DataTableEditor from "../src/components/DataTableEditor.vue"
 import DataTableBlockView from "../src/components/DataTableBlockView.vue"
 import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
 import { provideWorkspace } from "../src/composables/useWorkspace.ts"
 import { provideTables } from "../src/composables/useTables.ts"
 import { createMemoryFs } from "./memory-fs.ts"
@@ -357,7 +358,7 @@ const memory = createMemoryFs()
 const refs = []
 const Root = defineComponent({
   setup() {
-    provideSettings()
+    provideTheme(provideSettings())
     const workspace = provideWorkspace()
     refs.push(workspace)
     refs.push(provideTables(workspace.fs, workspace.root))
@@ -509,7 +510,7 @@ document.body.appendChild(viewHost)
 
 const ViewRoot = defineComponent({
   setup() {
-    provideSettings()
+    provideTheme(provideSettings())
     const workspace = provideWorkspace()
     viewProbeStore = provideTables(workspace.fs, workspace.root)
     Object.assign(viewProbe, workspace)
@@ -568,7 +569,7 @@ danglingHost.id = "dangling"
 document.body.appendChild(danglingHost)
 const DanglingRoot = defineComponent({
   setup() {
-    provideSettings()
+    provideTheme(provideSettings())
     const workspace = provideWorkspace()
     danglingStore = provideTables(workspace.fs, workspace.root)
     Object.assign(danglingProbe, workspace)
@@ -629,7 +630,7 @@ document.body.appendChild(editorHost)
 
 const EditorRoot = defineComponent({
   setup() {
-    provideSettings()
+    provideTheme(provideSettings())
     const workspace = provideWorkspace()
     const tables = provideTables(workspace.fs, workspace.root)
     // 编辑器的落盘走工作区的统一保存钩子,这里接上(与 App.vue 同一套接线)。

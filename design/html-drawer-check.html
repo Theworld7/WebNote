@@ -24,6 +24,7 @@ import { createApp, defineComponent, h, nextTick } from "vue"
 import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
 import BlockEditor from "../src/components/BlockEditor.vue"
 import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
 import { provideWorkspace } from "../src/composables/useWorkspace.ts"
 
 const out = document.querySelector("#out")
@@ -58,10 +59,13 @@ await writable.close()
 window.showDirectoryPicker = async () => dir
 
 let workspace = null
+let settings = null
 const Root = defineComponent({
   setup() {
     workspace = provideWorkspace()
-    provideSettings()
+    settings = provideSettings()
+    // 抽屉里的 Monaco 跟着应用外观换色（lib/monaco-theme.ts），配色来源是这份上下文。
+    provideTheme(settings)
     // 真应用里 BlockEditor 挂在 EditorSurface（data-editor-surface）之内 —— 抽屉的
     // Teleport 锚点。检查页直接挂 BlockEditor，得自己补一个同款容器，否则抽屉
     // 没有落点、渲染不出来。
@@ -135,6 +139,65 @@ const cancel = [...document.querySelectorAll("[data-html-source-drawer] button")
 cancel?.click()
 await wait(300)
 check("取消：抽屉关闭且原文不动", document.querySelector("[data-html-source-drawer]")?.offsetParent === null && block?.source === typed, JSON.stringify(block?.source))
+
+// ---------- 外观跟随：Monaco 跟着应用外观换色 ----------
+
+// Monaco 不读 CSS 变量，配色是一份 JS 对象（lib/monaco-theme.ts）。这条链路断了，深色
+// 界面里拉开抽屉就是一块纯白 —— 所以断言「编辑器实际画出来的颜色」，不看设置值。
+const editorSurface = () => document.querySelector("[data-html-source-drawer] .monaco-editor")
+
+const canvas = document.createElement("canvas")
+canvas.width = 1
+canvas.height = 1
+const context2d = canvas.getContext("2d", { willReadFrequently: true })
+/** 任意 CSS 颜色 → [r, g, b]。oklch() 的计算值原样返回，只能让 canvas 解析。 */
+function toRgb(value) {
+  context2d.fillStyle = "#010203"
+  context2d.fillStyle = value
+  context2d.clearRect(0, 0, 1, 1)
+  context2d.fillRect(0, 0, 1, 1)
+  const data = context2d.getImageData(0, 0, 1, 1).data
+  return [data[0], data[1], data[2]]
+}
+/** 编辑器纸面。`.monaco-editor-background` 是 Monaco 自己铺底的那一层。 */
+const editorBg = () => {
+  const surface = editorSurface()
+  if (surface === null) return null
+  const backing = surface.querySelector(".monaco-editor-background") ?? surface
+  return toRgb(getComputedStyle(backing).backgroundColor)
+}
+const backgroundToken = () =>
+  toRgb(getComputedStyle(document.documentElement).getPropertyValue("--background").trim())
+const same = (a, b) => a !== null && b !== null && a.every((channel, index) => Math.abs(channel - b[index]) <= 1)
+
+pencil?.click()
+await wait(200)
+await until(() => document.querySelector("[data-html-source-drawer] .monaco-editor"), 20000)
+check("重开抽屉后编辑器仍在", editorSurface() !== null, "")
+
+settings.setTheme({ mode: "light" })
+await wait(200)
+const lightBg = editorBg()
+check("浅色外观下编辑器纸面 = --background（与抽屉无缝，不是 Monaco 默认的纯白）",
+  same(lightBg, backgroundToken()), `编辑器 ${lightBg} / token ${backgroundToken()}`)
+
+// 换色的瞬间不能重建编辑器：重建会丢撤销栈、丢滚动位置，还要重新挂 worker。
+const surfaceBefore = editorSurface()
+const modelBefore = monaco.editor.getModels().at(-1)
+settings.setTheme({ mode: "dark" })
+await wait(200)
+const darkBg = editorBg()
+check("深色外观下编辑器纸面随之变暗", darkBg !== null && Math.max(...darkBg) < 80, `rgb(${darkBg})`)
+check("深色外观下编辑器纸面 = 深色的 --background", same(darkBg, backgroundToken()),
+  `编辑器 ${darkBg} / token ${backgroundToken()}`)
+check("换外观不重建编辑器（同一个 DOM 节点与 model）",
+  editorSurface() === surfaceBefore && monaco.editor.getModels().at(-1) === modelBefore)
+check("两套外观的纸面确实不同（上一条不是「都没变」）",
+  !same(lightBg, darkBg), `${lightBg} → ${darkBg}`)
+
+settings.setTheme({ mode: "light" })
+await wait(200)
+check("切回浅色跟着回来", same(editorBg(), lightBg), `编辑器 ${editorBg()}`)
 
 // ---------- 汇总 ----------
 

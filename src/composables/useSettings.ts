@@ -1,9 +1,10 @@
 import type { InjectionKey, Ref } from "vue"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import type { FontFaceKind } from "@/lib/fonts"
-import type { TableEffect } from "@/types/workspace"
+import type { TableEffect, ThemeSettings } from "@/types/workspace"
 import { inject, provide, ref, watch } from "vue"
 import { CODE_FONT_VAR, CONTENT_FONT_VAR, fontStack } from "@/lib/fonts"
+import { minutesOf, THEME_MODES } from "@/lib/theme-mode"
 
 /**
  * 应用设置 —— 用户偏好，与工作区数据完全正交。
@@ -110,6 +111,78 @@ function readFontName(key: string): string {
 }
 
 /**
+ * 主题 —— 界面配色，整组存成**一个值**（`ThemeSettings`）而不是五个独立偏好。
+ *
+ * 拆开存会出现「模式选了日出日落、经纬度却是空的」这种半截状态，而它们只在
+ * 「现在该是什么配色」这一件事上有意义，没有独立存在的理由。所以这里没有
+ * 五个 `webnote:*` 键，只有一条 `webnote:theme`，内容是 JSON。
+ *
+ * 默认跟随系统：应用本来没有深色，第一次装上时它应当与系统外观一致，而不是
+ * 硬塞一套浅色（见 ADR-0014）。
+ */
+const THEME_KEY = "webnote:theme"
+
+export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
+  mode: "system",
+  lightAt: "07:00",
+  darkAt: "19:00",
+  latitude: null,
+  longitude: null,
+}
+
+/** 单个坐标的收窄：非数字、越界一律归为「没设」，由调用方决定整组是否退回系统时区。 */
+function readCoordinate(value: unknown, limit: number): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > limit) return null
+  return value
+}
+
+/**
+ * 把任意来源（localStorage 的 JSON、`webnote.json` 的字段）收成一份合法的主题偏好。
+ * 坏字段各自退回默认，不整组丢弃 —— 用户填错经纬度不该把「跟随系统」也一起弄丢。
+ */
+function readTheme(source: Record<string, unknown>): ThemeSettings {
+  const mode = THEME_MODES.find((item) => item === source["mode"]) ?? DEFAULT_THEME_SETTINGS.mode
+  const readTime = (value: unknown, fallback: string): string =>
+    typeof value === "string" && minutesOf(value) !== null ? value : fallback
+
+  const latitude = readCoordinate(source["latitude"], 90)
+  const longitude = readCoordinate(source["longitude"], 180)
+  // 经纬度要么都设、要么都不设：只有一个坐标的日出日落没有意义，退回系统时区。
+  const manual = latitude !== null && longitude !== null
+
+  return {
+    mode,
+    lightAt: readTime(source["lightAt"], DEFAULT_THEME_SETTINGS.lightAt),
+    darkAt: readTime(source["darkAt"], DEFAULT_THEME_SETTINGS.darkAt),
+    latitude: manual ? latitude : null,
+    longitude: manual ? longitude : null,
+  }
+}
+
+function readThemeSettings(): ThemeSettings {
+  const raw = window.localStorage.getItem(THEME_KEY)
+  if (raw === null) return { ...DEFAULT_THEME_SETTINGS }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return { ...DEFAULT_THEME_SETTINGS }
+  }
+  return isRecord(parsed) ? readTheme(parsed) : { ...DEFAULT_THEME_SETTINGS }
+}
+
+/** 两组主题偏好是否逐字段相同。`applyPrefs` 用它决定要不要静默。 */
+function sameTheme(left: ThemeSettings, right: ThemeSettings): boolean {
+  return (
+    left.mode === right.mode &&
+    left.lightAt === right.lightAt &&
+    left.darkAt === right.darkAt &&
+    left.latitude === right.latitude &&
+    left.longitude === right.longitude
+  )
+}
+
+/**
  * 工作区根目录下的应用配置文件。
  *
  * localStorage 跟着浏览器走，换目录 / 换机器就丢了；这份文件让偏好**跟着工作区走**。
@@ -125,6 +198,7 @@ interface PreferenceFile {
   menuGroupLayout?: MenuGroupLayout
   contentFont?: string
   codeFont?: string
+  theme?: ThemeSettings
 }
 
 /** 从盘上文本解析偏好。文件坏了 / 字段非法都不抛错，非法字段退回「不覆盖」。 */
@@ -148,6 +222,9 @@ function parsePreferenceFile(text: string): PreferenceFile {
     menuGroupLayout: pick(MENU_GROUP_LAYOUTS, source["menuGroupLayout"]),
     contentFont: pickFont(source["contentFont"]),
     codeFont: pickFont(source["codeFont"]),
+    // 主题是一整个对象：整个字段缺失（旧版写的文件）就保持内存里的现状，
+    // 不能拿默认值把用户当前的选择覆盖掉。
+    theme: isRecord(source["theme"]) ? readTheme(source["theme"]) : undefined,
   }
 }
 
@@ -173,6 +250,10 @@ interface Settings {
   /** 代码字体（代码块、行内 code、HTML 抽屉的 Monaco）。空串 = 系统默认栈。 */
   codeFont: Ref<string>
   setCodeFont: (value: string) => void
+  /** 界面配色（模式 + 固定时刻 + 经纬度）。整组读写，见 `ThemeSettings`。 */
+  theme: Ref<ThemeSettings>
+  /** 改主题偏好：合并写，只动 patch 里给出的字段。 */
+  setTheme: (patch: Partial<ThemeSettings>) => void
   /**
    * 接上工作区这对 driver / root。接上后工作区根的 `webnote.json`（见
    * `PREFERENCE_FILE`）成为第二份存储：启动 / 换目录时读取并应用，文件内容
@@ -223,6 +304,14 @@ function createSettings(): Settings {
     void persistToStore()
   }
 
+  const theme = ref<ThemeSettings>(readThemeSettings())
+
+  function setTheme(patch: Partial<ThemeSettings>) {
+    theme.value = { ...theme.value, ...patch }
+    window.localStorage.setItem(THEME_KEY, JSON.stringify(theme.value))
+    void persistToStore()
+  }
+
   /**
    * 字体偏好 → CSS 变量。
    *
@@ -256,6 +345,7 @@ function createSettings(): Settings {
       menuGroupLayout: menuGroupLayout.value,
       contentFont: contentFont.value,
       codeFont: codeFont.value,
+      theme: theme.value,
     }
     return `${JSON.stringify(file, null, 2)}\n`
   }
@@ -300,6 +390,11 @@ function createSettings(): Settings {
     if (prefs.codeFont !== undefined && prefs.codeFont !== codeFont.value) {
       codeFont.value = prefs.codeFont
       window.localStorage.setItem(CODE_FONT_KEY, prefs.codeFont)
+      changed = true
+    }
+    if (prefs.theme !== undefined && !sameTheme(prefs.theme, theme.value)) {
+      theme.value = prefs.theme
+      window.localStorage.setItem(THEME_KEY, JSON.stringify(prefs.theme))
       changed = true
     }
     return changed
@@ -350,6 +445,8 @@ function createSettings(): Settings {
     setContentFont,
     codeFont,
     setCodeFont,
+    theme,
+    setTheme,
     attachStore,
   }
 }

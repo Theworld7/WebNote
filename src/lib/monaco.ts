@@ -10,7 +10,8 @@
  * 模块内第一个 `?worker` import 必挂、换谁的路径都一样）。相对文件路径直指
  * node_modules，两层坑全绕开；Vite 的 new-URL-worker 协议会把它打成独立 chunk。
  */
-type Monaco = Awaited<ReturnType<typeof importMonaco>>
+/** 导出给 `lib/monaco-theme.ts` 用 —— 配色要调 `monaco.editor.defineTheme`。 */
+export type Monaco = Awaited<ReturnType<typeof importMonaco>>
 
 /** 动态 import 收口成函数：Monaco 类型从它推导，绕开包类型入口与运行时入口的错位。 */
 function importMonaco() {
