@@ -18,11 +18,13 @@ import type {
   LedgerSortDirection,
   MermaidBlock,
   StatBlock,
+  SubscriptionBlock,
   TableBlock,
   TableCell,
   TextualBlock,
   TextualBlockType,
 } from "@/types/workspace"
+import type { SubscriptionRole } from "@/lib/subscription"
 import { cloneRuns, runsText, textToRuns } from "@/lib/inline"
 import { cloneCell } from "@/lib/table"
 
@@ -82,6 +84,8 @@ export const BLOCK_TYPES = [
   { type: "ledger", group: "媒体与数据", marker: "¥", label: "账目", initials: "zm" },
   // 紧挨 ledger：统计块同样吃数据表的数据,把某列的数值求和成一个大数字。
   { type: "stat", group: "媒体与数据", marker: "Σ", label: "统计", initials: "tj" },
+  // 紧挨 stat：订阅块同样吃数据表的数据,把每行渲染成一张订阅卡并汇总月 / 年支出。
+  { type: "subscription", group: "媒体与数据", marker: "↻", label: "订阅", initials: "dy" },
   // 紧挨 kanban 之后、布局压轴之前:聊天记录是内容块,不是版面级重结构。
   { type: "chat", group: "媒体与数据", marker: "◌", label: "聊天记录", initials: "ltjl" },
   // 压轴：容器块是「版面级」的重结构,跟在内容块族的最后。
@@ -174,6 +178,7 @@ export function isTextualBlock(block: Block): block is TextualBlock {
     block.type !== "kanban" &&
     block.type !== "ledger" &&
     block.type !== "stat" &&
+    block.type !== "subscription" &&
     block.type !== "chat" &&
     block.type !== "layout" &&
     block.type !== "html"
@@ -187,7 +192,7 @@ export function isTextualBlock(block: Block): block is TextualBlock {
  * 这张表派生。serialize / parse 各自的读写分派虽仍逐块列出（编译器靠穷尽性兜住），
  * 但**凡是凭「有没有 path」区分的行为**都必须走这张表，不再各持一份会腐烂的清单。
  */
-export const REFERENCE_BLOCK_TYPES = ["datatable", "gallery", "bookmark", "kanban", "ledger", "stat"] as const
+export const REFERENCE_BLOCK_TYPES = ["datatable", "gallery", "bookmark", "kanban", "ledger", "stat", "subscription"] as const
 export type ReferenceBlockType = (typeof REFERENCE_BLOCK_TYPES)[number]
 
 /** 是否是引用块。命中时收窄到四种带 `path` 的结构块。 */
@@ -389,6 +394,31 @@ export function createStatBlock(path = "", columnId = ""): StatBlock {
 }
 
 /**
+ * 造订阅块。字段映射缺省全空 = 按列名与类型自动识别 —— 参考表插进来即可用。
+ * 新建路径会带上预设表的列 id(列名再改也不影响);已有表则留空走识别。
+ */
+export function createSubscriptionBlock(
+  path = "",
+  roles: Partial<Record<SubscriptionRole, string>> = {},
+): SubscriptionBlock {
+  return {
+    id: createBlockId(),
+    type: "subscription",
+    path,
+    nameColumnId: roles.name ?? "",
+    iconColumnId: roles.icon ?? "",
+    amountColumnId: roles.amount ?? "",
+    cycleColumnId: roles.cycle ?? "",
+    autoRenewColumnId: roles.autoRenew ?? "",
+    trialEndColumnId: roles.trialEnd ?? "",
+    startColumnId: roles.start ?? "",
+    endColumnId: roles.end ?? "",
+    cancelledColumnId: roles.cancelled ?? "",
+    paidColumnId: roles.paid ?? "",
+  }
+}
+
+/**
  * 造布局块。`cells` 缺省为空 = 「尚未选择布局方式」，视图显示网格/弹性选择器；
  * 选择后由操作层初始化两个格子（各含一个空文本块，光标有处落）。
  * 带全参数的调用来自解析器 —— 盘上属性宽容读取后的值在这里收口成合法类型。
@@ -408,6 +438,7 @@ export function createBlock(type: BlockType, text = ""): Block {
   if (type === "kanban") return createKanbanBlock()
   if (type === "ledger") return createLedgerBlock()
   if (type === "stat") return createStatBlock()
+  if (type === "subscription") return createSubscriptionBlock()
   if (type === "chat") return createChatBlock()
   if (type === "layout") return createLayoutBlock()
   if (type === "html") return createHtmlBlock()
@@ -430,7 +461,7 @@ export function retypeBlock(block: Block, type: BlockType): Block {
     const source = isTextualBlock(block) ? runsText(block.runs) : blockText(block)
     return type === "mermaid" ? { ...createMermaidBlock(), source } : { ...createHtmlBlock(), source }
   }
-  if (type === "image" || type === "table" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat" || type === "chat" || type === "layout") {
+  if (type === "image" || type === "table" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat" || type === "subscription" || type === "chat" || type === "layout") {
     return createBlock(type)
   }
   if (!isTextualBlock(block)) return createTextualBlock(type, textToRuns(blockText(block)))
@@ -449,7 +480,7 @@ export function retypeBlock(block: Block, type: BlockType): Block {
  */
 export function cloneBlock(block: Block, id: string): Block {
   // 平坦形态浅拷即可：账目块与数据表 / 书签 / 统计一样全是原始值字段。
-  if (block.type === "image" || block.type === "mermaid" || block.type === "html" || block.type === "datatable" || block.type === "bookmark" || block.type === "ledger" || block.type === "stat") {
+  if (block.type === "image" || block.type === "mermaid" || block.type === "html" || block.type === "datatable" || block.type === "bookmark" || block.type === "ledger" || block.type === "stat" || block.type === "subscription") {
     return { ...block, id }
   }
   // 画册的 hiddenFields 是数组：更新总以整体替换发生，但拷贝不该共享同一份。
@@ -500,6 +531,8 @@ export function blockText(block: Block): string {
   if (block.type === "ledger") return block.path
   // 统计块只带路径 —— 求和列是展示设置,不是文本。
   if (block.type === "stat") return block.path
+  // 订阅块只带路径 —— 字段映射是展示设置,不是文本。
+  if (block.type === "subscription") return block.path
   // 布局块把格子里的块递归拼起来 —— 字数统计因此覆盖容器内的内容。
   if (block.type === "layout") {
     return block.cells.map((cell) => cell.map((item) => blockText(item)).join(" ")).join(" ")

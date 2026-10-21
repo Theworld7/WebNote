@@ -37,6 +37,7 @@ import HtmlBlockView from "./HtmlBlockView.vue"
 import KanbanBlockView from "./KanbanBlockView.vue"
 import LedgerBlockView from "./LedgerBlockView.vue"
 import StatBlockView from "./StatBlockView.vue"
+import SubscriptionBlockView from "./SubscriptionBlockView.vue"
 import { CELL_EXCLUDED_TYPES } from "@/lib/blocks"
 
 const props = defineProps<{
@@ -444,6 +445,8 @@ const bodyClass = computed(() => {
     <LedgerBlockView v-else-if="block.type === 'ledger'" :block="block" />
 
     <StatBlockView v-else-if="block.type === 'stat'" :block="block" />
+
+    <SubscriptionBlockView v-else-if="block.type === 'subscription'" :block="block" />
 
     <ChatBlockView v-else-if="block.type === 'chat'" :block="block" />
 

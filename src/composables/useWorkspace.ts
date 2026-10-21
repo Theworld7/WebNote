@@ -2,8 +2,9 @@ import type { InjectionKey } from "vue"
 import type { Block, BlockSettingsPatch, BlockType, ChatMessage, CloseStrategy, CreateTarget, FileNode, InlineRun, LayoutMode, OpenTab, TableAlign, TableCell } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref, watch } from "vue"
-import { CELL_EXCLUDED_TYPES, cloneBlock, countChars, createBlock, createBlockId, createBookmarkBlock, createDataTableBlock, createGalleryBlock, createKanbanBlock, createLedgerBlock, createStatBlock, isReferenceBlock, isTextualBlock, retypeBlock } from "@/lib/blocks"
+import { CELL_EXCLUDED_TYPES, cloneBlock, countChars, createBlock, createBlockId, createBookmarkBlock, createDataTableBlock, createGalleryBlock, createKanbanBlock, createLedgerBlock, createStatBlock, createSubscriptionBlock, isReferenceBlock, isTextualBlock, retypeBlock } from "@/lib/blocks"
 import { createLedgerPreset } from "@/lib/ledger"
+import { createSubscriptionPreset } from "@/lib/subscription"
 import type { DataTable } from "@/types/data-table"
 import { describeError } from "@/lib/errors"
 import { parseNote, serializeHtml } from "@/lib/html"
@@ -1190,6 +1191,31 @@ function createWorkspace() {
   }
 
   /**
+   * 在当前笔记里插入一个订阅块。新建时写参考表那十列(名称 / 图标 / 金额 / 周期 /
+   * 自动续费 / 试用期到期 / 开始 / 到期 / 已取消 / 累计支付),并把字段映射指到预置列 ——
+   * 插入即可填。撞名引用已有表时不指列(id 对不上),交给自动识别。
+   */
+  async function insertSubscriptionBlock(index: number, target = "", stem = ""): Promise<string> {
+    const blocks = activeDocument.value
+    const notePath = activePath.value
+
+    let block = createSubscriptionBlock(target)
+    if (target === "") {
+      const preset = createSubscriptionPreset()
+      const resolved = await resolveDataTableForNote(notePath, stem, preset.table)
+      if (resolved.path === "") return ""
+      block = resolved.created
+        ? createSubscriptionBlock(resolved.path, preset.roles)
+        : createSubscriptionBlock(resolved.path)
+    }
+
+    const at = Math.min(Math.max(index, 0), blocks.length)
+    blocks.splice(at, 0, block)
+    markDirty()
+    return block.id
+  }
+
+  /**
    * 在当前笔记里插入一个账目块。与看板块同构(先有表才有块,`target` 为空时按 `stem`
    * 新建、撞名直接引用),差别在**新建**那一步:预置 `日期 / 摘要 / 收入 / 支出` 四列
    * 写盘,并把收入 / 支出列指到预置列上 —— 三种记账场景开箱即录,不用先去设置里挑列。
@@ -1226,7 +1252,7 @@ function createWorkspace() {
    */
   async function convertBlockToFileType(
     id: string,
-    type: "datatable" | "gallery" | "bookmark" | "kanban" | "ledger" | "stat",
+    type: "datatable" | "gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "subscription",
     target = "",
     stem = "",
   ): Promise<string> {
@@ -1251,7 +1277,9 @@ function createWorkspace() {
               ? createLedgerBlock(path)
               : type === "stat"
                 ? createStatBlock(path)
-                : createDataTableBlock(path)
+                : type === "subscription"
+                  ? createSubscriptionBlock(path)
+                  : createDataTableBlock(path)
     blocks[index] = block
     markDirty()
     return block.id
@@ -1694,6 +1722,7 @@ function createWorkspace() {
     insertKanbanBlock,
     insertLedgerBlock,
     insertStatBlock,
+    insertSubscriptionBlock,
     convertBlockToFileType,
     updateBlockSettings,
     tablePaths,

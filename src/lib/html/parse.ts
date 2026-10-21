@@ -1,6 +1,8 @@
-import type { Block, BookmarkBlock, ChatMessage, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, LedgerBlock, LedgerGroupMode, StatBlock, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
-import { createBookmarkBlock, createChatBlock, createGalleryBlock, createHtmlBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createLedgerBlock, createMermaidBlock, createStatBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
+import type { Block, BookmarkBlock, ChatMessage, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, LedgerBlock, LedgerGroupMode, StatBlock, SubscriptionBlock, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
+import { createBookmarkBlock, createChatBlock, createGalleryBlock, createHtmlBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createLedgerBlock, createMermaidBlock, createStatBlock, createSubscriptionBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
 import { STAT_PRECISION_DEFAULT, STAT_PRECISION_OPTIONS } from "@/lib/data-table"
+import { SUBSCRIPTION_ROLE_ATTRS, SUBSCRIPTION_ROLES } from "@/lib/subscription"
+import type { SubscriptionRole } from "@/lib/subscription"
 import { runsText, textToRuns, trimRuns } from "@/lib/inline"
 import { isTableAlign } from "@/lib/table"
 import { docStyle } from "@/lib/typography"
@@ -287,6 +289,11 @@ function parseBlockElement(element: Element, state: ParseState, depth: number): 
       // 统计块的展示快照容器:指针在容器上,内容是导出时刻的列名与合计,这里丢弃。
       if (element.hasAttribute("data-stat")) {
         state.blocks.push(parseStat(element))
+        return
+      }
+      // 订阅块的展示快照容器:指针与十个字段映射在容器上,卡片内容是静态摘录,这里丢弃。
+      if (element.hasAttribute("data-subscription")) {
+        state.blocks.push(parseSubscription(element))
         return
       }
       break
@@ -584,6 +591,20 @@ function parseLedger(container: Element): LedgerBlock {
     container.getAttribute("data-sort") ?? "",
     container.getAttribute("data-sort-dir") === "asc" ? "asc" : "desc",
   )
+}
+
+/**
+ * `data-subscription` 容器 → 订阅块。没有 `data-subscription` 不会走到这里(调用方已判)。
+ * 十个字段映射的列 id 原样收下、不校验列还存在(指向的列被删后渲染时退化为自动识别,
+ * 与画册残留 id 的立场一致);空属性 = 不写,保持自动识别。路径留空走「读不到」提示态。
+ */
+function parseSubscription(container: Element): SubscriptionBlock {
+  const roles: Partial<Record<SubscriptionRole, string>> = {}
+  for (const role of SUBSCRIPTION_ROLES) {
+    const value = container.getAttribute(SUBSCRIPTION_ROLE_ATTRS[role]) ?? ""
+    if (value !== "") roles[role] = value
+  }
+  return createSubscriptionBlock(container.getAttribute("data-subscription") ?? "", roles)
 }
 
 /**

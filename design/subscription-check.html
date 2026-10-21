@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>订阅块自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; }
+  .fail { color: #b42318; }
+</style>
+</head>
+<body>
+<h1>订阅块：字段角色识别、状态与支出折算、快照+指针往返、宽容解析、与其他引用块不混淆</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { BLOCK_TYPES, CELL_EXCLUDED_TYPES, blockText, cloneBlock, createBlock, createSubscriptionBlock, retypeBlock } from "../src/lib/blocks.ts"
+import {
+  createSubscriptionPreset,
+  cycleMonths,
+  cycleProgress,
+  daysBetween,
+  formatMoney,
+  formatPrice,
+  localToday,
+  sortSubscriptions,
+  subscriptionIsEmpty,
+  subscriptionName,
+  subscriptionRoles,
+  subscriptionStatus,
+  summarizeSubscriptions,
+} from "../src/lib/subscription.ts"
+import { blocksToHtml } from "../src/lib/html/serialize.ts"
+import { parseHtml } from "../src/lib/html/parse.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+let step = "块类型登记"
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  document.getElementById("out").textContent = `running: ${step}\n${lines.join("\n")}`
+}
+
+function note(next) {
+  step = next
+  document.getElementById("out").textContent = `running: ${step}\n${lines.join("\n")}`
+}
+note(step)
+
+// ---------- 一、块类型登记 ----------
+
+const meta = BLOCK_TYPES.find((m) => m.type === "subscription")
+check("BLOCK_TYPES 里有 subscription", meta !== undefined)
+check("marker 是 ↻", meta?.marker === "↻", `实际 ${meta?.marker}`)
+check("label 是 订阅", meta?.label === "订阅", `实际 ${meta?.label}`)
+check("紧挨 stat（在它后面）",
+  BLOCK_TYPES.findIndex((m) => m.type === "subscription") === BLOCK_TYPES.findIndex((m) => m.type === "stat") + 1)
+check("订阅块不能进布局格子（与账目同一条选表分流）", CELL_EXCLUDED_TYPES.includes("subscription"))
+
+// ---------- 二、参考表结构与自动识别 ----------
+
+note("参考表结构与自动识别")
+
+const cols = [
+  { id: "c1", name: "名称", type: "text", options: [] },
+  { id: "c2", name: "图标", type: "image", options: [] },
+  { id: "c3", name: "金额", type: "number", options: [] },
+  { id: "c4", name: "周期", type: "select", options: [
+    { id: "o1", name: "月付" },
+    { id: "o2", name: "季付" },
+    { id: "o3", name: "年付" },
+  ] },
+  { id: "c5", name: "自动续费", type: "checkbox", options: [] },
+  { id: "c6", name: "试用期到期", type: "date", options: [] },
+  { id: "c7", name: "开始日期", type: "date", options: [] },
+  { id: "c8", name: "到期日期", type: "date", options: [] },
+  { id: "c9", name: "已取消", type: "checkbox", options: [] },
+  { id: "c10", name: "累计支付", type: "number", options: [] },
+]
+
+const rows = [
+  { id: "r1", values: { c1: "BiliBili 大会员", c2: "", c3: 148, c4: "o3", c5: false, c6: null, c7: "2026-06-09", c8: "2099-06-11", c9: false, c10: 148 } },
+  { id: "r2", values: { c1: "华为音乐", c2: "", c3: 0, c4: "o1", c5: false, c6: "2026-10-05", c7: "2026-09-21", c8: "2026-10-21", c9: true, c10: 0 } },
+  { id: "r3", values: { c1: "华为云空间", c2: "", c3: 0, c4: "o1", c5: false, c6: null, c7: "2025-10-02", c8: "2026-10-01", c9: true, c10: 0 } },
+  { id: "r4", values: { c1: "某云试用", c2: "", c3: 0, c4: "o3", c5: false, c6: "2099-12-24", c7: "2026-09-24", c8: "2099-12-24", c9: false, c10: 0 } },
+  { id: "r5", values: { c1: "月付服务", c2: "", c3: 25, c4: "o1", c5: true, c6: null, c7: "2025-10-01", c8: null, c9: false, c10: 300 } },
+  { id: "r6", values: { c1: "过期服务", c2: "", c3: 10, c4: "o1", c5: false, c6: null, c7: "2019-01-01", c8: "2020-01-01", c9: false, c10: 120 } },
+  { id: "r7", values: { c1: null, c2: "", c3: null, c4: null, c5: false, c6: null, c7: null, c8: null, c9: false, c10: null } },
+]
+const table = { version: 1, columns: cols, rows }
+const lookup = () => table
+
+const autoBlock = createSubscriptionBlock("订阅.tbl")
+const roles = subscriptionRoles(cols, autoBlock)
+check("自动识别十列",
+  roles.name?.id === "c1" && roles.icon?.id === "c2" && roles.amount?.id === "c3" &&
+    roles.cycle?.id === "c4" && roles.autoRenew?.id === "c5" && roles.trialEnd?.id === "c6" &&
+    roles.start?.id === "c7" && roles.end?.id === "c8" && roles.cancelled?.id === "c9" && roles.paid?.id === "c10",
+  JSON.stringify(Object.fromEntries(Object.entries(roles).map(([k, v]) => [k, v?.id ?? null]))))
+
+const explicit = createSubscriptionBlock("订阅.tbl", { amount: "c10", paid: "c3" })
+const explicitRoles = subscriptionRoles(cols, explicit)
+check("显式映射优先于列名识别", explicitRoles.amount?.id === "c10" && explicitRoles.paid?.id === "c3",
+  `${explicitRoles.amount?.id} / ${explicitRoles.paid?.id}`)
+
+const noTrial = subscriptionRoles(cols.filter((c) => c.id !== "c6"), createSubscriptionBlock("x.tbl"))
+check("没有试用列时不拿别的日期列顶替", noTrial.trialEnd === null, JSON.stringify(noTrial.trialEnd))
+
+// ---------- 三、预置表 ----------
+
+note("预置表")
+const preset = createSubscriptionPreset()
+check("预设十列与参考表同名同型",
+  preset.table.columns.map((c) => c.name).join("/") === "名称/图标/金额/周期/自动续费/试用期到期/开始日期/到期日期/已取消/累计支付" &&
+    preset.table.columns.map((c) => c.type).join("/") === "text/image/number/select/checkbox/date/date/date/checkbox/number",
+  JSON.stringify(preset.table.columns.map((c) => [c.name, c.type])))
+check("周期选项是三档", preset.table.columns[3].options.map((o) => o.name).join("/") === "月付/季付/年付")
+check("预置表带一空行", preset.table.rows.length === 1)
+check("角色 id 都指向预置列",
+  subscriptionRoles(preset.table.columns, createSubscriptionBlock("x.tbl", preset.roles)).name?.id === preset.table.columns[0].id)
+check("预置空行不算一项订阅", subscriptionIsEmpty(preset.table.rows[0], subscriptionRoles(preset.table.columns, createSubscriptionBlock("x.tbl", preset.roles))))
+
+// ---------- 四、金额、周期、日期纯函数 ----------
+
+note("金额 / 周期 / 日期")
+check("formatMoney 去尾零 + 千分位", formatMoney(148) === "148" && formatMoney(1234.5) === "1,234.5" && formatMoney(17.21) === "17.21", `${formatMoney(148)} / ${formatMoney(1234.5)} / ${formatMoney(17.21)}`)
+check("formatMoney 负与 -0", formatMoney(-12.5) === "-12.5" && formatMoney(-0) === "0", `${formatMoney(-12.5)} / ${formatMoney(-0)}`)
+check("formatPrice 带 ¥", formatPrice(148) === "¥148" && formatPrice(0) === "¥0", `${formatPrice(148)} / ${formatPrice(0)}`)
+const cycleCol = cols[3]
+check("cycleMonths 年/季/月", cycleMonths(cycleCol, "o3") === 12 && cycleMonths(cycleCol, "o2") === 3 && cycleMonths(cycleCol, "o1") === 1)
+check("cycleMonths 数字按月份", cycleMonths(cycleCol, 6) === 6)
+check("cycleMonths 认不出返回 null", cycleMonths(cycleCol, "o9") === null && cycleMonths(cycleCol, null) === null)
+check("daysBetween 整天数", daysBetween("2026-10-21", "2026-10-28") === 7 && daysBetween("2026-10-21", "2026-10-20") === -1)
+check("localToday 用本机日历", localToday(new Date(2026, 9, 21, 12)) === "2026-10-21", localToday(new Date(2026, 9, 21, 12)))
+
+// ---------- 五、状态 ----------
+
+note("状态:取消 / 试用 / 到期 / 临时 / 生效")
+const today = "2026-10-21"
+const statuses = Object.fromEntries(rows.map((r) => [r.id, subscriptionStatus(r, roles, today)]))
+check("r1 生效中", statuses.r1.kind === "active" && statuses.r1.label === "生效中", JSON.stringify(statuses.r1))
+check("r2 已取消优先于试用/到期", statuses.r2.kind === "cancelled", JSON.stringify(statuses.r2))
+check("r4 试用中（试用结束在未来）", statuses.r4.kind === "trial" && statuses.r4.days > 0, JSON.stringify(statuses.r4))
+check("r5 无到期日 = 生效中且无天数", statuses.r5.kind === "active" && statuses.r5.days === null, JSON.stringify(statuses.r5))
+check("r6 已到期（天数为负）", statuses.r6.kind === "expired" && statuses.r6.days < 0, JSON.stringify(statuses.r6))
+check("自动续费开着但已过期 = 待续费",
+  subscriptionStatus({ ...rows[5], values: { ...rows[5].values, c5: true } }, roles, today).label === "待续费")
+check("r7 空行没有状态意义（不渲染）", subscriptionIsEmpty(rows[6], roles))
+check("subscriptionName 空名兜底", subscriptionName(rows[6], roles) === "未命名订阅")
+
+// ---------- 六、汇总与排序 ----------
+
+note("汇总与排序")
+const summary = summarizeSubscriptions(rows, roles, today)
+check("空行不计入总数：6 项", summary.total === 6, String(summary.total))
+check("在订 3 项 / 已取消 2 项", summary.live === 3 && summary.cancelled === 2, `${summary.live} / ${summary.cancelled}`)
+check("月支出折算 148/12 + 25", Math.abs(summary.monthly - (148 / 12 + 25)) < 1e-9, String(summary.monthly))
+check("年支出折算 148 + 300", Math.abs(summary.yearly - 448) < 1e-9, String(summary.yearly))
+check("最近到期取在订最早", summary.nextEnd === "2099-06-11" && summary.nextName === "BiliBili 大会员", `${summary.nextEnd} / ${summary.nextName}`)
+
+const sorted = sortSubscriptions(rows, roles)
+check("取消的沉底、其余按到期日由近到远、空格末尾",
+  sorted.map((r) => r.id).join(",") === "r6,r1,r4,r5,r7,r3,r2",
+  sorted.map((r) => r.id).join(","))
+
+check("周期进度落在 0..1", (() => {
+  const p = cycleProgress("2026-06-09", "2099-06-11", "2026-10-21")
+  return p !== null && p >= 0 && p <= 1
+})())
+
+// ---------- 七、工厂与克隆 ----------
+
+note("工厂 / 克隆 / 转换")
+const blank = createSubscriptionBlock()
+check("缺省全空 = 自动识别",
+  blank.type === "subscription" && blank.path === "" && blank.nameColumnId === "" && blank.paidColumnId === "",
+  JSON.stringify(blank))
+check('createBlock("subscription")', createBlock("subscription").type === "subscription")
+check("blockText 返回 path", blockText(createSubscriptionBlock("订阅.tbl")) === "订阅.tbl")
+const copy = cloneBlock(createSubscriptionBlock("x.tbl", { name: "c1" }), "newid")
+check("cloneBlock 换 id 字段独立", copy.id === "newid" && copy.nameColumnId === "c1")
+const retyped = retypeBlock({ id: "b", type: "text", runs: [], depth: 0 }, "subscription")
+check("retypeBlock(text → subscription)", retyped.type === "subscription" && retyped.path === "", JSON.stringify(retyped))
+
+// ---------- 八、序列化：快照 + 指针 ----------
+
+note("序列化:快照 + 指针")
+const full = createSubscriptionBlock("订阅.tbl", preset.roles)
+const html = blocksToHtml([full], lookup)
+check("写 data-subscription", html.includes('data-subscription="订阅.tbl"'), html.slice(0, 120))
+check("写十个字段映射属性",
+  ["data-name", "data-icon", "data-amount", "data-cycle", "data-auto-renew", "data-trial-end", "data-start", "data-end", "data-cancelled", "data-paid"].every((a) => html.includes(`${a}="`)),
+  html.slice(0, 500))
+check("快照是订阅容器", html.includes('<div class="note-subs"'), html.slice(0, 160))
+check("顶部汇总带在订与月 / 年支出", html.includes("3 项订阅") && html.includes("每月约") && html.includes("每年约"), html)
+check("卡片带名称、金额、周期、状态", html.includes("BiliBili 大会员") && html.includes("¥148") && html.includes("年付") && html.includes("已取消"), html)
+check("已到期与试用中在快照里", html.includes("已到期") && html.includes("试用中"), html)
+check("快照省略空行（6 张卡）", html.split('class="note-sub-card').length - 1 === 6, String(html.split('class="note-sub-card').length - 1))
+check("空指针块只写容器不写卡片", (() => {
+  const emptyHtml = blocksToHtml([createSubscriptionBlock("订阅.tbl")], () => ({ version: 1, columns: cols, rows: [] }))
+  return emptyHtml.includes('data-subscription="订阅.tbl"') && !emptyHtml.includes("note-sub-card")
+})())
+check("缺省映射不写 data-* 字段属性", !blocksToHtml([createSubscriptionBlock("订阅.tbl")], lookup).includes("data-name="))
+
+// ---------- 九、解析往返 ----------
+
+note("解析往返")
+const round = parseHtml(html)
+check("往返出 1 个块", round.length === 1, `出 ${round.length}`)
+const r0 = round[0]
+check("往返是 subscription", r0.type === "subscription", r0.type)
+check("往返 path 一致", r0.type === "subscription" && r0.path === "订阅.tbl")
+check("往返十个映射一致",
+  r0.type === "subscription" &&
+    r0.nameColumnId === preset.roles.name && r0.iconColumnId === preset.roles.icon &&
+    r0.amountColumnId === preset.roles.amount && r0.cycleColumnId === preset.roles.cycle &&
+    r0.autoRenewColumnId === preset.roles.autoRenew && r0.trialEndColumnId === preset.roles.trialEnd &&
+    r0.startColumnId === preset.roles.start && r0.endColumnId === preset.roles.end &&
+    r0.cancelledColumnId === preset.roles.cancelled && r0.paidColumnId === preset.roles.paid,
+  JSON.stringify(r0))
+check("往返丢弃快照卡片（块不带 rows）", r0.type === "subscription" && !("rows" in r0))
+
+const hand = parseHtml('<div class="note-subs" data-subscription="手改.tbl"></div>')
+check("宽容解析:缺映射属性全落空串（继续自动识别）",
+  hand.length === 1 && hand[0].type === "subscription" && hand[0].path === "手改.tbl" && hand[0].nameColumnId === "" && hand[0].paidColumnId === "",
+  JSON.stringify(hand[0]))
+
+// ---------- 十、与其他引用块不混淆 ----------
+
+note("与其他引用块不混淆")
+check("data-subscription 不被当 ledger/stat", parseHtml(html)[0].type === "subscription")
+const ledgerHtml = blocksToHtml([createBlock("ledger")], lookup)
+check("ledger 不被当 subscription", parseHtml(ledgerHtml)[0].type === "ledger")
+const statHtml = blocksToHtml([createBlock("stat")], lookup)
+check("stat 不被当 subscription", parseHtml(statHtml)[0].type === "stat")
+const galleryHtml = blocksToHtml([createBlock("gallery")], lookup)
+check("gallery 不被当 subscription", parseHtml(galleryHtml)[0].type === "gallery")
+
+// ---------- 收尾 ----------
+
+note("收尾")
+document.getElementById("app").innerHTML =
+  `<p>共 ${passed + failed} 项，<span class="${failed === 0 ? "ok" : "fail"}">${passed} 通过</span>，<span class="${failed === 0 ? "ok" : "fail"}">${failed} 失败</span></p>`
+document.getElementById("out").textContent = lines.join("\n") + `\n\n${failed === 0 ? "ALL OK" : "HAS FAIL"}`
+</script>
+</body>
+</html>

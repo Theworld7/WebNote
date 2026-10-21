@@ -34,9 +34,9 @@ The atomic unit a Note is made of. Blocks are a flat list, not a tree.
 _Avoid_: Element, node, item, paragraph
 
 **Block type**:
-One of twenty-six identifiers. Fourteen are *textual* — they carry body content. Twelve are
+One of twenty-seven identifiers. Fourteen are *textual* — they carry body content. Thirteen are
 *structural* and carry their own fields: `image`, `table`, `mermaid`, `datatable`,
-`gallery`, `bookmark`, `kanban`, `ledger`, `stat`, `chat`, `layout`, `html`.
+`gallery`, `bookmark`, `kanban`, `ledger`, `stat`, `subscription`, `chat`, `layout`, `html`.
 _Avoid_: Kind, variant, tag
 
 **Textual block**:
@@ -46,8 +46,8 @@ _Avoid_: Rich block, text block
 
 **Structural block**:
 A Block that is not textual: an Image, a Table, a Mermaid diagram, a Data table block, a
-Bookmark, a Kanban, a Ledger, a Stat, a Chat record, a Layout, or an HTML block. Each owns
-its own fields instead of a run list.
+Bookmark, a Kanban, a Ledger, a Stat, a Subscription, a Chat record, a Layout, or an HTML
+block. Each owns its own fields instead of a run list.
 _Avoid_: Widget, embed, special block
 
 **Chat record**:
@@ -213,6 +213,23 @@ a fixed tint hashed from the row id; it is view state, not written to the `.tbl`
 _Avoid_: Board view (a board is the concept; the Block is a Kanban block), swimlane, column
 (switch (the board's) to Group), sticky (switch to Card), status column (the group column is any
 column, not necessarily a status)
+
+**Subscription block**:
+A structural Block that renders a Data table as a wall of subscription cards: icon, name, an
+amount with its billing cycle, start / trial-end / end dates, an auto-renew flag, a cancelled
+flag, and the total paid. A summary strip on top folds every live subscription into an
+approximate monthly and yearly spend and names the nearest renewal. It points at the same
+`.tbl` a Data table block would, and stores only **field mappings** (which column plays which
+of those ten roles); an unset mapping falls back to name + column-type detection, so the
+reference table works on first insert. Status («生效中 / 试用中 / 即将到期 / 已到期 / 已取消»),
+remaining days, cycle progress and spend projections are **view-derived from today** and never
+written to the `.tbl` or the Block. Only the two boolean cells (auto-renew, cancelled) are
+editable in place; everything else is edited in the Data table. On disk it travels as a card
+snapshot **with** a pointer (`data-subscription` + `data-*` mappings on a `<div>`), on the same
+terms as the Gallery and Ledger blocks.
+_Avoid_: Subscription manager (the Block is a view of a Data table, not a separate store),
+billing column (there is no billing column type), renewal date as a stored field (it is a
+date column the mapping points at)
 
 **Ledger block**:
 A structural Block that renders a Data table as a running account: an income column and an

@@ -54,14 +54,14 @@
 - 跨块选区：按住从一段拖到另一段，`Ctrl/Cmd+C` 连抄几刀，`Backspace` 整片删掉
 - 每篇笔记记住自己的滚动位置，切走再切回来还在原处
 
-### 二十六种块
+### 二十七种块
 
 | 分组 | 块 |
 | :-- | :-- |
 | 基础 | 文本、标题 1–6 |
 | 列表 | 待办、无序列表、有序列表 |
 | 内容 | 引用、代码块（按语言着色）、Mermaid 图、HTML、标注、分割线 |
-| 媒体与数据 | 图片、表格、数据表、画册、书签、看板、账目、统计卡、对话记录 |
+| 媒体与数据 | 图片、表格、数据表、画册、书签、看板、账目、统计卡、订阅、对话记录 |
 | 版面 | 布局块（2–4 栏网格，或并排换行） |
 
 代码块的正文始终是纯文本，着色只画在重合的另一层上，所以复制出去不带颜色、也不会被颜色改写。
@@ -76,7 +76,7 @@ Mermaid 与 HTML 的源码只在需要时加载，不画图的笔记不必为它
 行内格式不走浏览器的 `execCommand`：那套 API 产出 `<b>` / `<span style>`，与序列化结果对不上，
 各平台 WebView 的行为也不一致。这里改的是正文的 run 结构，再自己重画。
 
-### 一份数据，六种看法
+### 一份数据，七种看法
 
 数据表是一个独立的 `.tbl` 文件（标准 JSON）：列有 id、显示名和类型（文本、数字、日期、选项、勾选、图片），
 行按列 id 存值，数字就是数字、日期就是日期 —— 排序、筛选、求和都靠这一点。数据表没有行数上限。
@@ -91,6 +91,7 @@ Mermaid 与 HTML 的源码只在需要时加载，不画图的笔记不必为它
 | 看板 | 按某列的值分列，卡片在列间拖动**就是改那一行的值** | 分组列、卡片显示哪些字段 |
 | 账目 | 收入 / 支出两列、带符号金额、逐行余额、节小计与总计 | 两个金额列、是否显示余额、按月还是按列分组 |
 | 统计卡 | 把某一列的数值求和成一个大数字 | 求和列、小数位、可选筛选列 |
+| 订阅 | 每行一张订阅卡：名称、图标、金额 / 周期、起止日期、试用、自动续费、累计支付，顶部汇总月 / 年支出 | 名称、图标、金额、周期、自动续费、试用期、开始、到期、已取消、累计支付各指哪一列 |
 
 所以同一张表可以在两篇笔记里长得完全不同：一篇按状态分组看进度，另一篇按月结算看余额，
 谁都不必复制数据。余额和合计都是**视图算出来的**，永远不写进文件。
@@ -266,7 +267,7 @@ pnpm icon           # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | :-- | :-- |
 | 解析与往返 | `parse-check`、`inline-check` |
 | 编辑器交互 | `tab-check`、`toolbar-check`、`sidebar-check`、`drag-check`、`split-check`、`cell-check`、`undo-check`、`menu-nav-check`、`focus-check` |
-| 块类型 | `table-check`、`table-align-check`、`data-table-check`、`gallery-check`、`kanban-check`、`ledger-check`、`ledger-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check` |
+| 块类型 | `table-check`、`table-align-check`、`data-table-check`、`gallery-check`、`kanban-check`、`ledger-check`、`ledger-edit-check`、`subscription-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check` |
 | 样式与外观 | `typography-check`、`theme-check`、`theme-mode-check`、`page-style-check`、`settings-check` |
 | 文件操作 | `create-check`、`move-check` |
 | 其它 | `drawer-jitter-probe`（抽屉抖动守卫）、`icon-check`（图标观感） |

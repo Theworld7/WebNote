@@ -58,7 +58,7 @@ export type TextualBlockType =
   | "divider"
 
 /** 全部块类型 = 正文类 + 结构类。派生而常量列表，避免两处维护。 */
-export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "chat" | "layout" | "html"
+export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "subscription" | "chat" | "layout" | "html"
 
 /** 正文块。块之间是平铺列表；列表的嵌套层级用 `depth` 表达，不建树。 */
 export interface TextualBlock {
@@ -313,6 +313,47 @@ export interface StatBlock {
 }
 
 /**
+ * 订阅块:把一张数据表里的一行渲染成一张订阅卡。
+ *
+ * 与账目 / 统计同源:数据只在 `.tbl` 里(ADR-0005),块上只带引用路径与**字段映射**
+ * —— 哪一列是名称、图标、金额、周期、自动续费、试用期、起止日期、已取消、累计支付。
+ * 映射留空 = 按列名与列类型自动识别,所以同一张参考表插进笔记即可用;表结构不同
+ * 或列名换了再手动指定。字段映射是展示设置,跟着块走,不进 `.tbl`。
+ *
+ * 到期状态、剩余天数、月均 / 年均支出都是**视图计算的派生值**,不进 `.tbl` 也不进块
+ * —— 落进存储就是第二份真源,还会在日期推移后变成过期数据。
+ *
+ * 导出形态与画册 / 账目同一条 ADR-0006 立场:快照 + 指针 —— 卡片快照带绝对日期与
+ * 金额(双击可读),`data-*` 属性把路径与字段映射一并写进,编辑器据此还原成活块。
+ */
+export interface SubscriptionBlock {
+  id: string
+  type: "subscription"
+  /** 被引用的 `.tbl` 文件的工作区路径。 */
+  path: string
+  /** 名称列 id。空 = 自动识别(优先文本列)。 */
+  nameColumnId: string
+  /** 图标列 id(图片列,值为 data URI / URL)。空 = 自动识别。 */
+  iconColumnId: string
+  /** 金额列 id。空 = 自动识别。 */
+  amountColumnId: string
+  /** 周期列 id(select 列,选项名如「月付 / 季付 / 年付」)。空 = 自动识别。 */
+  cycleColumnId: string
+  /** 自动续费列 id(checkbox)。空 = 自动识别。 */
+  autoRenewColumnId: string
+  /** 试用期到期列 id(date)。空 = 自动识别(只认列名,不拿别的日期列顶替)。 */
+  trialEndColumnId: string
+  /** 开始日期列 id(date)。空 = 自动识别。 */
+  startColumnId: string
+  /** 到期日期列 id(date)。空 = 自动识别。 */
+  endColumnId: string
+  /** 已取消列 id(checkbox)。空 = 自动识别。 */
+  cancelledColumnId: string
+  /** 累计支付列 id。空 = 自动识别。 */
+  paidColumnId: string
+}
+
+/**
  * 布局块:笔记里唯一的**容器块** —— 把若干格子按网格或弹性方式排开,每个格子各持有
  * 一份独立的块列表(Notion 式)。顶层文档仍是扁平列表;布局块是唯一一层受控的嵌套,
  * 且**格子内不再出现布局块**(一层容器原则,UI 的插入/转换菜单在格子内会把它滤掉)。
@@ -370,7 +411,7 @@ export interface ChatBlock {
   messages: ChatMessage[]
 }
 
-export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | LedgerBlock | StatBlock | ChatBlock | LayoutBlock | HtmlBlock
+export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | LedgerBlock | StatBlock | SubscriptionBlock | ChatBlock | LayoutBlock | HtmlBlock
 
 /**
  * 引用块展示设置的 patch 形状:四种引用块设置字段的并集,id / type / path 不在内
@@ -382,7 +423,8 @@ export type BlockSettingsPatch = Partial<
   Omit<BookmarkBlock, "id" | "type" | "path"> &
   Omit<KanbanBlock, "id" | "type" | "path"> &
   Omit<LedgerBlock, "id" | "type" | "path"> &
-  Omit<StatBlock, "id" | "type" | "path">
+  Omit<StatBlock, "id" | "type" | "path"> &
+  Omit<SubscriptionBlock, "id" | "type" | "path">
 >
 
 /** 块类型元数据：菜单分组 + 菜单标记 + 中文名。菜单渲染直接消费。 */

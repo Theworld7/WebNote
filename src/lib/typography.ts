@@ -220,6 +220,7 @@ export const BLOCK_SPACING: Readonly<Record<BlockType, BlockSpacing>> = {
   kanban: { top: 16, bottom: 16 },
   ledger: { top: 16, bottom: 16 },
   stat: { top: 16, bottom: 16 },
+  subscription: { top: 16, bottom: 16 },
   chat: { top: 16, bottom: 16 },
   layout: { top: 16, bottom: 16 },
   html: { top: 16, bottom: 16 },
@@ -414,7 +415,32 @@ ${headingRules}
     .note-layout > section { min-width: 0; border: 1px solid transparent; border-radius: 8px; }
     .note-layout > section:empty { border-color: var(--line); min-height: 3rem; }
     .note-layout[data-layout="flex"] > section { flex: 1 1 0; min-width: 8rem; }
-    .note-bookmark, .note-gallery, .note-kanban, .note-ledger { margin: ${BLOCK_SPACING.gallery.top}px 0; }
+    .note-bookmark, .note-gallery, .note-kanban, .note-ledger, .note-subs { margin: ${BLOCK_SPACING.gallery.top}px 0; }
+    /* 订阅卡与 SubscriptionBlockView 对齐:顶部汇总条 + 自适应卡片宫格。
+       网格下限用 minmax(0,1fr) 的写法,窄窗口下卡片跟着收缩而不是横向溢出。 */
+    .note-sub-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px;
+      margin-bottom: 10px; padding: 8px 12px; border-radius: 8px; background: var(--bg-soft);
+      font-size: 11.5px; color: var(--muted); }
+    .note-sub-summary .n { font-weight: 600; font-size: 12.5px; color: var(--fg); }
+    .note-sub-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+    .note-sub-card { padding: 11px 13px; border: 1px solid var(--line); border-radius: 10px; background: Canvas; }
+    .note-sub-cancelled { opacity: .6; }
+    .note-sub-head { display: flex; align-items: flex-start; gap: 10px; }
+    .note-sub-icon { flex: none; display: flex; align-items: center; justify-content: center;
+      width: 36px; height: 36px; border-radius: 9px; overflow: hidden; background: var(--bg-soft);
+      font-size: 15px; font-weight: 600; color: var(--muted); }
+    .note-sub-icon img { display: block; width: 100%; height: 100%; margin: 0; border-radius: 0; object-fit: cover; }
+    .note-sub-title { min-width: 0; flex: 1; }
+    .note-sub-name { font-size: 13px; font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .note-sub-price { margin-top: 2px; font-size: 20px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+    .note-sub-cycle { margin-left: 4px; font-size: 11px; font-weight: 400; color: var(--muted); }
+    .note-sub-state { flex: none; padding: 2px 7px; border-radius: 999px; background: var(--bg-soft);
+      font-size: 10px; color: var(--muted); white-space: nowrap; }
+    .note-sub-meta { display: grid; gap: 2px; margin-top: 8px; font-size: 11px; color: var(--muted); }
+    .note-sub-meta .r { display: flex; justify-content: space-between; gap: 10px; }
+    .note-sub-meta .v { font-variant-numeric: tabular-nums; }
+    .note-sub-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px;
+      padding-top: 6px; border-top: 1px solid var(--line); font-size: 10.5px; color: var(--muted); }
     /* 与 StatBlockView 应用内观感逐项对齐:满宽卡片、列名截断、合计下方还有
        一行参与求和的行数(.c)—— 静态页与笔记里看到的不该是两张脸。
        不能写 width:100%:静态页没有 border-box 预设,加上 padding/border 会

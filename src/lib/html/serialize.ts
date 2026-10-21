@@ -1,4 +1,4 @@
-import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, HtmlBlock, ImageBlock, KanbanBlock, LayoutBlock, LedgerBlock, MermaidBlock, StatBlock, TableCell, TextualBlock } from "@/types/workspace"
+import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, HtmlBlock, ImageBlock, KanbanBlock, LayoutBlock, LedgerBlock, MermaidBlock, StatBlock, SubscriptionBlock, TableCell, TextualBlock } from "@/types/workspace"
 import type { DataColumn, DataTable, DataRow } from "@/types/data-table"
 import { GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT, LAYOUT_COLUMNS_DEFAULT, isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
@@ -6,6 +6,25 @@ import { cellValue, filterRowsByValue, formatGrouped, groupRows, kanbanCardColor
 import { balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, ledgerSort, sortRows, sumRows } from "@/lib/ledger"
 import type { LedgerSection, LedgerTotals } from "@/lib/ledger"
 import { escapeHtml, escapeTextToHtml, linkIcon, runsText, runsToHtml } from "@/lib/inline"
+import {
+  SUBSCRIPTION_ROLE_ATTRS,
+  SUBSCRIPTION_ROLE_FIELDS,
+  SUBSCRIPTION_ROLES,
+  formatPrice,
+  localToday,
+  sortSubscriptions,
+  subscriptionDate,
+  subscriptionFlag,
+  subscriptionIcon,
+  subscriptionIsEmpty,
+  subscriptionName,
+  subscriptionNumber,
+  subscriptionRoles,
+  subscriptionStatus,
+  subscriptionText,
+  summarizeSubscriptions,
+} from "@/lib/subscription"
+import type { SubscriptionRoles } from "@/lib/subscription"
 import { docStyle } from "@/lib/typography"
 
 /**
@@ -100,6 +119,10 @@ export function blocksToHtml(blocks: readonly Block[], lookupTables?: DataTableL
     }
     if (block.type === "stat") {
       out.push(statHtml(block, lookup(block.path)))
+      continue
+    }
+    if (block.type === "subscription") {
+      out.push(subscriptionHtml(block, lookup(block.path)))
       continue
     }
     if (block.type === "chat") {
@@ -582,6 +605,89 @@ function statHtml(block: StatBlock, table: DataTable | null): string {
       ? `${rows.length} 行 · 求和`
       : `${rows.length} 行 / 共 ${table.rows.length} 行 · 求和`
   return `${openTag}<span class="k">${escapeHtml(column.name + filterText)}</span><span class="v">${formatGrouped(sumColumn(rows, column), precision)}</span><span class="c">${escapeHtml(countText)}</span></div>`
+}
+
+/**
+ * 订阅块 → **卡片快照 + 指针**(与画册 / 账目同一条 ADR-0006 立场)。
+ *
+ * 卡片与编辑器视图同构:图标 / 名称 / 状态、金额与周期、起止日期、自动续费、
+ * 累计支付,顶部一条月 / 年支出汇总。快照里的状态是**导出当天**的判断 —— 静态文件
+ * 是那一刻的摘录,与账目快照里的余额同一立场;不写「剩余 N 天」,那个数字第二天就假了。
+ *
+ * 指针属性(`data-subscription` + 十个 `data-*` 字段映射)挂在容器上,解析端凭它
+ * 认领回活块。字段映射为空表示自动识别,不写属性;重开时按当时列名再识别一遍。
+ */
+function subscriptionHtml(block: SubscriptionBlock, table: DataTable | null): string {
+  const attrs = [`data-subscription="${escapeHtml(block.path)}"`]
+  for (const role of SUBSCRIPTION_ROLES) {
+    const id = block[SUBSCRIPTION_ROLE_FIELDS[role]]
+    if (id !== "") attrs.push(`${SUBSCRIPTION_ROLE_ATTRS[role]}="${escapeHtml(id)}"`)
+  }
+
+  const openTag = `<div class="note-subs" ${attrs.join(" ")}>`
+  if (table === null || table.rows.length === 0) return `${openTag}</div>`
+
+  const roles = subscriptionRoles(table.columns, block)
+  const rows = sortSubscriptions(table.rows, roles).filter((row) => !subscriptionIsEmpty(row, roles))
+  if (rows.length === 0) return `${openTag}</div>`
+  const today = localToday()
+  const summary = summarizeSubscriptions(table.rows, roles, today)
+
+  const summaryBits = [`<span class="n">${summary.live} 项订阅</span>`]
+  if (summary.monthly > 0) summaryBits.push(`<span>每月约 ${escapeHtml(formatPrice(summary.monthly))}</span>`)
+  if (summary.yearly > 0) summaryBits.push(`<span>每年约 ${escapeHtml(formatPrice(summary.yearly))}</span>`)
+  if (summary.cancelled > 0) summaryBits.push(`<span>已取消 ${summary.cancelled}</span>`)
+  if (summary.nextEnd !== "") {
+    summaryBits.push(`<span>最近到期 ${escapeHtml(summary.nextEnd)} · ${escapeHtml(summary.nextName)}</span>`)
+  }
+
+  const cards = rows.map((row) => subscriptionCardHtml(row, roles, today)).join("\n")
+  return `${openTag}\n  <div class="note-sub-summary">${summaryBits.join("")}</div>\n  <div class="note-sub-grid">\n${cards}\n  </div>\n</div>`
+}
+
+function subscriptionCardHtml(row: DataRow, roles: SubscriptionRoles, today: string): string {
+  const name = subscriptionName(row, roles)
+  const icon = subscriptionIcon(row, roles)
+  const amount = subscriptionNumber(row, roles.amount)
+  const cycle = subscriptionText(row, roles.cycle)
+  const start = subscriptionDate(row, roles.start)
+  const trialEnd = subscriptionDate(row, roles.trialEnd)
+  const end = subscriptionDate(row, roles.end)
+  const paid = subscriptionNumber(row, roles.paid)
+  const autoRenew = roles.autoRenew === null ? null : subscriptionFlag(row, roles.autoRenew)
+  const cancelled = subscriptionFlag(row, roles.cancelled)
+  const status = subscriptionStatus(row, roles, today)
+
+  const meta: string[] = []
+  if (start !== "") meta.push(`<div class="r"><span>开始</span><span class="v">${escapeHtml(start)}</span></div>`)
+  // 试用到期与正式到期同一天时只留一行，和编辑器视图同一条去重规则。
+  if (trialEnd !== "" && trialEnd !== end) {
+    meta.push(`<div class="r"><span>试用到期</span><span class="v">${escapeHtml(trialEnd)}</span></div>`)
+  }
+  if (end !== "") meta.push(`<div class="r"><span>到期</span><span class="v">${escapeHtml(end)}</span></div>`)
+
+  const price =
+    amount === null
+      ? ""
+      : `<div class="note-sub-price">${escapeHtml(formatPrice(amount))}${cycle === "" ? "" : `<span class="note-sub-cycle">/ ${escapeHtml(cycle)}</span>`}</div>`
+  const iconHtml =
+    icon === ""
+      ? `<div class="note-sub-icon">${escapeHtml(firstCharacter(name))}</div>`
+      : `<div class="note-sub-icon"><img src="${escapeHtml(icon)}" alt="" loading="lazy" decoding="async"></div>`
+  const foot: string[] = []
+  if (autoRenew !== null) foot.push(`<span>自动续费：${autoRenew ? "开" : "关"}</span>`)
+  if (paid !== null) foot.push(`<span>累计支付 ${escapeHtml(formatPrice(paid))}</span>`)
+  const footHtml = foot.length === 0 ? "" : `<div class="note-sub-foot">${foot.join("")}</div>`
+
+  return `    <article class="note-sub-card${cancelled ? " note-sub-cancelled" : ""}">
+      <div class="note-sub-head">${iconHtml}<div class="note-sub-title"><div class="note-sub-name">${escapeHtml(name)}</div>${price}</div><span class="note-sub-state">${escapeHtml(status.label)}</span></div>
+      <div class="note-sub-meta">${meta.join("")}</div>
+      ${footHtml}
+    </article>`
+}
+
+function firstCharacter(text: string): string {
+  return Array.from(text.trim())[0] ?? "?"
 }
 
 function kanbanCardHtml(row: DataRow, fields: readonly DataColumn[]): string {
