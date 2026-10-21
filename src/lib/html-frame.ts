@@ -17,6 +17,11 @@ import { readThemeColor } from "./theme-color"
  * 探针脚本向父页面报内容高度：load 时一次、ResizeObserver 兜内容动态增减。
  * `</script>` 写成 `<\/script>`：字面闭合标签会把 SFC 的 script 块提前截断。
  *
+ * **量 body 的 rect 高度而不是 `scrollHeight`**：后者按整数返回（四舍五入），内容高
+ * 226.42 报出去是 226 —— iframe 照此设高就永远差零点几像素，右缘冒一条滚动条。
+ * DPR 为 1 时布局高度多落在整数上，看不出；Windows 125% / 150% 缩放下小数累积，
+ * 凡内容高度余数被舍掉的块都会中招。rect 高度带小数，`Math.ceil` 之后才盖得住。
+ *
  * **iframe 不是「另一页」，它是这篇笔记正文的一个洞**：导出时 HTML 块的原文直接落在
  * 笔记 `<body>` 里，页面级 CSS（`<style data-note-style>`）自然作用其上 —— `.bg-demo-block`
  * 这种类写在页面样式里，就能用在这块 HTML 上。沙箱文档是独立文档，不把那份 CSS 一起
@@ -77,7 +82,7 @@ function canvasColor(theme: Theme): string {
  */
 export function buildHtmlFrameDoc(source: string, pageStyle: string, theme: Theme): string {
   const probe =
-    "<script>(function(){var send=function(){parent.postMessage({height:Math.ceil(document.body.scrollHeight)},'*')};window.addEventListener('load',send);send();new ResizeObserver(send).observe(document.body)})()<\/script>"
+    "<script>(function(){var send=function(){parent.postMessage({height:Math.ceil(document.body.getBoundingClientRect().height)},'*')};window.addEventListener('load',send);send();new ResizeObserver(send).observe(document.body)})()<\/script>"
   const base = `<style>body{margin:0;display:flow-root;background:transparent;font:14px/1.6 -apple-system,"PingFang SC","Helvetica Neue",sans-serif}</style>`
   const appearance = `<style>html{color-scheme:${theme};background:${canvasColor(theme)}}</style>`
   const style =
