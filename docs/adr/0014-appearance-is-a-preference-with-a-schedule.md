@@ -84,14 +84,25 @@ rejection was swallowed by a bare `.catch()`. The interface went dark, the frame
 Granting the permission is not the end of it either: the command then returns `Ok` and
 `theme()` reads back dark, while `DwmGetWindowAttribute(hwnd, 20)` stays `0` and the frame
 stays light — measured on Windows 11 25H2 with tauri 2.12.3 / tao 0.37.1. So `set_window_theme`
-(`src-tauri/src/lib.rs`) does both: it calls `window.set_theme` (the framework route, which is
-what macOS needs) and, on Windows, writes `DWMWA_USE_IMMERSIVE_DARK_MODE` directly and nudges
-the non-client area with the same pair of `WM_NCACTIVATE` calls tao uses. Writing the attribute
-from outside the process does darken the frame, which is what makes the second half a fix
-rather than a guess. The command takes the *resolved* appearance, not `null`-for-system: the
-watcher already recomputes `theme` when the OS flips, so there is nothing left for the OS to
-decide. Failures now `console.warn` instead of vanishing — the swallowed rejection is what made
-this bug invisible.
+(`src-tauri/src/lib.rs`) writes `DWMWA_USE_IMMERSIVE_DARK_MODE` directly and nudges the
+non-client area with the same pair of `WM_NCACTIVATE` calls tao uses; macOS keeps
+`window.set_theme`. Writing the attribute from outside the process does darken the frame,
+which is what makes it a fix rather than a guess. The command takes the *resolved* appearance,
+not `null`-for-system: the watcher already recomputes `theme` when the OS flips, so there is
+nothing left for the OS to decide. Failures now `console.warn` instead of vanishing — the
+swallowed rejection is what made this bug invisible.
+
+**But the framework's entry point must not be used on Windows at all.** `set_theme(Some(..))`
+sets tao's `preferred_theme`, and tao's `WM_SETTINGCHANGE` handler bails out whenever that
+state is non-empty: no `ThemeChanged`, so tauri-runtime-wry never pushes the new scheme into
+WebView2's `PreferredColorScheme`, so `prefers-color-scheme` stays frozen at the appearance of
+the moment the command last ran. "Follow system" was dead after the first switch — the mode
+only *looked* right because it resolved to the same side the webview had been pinned to. The
+command now writes `DWMWA_USE_IMMERSIVE_DARK_MODE` directly on Windows (macOS keeps
+`set_theme`); tao stays unpinned and the OS flip propagates again. Since tao repaints the frame
+to the *system* side on that flip, the frontend subscribes to `onThemeChanged` and re-asserts
+the resolved appearance — in a pinned mode the frame would otherwise follow the OS while the
+interface stayed put.
 
 `design/theme-mode-check.html` covers the sun math (asserted in UTC so the page does
 not depend on the machine's zone), the transition/slot derivation, the override rule, the

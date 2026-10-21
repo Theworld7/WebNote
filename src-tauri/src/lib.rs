@@ -151,26 +151,32 @@ fn list_system_fonts() -> Vec<String> {
 /// 标题栏一直浅色 —— 界面深了、只有窗口边框没深。所以这里再直接写一次
 /// `DWMWA_USE_IMMERSIVE_DARK_MODE`，并像 tao 那样手动触发一次非客户区重绘。
 ///
-/// 两件事都做而不是只做后者：`set_theme` 是框架认可的入口（macOS 上改的正是它），
-/// 而直接写 DWM 只在 Windows 上有意义。谁先修好都不影响另一条。
+/// **Windows 上不走 `set_theme`，只涂 DWM。** `set_theme(Some(..))` 会把 tao 的
+/// `preferred_theme` 钉成 `Some`，而 tao 处理 `WM_SETTINGCHANGE` 时只要看到它非空就
+/// 直接早退：既不再发 `ThemeChanged`，tauri-runtime-wry 也就不会把系统的翻转同步给
+/// WebView2 的 `PreferredColorScheme` —— 于是 `prefers-color-scheme` 永远停在启动那一刻，
+/// 「跟随系统」彻底失效。直接写 `DWMWA_USE_IMMERSIVE_DARK_MODE` 不碰那份状态，
+/// 系统翻转仍由 tao 与 runtime 自己传导，标题栏的最终配色则由前端在翻转后再涂一次。
 #[tauri::command]
 fn set_window_theme(window: tauri::Window, dark: bool) -> Result<(), String> {
-    let theme = if dark {
-        tauri::Theme::Dark
-    } else {
-        tauri::Theme::Light
-    };
-    window
-        .set_theme(Some(theme))
-        .map_err(|error| format!("设置窗口主题失败：{error}"))?;
-
     #[cfg(windows)]
     {
         let hwnd = window.hwnd().map_err(|error| error.to_string())?.0 as isize;
-        window_frame::paint(hwnd, dark)?;
+        window_frame::paint(hwnd, dark)
     }
 
-    Ok(())
+    #[cfg(not(windows))]
+    {
+        // macOS 上外观是应用级的，框架入口改的正是它；Linux 没有这条设置，返回错误可忽略。
+        let theme = if dark {
+            tauri::Theme::Dark
+        } else {
+            tauri::Theme::Light
+        };
+        window
+            .set_theme(Some(theme))
+            .map_err(|error| format!("设置窗口主题失败：{error}"))
+    }
 }
 
 /// Windows 上「把窗口边框涂成深色」这件事。

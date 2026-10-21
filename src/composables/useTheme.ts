@@ -103,12 +103,31 @@ function createTheme(settings: Settings): ThemeContext {
     immediate: true,
   })
 
-  /** 系统外观翻转。跟随系统时它直接改配色；其它模式下只更新推导依据（不影响当槽）。 */
+  /**
+   * 系统外观翻转。跟随系统时它直接改配色；其它模式下只更新推导依据（不影响当槽）。
+   */
   const media = window.matchMedia(DARK_QUERY)
   const onSystemChange = (event: MediaQueryListEvent) => {
     system.value = event.matches ? "dark" : "light"
   }
   media.addEventListener("change", onSystemChange)
+
+  /**
+   * 系统翻转时 tao 会先把原生标题栏刷成系统那一侧 —— 它不知道我们在固定模式里选了
+   * 另一端。所以翻转后再把推导结果说一遍；跟随系统时这只是重复同一个答案。
+   * 标题栏这条支线断了不该影响配色本身，订阅失败只警告。
+   */
+  let unlistenSystem: (() => void) | null = null
+  if (isTauriRuntime()) {
+    void (async () => {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window")
+      unlistenSystem = await getCurrentWindow().onThemeChanged(() => {
+        applyToDocument(theme.value)
+      })
+    })().catch((error: unknown) => {
+      console.warn("[webnote] 没能订阅系统外观翻转（标题栏可能不再与界面一致）", error)
+    })
+  }
 
   /**
    * 心跳与「回到前台立刻对一次」。
@@ -129,6 +148,7 @@ function createTheme(settings: Settings): ThemeContext {
     window.removeEventListener("focus", refresh)
     document.removeEventListener("visibilitychange", onVisibility)
     media.removeEventListener("change", onSystemChange)
+    unlistenSystem?.()
   })
 
   return { theme, toggle }
