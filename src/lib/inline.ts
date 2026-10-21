@@ -201,6 +201,23 @@ export function linkIcon(href: string): string {
   return first === "" ? "?" : first.toUpperCase()
 }
 
+/**
+ * 书签卡片的副标题：站点域名（去掉 `www.`）。
+ *
+ * 与 `linkIcon` 同一立场 —— 域名是地址的派生，盘上不存第二份事实。解析不出域名
+ * （相对路径、垃圾串）时原样返回地址，让用户至少能看出指向哪儿；空地址落空串，
+ * 由视图决定不画这一行。
+ */
+export function linkDomain(href: string): string {
+  const text = href.trim()
+  if (text === "") return ""
+  try {
+    return new URL(text).hostname.replace(/^www\./, "")
+  } catch {
+    return text
+  }
+}
+
 /** 单个 run → HTML 片段。 */
 export function runToHtml(run: InlineRun): string {
   let html = escapeTextToHtml(run.text)

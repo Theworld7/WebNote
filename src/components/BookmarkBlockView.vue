@@ -3,11 +3,12 @@ import type { BookmarkBlock } from "@/types/workspace"
 import type { DataColumn, DataRow } from "@/types/data-table"
 import type { ComponentPublicInstance } from "vue"
 import { computed, nextTick, ref, watch } from "vue"
-import { DatabaseIcon, PencilIcon, PlusIcon, Settings2Icon, Trash2Icon } from "@lucide/vue"
+import { DatabaseIcon, ImagePlusIcon, PencilIcon, PlusIcon, Settings2Icon, Trash2Icon, XIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
   AlertDialogContent,
+  AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
@@ -23,22 +24,24 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import TableRefNotice from "@/components/TableRefNotice.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
-import { linkIcon } from "@/lib/inline"
+import { isImageFile, readImageFile } from "@/lib/image"
+import { linkDomain, linkIcon } from "@/lib/inline"
 import * as dt from "@/lib/data-table"
 
 /**
- * 书签块:把一张数据表的每一行渲染成一张书签卡片 —— 上图标下名称,与行内链接的
- * 书签卡片形态(`data-link-shape="card"`)同一套标记与样式,视觉由那一处 CSS 负责,
- * 这里只负责喂属性。
+ * 书签块:把一张数据表的每一行渲染成一张横向信息卡 —— 左图标,右侧名称与域名。
+ * 与行内链接的书签磁贴(`data-link-shape="card"`)分开两套样式:磁贴是正文里的
+ * 行内对象、固定 96px,这里是一块可伸缩的宫格卡片,共用一套会把两边都拧巴。
  *
  * 数据链路与 `GalleryBlockView` 完全同源,取数与改表走 `useTableEntry` 共用 seam,
  * 这里不再复述。不同的只有展示设置:名称列、链接列、列数,都是**块的属性**,
  * 同一张表在两篇笔记里可以各挑各的字段。
  *
  * 就地增删改与看板卡 / 账目行同一套口径(解析走 `dt.parseCellInput`,经 `change`
- * 记在当前笔记名下):卡片悬停出「编辑 / 删除」,编辑收进模态框(卡片只有 96px 宽,
- * 塞不下名称/链接两个输入框);「添加书签」在块操作入口里,追加一行后弹同一个框,
- * 光标直接落进名称框。
+ * 记在当前笔记名下):卡片悬停出「编辑 / 删除」,编辑收进模态框 —— 表单按列类型
+ * 铺开数据表的**全部字段**,块设置只决定哪几列拿来当名称/链接/图标,不限制可编辑的列。
+ * 删除走确认框:删的是盘上数据表里的行,撤销不了。
+ * 「添加书签」在块操作入口里,追加一行后弹同一个框,光标直接落进第一列。
  */
 const props = defineProps<{ block: BookmarkBlock }>()
 
@@ -65,6 +68,11 @@ function fieldOf(row: DataRow, column: DataColumn | null): string {
 function iconOf(row: DataRow): string {
   const fromColumn = fieldOf(row, iconColumn.value).trim().charAt(0).toUpperCase()
   return fromColumn === "" ? linkIcon(fieldOf(row, urlColumn.value)) : fromColumn
+}
+
+/** 行 → 副标题里的域名。与图标一样是地址的派生,空地址不画这一行。 */
+function domainOf(row: DataRow): string {
+  return linkDomain(fieldOf(row, urlColumn.value))
 }
 
 /**
@@ -108,37 +116,51 @@ function shownIconOf(row: DataRow): string | null {
 const gridStyle = computed(() => ({
   gridTemplateColumns:
     props.block.columns === "auto"
-      ? "repeat(auto-fill, minmax(120px, 1fr))"
+      ? "repeat(auto-fill, minmax(220px, 1fr))"
       : `repeat(${props.block.columns}, minmax(0, 1fr))`,
 }))
 
 // ---- 就地增删改 ----
 
 /**
- * 正在编辑的书签(行 id);空串 = 没有模态框。编辑表单收进模态框 —— 卡片只有 96px 宽,
- * 塞不下名称/链接两个输入框。进框拷一份草稿,保存时统一解析落盘,取消即丢弃。
+ * 正在编辑的书签(行 id);空串 = 没有模态框。表单按列类型铺开数据表的全部字段,
+ * 卡片上放不下;进框拷一份草稿,保存时统一解析落盘,取消即丢弃。
  */
 const editingId = ref("")
 /** 模态框这次打开是「添加」还是「编辑」,只用来定标题。 */
 const isAdding = ref(false)
 
-/** 模态框里的草稿,进出各拷一次。 */
-const draft = ref({ name: "", url: "", icon: "" })
+/**
+ * 模态框草稿:列 id → 表单里的值。
+ *
+ * 文本 / 数字 / 日期先存**输入框原串**,保存时统一走 `parseCellInput` —— 边输边解析
+ * 会把「-」「2026-」这类中间态吞成空值。单选存选项 id,勾选存 boolean,图片存
+ * data URI(清除后是 null)。
+ */
+type DraftCell = string | boolean | null
+const draft = ref<Record<string, DraftCell>>({})
+
+function draftFromRow(row: DataRow): Record<string, DraftCell> {
+  const next: Record<string, DraftCell> = {}
+  for (const column of columns.value) {
+    const value = dt.cellValue(row, column)
+    if (column.type === "checkbox") next[column.id] = value === true
+    else if (column.type === "select") next[column.id] = typeof value === "string" ? value : ""
+    else next[column.id] = value === null ? "" : String(value)
+  }
+  return next
+}
 
 function focusOnMount(el: unknown): void {
-  if (el instanceof HTMLInputElement) el.focus()
+  if (el instanceof HTMLInputElement || el instanceof HTMLSelectElement) el.focus()
 }
+
+/** 表单第一列的 id —— 打开框时把焦点放进去,不用先点一下。 */
+const firstFieldId = computed(() => columns.value[0]?.id ?? "")
 
 function openEdit(row: DataRow): void {
   isAdding.value = false
-  const name = nameColumn.value
-  const url = urlColumn.value
-  const icon = iconColumn.value
-  draft.value = {
-    name: name === null ? "" : fieldOf(row, name),
-    url: url === null ? "" : fieldOf(row, url),
-    icon: icon === null || icon.type === "image" ? "" : fieldOf(row, icon),
-  }
+  draft.value = draftFromRow(row)
   editingId.value = row.id
 }
 
@@ -146,25 +168,66 @@ function closeEdit(): void {
   editingId.value = ""
 }
 
+/** 草稿里某一列的文本形态。单选格的选项 id、图片的 data URI 也走这里取显示值。 */
+function draftTextOf(column: DataColumn): string {
+  const value = draft.value[column.id]
+  return typeof value === "string" ? value : ""
+}
+
+function setDraftText(column: DataColumn, event: Event): void {
+  const target = event.target
+  if (!(target instanceof HTMLInputElement)) return
+  draft.value = { ...draft.value, [column.id]: target.value }
+}
+
+function setDraftOption(column: DataColumn, event: Event): void {
+  const target = event.target
+  if (!(target instanceof HTMLSelectElement)) return
+  draft.value = { ...draft.value, [column.id]: target.value }
+}
+
+function setDraftChecked(column: DataColumn, event: Event): void {
+  const target = event.target
+  if (!(target instanceof HTMLInputElement)) return
+  draft.value = { ...draft.value, [column.id]: target.checked }
+}
+
+/** 图片列:选图 / 预览 / 清除都只改草稿,点「保存」才落盘。 */
+async function pickDraftImage(column: DataColumn, event: Event): Promise<void> {
+  const target = event.target
+  if (!(target instanceof HTMLInputElement) || target.files === null) return
+  const file = target.files[0]
+  // 先清空再读:清掉后重选同一个文件也能触发 change。
+  target.value = ""
+  if (file === undefined || !isImageFile(file)) return
+  const uri = await readImageFile(file)
+  draft.value = { ...draft.value, [column.id]: uri }
+}
+
+function clearDraftImage(column: DataColumn): void {
+  draft.value = { ...draft.value, [column.id]: null }
+}
+
 /**
- * 保存:三个字段各自走共用的 `parseCellInput`(与数据表编辑页 / 看板卡同一口径),
- * 有变化的合成一行一次 `change` 落盘(只记一次脏),然后关框。
+ * 保存:逐列把草稿解析成该列类型的原生值,与原来不同的合进一行、一次 `change`
+ * 落盘(只记一次脏),然后关框。
  */
 function saveEdit(): void {
   const row = rows.value.find((item) => item.id === editingId.value)
-  const name = nameColumn.value
-  const url = urlColumn.value
-  const icon = iconColumn.value
-  if (row === undefined || name === null || url === null) return closeEdit()
+  if (row === undefined) return closeEdit()
 
   let working = row
-  const nameValue = dt.parseCellInput(draft.value.name, name.type)
-  if (nameValue !== dt.cellValue(row, name)) working = dt.setCell(working, name.id, nameValue)
-  const urlValue = dt.parseCellInput(draft.value.url, url.type)
-  if (urlValue !== dt.cellValue(row, url)) working = dt.setCell(working, url.id, urlValue)
-  if (icon !== null && icon.type !== "image") {
-    const iconValue = dt.parseCellInput(draft.value.icon, icon.type)
-    if (iconValue !== dt.cellValue(row, icon)) working = dt.setCell(working, icon.id, iconValue)
+  for (const column of columns.value) {
+    const raw = draft.value[column.id] ?? ""
+    const value =
+      column.type === "checkbox"
+        ? raw === true
+        : column.type === "image"
+          ? typeof raw === "string" && raw !== ""
+            ? raw
+            : null
+          : dt.parseCellInput(typeof raw === "string" ? raw : "", column.type)
+    if (value !== dt.cellValue(row, column)) working = dt.setCell(working, column.id, value)
   }
   if (working !== row) void change((current) => dt.replaceRow(current, working))
   closeEdit()
@@ -175,20 +238,44 @@ function saveOnEnter(event: Event): void {
   if (event.target instanceof HTMLInputElement) saveEdit()
 }
 
-/** 加一枚书签:表尾追加一行,随即弹模态框补名称与链接,光标落在名称框里。 */
+/** 加一枚书签:表尾追加一行,随即弹模态框补全部字段,光标落在第一列。 */
 async function addBookmark(): Promise<void> {
   await change((current) => dt.addRow(current))
   const added = rows.value[rows.value.length - 1]
   if (added === undefined) return
   isAdding.value = true
-  draft.value = { name: "", url: "", icon: "" }
+  draft.value = draftFromRow(added)
   editingId.value = added.id
 }
 
-/** 删一枚书签。正在编辑这一张时先收掉模态框,免得框跟着一个已消失的行。 */
-function removeBookmark(row: DataRow): void {
+/**
+ * 待确认删除的行 id;空串 = 没有确认框。删的是盘上数据表里的一行,没有撤销 ——
+ * 悬停按钮直接删太危险,先问一句。正在编辑这一张时先收掉编辑框,免得框跟着
+ * 一个已消失的行。
+ */
+const deletingId = ref("")
+
+const deletingName = computed(() => {
+  const row = rows.value.find((item) => item.id === deletingId.value)
+  const column = nameColumn.value
+  if (row === undefined || column === null) return ""
+  return fieldOf(row, column)
+})
+
+function requestDelete(row: DataRow): void {
   if (editingId.value === row.id) closeEdit()
+  deletingId.value = row.id
+}
+
+function closeDelete(): void {
+  deletingId.value = ""
+}
+
+function confirmDelete(): void {
+  const row = rows.value.find((item) => item.id === deletingId.value)
+  if (row === undefined) return closeDelete()
   void change((current) => dt.removeRow(current, row.id))
+  closeDelete()
 }
 
 /** 分组字段的列。未设置或指向的列被删后落空,整块退化为平铺,无需清洗块属性。 */
@@ -236,8 +323,8 @@ function setNameEl(id: string, el: Element | ComponentPublicInstance | null) {
 /**
  * 被截断的行集合 —— 名称完整时不该弹提示,那是噪音。
  *
- * 卡片宽度与字号都是固定的(卡片 96px,见 style.css),所以名称可用宽度不随窗口
- * 变化,截断与否只随文本变 —— 重测挂在分节结果上即可,不用盯着尺寸。
+ * 名称的可用宽度随宫格列数与窗口变化,所以重测挂在分节结果上之外,还要盯住
+ * 容器尺寸(ResizeObserver):换列数、窗口变窄都可能让原先完整的名称变成截断。
  */
 const truncatedNames = ref(new Set<string>())
 
@@ -250,6 +337,21 @@ function measureTruncation() {
 }
 
 watch(sections, () => void nextTick(measureTruncation))
+
+/** 容器的宽度变化(窗口缩放、侧栏开合)同样会改变截断,跟着重量一次。
+    根节点是条件渲染的(表读完才出现),所以监听 ref 本身而不是在 onMounted 里拿。 */
+const rootEl = ref<HTMLElement | null>(null)
+
+watch(
+  rootEl,
+  (el, _previous, onCleanup) => {
+    if (el === null) return
+    const observer = new ResizeObserver(() => measureTruncation())
+    observer.observe(el)
+    onCleanup(() => observer.disconnect())
+  },
+  { immediate: true },
+)
 
 /** 菜单外框与下拉框,与画册设置菜单同一套参数。 */
 const MENU = "w-48 rounded-island p-1.5 shadow-pop ring-0"
@@ -315,7 +417,7 @@ const columnsSelection = computed({
   <!-- 还没读完。 -->
   <TableRefNotice v-else-if="table === null" kind="loading" label="书签" />
 
-  <div v-else class="group/bookmark relative my-4">
+  <div v-else ref="rootEl" class="group/bookmark relative my-4">
     <!-- 块操作入口:右上角,悬停浮现。与画册的入口同一套;浅阴影把浮岛从正文上托起来。 -->
     <div class="absolute -top-2 right-0 z-20 flex items-center gap-1 opacity-0 transition-opacity group-hover/bookmark:opacity-100 focus-within:opacity-100">
       <!-- 添加书签 = 表尾追加一行并进编辑态;名称/链接列没挑时没有可写的字段,不给入口。 -->
@@ -426,11 +528,11 @@ const columnsSelection = computed({
       <template v-if="rows.length > 0">
         <section v-for="sec in sections" :key="sec.key">
           <p v-if="sec.title !== null" class="pb-1 text-[12px] font-medium text-muted-foreground">{{ sec.title }}</p>
-          <ul class="m-0 grid list-none gap-3 p-0" :style="gridStyle">
-            <li v-for="row in sec.rows" :key="row.id" class="group/card relative flex justify-center">
-              <!-- 悬停操作:编辑 / 删除,锚在卡片右上角(卡片 96px 宽且居中,右缘即 50%-48px)。
-                   编辑收进模态框 —— 卡片塞不下名称/链接两个输入框。 -->
-              <span class="absolute top-0.5 right-[calc(50%-46px)] z-10 hidden items-center gap-0.5 rounded-full border border-line bg-background p-0.5 shadow-sm group-hover/card:flex">
+          <ul class="m-0 grid list-none gap-2.5 p-0" :style="gridStyle">
+            <li v-for="row in sec.rows" :key="row.id" class="group/card relative min-w-0">
+              <!-- 悬停操作:编辑 / 删除。锚在卡片右下角、向下半露 —— 不占卡片右侧宽度,
+                   名称与域名可以用满整行。 -->
+              <span class="absolute right-1 bottom-0 z-10 hidden translate-y-1/2 items-center gap-1.5 rounded-full border border-line bg-background p-0.5 shadow-sm group-hover/card:flex">
                 <button
                   type="button"
                   aria-label="编辑书签"
@@ -443,7 +545,7 @@ const columnsSelection = computed({
                   type="button"
                   aria-label="删除书签"
                   class="rounded-full p-0.5 text-muted-foreground hover:text-destructive"
-                  @click="removeBookmark(row)"
+                  @click="requestDelete(row)"
                 >
                   <Trash2Icon class="size-3" />
                 </button>
@@ -453,14 +555,15 @@ const columnsSelection = computed({
                    划过每张卡都弹一遍提示是噪音。 -->
               <Tooltip :disabled="!truncatedNames.has(row.id)">
                 <TooltipTrigger as-child>
-                  <!-- 与行内链接的书签卡片同一套标记:data-link-shape + data-icon 驱动同一条 CSS。
-                       图标列的值能加载成图片时挂 data-icon-image:伪元素字符退场,由 img 顶替
-                       (样式见 style.css 的书签卡片段);加载中或失败不带这个属性,照常显示字符。 -->
+                  <!-- 横向信息卡:左图标、右侧名称与域名。图标列的值能加载成图片时挂
+                       data-icon-image,伪元素字符退场,由 img 顶替(样式见 style.css 的
+                       .note-bm-card 段);加载中或失败不带这个属性,照常显示字符。
+                       没填链接的行不挂 href —— 锚点没有 href 就不是链接,点击不会跳转。 -->
                   <a
-                    :href="fieldOf(row, urlColumn)"
+                    :href="fieldOf(row, urlColumn) || undefined"
                     target="_blank"
                     rel="noreferrer"
-                    data-link-shape="card"
+                    class="note-bm-card"
                     :data-icon="iconOf(row)"
                     :data-icon-image="shownIconOf(row) !== null ? '' : undefined"
                   ><img
@@ -472,7 +575,7 @@ const columnsSelection = computed({
                     :class="shownIconOf(row) !== null ? '' : 'hidden'"
                     @load="onIconLoad(row.id)"
                     @error="onIconError(row.id)"
-                  ><span :ref="(el) => setNameEl(row.id, el)" class="note-bookmark-name">{{ fieldOf(row, nameColumn) }}</span></a>
+                  ><span :ref="(el) => setNameEl(row.id, el)" class="note-bm-text"><span class="note-bm-name">{{ fieldOf(row, nameColumn) }}</span><span v-if="domainOf(row) !== ''" class="note-bm-domain">{{ domainOf(row) }}</span></span></a>
                 </TooltipTrigger>
                 <TooltipContent>{{ fieldOf(row, nameColumn) }}</TooltipContent>
               </Tooltip>
@@ -482,31 +585,95 @@ const columnsSelection = computed({
       </template>
     </div>
 
-    <!-- 编辑书签的模态框:添加与编辑共用一个框,标题随 isAdding 摆。
-         三个按钮用普通 Button —— reka 自带的「点击即关框」回调会先清状态,保存逻辑
-         需要自己掌控关框时机(与关标签确认框同一手法)。Esc 走 onOpenChange(false)。 -->
+    <!-- 编辑书签的模态框:添加与编辑共用一个框,标题随 isAdding 摆。表单按列类型
+         铺开数据表的全部字段 —— 块的名称/链接/图标设置只决定卡片怎么取字段,
+         不限制这里能改哪些列。三个按钮用普通 Button —— reka 自带的「点击即关框」
+         回调会先清状态,保存逻辑需要自己掌控关框时机(与关标签确认框同一手法)。
+         Esc 走 onOpenChange(false)。 -->
     <AlertDialog :open="editingId !== ''" @update:open="(open: boolean) => !open && closeEdit()">
-      <AlertDialogContent class="w-[300px] rounded-[18px] p-5 shadow-pop ring-0">
+      <AlertDialogContent class="w-[360px] max-w-[calc(100vw-2rem)] rounded-[18px] p-5 shadow-pop ring-0">
         <AlertDialogHeader>
           <AlertDialogTitle>{{ isAdding ? "添加书签" : "编辑书签" }}</AlertDialogTitle>
         </AlertDialogHeader>
-        <div class="flex flex-col gap-2.5 pt-0.5">
-          <label class="block">
-            <span class="block pb-1 text-[11px] text-muted-foreground">名称</span>
-            <input v-model="draft.name" :ref="focusOnMount" :class="FIELD" @keydown.enter.prevent="saveOnEnter">
-          </label>
-          <label class="block">
-            <span class="block pb-1 text-[11px] text-muted-foreground">链接</span>
-            <input v-model="draft.url" :class="FIELD" placeholder="https://" @keydown.enter.prevent="saveOnEnter">
-          </label>
-          <label v-if="iconColumn !== null && iconColumn.type !== 'image'" class="block">
-            <span class="block pb-1 text-[11px] text-muted-foreground">图标(可选)</span>
-            <input v-model="draft.icon" :class="FIELD" @keydown.enter.prevent="saveOnEnter">
-          </label>
+        <div class="flex max-h-[55vh] flex-col gap-2.5 overflow-y-auto pt-0.5 pr-0.5">
+          <div v-for="column in columns" :key="column.id">
+            <span class="block pb-1 text-[11px] text-muted-foreground">{{ column.name }}</span>
+
+            <!-- 图片列:选图 / 预览 / 清除都只改草稿,点「保存」才落盘。 -->
+            <div v-if="column.type === 'image'" class="flex items-center">
+              <label
+                v-if="draftTextOf(column) === ''"
+                class="flex cursor-pointer items-center gap-1 rounded border border-line px-2 py-1 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <ImagePlusIcon class="size-3.5" />选择图片
+                <input type="file" accept="image/*" class="hidden" @change="(event: Event) => pickDraftImage(column, event)">
+              </label>
+              <div v-else class="group/img relative">
+                <img :src="draftTextOf(column)" alt="" class="h-14 w-20 rounded object-cover">
+                <button
+                  type="button"
+                  aria-label="清除图片"
+                  class="absolute top-0.5 right-0.5 hidden rounded bg-background/80 p-1 text-muted-foreground hover:text-destructive group-hover/img:block"
+                  @click="clearDraftImage(column)"
+                >
+                  <XIcon class="size-3" />
+                </button>
+              </div>
+            </div>
+
+            <input
+              v-else-if="column.type === 'checkbox'"
+              type="checkbox"
+              class="size-3.5 accent-foreground"
+              :checked="draft[column.id] === true"
+              :ref="column.id === firstFieldId ? focusOnMount : undefined"
+              @change="setDraftChecked(column, $event)"
+            >
+
+            <select
+              v-else-if="column.type === 'select'"
+              :class="FIELD"
+              :value="draftTextOf(column)"
+              :ref="column.id === firstFieldId ? focusOnMount : undefined"
+              @change="setDraftOption(column, $event)"
+            >
+              <option value="">—</option>
+              <option v-for="option in column.options" :key="option.id" :value="option.id">{{ option.name }}</option>
+            </select>
+
+            <!-- 文本 / 数字 / 日期:先存原串,保存时统一走 parseCellInput。 -->
+            <input
+              v-else
+              :type="column.type === 'number' ? 'number' : column.type === 'date' ? 'date' : 'text'"
+              :class="FIELD"
+              :value="draftTextOf(column)"
+              :ref="column.id === firstFieldId ? focusOnMount : undefined"
+              @input="setDraftText(column, $event)"
+              @keydown.enter.prevent="saveOnEnter"
+            >
+          </div>
         </div>
         <AlertDialogFooter class="mx-0 mb-0 gap-2 rounded-none border-t-0 bg-transparent p-0 pt-3">
           <Button variant="ghost" :class="DIALOG_BTN" @click="closeEdit">取消</Button>
           <Button :class="DIALOG_BTN" @click="saveEdit">保存</Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    <!-- 删除确认:删的是盘上数据表里的一行,没有撤销;表被多篇笔记共用时,
+         别处也会跟着少一行,得先说清楚。 -->
+    <AlertDialog :open="deletingId !== ''" @update:open="(open: boolean) => !open && closeDelete()">
+      <AlertDialogContent class="w-[300px] rounded-[18px] p-5 shadow-pop ring-0">
+        <AlertDialogHeader>
+          <AlertDialogTitle>删除书签</AlertDialogTitle>
+          <AlertDialogDescription class="text-[12px]">
+            「{{ deletingName === "" ? "未命名书签" : deletingName }}」将从数据表中删除，此操作不可恢复。
+            表被多篇笔记共用时，别处也会跟着少一行。
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter class="mx-0 mb-0 gap-2 rounded-none border-t-0 bg-transparent p-0 pt-3">
+          <Button variant="ghost" :class="DIALOG_BTN" @click="closeDelete">取消</Button>
+          <Button variant="destructive" :class="DIALOG_BTN" @click="confirmDelete">删除</Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

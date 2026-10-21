@@ -495,14 +495,30 @@ ${headingRules}
     .note-kfield input[type="checkbox"] { width: 14px; height: 14px; margin: 0; accent-color: rgba(0,0,0,.7); }
     .note-empty { color: var(--muted); opacity: .6; }
     .note-bookmark .note-bookmarks { margin: 0; padding: 0; list-style: none;
-      display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
     .note-bookmark[data-columns="1"] .note-bookmarks { grid-template-columns: repeat(1, minmax(0, 1fr)); }
     .note-bookmark[data-columns="2"] .note-bookmarks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .note-bookmark[data-columns="3"] .note-bookmarks { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .note-bookmark[data-columns="4"] .note-bookmarks { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .note-bookmark[data-columns="5"] .note-bookmarks { grid-template-columns: repeat(5, minmax(0, 1fr)); }
     .note-bookmark[data-columns="6"] .note-bookmarks { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-    .note-bookmarks li { display: flex; justify-content: center; margin: 0; }
+    .note-bookmarks li { margin: 0; }
+    /* 书签块的横向信息卡:左图标、右侧名称与域名。与编辑器 style.css 的 .note-bm-card
+       同一套几何,两边各用本侧的变量 —— 「编辑器里看着什么样,双击打开就是什么样」。 */
+    .note-bm-card { display: flex; align-items: center; gap: 10px; padding: 7px 12px;
+      min-height: 49px;
+      border: 1px solid var(--line); border-radius: 10px; background: Canvas;
+      color: var(--fg); text-decoration: none; line-height: 1.35; }
+    .note-bm-card::before { content: attr(data-icon); display: inline-flex; align-items: center;
+      justify-content: center; width: 32px; height: 32px; border-radius: 8px; flex: none;
+      background: var(--accent-bg); color: var(--accent-fg); font-weight: 600; font-size: 14px; }
+    /* 图标盒不受上面那条 img 的上下外边距影响:书签卡里的图标是卡片的零件,不是一块
+       图片内容 —— 带 16px 上下外边距会把卡撑高一个图标位,宫格参差。 */
+    .note-bm-card img.note-bookmark-icon { display: block; margin: 0; width: 32px; height: 32px;
+      border-radius: 8px; object-fit: cover; flex: none; }
+    .note-bm-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+    .note-bm-name { font-size: 13px; line-height: 17px; font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .note-bm-domain { font-size: 11px; line-height: 14px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     mark { background-color: var(--mark-bg); color: inherit; }
     a[data-link-shape="card"] { display: inline-flex; flex-direction: column; align-items: center; gap: 6px;
       width: 96px; margin: 2px 6px; padding: 12px 8px 10px; vertical-align: middle;

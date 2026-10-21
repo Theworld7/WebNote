@@ -5,7 +5,7 @@ import type { ListBlockType } from "@/lib/blocks"
 import { cellValue, filterRowsByValue, formatGrouped, groupRows, kanbanCardColor, STAT_PRECISION_DEFAULT, sumColumn, valueText } from "@/lib/data-table"
 import { balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, ledgerSort, sortRows, sumRows } from "@/lib/ledger"
 import type { LedgerSection, LedgerTotals } from "@/lib/ledger"
-import { escapeHtml, escapeTextToHtml, linkIcon, runsText, runsToHtml } from "@/lib/inline"
+import { escapeHtml, escapeTextToHtml, linkDomain, linkIcon, runsText, runsToHtml } from "@/lib/inline"
 import {
   SUBSCRIPTION_ROLE_ATTRS,
   SUBSCRIPTION_ROLE_FIELDS,
@@ -831,11 +831,12 @@ function ledgerTotalsCells(
 /**
  * 书签块 → **展示快照 + 指针**（与画册同一条 ADR-0006 立场）。
  *
- * 导出与编辑器同一构：`data-group-by` 分节（节标题 + 卡片宫格），每行一枚
- * `<a data-link-shape="card">` —— 与行内链接的书签卡片同一套标记与样式，指针
- * （`data-bookmark` 与字段选择）挂在容器 `div` 上让编辑器认领回活的块。旧版写法
- * （`<ul data-bookmark>`）解析端继续认。名称列 / 链接列指向的列被删后,渲染态走
- * 「未设置」提示,静态按同一立场只写空容器（与看板未选分组列的处理一致）。
+ * 导出与编辑器同一构：`data-group-by` 分节（节标题 + 卡片宫格），每行一枚横向
+ * 信息卡（`.note-bm-card`：左图标、右侧名称与域名）—— 与 `BookmarkBlockView`
+ * 同一套类名与几何。指针（`data-bookmark` 与字段选择）挂在容器 `div` 上让编辑器
+ * 认领回活的块。旧版写法（`<ul data-bookmark>`）解析端继续认。名称列 / 链接列
+ * 指向的列被删后,渲染态走「未设置」提示,静态按同一立场只写空容器（与看板未选
+ * 分组列的处理一致）。
  *
  * 表读不到时仍写出带属性的空容器:指针跟着笔记走,重开时块自己走提示态。
  * 图标保持字符派生(`data-icon`):图片图标的「加载成功才显示」靠运行时探测,
@@ -882,10 +883,14 @@ function bookmarkHtml(block: BookmarkBlock, table: DataTable | null): string {
         const url = valueText(cellValue(row, urlColumn), urlColumn)
         const icon =
           iconColumn === undefined ? "" : valueText(cellValue(row, iconColumn), iconColumn).trim().charAt(0).toUpperCase()
-        const card =
-          url === ""
-            ? escapeHtml(name)
-            : `<a href="${escapeHtml(url)}" data-link-shape="card" data-icon="${escapeHtml(icon === "" ? linkIcon(url) : icon)}">${escapeHtml(name)}</a>`
+        const domain = linkDomain(url)
+        const inner =
+          `<span class="note-bm-text"><span class="note-bm-name">${escapeHtml(name)}</span>` +
+          (domain === "" ? "" : `<span class="note-bm-domain">${escapeHtml(domain)}</span>`) +
+          "</span>"
+        const attrs = `class="note-bm-card" data-icon="${escapeHtml(icon === "" ? linkIcon(url) : icon)}"`
+        // 没填链接的行写成 span:静态页里点它不该跳转,语义上也不是链接。
+        const card = url === "" ? `<span ${attrs}>${inner}</span>` : `<a href="${escapeHtml(url)}" ${attrs}>${inner}</a>`
         return `    <li>${card}</li>`
       })
       .join("\n")

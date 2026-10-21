@@ -309,25 +309,86 @@
     font-weight: 600;
     font-size: 14px;
     }
-  /* 图片图标(书签块的图标列):加载成功才挂 data-icon-image,此刻伪元素字符退场、
-     img 顶替同一位置。加载中/失败不带属性,字符照常 —— 破图永远不会露出来。 */
-  a[data-link-shape="card"][data-icon-image]::before {
+  /* 书签块的横向信息卡:左图标,右侧名称与域名。与导出侧 docStyle 的 .note-bm-card
+     同一套几何,两边各用本侧的变量 —— 「编辑器里看着什么样,双击打开就是什么样」。
+     与上面 96px 的磁贴卡分开:磁贴是正文里的行内对象,这里是宫格里的可伸缩卡片。 */
+  .note-bm-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-width: 0;
+    /* 上下各 7px 内边距 + 1px 边框 + 两行文字(17 + 2 + 14)= 49px。名称与域名的行高
+       写死成 px,高度就不随字体度量漂;min-height 兜住「只有名称、没有域名」的行
+       和图标塌缩的行 —— 同一宫格里所有卡片必须等高,且不该比内容高出一圈留白。 */
+    min-height: 49px;
+    padding: 7px 12px;
+    border: 1px solid var(--color-line);
+    border-radius: 10px;
+    background-color: var(--color-background);
+    color: inherit;
+    text-decoration: none;
+    line-height: 1.35;
+    transition: border-color 120ms, box-shadow 120ms;
+    }
+  a.note-bm-card:hover {
+    border-color: color-mix(in srgb, var(--color-foreground) 18%, var(--color-line));
+    box-shadow: var(--shadow-island);
+    }
+  .note-bm-card::before {
+    content: attr(data-icon);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    flex: none;
+    background-color: var(--color-selection);
+    color: var(--color-selection-foreground);
+    font-weight: 600;
+    font-size: 14px;
+    }
+  .note-bm-card[data-icon-image]::before {
     display: none;
     }
-  a[data-link-shape="card"] img.note-bookmark-icon {
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
+  /* 图标盒不许被外部规则改写。笔记的页面样式是整页语义(与导出文档的 docStyle 同款那条
+     `img { margin: 16px 0 }`),以**无层**规则注入,层叠优先级压过 @layer base —— 图标
+     于是多出上下各 16px 外边距,图片卡比字符卡整整高一个图标位(实测 80px 对 49px),
+     宫格立刻参差。`!important` 在这里是必需的,与 html-frame.ts 给用户样式留一条盒模型
+     重置同一立场:卡片的零件尺寸不由用户 CSS 决定。
+     `display` 不加 `!important`:`hidden`(加载中)在 @layer utilities 里,得继续能生效。 */
+  .note-bm-card img.note-bookmark-icon {
+    display: block;
+    margin: 0 !important;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
     object-fit: cover;
     flex: none;
     }
-  /* 书签块的名称:一行封顶,放不下走省略号,完整名交给视图的 tooltip(只在截断时开)。
-     行内链接的卡片没有这层 span,不受影响 —— 它在正文里,换行才是对的。 */
-  a[data-link-shape="card"] .note-bookmark-name {
-    max-width: 100%;
+  .note-bm-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+    }
+  .note-bm-name {
+    font-size: 13px;
+    line-height: 17px;
+    font-weight: 500;
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
+    text-overflow: ellipsis;
+    }
+  .note-bm-domain {
+    font-size: 11px;
+    line-height: 14px;
+    color: var(--color-muted-foreground);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
     }
 }
 
