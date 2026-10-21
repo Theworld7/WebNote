@@ -93,6 +93,18 @@ function readMenuGroupLayout(): MenuGroupLayout {
 }
 
 /**
+ * 文件树是否整合数据表视图。
+ *
+ * 只是**看法的开关**：被笔记引用的 `.tbl` 从原位置收进引用它的笔记名下，笔记名隐去
+ * `.html` 后缀 —— 盘上一个文件都没有动，路径、引用关系、数据表本身全照旧。
+ */
+const INTEGRATE_TABLES_KEY = "webnote:integrate-tables"
+
+function readIntegrateTables(): boolean {
+  return window.localStorage.getItem(INTEGRATE_TABLES_KEY) === "true"
+}
+
+/**
  * 字体 —— 内容字体与代码字体各一项，值是一个 family 名，空串表示「系统默认」。
  *
  * 存 family 名而不是整条 CSS 栈：栈由 `lib/fonts.ts` 现拼（用户字体 + 系统栈兜底），
@@ -196,6 +208,7 @@ interface PreferenceFile {
   tableEffect?: TableEffect
   contentWidth?: ContentWidth
   menuGroupLayout?: MenuGroupLayout
+  integrateTables?: boolean
   contentFont?: string
   codeFont?: string
   theme?: ThemeSettings
@@ -220,6 +233,8 @@ function parsePreferenceFile(text: string): PreferenceFile {
     tableEffect: pick(TABLE_EFFECTS, source["tableEffect"]),
     contentWidth: pick(CONTENT_WIDTHS, source["contentWidth"]),
     menuGroupLayout: pick(MENU_GROUP_LAYOUTS, source["menuGroupLayout"]),
+    // 布尔偏好没有候选表可收窄，类型对得上才认。
+    integrateTables: typeof source["integrateTables"] === "boolean" ? source["integrateTables"] : undefined,
     contentFont: pickFont(source["contentFont"]),
     codeFont: pickFont(source["codeFont"]),
     // 主题是一整个对象：整个字段缺失（旧版写的文件）就保持内存里的现状，
@@ -244,6 +259,9 @@ interface Settings {
   /** 块菜单分组的排布方向。同上，`ref` 且只经 setter 写。 */
   menuGroupLayout: Ref<MenuGroupLayout>
   setMenuGroupLayout: (value: MenuGroupLayout) => void
+  /** 文件树是否把被引用的数据表收进笔记名下（整合数据表视图）。同上，只经 setter 写。 */
+  integrateTables: Ref<boolean>
+  setIntegrateTables: (value: boolean) => void
   /** 内容字体（正文与界面）。空串 = 系统默认栈。 */
   contentFont: Ref<string>
   setContentFont: (value: string) => void
@@ -285,6 +303,14 @@ function createSettings(): Settings {
   function setMenuGroupLayout(value: MenuGroupLayout) {
     menuGroupLayout.value = value
     window.localStorage.setItem(MENU_GROUP_LAYOUT_KEY, value)
+    void persistToStore()
+  }
+
+  const integrateTables = ref(readIntegrateTables())
+
+  function setIntegrateTables(value: boolean) {
+    integrateTables.value = value
+    window.localStorage.setItem(INTEGRATE_TABLES_KEY, String(value))
     void persistToStore()
   }
 
@@ -343,6 +369,7 @@ function createSettings(): Settings {
       tableEffect: tableEffect.value,
       contentWidth: contentWidth.value,
       menuGroupLayout: menuGroupLayout.value,
+      integrateTables: integrateTables.value,
       contentFont: contentFont.value,
       codeFont: codeFont.value,
       theme: theme.value,
@@ -380,6 +407,11 @@ function createSettings(): Settings {
     if (prefs.menuGroupLayout !== undefined && prefs.menuGroupLayout !== menuGroupLayout.value) {
       menuGroupLayout.value = prefs.menuGroupLayout
       window.localStorage.setItem(MENU_GROUP_LAYOUT_KEY, prefs.menuGroupLayout)
+      changed = true
+    }
+    if (prefs.integrateTables !== undefined && prefs.integrateTables !== integrateTables.value) {
+      integrateTables.value = prefs.integrateTables
+      window.localStorage.setItem(INTEGRATE_TABLES_KEY, String(prefs.integrateTables))
       changed = true
     }
     if (prefs.contentFont !== undefined && prefs.contentFont !== contentFont.value) {
@@ -441,6 +473,8 @@ function createSettings(): Settings {
     setContentWidth,
     menuGroupLayout,
     setMenuGroupLayout,
+    integrateTables,
+    setIntegrateTables,
     contentFont,
     setContentFont,
     codeFont,

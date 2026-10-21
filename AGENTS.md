@@ -37,6 +37,7 @@
    `node design/cdp-dump.mjs http://localhost:1420/design/<名字>.html`。
 
 改哪层跑哪页:动 `lib/html` → `parse-check`;动块拖拽 / 标签栏 → `drag-check` / `tab-check`;
+动文件树的整合数据表视图（笔记隐后缀、引用表收进笔记名下、展开箭头）→ `tree-integration-check`;
 动块菜单的方向键寻路(`lib/menu-nav.ts`、横向布局的列间移动)→ `menu-nav-check`(挂真实菜单,
 走 CDP);
 动数据表 → `data-table-check`;动排版样式 → `typography-check`;动新建 / 移动 →

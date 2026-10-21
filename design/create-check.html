@@ -222,7 +222,7 @@ check(
   `data-state=${String(expandedState)}`,
 )
 
-workspace.toggleFolder("日记")
+workspace.toggleExpanded("日记")
 await nextTick()
 check("折叠后内容容器转为 closed", contentState() === "closed", String(contentState()))
 check("折叠后 expandedIds 里不再有该文件夹", !workspace.expandedIds.value.has("日记"))

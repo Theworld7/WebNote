@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>文件树整合数据表视图自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #stage { margin: 0 0 16px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>文件树：整合数据表视图自检</h1>
+<div id="stage" style="display:flex; height:420px"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { createApp, defineComponent, h, nextTick } from "vue"
+// 断言查的是真实渲染出来的行，必须引应用样式表，否则 Tailwind 类不存在。
+import "../src/style.css"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import AppSidebar from "../src/components/AppSidebar.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+
+const out = document.querySelector("#out")
+const lines = []
+let passed = 0
+let failed = 0
+let finished = false
+
+addEventListener("error", (event) => {
+  finished = true
+  out.textContent = `ERROR ${event.message}\n${lines.join("\n")}`
+})
+addEventListener("unhandledrejection", (event) => {
+  finished = true
+  const reason = event.reason
+  const text = reason instanceof Error ? reason.message : String(reason)
+  out.textContent = `REJECT ${text}\n${lines.join("\n")}`
+})
+
+function flush() {
+  const body = lines.join("\n")
+  out.textContent = finished ? body : `running: ${body}`
+}
+
+function step(text) {
+  flush()
+  out.textContent = `running: ${text}`
+}
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  flush()
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+/** 卡住时最有用的信息是「此刻树上到底有哪几行」。 */
+function rowNames() {
+  return rows().map((d) => d.textContent.trim())
+}
+
+function rows() {
+  return [...document.querySelectorAll("div")].filter((d) => {
+    const cls = d.getAttribute("class") ?? ""
+    return cls.includes("hover:bg-muted") && cls.includes("h-7")
+  })
+}
+
+function rowOf(name) {
+  return rows().find((d) => d.textContent.trim() === name)
+}
+
+async function until(fn, label, timeout = 8000) {
+  const started = Date.now()
+  for (;;) {
+    const value = fn()
+    if (value) return value
+    if (Date.now() - started > timeout) {
+      throw new Error(`超时等待：${label}；当前行 = ${JSON.stringify(rowNames())}`)
+    }
+    await sleep(50)
+  }
+}
+
+// ---- 用 OPFS 造一棵真实的目录树 ----
+
+step("准备 OPFS 目录")
+const opfs = await navigator.storage.getDirectory()
+const ROOT = "tree-integration-fixture"
+try {
+  await opfs.removeEntry(ROOT, { recursive: true })
+} catch {
+  // 第一次跑没有这个目录，正常。
+}
+const workbench = await opfs.getDirectoryHandle(ROOT, { create: true })
+
+async function writeNote(parent, name, html) {
+  const handle = await parent.getFileHandle(name, { create: true })
+  const writable = await handle.createWritable()
+  await writable.write(html)
+  await writable.close()
+}
+
+async function writeTable(parent, name) {
+  await writeNote(parent, name, JSON.stringify({ name, columns: [], rows: [] }))
+}
+
+// 工作区路径的分隔符是「空格斜杠空格」（`lib/paths`），引用块里的指针同一个写法。
+const BOOKMARK = (path) => `<div class="note-bookmark" data-bookmark="${path}"></div>`
+const PLAIN = "<h1>标题</h1><p>正文</p>"
+
+// 两篇笔记引用同一张表；另有一张没人引用的表和一个没引用的笔记。
+// 引用表藏在「数据」文件夹里：整张表被收走后，这个文件夹也该从树上消失。
+const data = await workbench.getDirectoryHandle("数据", { create: true })
+await writeTable(data, "客户.tbl")
+await writeTable(workbench, "未引用.tbl")
+await writeNote(workbench, "笔记甲.html", BOOKMARK("数据 / 客户.tbl"))
+await writeNote(workbench, "笔记乙.html", BOOKMARK("数据 / 客户.tbl"))
+await writeNote(workbench, "孤儿笔记.html", PLAIN)
+
+// ---- 挂真实的侧栏 ----
+
+let workspace = null
+let settings = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    settings = provideSettings()
+    // 工作区先创建、不认识设置模块，偏好 ref 只能在这里递进去（与 App.vue 同一条线）。
+    workspace.attachIntegrateTables(settings.integrateTables)
+    return () =>
+      h(TooltipProvider, null, {
+        default: () =>
+          h("div", { style: "display:flex;height:100%" }, [h(AppSidebar, { width: 280 })]),
+      })
+  },
+})
+
+step("挂载 AppSidebar")
+createApp(Root).mount("#stage")
+await nextTick()
+// 起点必须是「没整合」的普通树；记下访问前的值，结束时还回去。
+const originalPref = settings.integrateTables.value
+settings.setIntegrateTables(false)
+await nextTick()
+await workspace.bootstrap()
+await nextTick()
+
+step("打开工作区")
+const openButton = [...document.querySelectorAll("button")].find((b) =>
+  b.textContent.includes("打开文件夹"),
+)
+if (openButton === undefined) throw new Error("找不到「打开文件夹」按钮")
+// showDirectoryPicker 返回夹具目录；openButton 走的是真的「打开文件夹」链路。
+window.showDirectoryPicker = async () => workbench
+openButton.click()
+
+await until(() => rowOf("笔记甲.html"), "普通树里的笔记行")
+check(
+  "未开启：笔记显示 .html 后缀",
+  rowOf("笔记甲.html") !== undefined && rowOf("笔记甲") === undefined,
+  JSON.stringify(rowNames()),
+)
+check("未开启：被引用表仍在原位置", rowOf("客户.tbl") !== undefined, JSON.stringify(rowNames()))
+
+// ---- 开启整合视图 ----
+
+step("开启整合数据表视图")
+settings.setIntegrateTables(true)
+await until(() => rowOf("笔记甲") !== undefined, "整合后的笔记行")
+await sleep(100)
+
+check(
+  "整合后：笔记名隐去后缀",
+  rowOf("笔记甲") !== undefined && rowOf("笔记甲.html") === undefined,
+  JSON.stringify(rowNames()),
+)
+check(
+  "整合后：被引用的表不再出现在原位置",
+  rowOf("客户.tbl") === undefined,
+  JSON.stringify(rowNames()),
+)
+check(
+  "整合后：引用表独占的文件夹一并收走",
+  rowOf("数据") === undefined,
+  JSON.stringify(rowNames()),
+)
+check("整合后：无引用的表留在原位置", rowOf("未引用.tbl") !== undefined, JSON.stringify(rowNames()))
+
+const chevronOf = (row) => row.querySelector('button[aria-label*="引用的数据表"]')
+
+check(
+  "有引用的笔记右端有展开图标",
+  chevronOf(rowOf("笔记甲")) !== null && chevronOf(rowOf("笔记乙")) !== null,
+  JSON.stringify(rowNames()),
+)
+check(
+  "没引用的笔记不给展开图标",
+  chevronOf(rowOf("孤儿笔记")) === null,
+  JSON.stringify(rowNames()),
+)
+
+// ---- 展开 / 收起 ----
+
+step("展开笔记甲")
+const activeBefore = workspace.activePath.value
+chevronOf(rowOf("笔记甲")).click()
+await sleep(150)
+await until(() => rowOf("客户.tbl") !== undefined, "笔记甲下的引用表行")
+check("点展开图标不打开笔记", workspace.activePath.value === activeBefore, workspace.activePath.value)
+check(
+  "展开后能看到被引用的数据表",
+  rowOf("客户.tbl") !== undefined,
+  JSON.stringify(rowNames()),
+)
+
+step("展开笔记乙：同一张表可以被两篇笔记各挂一份")
+chevronOf(rowOf("笔记乙")).click()
+await sleep(150)
+const tableRows = rows().filter((d) => d.textContent.trim() === "客户.tbl")
+check("同一张表在两篇笔记下各出现一次", tableRows.length === 2, `实际 ${tableRows.length}`)
+
+step("收起笔记甲")
+chevronOf(rowOf("笔记甲")).click()
+await sleep(150)
+const afterCollapse = rows().filter((d) => d.textContent.trim() === "客户.tbl")
+check("收起后只剩另一篇笔记下的一份", afterCollapse.length === 1, `实际 ${afterCollapse.length}`)
+
+// ---- 点行打开笔记 ----
+
+step("点笔记行（非图标区）")
+rowOf("笔记甲").click()
+await sleep(100)
+check("点行直接打开笔记", workspace.activePath.value === "笔记甲.html", workspace.activePath.value)
+
+// ---- 关闭整合视图 ----
+
+step("关闭整合数据表视图")
+settings.setIntegrateTables(false)
+await until(() => rowOf("笔记甲.html") !== undefined, "恢复后缀的笔记行")
+check(
+  "关闭后：后缀、文件夹、表都回到原位置",
+  rowOf("笔记甲.html") !== undefined &&
+    rowOf("笔记乙.html") !== undefined &&
+    rowOf("数据") !== undefined &&
+    rowOf("客户.tbl") !== undefined,
+  JSON.stringify(rowNames()),
+)
+check(
+  "关闭后：展开图标消失",
+  chevronOf(rowOf("笔记甲.html")) === null,
+  JSON.stringify(rowNames()),
+)
+
+// 恢复访问前的偏好，别把自检的选择留在 localStorage 里影响开发页。
+settings.setIntegrateTables(originalPref)
+
+lines.push(`\n${passed} passed, ${failed} failed`)
+finished = true
+if (failed > 0) lines.unshift("FAIL")
+flush()
+</script>
+</body>
+</html>

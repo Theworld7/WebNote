@@ -5,14 +5,12 @@ import { ChevronRightIcon, CopyIcon, DatabaseIcon, EllipsisIcon, FilePlusIcon, F
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useWorkspace } from "@/composables/useWorkspace"
-import { joinPath } from "@/lib/paths"
+import { fileStem } from "@/lib/fs/policy"
 import { cn } from "@/lib/utils"
 
 const props = defineProps<{
   node: FileNode
   depth: number
-  /** 父级路径前缀，根层为空串。用于拼出 `日记 / 2026-10-08.html` 这样的完整路径。 */
-  parentPath: string
 }>()
 
 const emit = defineEmits<{
@@ -23,17 +21,29 @@ const emit = defineEmits<{
   remove: [path: string, kind: CreateTarget["kind"]]
 }>()
 
-const { expandedIds, activePath, isSearching, toggleFolder, openFile, draggingPath, dropTargetPath, fs, root } =
+const { expandedIds, activePath, isSearching, toggleExpanded, openFile, draggingPath, dropTargetPath, fs, root } =
   useWorkspace()
 
-// 路径格式只由 `joinPath` 决定 —— 树、标签、面包屑三处必须给出同一个键。
-const fullPath = computed(() => joinPath(props.parentPath, props.node.name))
+// 节点的 id 就是完整工作区路径（见 `lib/fs/policy` 的 `folderNode` / `fileNode`）。
+// 整合视图把数据表挂到笔记名下，这时「父目录 + 名字」拼不出表的真实路径，只能读 id。
+const fullPath = computed(() => props.node.id)
 
 const isFolder = computed(() => props.node.kind === "folder")
 /** 数据表节点。与 `isFolder` 一起构成三种形态 —— 它们不重叠。 */
 const isTable = computed(() => props.node.kind === "table")
+/**
+ * 整合视图开着（`refs` 有定义，哪怕是空数组）。判据只看字段定义与否：
+ * 空数组表示「这篇没引用表」，后缀照样要隐，不能让它看起来像没开整合。
+ */
+const isIntegrated = computed(() => props.node.kind === "note" && props.node.refs !== undefined)
+/** 笔记名隐去 `.html` / `.htm`；数据表仍带 `.tbl`，两种文件的读法要能分辨。 */
+const label = computed(() => (isIntegrated.value ? fileStem(props.node.name) : props.node.name))
+const refs = computed(() => props.node.refs ?? [])
+const hasRefs = computed(() => refs.value.length > 0)
 /** 搜索态下一律展开，否则命中的子项会被折叠藏起来。 */
 const isOpen = computed(() => isSearching.value || expandedIds.value.has(props.node.id))
+/** 笔记引用的展开态：与文件夹共用 `expandedIds`，但搜索不自动摊开 —— 引用是附属信息，不是命中项。 */
+const isRefsOpen = computed(() => expandedIds.value.has(props.node.id))
 const isActive = computed(() => !isFolder.value && activePath.value === fullPath.value)
 
 /** 这个节点正在被拖 —— 源行画淡，让用户看清自己拖的是哪个。 */
@@ -98,7 +108,7 @@ function startDrag(event: DragEvent) {
 </script>
 
 <template>
-  <Collapsible v-if="isFolder" :open="isOpen" @update:open="toggleFolder(node.id)">
+  <Collapsible v-if="isFolder" :open="isOpen" @update:open="toggleExpanded(node.id)">
     <!-- 触发区是**整行**：原来就是整行可点，把 trigger 收到内层会让缩进区与
          「行右缘的空白」点不动 —— 用户会以为折叠坏了。`+` 按钮用 `@click.stop`
          把自己摘出去，既不折叠也不影响行。 -->
@@ -186,7 +196,6 @@ function startDrag(event: DragEvent) {
         :key="child.id"
         :node="child"
         :depth="depth + 1"
-        :parent-path="fullPath"
         @create="(parent, kind) => emit('create', parent, kind)"
         @rename="(path, kind) => emit('rename', path, kind)"
         @remove="(path, kind) => emit('remove', path, kind)"
@@ -194,70 +203,99 @@ function startDrag(event: DragEvent) {
     </CollapsibleContent>
   </Collapsible>
 
-  <div
-    v-else
-    draggable="true"
-    :class="cn(
-      ROW,
-      isActive ? 'bg-selection font-medium text-selection-foreground' : 'text-foreground/80',
-      isDragging && 'opacity-50',
-    )"
-    :style="rowStyle"
-    :data-tree-kind="node.kind"
-    :data-tree-path="fullPath"
-    @dragstart="startDrag"
-    @dragend="draggingPath = ''"
-    @click="openFile(fullPath)"
-  >
-    <!-- 数据表一个图标、笔记一个：树上两行同名文件时，这是唯一的区分线索。 -->
-    <DatabaseIcon
-      v-if="isTable"
-      :class="cn('size-3.5 shrink-0', isActive ? 'text-selection-foreground' : 'text-muted-foreground')"
-    />
-    <FileTextIcon
-      v-else
-      :class="cn('size-3.5 shrink-0', isActive ? 'text-selection-foreground' : 'text-muted-foreground')"
-    />
-    <span class="min-w-0 flex-1 truncate">{{ node.name }}</span>
-    <DropdownMenu>
-      <DropdownMenuTrigger as-child>
-        <!-- `draggable=false` 与文件夹行的 `+` 同一个坑：不关掉拖拽继承，按住按钮
-             会启动整行拖拽而不是点开菜单。 -->
-        <button
-          type="button"
-          draggable="false"
-          :class="MENU_BUTTON"
-          aria-label="更多操作"
-          @click.stop
-        >
-          <EllipsisIcon class="size-3.5" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <template v-if="isDesktop">
-          <DropdownMenuItem class="gap-2 text-[13px]" @select="copyPath">
-            <CopyIcon class="size-3.5 text-muted-foreground" />
-            <span>复制路径</span>
+  <!-- 文件行（笔记 / 数据表）。整合视图把引用表挂在笔记名下，所以行外面套一层
+       Collapsible —— 但触发区**不是**整行：点行要打开文件，只有右端的箭头才折叠。 -->
+  <Collapsible v-else :open="isRefsOpen">
+    <div
+      draggable="true"
+      :class="cn(
+        ROW,
+        isActive ? 'bg-selection font-medium text-selection-foreground' : 'text-foreground/80',
+        isDragging && 'opacity-50',
+      )"
+      :style="rowStyle"
+      :data-tree-kind="node.kind"
+      :data-tree-path="fullPath"
+      @dragstart="startDrag"
+      @dragend="draggingPath = ''"
+      @click="openFile(fullPath)"
+    >
+      <!-- 数据表一个图标、笔记一个：树上两行同名文件时，这是唯一的区分线索。 -->
+      <DatabaseIcon
+        v-if="isTable"
+        :class="cn('size-3.5 shrink-0', isActive ? 'text-selection-foreground' : 'text-muted-foreground')"
+      />
+      <FileTextIcon
+        v-else
+        :class="cn('size-3.5 shrink-0', isActive ? 'text-selection-foreground' : 'text-muted-foreground')"
+      />
+      <span class="min-w-0 flex-1 truncate">{{ label }}</span>
+      <DropdownMenu>
+        <DropdownMenuTrigger as-child>
+          <!-- `draggable=false` 与文件夹行的 `+` 同一个坑：不关掉拖拽继承，按住按钮
+               会启动整行拖拽而不是点开菜单。 -->
+          <button
+            type="button"
+            draggable="false"
+            :class="MENU_BUTTON"
+            aria-label="更多操作"
+            @click.stop
+          >
+            <EllipsisIcon class="size-3.5" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <template v-if="isDesktop">
+            <DropdownMenuItem class="gap-2 text-[13px]" @select="copyPath">
+              <CopyIcon class="size-3.5 text-muted-foreground" />
+              <span>复制路径</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem class="gap-2 text-[13px]" @select="revealInFileManager">
+              <FolderOpenIcon class="size-3.5 text-muted-foreground" />
+              <span>打开所在位置</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem v-if="isHtmlFile" class="gap-2 text-[13px]" @select="openInBrowser">
+              <GlobeIcon class="size-3.5 text-muted-foreground" />
+              <span>用浏览器打开</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </template>
+          <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('rename', fullPath, node.kind)">
+            <PencilIcon class="size-3.5 text-muted-foreground" />
+            <span>重命名</span>
           </DropdownMenuItem>
-          <DropdownMenuItem class="gap-2 text-[13px]" @select="revealInFileManager">
-            <FolderOpenIcon class="size-3.5 text-muted-foreground" />
-            <span>打开所在位置</span>
+          <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('remove', fullPath, node.kind)">
+            <TrashIcon class="size-3.5 text-muted-foreground" />
+            <span>删除</span>
           </DropdownMenuItem>
-          <DropdownMenuItem v-if="isHtmlFile" class="gap-2 text-[13px]" @select="openInBrowser">
-            <GlobeIcon class="size-3.5 text-muted-foreground" />
-            <span>用浏览器打开</span>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-        </template>
-        <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('rename', fullPath, node.kind)">
-          <PencilIcon class="size-3.5 text-muted-foreground" />
-          <span>重命名</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('remove', fullPath, node.kind)">
-          <TrashIcon class="size-3.5 text-muted-foreground" />
-          <span>删除</span>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <!-- 引用展开箭头：常显（不随 hover），因为它是「这篇笔记下挂着东西」的唯一线索。
+           点它只折叠/展开，`@click.stop` 挡住行本身的“打开文件”。 -->
+      <button
+        v-if="hasRefs"
+        type="button"
+        draggable="false"
+        class="grid size-5 shrink-0 place-items-center rounded text-muted-foreground transition-colors hover:bg-muted-strong hover:text-foreground"
+        :aria-expanded="isRefsOpen"
+        :aria-label="isRefsOpen ? '收起引用的数据表' : '展开引用的数据表'"
+        @click.stop="toggleExpanded(node.id)"
+      >
+        <ChevronRightIcon
+          :class="cn('size-3.5 transition-transform', isRefsOpen && 'rotate-90')"
+        />
+      </button>
+    </div>
+    <CollapsibleContent v-if="hasRefs">
+      <FileTreeNode
+        v-for="child in refs"
+        :key="child.id"
+        :node="child"
+        :depth="depth + 1"
+        @create="(parent, kind) => emit('create', parent, kind)"
+        @rename="(path, kind) => emit('rename', path, kind)"
+        @remove="(path, kind) => emit('remove', path, kind)"
+      />
+    </CollapsibleContent>
+  </Collapsible>
 </template>

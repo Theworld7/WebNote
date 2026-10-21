@@ -266,7 +266,7 @@ pnpm icon           # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | 区域 | 页面 |
 | :-- | :-- |
 | 解析与往返 | `parse-check`、`inline-check` |
-| 编辑器交互 | `tab-check`、`toolbar-check`、`sidebar-check`、`drag-check`、`split-check`、`cell-check`、`undo-check`、`menu-nav-check`、`focus-check` |
+| 编辑器交互 | `tab-check`、`toolbar-check`、`sidebar-check`、`tree-integration-check`、`drag-check`、`split-check`、`cell-check`、`undo-check`、`menu-nav-check`、`focus-check` |
 | 块类型 | `table-check`、`table-align-check`、`data-table-check`、`gallery-check`、`kanban-check`、`ledger-check`、`ledger-edit-check`、`subscription-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check` |
 | 样式与外观 | `typography-check`、`theme-check`、`theme-mode-check`、`page-style-check`、`settings-check` |
 | 文件操作 | `create-check`、`move-check` |

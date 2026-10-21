@@ -1,8 +1,8 @@
-import type { InjectionKey } from "vue"
+import type { InjectionKey, Ref } from "vue"
 import type { Block, BlockSettingsPatch, BlockType, ChatMessage, CloseStrategy, CreateTarget, FileNode, InlineRun, LayoutMode, OpenTab, TableAlign, TableCell } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref, watch } from "vue"
-import { CELL_EXCLUDED_TYPES, cloneBlock, countChars, createBlock, createBlockId, createBookmarkBlock, createDataTableBlock, createGalleryBlock, createKanbanBlock, createLedgerBlock, createStatBlock, createSubscriptionBlock, isReferenceBlock, isTextualBlock, retypeBlock } from "@/lib/blocks"
+import { CELL_EXCLUDED_TYPES, cloneBlock, countChars, createBlock, createBlockId, createBookmarkBlock, createDataTableBlock, createGalleryBlock, createKanbanBlock, createLedgerBlock, createStatBlock, createSubscriptionBlock, isReferenceBlock, isTextualBlock, refPathsOf, retypeBlock } from "@/lib/blocks"
 import { createLedgerPreset } from "@/lib/ledger"
 import { createSubscriptionPreset } from "@/lib/subscription"
 import type { DataTable } from "@/types/data-table"
@@ -48,6 +48,14 @@ function withFlag(source: ReadonlySet<string>, value: string, on: boolean): Set<
   if (on) next.add(value)
   else next.delete(value)
   return next
+}
+
+/** 深度优先遍历整棵树（含递归目录）。整合视图与引用扫描共用同一条走法。 */
+function eachNode(nodes: readonly FileNode[], visit: (node: FileNode) => void): void {
+  for (const node of nodes) {
+    visit(node)
+    if (node.kind === "folder") eachNode(node.children ?? [], visit)
+  }
 }
 
 /**
@@ -122,6 +130,131 @@ function createWorkspace() {
   const visibleTree = computed<FileNode[]>(() => {
     if (!isSearching.value) return tree.value
     return filterNodes(tree.value, query.value.trim().toLowerCase())
+  })
+
+  /**
+   * 整合数据表视图的引用映射：笔记路径 → 它引用的 `.tbl` 路径。
+   *
+   * 只在偏好打开时维护。树形状一变就重算（见 `attachIntegrateTables`）；
+   * 盘上解析结果按路径缓存一份，避免每次新建 / 移动都把整个库重读一遍。
+   * 已打开且读过盘的笔记以内存里的块为准 —— 用户刚改过的引用不必等保存就生效。
+   */
+  const noteTableRefs = ref<Record<string, string[]>>({})
+
+  /** 引用扫描的盘上缓存。换库、手动刷新时整份作废。 */
+  const refCache = new Map<string, string[]>()
+
+  /** 偏好 ref 在 `App.vue` 里经 `attachIntegrateTables` 接上；没接上就是关闭态。 */
+  let integrateEnabled: Ref<boolean> | null = null
+
+  /** 扫描代币：树在扫描期间又变了，旧结果直接丢弃。 */
+  let refsEpoch = 0
+
+  /**
+   * 重算「笔记 → 引用的表」。只收当前树里真实存在的表 —— 引用失效（表被移走或删了）
+   * 不往树上挂幽灵行，与引用块渲染成提示态是同一立场。
+   */
+  async function refreshNoteTableRefs() {
+    const epoch = ++refsEpoch
+    const driver = fs.value
+    const current = root.value
+    if (integrateEnabled?.value !== true || driver === null || current === null) {
+      noteTableRefs.value = {}
+      return
+    }
+
+    const notes: string[] = []
+    const tables = new Set<string>()
+    eachNode(tree.value, (node) => {
+      if (node.kind === "note") notes.push(node.id)
+      else if (node.kind === "table") tables.add(node.id)
+    })
+
+    const live = new Set(notes)
+    for (const path of refCache.keys()) if (!live.has(path)) refCache.delete(path)
+
+    const next: Record<string, string[]> = {}
+    for (const path of notes) {
+      if (epoch !== refsEpoch) return
+      const open = documents.value[path]
+      let refs: string[] | undefined = open === undefined ? refCache.get(path) : refPathsOf(open)
+      if (refs === undefined) {
+        try {
+          refs = refPathsOf(parseNote(await driver.readNote(current, path)).blocks)
+        } catch {
+          // 读不回来（权限、外部删除）就跳过这篇 —— 整棵树不该因为一篇坏文件长不出来。
+          continue
+        }
+        refCache.set(path, refs)
+      }
+      const resolved = refs.filter((tablePath) => tables.has(tablePath))
+      if (resolved.length > 0) next[path] = resolved
+    }
+    if (epoch !== refsEpoch) return
+    noteTableRefs.value = next
+  }
+
+  /**
+   * 接上「整合数据表视图」这个偏好。与 `attachStore` 同一个模式：工作区在根组件里
+   * 先于设置创建，不能直接 `inject` 设置，只能由 `App.vue` 把 ref 递进来。
+   */
+  function attachIntegrateTables(enabled: Ref<boolean>) {
+    integrateEnabled = enabled
+    // 偏好切换与树变化都重算；`immediate` 兜「启动时偏好已是开」的情况。
+    watch([enabled, tree], () => void refreshNoteTableRefs(), { immediate: true })
+  }
+
+  /**
+   * 真正给文件树看的树。
+   *
+   * 整合视图只改**呈现**：被任何笔记引用的表从原位置摘掉，挂到引用它的笔记名下
+   * （同一张表可以被多篇笔记各挂一份）；笔记节点始终带 `refs`（可能为空数组），
+   * 这是「后缀该不该隐」的判据。没开偏好时原样返回搜索结果。
+   */
+  const displayTree = computed<FileNode[]>(() => {
+    if (integrateEnabled?.value !== true) return visibleTree.value
+
+    const tables = new Map<string, FileNode>()
+    eachNode(tree.value, (node) => {
+      if (node.kind === "table") tables.set(node.id, node)
+    })
+
+    const referenced = new Set<string>()
+    for (const paths of Object.values(noteTableRefs.value)) {
+      for (const path of paths) referenced.add(path)
+    }
+
+    // 搜索时只保留「笔记名隐后缀」，不再把表从原位置收走、也不往笔记下挂引用：
+    // 搜索是一张扁平命中表，把命中的表藏进某篇笔记里等于让它搜不到。
+    const folding = !isSearching.value
+
+    const build = (nodes: readonly FileNode[]): FileNode[] => {
+      const result: FileNode[] = []
+      for (const node of nodes) {
+        if (node.kind === "table") {
+          if (!folding || !referenced.has(node.id)) result.push(node)
+          continue
+        }
+        if (node.kind === "folder") {
+          const children = node.children ?? []
+          const next = build(children)
+          // 只隐藏「原来有内容、现在被整合吃空」的文件夹；盘上本来就空的文件夹
+          // 保持原样 —— 树仍要如实反映磁盘，不替用户删目录。
+          if (children.length > 0 && next.length === 0) continue
+          result.push({ ...node, children: next })
+          continue
+        }
+        const refs: FileNode[] = []
+        for (const path of folding ? noteTableRefs.value[node.id] ?? [] : []) {
+          const table = tables.get(path)
+          if (table !== undefined) refs.push(table)
+        }
+        result.push({ ...node, refs })
+      }
+      return result
+    }
+
+    return build(visibleTree.value)
   })
 
   /**
@@ -218,6 +351,9 @@ function createWorkspace() {
     loadedPaths.value = new Set()
     loadingPaths.value = new Set()
     expandedIds.value = new Set()
+    // 换库 = 换语境：上一个库的引用解析结果对新树里的同名路径不成立。
+    refCache.clear()
+    noteTableRefs.value = {}
     query.value = ""
     fsError.value = ""
 
@@ -262,6 +398,8 @@ function createWorkspace() {
     scanning.value = true
     try {
       tree.value = await driver.scanTree(current)
+      // 手动刷新等于「盘上内容可能被应用外改过」：引用缓存整份作废，逐篇重读。
+      refCache.clear()
       for (const tab of tabs.value) {
         if (tab.dirty || isTableFile(fileName(tab.path)) || !loadedPaths.value.has(tab.path)) continue
         if (tab.path === activePath.value) {
@@ -468,6 +606,9 @@ function createWorkspace() {
       delete documents.value[path]
       delete styles.value[path]
       history.delete(path)
+      // 丢弃 = 退回盘上真相：引用关系也要按盘上那份重算。
+      refCache.delete(path)
+      void refreshNoteTableRefs()
     }
     closeTab(path)
   }
@@ -477,7 +618,8 @@ function createWorkspace() {
     pendingClosePath.value = null
   }
 
-  function toggleFolder(id: string) {
+  /** 折叠 / 展开一个节点。文件夹与「整合视图里挂了引用的笔记」共用这一个集合。 */
+  function toggleExpanded(id: string) {
     const next = new Set(expandedIds.value)
     if (next.has(id)) next.delete(id)
     else next.add(id)
@@ -535,6 +677,9 @@ function createWorkspace() {
     // 写成功了才清脏态。
     tab.dirty = false
     tab.dirtyTables = []
+    // 引用关系可能刚被改过：整合视图立刻跟上，不必等下一次树变化。
+    refCache.delete(path)
+    void refreshNoteTableRefs()
   }
 
   /** 保存按钮：保存当前激活标签。 */
@@ -1650,6 +1795,7 @@ function createWorkspace() {
   return {
     // state
     tree: visibleTree,
+    displayTree,
     query,
     isSearching,
     expandedIds,
@@ -1688,6 +1834,8 @@ function createWorkspace() {
     attachTableFlush,
     attachTableReload,
     attachTableCreate,
+    // 整合数据表视图：偏好由 `App.vue` 递进来，工作区自己不认识设置模块。
+    attachIntegrateTables,
     // file actions
     openFile,
     activateTab,
@@ -1695,7 +1843,7 @@ function createWorkspace() {
     requestCloseTab,
     resolveClose,
     cancelPendingClose,
-    toggleFolder,
+    toggleExpanded,
     save,
     saveTab,
     markDirty,

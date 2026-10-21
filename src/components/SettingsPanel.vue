@@ -7,6 +7,7 @@ import {
   CheckIcon,
   ClockIcon,
   Columns2Icon,
+  FolderTreeIcon,
   ListIcon,
   MonitorIcon,
   MoonIcon,
@@ -45,7 +46,7 @@ import FontPicker from "./FontPicker.vue"
  */
 const open = defineModel<boolean>("open", { required: true })
 
-const { tableEffect, setTableEffect, contentWidth, setContentWidth, menuGroupLayout, setMenuGroupLayout, contentFont, setContentFont, codeFont, setCodeFont, theme, setTheme } = useSettings()
+const { tableEffect, setTableEffect, contentWidth, setContentWidth, menuGroupLayout, setMenuGroupLayout, integrateTables, setIntegrateTables, contentFont, setContentFont, codeFont, setCodeFont, theme, setTheme } = useSettings()
 
 /**
  * 本机字体列表。打开面板时才去取（桌面端要扫一遍系统字体），拿到之前选择框里
@@ -371,6 +372,32 @@ function optionClass(isActive: boolean): string {
                   <span class="text-[11.5px] leading-[1.45] text-muted-foreground">{{ option.hint }}</span>
                 </button>
               </div>
+            </section>
+
+            <section class="flex flex-col gap-2">
+              <h3 class="text-[13px] font-medium text-foreground">文件树</h3>
+              <SheetDescription>开启后被笔记引用的数据表收进笔记名下，树更清爽。</SheetDescription>
+
+              <!-- 单独一项布尔偏好：它不是「几选一」，所以不给它凑成两条互斥选项。 -->
+              <button
+                type="button"
+                role="switch"
+                :aria-checked="integrateTables"
+                :class="[
+                  'mt-0.5 flex items-start gap-2.5 rounded-[9px] border p-2.5 text-left transition-colors',
+                  optionClass(integrateTables),
+                ]"
+                @click="setIntegrateTables(!integrateTables)"
+              >
+                <FolderTreeIcon class="mt-0.5 size-4 flex-none text-muted-foreground" />
+                <span class="flex min-w-0 flex-col gap-0.5">
+                  <span class="text-[13px] leading-[1.4] text-foreground">整合数据表视图</span>
+                  <span class="text-[11.5px] leading-[1.45] text-muted-foreground">
+                    被引用的数据表挂在引用它的笔记下，笔记名隐去 .html 后缀
+                  </span>
+                </span>
+                <CheckIcon v-if="integrateTables" class="ml-auto mt-0.5 size-3.5 flex-none text-foreground" />
+              </button>
             </section>
 
             <section class="flex flex-col gap-2">

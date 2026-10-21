@@ -456,6 +456,14 @@ export interface FileNode {
   name: string
   kind: "folder" | "note" | "table"
   children?: FileNode[]
+  /**
+   * 整合数据表视图里挂在这篇笔记名下的引用数据表（展示层专用）。
+   *
+   * 只由 `useWorkspace` 的 `displayTree` 填，扫描驱动从不写它。`undefined` = 整合视图
+   * 没开，笔记仍显示 `.html` 后缀；空数组 = 视图开着但这篇没引用表，后缀同样要隐掉。
+   * 两种状态必须分开，否则「没引用表的笔记」会看起来像没开整合。
+   */
+  refs?: FileNode[]
 }
 
 /** 已打开的标签页。path 是唯一键，形如 `日记 / 2026-10-08.html`。 */

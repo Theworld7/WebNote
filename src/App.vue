@@ -12,7 +12,7 @@ import EditorSurface from "@/components/EditorSurface.vue"
 import EditorTabBar from "@/components/EditorTabBar.vue"
 import PaneResizer from "@/components/PaneResizer.vue"
 
-const { hasDirty, bootstrap, fs, root, attachTableLookup, attachTablePreload, attachTableFlush, attachTableReload, attachTableCreate } =
+const { hasDirty, bootstrap, fs, root, attachTableLookup, attachTablePreload, attachTableFlush, attachTableReload, attachTableCreate, attachIntegrateTables } =
   provideWorkspace()
 // 数据表注册表与工作区**共用同一对 driver / root**：切目录时两者必须一起换语境，
 // 各持一份引用迟早对不齐（见 useTables 的注释）。
@@ -40,6 +40,8 @@ attachTableCreate(async (fsDriver, fsRoot, path, initial) => {
 // 接上 driver / root 这对引用后，偏好才多落一份到工作区根的 webnote.json（换目录重读）。
 const settings = provideSettings()
 settings.attachStore(fs, root)
+// 文件树的整合视图是「设置驱动的呈现」：工作区先创建、不认识设置，所以把偏好 ref 递进去。
+attachIntegrateTables(settings.integrateTables)
 // 配色推导读上面那份偏好，所以在它之后 provide；它顺手把 `.dark` 挂到 <html> 上，
 // 之后标签栏那颗按钮与设置面板都从这里取同一份状态。
 provideTheme(settings)

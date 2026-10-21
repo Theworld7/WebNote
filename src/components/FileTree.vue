@@ -6,7 +6,7 @@ import { useWorkspace } from "@/composables/useWorkspace"
 import { closestTreeRow } from "@/lib/dom"
 import FileTreeNode from "./FileTreeNode.vue"
 
-const { tree, hasRoot, scanning, isSearching, draggingPath, dropTargetPath, moveFileTo, dismissError } =
+const { displayTree, hasRoot, scanning, isSearching, draggingPath, dropTargetPath, moveFileTo, dismissError } =
   useWorkspace()
 
 /** 新建请求往上冒给 `AppSidebar` —— 对话框挂在那儿，树本身不开弹窗。重命名 / 删除同理。 */
@@ -27,7 +27,7 @@ const message = computed(() => {
   // 这里不再说「还没有打开目录」—— 编辑区空态已经说过一遍了。
   // 侧栏的位置更该指出动作，所以只说该点哪儿。
   if (!hasRoot.value) return "点上方「打开文件夹」挑一个目录"
-  if (tree.value.length > 0) return ""
+  if (displayTree.value.length > 0) return ""
   if (isSearching.value) return "没有匹配的笔记"
   // 现在认两种文件，文案要跟着说清楚哪两种 —— 只说 .html 会让放了 .tbl 的用户
   // 以为自己的文件没被认出来。
@@ -103,11 +103,10 @@ async function onDrop(event: DragEvent) {
       </p>
       <template v-else>
         <FileTreeNode
-          v-for="node in tree"
+          v-for="node in displayTree"
           :key="node.id"
           :node="node"
           :depth="0"
-          parent-path=""
           @create="(parentPath, kind) => emit('create', parentPath, kind)"
           @rename="(path, kind) => emit('rename', path, kind)"
           @remove="(path, kind) => emit('remove', path, kind)"
