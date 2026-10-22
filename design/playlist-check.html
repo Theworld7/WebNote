@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>歌单块自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>歌单块：字段角色识别、在线封面、取值与时长、模糊搜索、纯文本导出、快照+指针往返、多表绑定</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { BLOCK_TYPES, CELL_EXCLUDED_TYPES, REFERENCE_BLOCK_TYPES, REFERENCE_INSERT_SPEC, blockText, cloneBlock, createBlock, createPlaylistBlock, createPlaylistBlockFrom, createTextualBlock, retypeBlock } from "../src/lib/blocks.ts"
+import {
+  createPlaylistPreset,
+  createPlaylistSource,
+  decodePlaylistSources,
+  encodePlaylistSources,
+  looksLikeImageSource,
+  playlistActivePath,
+  playlistActiveSource,
+  playlistCover,
+  playlistDuration,
+  playlistIsEmpty,
+  playlistMatches,
+  playlistPlainText,
+  playlistRoles,
+  playlistSearchText,
+  playlistText,
+  playlistTitle,
+  totalDurationText,
+} from "../src/lib/playlist.ts"
+import { emptyColumn, emptyRow, setCell } from "../src/lib/data-table.ts"
+import { blocksToHtml } from "../src/lib/html/serialize.ts"
+import { parseHtml } from "../src/lib/html/parse.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+let step = "块类型登记"
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  document.getElementById("out").textContent = `running: ${step}\n${lines.join("\n")}`
+}
+
+function note(next) {
+  step = next
+  document.getElementById("out").textContent = `running: ${step}\n${lines.join("\n")}`
+}
+note(step)
+
+// ---------- 一、块类型登记 ----------
+
+const meta = BLOCK_TYPES.find((m) => m.type === "playlist")
+check("BLOCK_TYPES 里有 playlist", meta !== undefined)
+check("marker 是 ♪", meta?.marker === "♪", `实际 ${meta?.marker}`)
+check("label 是 歌单", meta?.label === "歌单", `实际 ${meta?.label}`)
+check("紧挨 subscription（在它后面）",
+  BLOCK_TYPES.findIndex((m) => m.type === "playlist") === BLOCK_TYPES.findIndex((m) => m.type === "subscription") + 1)
+check("initials 不与其它类型冲突",
+  BLOCK_TYPES.filter((m) => m.initials === "gd").length === 1)
+check("歌单块不能进布局格子（与账目同一条选表分流）", CELL_EXCLUDED_TYPES.includes("playlist"))
+check("算引用块（保存前会 preload 那张表）", REFERENCE_BLOCK_TYPES.includes("playlist"))
+
+// ---------- 二、预设表与自动识别 ----------
+
+note("预设表与自动识别")
+
+const preset = createPlaylistPreset()
+const cols = preset.table.columns
+const columnOf = (name) => cols.find((column) => column.name === name)
+
+check("预设表五列", cols.map((c) => c.name).join("/") === "歌名/歌手/专辑/时长/封面", cols.map((c) => c.name).join("/"))
+check("时长是文本列（人写的是 3:45）", columnOf("时长")?.type === "text", columnOf("时长")?.type)
+check("封面是图片列", columnOf("封面")?.type === "image", columnOf("封面")?.type)
+check("预设表带一行空行", preset.table.rows.length === 1)
+
+const auto = playlistRoles(cols, createPlaylistSource("歌单.tbl"))
+check("自动认出歌名列", auto.title?.name === "歌名", auto.title?.name)
+check("自动认出副标题列（歌手）", auto.subtitle?.name === "歌手", auto.subtitle?.name)
+check("自动认出时长列", auto.duration?.name === "时长", auto.duration?.name)
+check("自动认出封面列", auto.cover?.name === "封面", auto.cover?.name)
+check("专辑列没被误认成时长", auto.duration?.name !== "专辑")
+
+// 显式映射优先
+const explicit = playlistRoles(cols, createPlaylistSource("歌单.tbl", { subtitle: columnOf("专辑").id }))
+check("显式映射优先：副标题指向专辑列", explicit.subtitle?.name === "专辑", explicit.subtitle?.name)
+
+// 指向已删的列 → 退回自动识别
+const stale = playlistRoles(cols, createPlaylistSource("歌单.tbl", { subtitle: "gone" }))
+check("映射指向已删列时退回自动识别", stale.subtitle?.name === "歌手", stale.subtitle?.name)
+
+// 列名完全无线索：按类型与位置兜底
+const blindCols = [emptyColumn("A", "text"), emptyColumn("B", "text"), emptyColumn("C", "image")]
+const blind = playlistRoles(blindCols, createPlaylistSource("x.tbl"))
+check("无线索时歌名取第一个文本列", blind.title?.name === "A", blind.title?.name)
+check("无线索时副标题取下一个文本列", blind.subtitle?.name === "B", blind.subtitle?.name)
+check("无线索时封面取图片列", blind.cover?.name === "C", blind.cover?.name)
+check("无线索时时长留空（不按文本兜底）", blind.duration === null, blind.duration?.name)
+
+// ---------- 二·五、在线封面 ----------
+
+note("在线封面")
+
+check("data URI 算图片地址", looksLikeImageSource("data:image/png;base64,AAA"))
+check("http 地址算图片地址", looksLikeImageSource("https://p1.music.126.net/a.jpg"))
+check("图片后缀的相对路径算图片地址", looksLikeImageSource("covers/a.png"))
+check("普通人名不算图片地址", !looksLikeImageSource("周杰伦"))
+check("空串不算图片地址", !looksLikeImageSource("  "))
+
+// 封面是文本列、名字就叫「封面」—— 数据表里图片列只能存本地选的图，在线封面必然落在文本列
+const urlCols = [emptyColumn("歌名", "text"), emptyColumn("歌手", "text"), emptyColumn("封面", "text")]
+const urlRoles = playlistRoles(urlCols, createPlaylistSource("u.tbl"))
+check("文本列叫「封面」时直接当封面列", urlRoles.cover?.name === "封面", urlRoles.cover?.name)
+
+const urlRow = setCell(setCell(emptyRow(urlCols), urlCols[0].id, "晴天"), urlCols[2].id, "https://p1.music.126.net/a.jpg")
+check("在线封面取出地址", playlistCover(urlRow, urlRoles) === "https://p1.music.126.net/a.jpg", playlistCover(urlRow, urlRoles))
+check("封面格里写的不是地址时不渲染",
+  playlistCover(setCell(urlRow, urlCols[2].id, "周杰伦"), urlRoles) === "",
+  playlistCover(setCell(urlRow, urlCols[2].id, "周杰伦"), urlRoles))
+
+// 列名没线索时按**值**认封面列
+const oddCols = [emptyColumn("标题", "text"), emptyColumn("歌手", "text"), emptyColumn("图", "text")]
+const oddRow = setCell(emptyRow(oddCols), oddCols[2].id, "https://x.test/y.png")
+const oddRoles = playlistRoles(oddCols, createPlaylistSource("o.tbl"), [oddRow])
+check("列名没线索时按值认出封面列", oddRoles.cover?.name === "图", oddRoles.cover?.name)
+check("没有值线索时封面留空", playlistRoles(oddCols, createPlaylistSource("o.tbl")) .cover === null)
+
+// ---------- 三、取值与时长 ----------
+
+note("取值与时长")
+
+const mkRow = (title, artist, album, duration) => {
+  let row = emptyRow(cols)
+  row = setCell(row, columnOf("歌名").id, title)
+  row = setCell(row, columnOf("歌手").id, artist)
+  row = setCell(row, columnOf("专辑").id, album)
+  row = setCell(row, columnOf("时长").id, duration)
+  return row
+}
+
+const song = mkRow("晴天", "周杰伦", "叶惠美", "269")
+check("歌名取值", playlistTitle(song, auto) === "晴天", playlistTitle(song, auto))
+check("副标题取值", playlistText(song, auto.subtitle) === "周杰伦")
+check("纯秒数补成 m:ss", playlistDuration(song, auto) === "4:29", playlistDuration(song, auto))
+check("已经是 m:ss 的原样显示",
+  playlistDuration(setCell(song, columnOf("时长").id, "3:45"), auto) === "3:45")
+check("时长留空不显示",
+  playlistDuration(setCell(song, columnOf("时长").id, null), auto) === "")
+
+const empty = emptyRow(cols)
+check("预设表那行空行算空行", playlistIsEmpty(empty, auto))
+check("填了歌名就不算空行", !playlistIsEmpty(song, auto))
+check("没歌名时标题兜底成「未命名曲目」", playlistTitle(empty, auto) === "未命名曲目", playlistTitle(empty, auto))
+
+const tracks = [mkRow("晴天", "周杰伦", "叶惠美", "269"), mkRow("七里香", "周杰伦", "七里香", "299")]
+check("总时长是各首之和", totalDurationText(tracks, auto) === "9:28", totalDurationText(tracks, auto))
+check("没时长时不编一个 0:00", totalDurationText([emptyRow(cols)], auto) === "", totalDurationText([emptyRow(cols)], auto))
+
+// ---------- 三·五、模糊搜索 ----------
+
+note("模糊搜索")
+
+const 晴天 = mkRow("晴天", "周杰伦", "叶惠美", "269")
+const 七里香 = mkRow("七里香", "周杰伦", "七里香", "299")
+const 李香兰 = mkRow("李香兰", "张学友", "吻别", "268")
+const yellow = mkRow("Yellow", "Coldplay", "Parachutes", "266")
+const matched = (row, query) => playlistMatches(row, auto, cols, query)
+
+check("空查询匹配所有（不过滤）", matched(晴天, "") && matched(李香兰, "   "))
+check("歌名命中", matched(晴天, "晴天") && !matched(七里香, "晴天"))
+check("歌手命中（副标题）", matched(晴天, "周杰伦") && !matched(李香兰, "周杰伦"))
+check("专辑也命中——搜索走全部文本列，不只是四个映射列",
+  matched(晴天, "叶惠美") && matched(七里香, "叶惠美") === false,
+  `叶惠美 → ${matched(晴天, "叶惠美")}`)
+check("大小写不敏感", matched(yellow, "coldPLAY") && matched(yellow, "PARACHUTES"))
+check("多个词是全部命中，不是任一命中", matched(晴天, "周杰伦 晴天") && !matched(七里香, "周杰伦 晴天"))
+check("词的顺序无关", matched(晴天, "晴天 周杰伦"))
+check("时长列不参与搜索（搜 269 不该命中这首）", !matched(晴天, "269"))
+check("封面列不参与搜索（文本列当封面时也不搜它的地址）",
+  !playlistMatches(urlRow, urlRoles, urlCols, "music.126"),
+  playlistSearchText(urlRow, urlRoles, urlCols))
+check("完全没线索的词不命中", !matched(晴天, "薛之谦"))
+check("搜到的集合顺序与表内顺序一致", (() => {
+  const hits = [晴天, 七里香, 李香兰, yellow].filter((row) => matched(row, "周杰伦"))
+  return hits.length === 2 && hits[0] === 晴天 && hits[1] === 七里香
+})())
+
+// ---------- 三·六、纯文本导出 ----------
+
+note("纯文本导出")
+
+check("一首:歌名 - 歌手", playlistPlainText([晴天], auto) === "晴天 - 周杰伦", JSON.stringify(playlistPlainText([晴天], auto)))
+check("多首一行一首", playlistPlainText([晴天, 七里香], auto) === "晴天 - 周杰伦\n七里香 - 周杰伦",
+  JSON.stringify(playlistPlainText([晴天, 七里香], auto)))
+check("时长不进文本（多一段会让对方把整行当歌名）", !playlistPlainText([晴天], auto).includes("4:29"))
+check("专辑不进文本（副标题才是跟进歌名后面那一段）", !playlistPlainText([晴天], auto).includes("叶惠美"))
+check("没有歌手时只写歌名", playlistPlainText([setCell(晴天, columnOf("歌手").id, null)], auto) === "晴天",
+  JSON.stringify(playlistPlainText([setCell(晴天, columnOf("歌手").id, null)], auto)))
+check("没有歌名时只写有的那一段（不写光秃秃的「 - 」）",
+  playlistPlainText([setCell(setCell(晴天, columnOf("歌名").id, null), columnOf("歌手").id, "周杰伦")], auto) === "周杰伦")
+check("空行跳过、也不留空行尾巴", playlistPlainText([晴天, emptyRow(cols), 七里香], auto) === "晴天 - 周杰伦\n七里香 - 周杰伦")
+check("全空时导出空串（视图据此禁用复制）", playlistPlainText([emptyRow(cols)], auto) === "")
+check("导出的是传进来的那些行——搜索后复制就只复制搜到的",
+  playlistPlainText([晴天, 七里香, 李香兰].filter((row) => matched(row, "张学友")), auto) === "李香兰 - 张学友")
+
+// ---------- 四、序列化：快照 + 指针 ----------
+
+note("序列化:快照 + 指针")
+
+const block = createPlaylistBlock("歌单.tbl", preset.roles)
+const table = { version: 1, columns: cols, rows: [...tracks, emptyRow(cols)] }
+const lookup = () => table
+const html = blocksToHtml([block], lookup)
+
+check("写 data-playlist", html.includes('data-playlist="歌单.tbl"'), html.slice(0, 160))
+check("写四个字段映射属性",
+  ["data-title", "data-subtitle", "data-cover", "data-duration"].every((attr) => html.includes(`${attr}="`)),
+  html.slice(0, 400))
+check("容器是 note-playlist", html.includes('<div class="note-playlist"'), html.slice(0, 160))
+check("头部写曲目数与总时长", html.includes("2 首") && html.includes("总时长 9:28"), html)
+check("曲目行数与行数一致（空行不进快照）",
+  html.split('class="note-pl-track"').length - 1 === 2,
+  String(html.split('class="note-pl-track"').length - 1))
+check("行里有歌名、副标题、时长", html.includes("晴天") && html.includes("周杰伦") && html.includes("4:29"), html)
+check("序号从 1 起", html.includes('<span class="i">1</span>') && html.includes('<span class="i">2</span>'))
+check("缺省映射不写 data-* 字段属性",
+  !blocksToHtml([createPlaylistBlock("歌单.tbl")], lookup).includes("data-title="))
+
+check("空表只写容器不写曲目", (() => {
+  const emptyHtml = blocksToHtml([block], () => ({ version: 1, columns: cols, rows: [] }))
+  return emptyHtml.includes('data-playlist="歌单.tbl"') && !emptyHtml.includes("note-pl-track")
+})())
+check("表读不到时只写容器（设置不蒸发）",
+  (() => {
+    const orphan = blocksToHtml([block], () => null)
+    return orphan.includes('data-playlist="歌单.tbl"') && orphan.includes('data-title="') && !orphan.includes("note-pl-list")
+  })())
+
+// ---------- 五、解析往返 ----------
+
+note("解析往返")
+
+const round = parseHtml(html)
+check("往返出 1 个块", round.length === 1, `出 ${round.length}`)
+const back = round[0]
+check("往返是 playlist", back.type === "playlist", back.type)
+check("往返 path 一致", back.type === "playlist" && back.path === "歌单.tbl")
+check("往返四个映射一致",
+  back.type === "playlist" &&
+    back.sources.length === 1 &&
+    back.sources[0].titleColumnId === preset.roles.title &&
+    back.sources[0].subtitleColumnId === preset.roles.subtitle &&
+    back.sources[0].coverColumnId === preset.roles.cover &&
+    back.sources[0].durationColumnId === preset.roles.duration,
+  JSON.stringify(back))
+check("往返丢弃快照内容（块不带 rows）", back.type === "playlist" && !("rows" in back))
+
+const hand = parseHtml('<div class="note-playlist" data-playlist="手改.tbl"></div>')
+check("宽容解析:缺映射属性全落空串（继续自动识别）",
+  hand.length === 1 && hand[0].type === "playlist" && hand[0].path === "手改.tbl" && hand[0].sources[0].titleColumnId === "",
+  JSON.stringify(hand[0]))
+
+// ---------- 五·五、多表绑定 ----------
+
+note("多表绑定")
+
+const solo = createPlaylistBlock("红心.tbl")
+check("新建时只绑一张表", solo.sources.length === 1 && solo.sources[0].path === "红心.tbl")
+check("新建时 path 就是那一张", solo.path === "红心.tbl")
+
+const multiBlock = createPlaylistBlockFrom(
+  [createPlaylistSource("红心.tbl", preset.roles), createPlaylistSource("通勤.tbl")],
+  "通勤.tbl",
+)
+check("多表时 path 指向激活那张", multiBlock.path === "通勤.tbl", multiBlock.path)
+check("激活项的映射是它自己那套", playlistActiveSource(multiBlock)?.path === "通勤.tbl")
+check("每张表各存一份映射",
+  multiBlock.sources[0].titleColumnId === preset.roles.title && multiBlock.sources[1].titleColumnId === "",
+  JSON.stringify(multiBlock.sources))
+
+// 盘上数据被手改 / 旧文件对不上时，path 兜底成第一项，而不是让视图指着空的
+const drifted = createPlaylistBlockFrom([createPlaylistSource("红心.tbl")], "已经解除.tbl")
+check("path 不在列表里时退到第一项", drifted.path === "红心.tbl", drifted.path)
+check("playlistActivePath 与之一致", playlistActivePath(drifted) === "红心.tbl")
+check("空列表补一条空绑定（一块歌单永远有当前这张）",
+  createPlaylistBlockFrom([], "x.tbl").sources.length === 1 &&
+    createPlaylistBlockFrom([], "x.tbl").path === "")
+
+const multiHtml = blocksToHtml([multiBlock], lookup)
+check("多歌单写 data-sources", multiHtml.includes("data-sources="), multiHtml.slice(0, 240))
+check("单歌单不写 data-sources", !html.includes("data-sources="))
+check("多歌单快照只画当前那张（不叠两份曲目）",
+  multiHtml.split('class="note-pl-track"').length - 1 === 2,
+  String(multiHtml.split('class="note-pl-track"').length - 1))
+
+const multiBack = parseHtml(multiHtml)[0]
+check("多歌单往返:两张都回来",
+  multiBack.type === "playlist" && multiBack.sources.length === 2 && multiBack.sources[1].path === "通勤.tbl",
+  JSON.stringify(multiBack.sources))
+check("多歌单往返:激活那张不变", multiBack.type === "playlist" && multiBack.path === "通勤.tbl")
+
+check("data-sources 坏掉时退回单表属性",
+  parseHtml('<div class="note-playlist" data-playlist="a.tbl" data-title="c1" data-sources="不是JSON"></div>')[0]
+    ?.sources[0]?.titleColumnId === "c1")
+check("encode 只在两张以上时产出",
+  encodePlaylistSources([createPlaylistSource("a.tbl")]) === "" &&
+    encodePlaylistSources([createPlaylistSource("a.tbl"), createPlaylistSource("b.tbl")]) !== "")
+check("decode 丢掉没信息量的空项",
+  decodePlaylistSources('[{"path":""},{"path":"b.tbl"}]').length === 1)
+
+// ---------- 六、不与其他引用块混淆 ----------
+
+note("不与其他引用块混淆")
+
+const subs = parseHtml('<div class="note-subs" data-subscription="a.tbl"></div>')
+check("data-subscription 仍解析成订阅块", subs.length === 1 && subs[0].type === "subscription", JSON.stringify(subs[0]))
+const ledger = parseHtml('<div class="note-ledger" data-ledger="b.tbl"></div>')
+check("data-ledger 仍解析成账目块", ledger.length === 1 && ledger[0].type === "ledger", JSON.stringify(ledger[0]))
+
+// ---------- 七、块层分派 ----------
+
+note("块层分派")
+
+const created = createBlock("playlist")
+check("createBlock 造出歌单块", created.type === "playlist", created.type)
+check("cloneBlock 换 id、其余原样", (() => {
+  const original = createPlaylistBlock("歌单.tbl", { title: "c1" })
+  const copy = cloneBlock(original, "new-id")
+  return copy.id === "new-id" && copy.type === "playlist" && copy.path === "歌单.tbl" && copy.sources[0].titleColumnId === "c1"
+})())
+check("cloneBlock 深拷 sources（改副本不动原件）", (() => {
+  const original = createPlaylistBlock("歌单.tbl", { title: "c1" })
+  const copy = cloneBlock(original, "new-id")
+  copy.sources[0].titleColumnId = "c2"
+  return original.sources[0].titleColumnId === "c1"
+})())
+check("blockText 取路径", blockText(createPlaylistBlock("歌单.tbl")) === "歌单.tbl")
+check("正文转歌单块落到空块（不丢字也就没处放）", retypeBlock(createTextualBlock("text"), "playlist").type === "playlist")
+check("插入规格带预设表", (() => {
+  const spec = REFERENCE_INSERT_SPEC.playlist
+  if (spec === undefined || spec.preset === undefined) return false
+  const made = spec.preset()
+  return made.table.columns.length === 5 && made.table.rows.length === 1
+})())
+
+lines.push(`自检 ${passed}/${passed + failed}`)
+document.getElementById("out").textContent = lines.join("\n")
+</script>
+</body>
+</html>

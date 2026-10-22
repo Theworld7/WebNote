@@ -1,4 +1,4 @@
-import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, HtmlBlock, ImageBlock, KanbanBlock, LayoutBlock, LedgerBlock, MermaidBlock, StatBlock, SubscriptionBlock, TableCell, TextualBlock } from "@/types/workspace"
+import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, HtmlBlock, ImageBlock, KanbanBlock, LayoutBlock, LedgerBlock, MermaidBlock, PlaylistBlock, StatBlock, SubscriptionBlock, TableCell, TextualBlock } from "@/types/workspace"
 import type { DataColumn, DataTable, DataRow } from "@/types/data-table"
 import { GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT, LAYOUT_COLUMNS_DEFAULT, isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
@@ -25,6 +25,21 @@ import {
   summarizeSubscriptions,
 } from "@/lib/subscription"
 import type { SubscriptionRoles } from "@/lib/subscription"
+import {
+  encodePlaylistSources,
+  PLAYLIST_ROLE_ATTRS,
+  PLAYLIST_ROLE_FIELDS,
+  PLAYLIST_ROLES,
+  playlistActiveSource,
+  playlistCover,
+  playlistDuration,
+  playlistIsEmpty,
+  playlistRoles,
+  playlistText,
+  playlistTitle,
+  totalDurationText,
+} from "@/lib/playlist"
+import type { PlaylistRoles } from "@/lib/playlist"
 import { docStyle } from "@/lib/typography"
 
 /**
@@ -123,6 +138,10 @@ export function blocksToHtml(blocks: readonly Block[], lookupTables?: DataTableL
     }
     if (block.type === "subscription") {
       out.push(subscriptionHtml(block, lookup(block.path)))
+      continue
+    }
+    if (block.type === "playlist") {
+      out.push(playlistHtml(block, lookup(playlistActiveSource(block)?.path ?? "")))
       continue
     }
     if (block.type === "chat") {
@@ -684,6 +703,60 @@ function subscriptionCardHtml(row: DataRow, roles: SubscriptionRoles, today: str
       <div class="note-sub-meta">${meta.join("")}</div>
       ${footHtml}
     </article>`
+}
+
+/**
+ * 歌单块 → **曲目列表快照 + 指针**(与画册 / 订阅同一条 ADR-0006 立场)。
+ *
+ * 导出的是一份普通的 `<ol>`:序号 / 封面 / 歌名 + 副标题 / 时长,双击文件就能读。
+ * 指针属性(`data-playlist` + 四个字段映射)挂在容器上,解析端凭它认领回活块;
+ * 映射为空表示自动识别,不写属性 —— 重开时按当时列名再识别一遍。
+ *
+ * 绑了好几份歌单时,快照只写**当前激活**那一份(静态页面里没有切换器,导出两份
+ * 曲目列表才是骗人);其余绑定与它们的映射进 `data-sources`,重开时整块还原。
+ *
+ * 不写「共 N 首 / 总时长」以外的派生内容:这两个数字是从行里现算的投影,
+ * 快照里留着不影响正确性,其余一个都不多写。
+ */
+function playlistHtml(block: PlaylistBlock, table: DataTable | null): string {
+  const source = playlistActiveSource(block)
+  const attrs = [`data-playlist="${escapeHtml(source?.path ?? "")}"`]
+  if (source !== null) {
+    for (const role of PLAYLIST_ROLES) {
+      const id = source[PLAYLIST_ROLE_FIELDS[role]]
+      if (id !== "") attrs.push(`${PLAYLIST_ROLE_ATTRS[role]}="${escapeHtml(id)}"`)
+    }
+  }
+  const sources = encodePlaylistSources(block.sources)
+  if (sources !== "") attrs.push(`data-sources="${escapeHtml(sources)}"`)
+
+  const openTag = `<div class="note-playlist" ${attrs.join(" ")}>`
+  if (table === null || table.rows.length === 0 || source === null) return `${openTag}</div>`
+
+  const roles = playlistRoles(table.columns, source, table.rows)
+  const rows = table.rows.filter((row) => !playlistIsEmpty(row, roles))
+  if (rows.length === 0) return `${openTag}</div>`
+
+  const total = totalDurationText(rows, roles)
+  const head = [`<span class="n">${rows.length} 首</span>`]
+  if (total !== "") head.push(`<span class="d">总时长 ${escapeHtml(total)}</span>`)
+
+  const tracks = rows.map((row, index) => playlistTrackHtml(row, roles, index + 1)).join("\n")
+  return `${openTag}\n  <div class="note-pl-head">${head.join("")}</div>\n  <ol class="note-pl-list">\n${tracks}\n  </ol>\n</div>`
+}
+
+function playlistTrackHtml(row: DataRow, roles: PlaylistRoles, index: number): string {
+  const cover = playlistCover(row, roles)
+  const subtitle = playlistText(row, roles.subtitle)
+  const duration = playlistDuration(row, roles)
+  const coverHtml =
+    cover === ""
+      ? `<span class="c"></span>`
+      : `<span class="c"><img src="${escapeHtml(cover)}" alt="" loading="lazy" decoding="async"></span>`
+  const subHtml = subtitle === "" ? "" : `<span class="s">${escapeHtml(subtitle)}</span>`
+  const timeHtml = duration === "" ? "" : `<span class="d">${escapeHtml(duration)}</span>`
+
+  return `    <li class="note-pl-track"><span class="i">${index}</span>${coverHtml}<span class="t"><span class="n">${escapeHtml(playlistTitle(row, roles))}</span>${subHtml}</span>${timeHtml}</li>`
 }
 
 function firstCharacter(text: string): string {

@@ -1,5 +1,5 @@
 import type { InjectionKey, Ref } from "vue"
-import type { Block, BlockSettingsPatch, BlockType, ChatMessage, CloseStrategy, CreateTarget, FileNode, InlineRun, LayoutMode, OpenTab, TableAlign, TableCell } from "@/types/workspace"
+import type { Block, BlockSettingsPatch, BlockType, ChatMessage, CloseStrategy, CreateTarget, FileNode, InlineRun, LayoutMode, OpenTab, PlaylistSource, TableAlign, TableCell } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref, watch } from "vue"
 import { CELL_EXCLUDED_TYPES, REFERENCE_INSERT_SPEC, cloneBlock, countChars, createBlock, createBlockId, isReferenceBlock, isTextualBlock, refPathsOf, retypeBlock } from "@/lib/blocks"
@@ -11,6 +11,7 @@ import type { DataTableLookup } from "@/lib/html"
 import { createWorkspaceFs } from "@/lib/fs"
 import { linkTargetOf } from "@/lib/link"
 import { openExternalUrl } from "@/lib/open-external"
+import { createPlaylistPreset, createPlaylistSource } from "@/lib/playlist"
 import { NOTE_EXTENSION, TABLE_EXTENSION, checkName, defaultExpanded, fileStem, isNoteFile, isTableFile } from "@/lib/fs/policy"
 import * as table from "@/lib/table"
 import { fileName, fromSegments, isUnder, joinPath, migratePath, titleOf, toCrumbs, toSegments } from "@/lib/paths"
@@ -1334,6 +1335,24 @@ function createWorkspace() {
     return { path: candidate, created: true }
   }
 
+  /**
+   * 给歌单块新建一张(或复用同名的)歌单表,返回可用的绑定项。
+   *
+   * 表落在当前笔记旁边,名字取用户给的;撞名时**复用**已有的那张 —— 与插入引用块
+   * 同一条规则(`客户.html` 里插数据表就认准 `客户.tbl`)。只有真的新建了才带上
+   * 预置列的 id:复用别人的表时那些 id 在它里面并不存在,留空交给自动识别更诚实。
+   *
+   * 返回 `null` = 没工作区 / 写盘失败,调用方保持块的绑定不变。
+   */
+  async function createPlaylistTable(name: string): Promise<PlaylistSource | null> {
+    const preset = createPlaylistPreset()
+    const resolved = await resolveDataTableForNote(activePath.value, name, preset.table)
+    if (resolved.path === "") return null
+    return resolved.created
+      ? createPlaylistSource(resolved.path, preset.roles)
+      : createPlaylistSource(resolved.path)
+  }
+
   function insertBlockAfter(id: string, type: BlockType): string {
     const at = locateBlock(id)
     // 找不到（块已被删）退化为追加到文档末尾 —— 与原型行为一致。
@@ -1418,6 +1437,25 @@ function createWorkspace() {
     block.columnId = ""
     delete block.filterColumnId
     delete block.filterValue
+    markDirty()
+  }
+
+  /**
+   * 给歌单块换一组绑定(切换歌单 / 追加绑定 / 解除绑定)。
+   *
+   * `sources` 与 `path` 必须**一起**改:块上那条不变式是「path 恒等于 sources 中
+   * 某一项」,分开写会留下「已经切到一张解除掉的表」这种半截状态。所以它不走
+   * `updateBlockSettings` —— 那条路按设计不带 path。
+   *
+   * 空列表**不动**:一块歌单至少绑一张表,解到空没有意义(要清掉就删块)。
+   * `path` 不在列表里时退到第一项 —— 与解析端的兜底同一个口径。
+   */
+  function setPlaylistSources(id: string, sources: PlaylistSource[], path: string) {
+    const block = activeBlock(id)
+    if (block === undefined || block.type !== "playlist") return
+    if (sources.length === 0) return
+    block.sources = sources.map((source) => ({ ...source }))
+    block.path = block.sources.some((source) => source.path === path) ? path : (block.sources[0]?.path ?? "")
     markDirty()
   }
 
@@ -1726,6 +1764,9 @@ function createWorkspace() {
     moveBlock,
     moveBlockIntoCell,
     bindStatTable,
+    // playlist actions
+    setPlaylistSources,
+    createPlaylistTable,
     // layout actions
     setLayoutMode,
     setLayoutColumns,

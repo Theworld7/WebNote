@@ -34,9 +34,9 @@ The atomic unit a Note is made of. Blocks are a flat list, not a tree.
 _Avoid_: Element, node, item, paragraph
 
 **Block type**:
-One of twenty-seven identifiers. Fourteen are *textual* — they carry body content. Thirteen are
+One of twenty-eight identifiers. Fourteen are *textual* — they carry body content. Fourteen are
 *structural* and carry their own fields: `image`, `table`, `mermaid`, `datatable`,
-`gallery`, `bookmark`, `kanban`, `ledger`, `stat`, `subscription`, `chat`, `layout`, `html`.
+`gallery`, `bookmark`, `kanban`, `ledger`, `stat`, `subscription`, `playlist`, `chat`, `layout`, `html`.
 _Avoid_: Kind, variant, tag
 
 **Textual block**:
@@ -46,7 +46,7 @@ _Avoid_: Rich block, text block
 
 **Structural block**:
 A Block that is not textual: an Image, a Table, a Mermaid diagram, a Data table block, a
-Bookmark, a Kanban, a Ledger, a Stat, a Subscription, a Chat record, a Layout, or an HTML
+Bookmark, a Kanban, a Ledger, a Stat, a Subscription, a Playlist, a Chat record, a Layout, or an HTML
 block. Each owns its own fields instead of a run list.
 _Avoid_: Widget, embed, special block
 
@@ -164,10 +164,14 @@ options live on the column and a row stores the option's id.
 _Avoid_: Field type, data type, schema
 
 **Image column**:
-A Data column whose cells hold an image as an inline `data:image/…` URI string; empty is
-`null`. The image lives **inside the `.tbl`**, not beside it — the file is a standalone
-document (see ADR-0005), and a folder of attachments next to it would break that. The cost
-is paid in file size, on purpose.
+A Data column whose cells hold an image as an inline `data:image/…` URI string, or as an
+`http(s)://` address; empty is `null`. The inline form is the default because the image then lives
+**inside the `.tbl`**, not beside it — the file is a standalone document (see ADR-0005), and a
+folder of attachments next to it would break that. The cost is paid in file size, on purpose. A
+remote address is the accepted second form: covers and posters often live on someone else's
+server, and forcing a download-and-inline step would make "put a cover in the table" a chore. The
+price is that such an image no longer travels with the file — accepted, since a broken thumbnail
+after the network drops beats an address that never renders.
 _Avoid_: Attachment, thumbnail, photo, file path
 
 **Select option**:
@@ -236,6 +240,33 @@ terms as the Gallery and Ledger blocks.
 _Avoid_: Subscription manager (the Block is a view of a Data table, not a separate store),
 billing column (there is no billing column type), renewal date as a stored field (it is a
 date column the mapping points at)
+
+**Playlist block**:
+A structural Block that renders a Data table as a track list: one row becomes one track — an
+index, a cover thumbnail, a title with a subtitle beneath it, and a duration on the right. A
+header above the list counts the tracks and sums their durations. It points at the same `.tbl` a
+Data table block would, and stores only **field mappings** (which column is the title, the
+subtitle, the cover, the duration); an unset mapping falls back to name + column-type detection,
+so a table inserted into a Note already reads as a list. One Block can bind **several** Data
+tables and switch between them on a row of pill tabs — the tab label is the table's file name, and
+each table carries its own mapping (two tables rarely share a column layout). The `path` is the
+active table and always equals one of the bound entries. The cover may live in a text column:
+Data tables store image cells as data URIs, so an online cover address inevitably lands in text,
+and a value that looks like an image address (`http(s)://`, `data:image/…`, an image-suffixed path)
+is enough. Adding a song appends a row, removing one deletes that row — the Block keeps no track
+list of its own, so two Notes pointing at one table show the same playlist. The add form's fields
+are **generated from the table's columns**, never from a fixed schema. A search box filters the
+visible tracks across **every text column** (not just the mapped ones) with all whitespace-separated
+terms required to match, skipping the cover and duration columns; the filter is view state only and
+is never stored, so reopening a Note always shows the whole playlist. The copy action turns the
+visible tracks into plain text, one `Title - Artist` line each, for importing into music players —
+only the two mapped text roles go in, because a third segment makes importers read the whole line as
+the title. On disk it travels as a track-list snapshot **with** a pointer (`data-playlist` +
+`data-*` mappings on a `<div>`, plus `data-sources` holding every bound table when there is more
+than one), on the same terms as the Gallery and Subscription blocks.
+_Avoid_: Music library (the Block is a view of a Data table, not a store), song column (there is
+no song column type), track list in the Block (the rows are the table's), playlist name stored on
+the Block (the tab label is the file name)
 
 **Ledger block**:
 A structural Block that renders a Data table as a running account: an income column and an

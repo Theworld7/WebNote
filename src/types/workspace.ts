@@ -58,7 +58,7 @@ export type TextualBlockType =
   | "divider"
 
 /** 全部块类型 = 正文类 + 结构类。派生而常量列表，避免两处维护。 */
-export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "subscription" | "chat" | "layout" | "html"
+export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "subscription" | "playlist" | "chat" | "layout" | "html"
 
 /** 正文块。块之间是平铺列表；列表的嵌套层级用 `depth` 表达，不建树。 */
 export interface TextualBlock {
@@ -354,6 +354,48 @@ export interface SubscriptionBlock {
 }
 
 /**
+ * 歌单块绑定的一张表:路径 + **它自己那套**字段映射。
+ *
+ * 映射按表各存一份,不挂在块上共用一个:两张表的列结构本来就可能不同,共用一套的话
+ * 切过去必错位。
+ */
+export interface PlaylistSource {
+  /** 被引用的 `.tbl` 文件的工作区路径。 */
+  path: string
+  /** 歌名列 id。空 = 自动识别(优先文本列)。 */
+  titleColumnId: string
+  /** 副标题列 id(歌手 / 艺人 / 专辑)。空 = 自动识别(取歌名列之后的第一个文本列)。 */
+  subtitleColumnId: string
+  /** 封面列 id。空 = 自动识别(图片列优先,其次值是图片地址的文本列)。 */
+  coverColumnId: string
+  /** 时长列 id。空 = 自动识别(只认列名,不拿文本列兜底)。 */
+  durationColumnId: string
+}
+
+/**
+ * 歌单块:把一张(或几张)数据表渲染成曲目列表,块上原地切换。
+ *
+ * 与订阅 / 账目同源:数据只在 `.tbl` 里(ADR-0005),块只是「怎么把它们排得好看」。
+ * 区别是歌单可以绑多张表 —— 一份块里放「红心 / 通勤 / 待听」几个歌单,点顶部标签
+ * 切换,而不是为每个歌单各占一个块。每张表带自己那套字段映射(`sources`)。
+ *
+ * `path` 是**当前激活那张**表的路径,不是另一份真源:它必须等于 `sources` 里某一项
+ * 的 `path`。之所以还留着它,是因为「带 path 的引用块」这条契约要它(preload、打开
+ * 数据表、导出指针都按它走),而那些行为对「当前这张」正是对的。
+ *
+ * 「添加 / 删除歌曲」就是往当前那张表里增删行,块不存私有曲目列表。
+ * 导出形态与画册 / 订阅同一条 ADR-0006 立场:快照 + 指针。
+ */
+export interface PlaylistBlock {
+  id: string
+  type: "playlist"
+  /** 当前激活那张表的工作区路径 —— 恒等于 `sources` 中某项的 `path`。 */
+  path: string
+  /** 绑定的全部表,按标签顺序。至少一项(空路径表示尚未指定)。 */
+  sources: PlaylistSource[]
+}
+
+/**
  * 布局块:笔记里唯一的**容器块** —— 把若干格子按网格或弹性方式排开,每个格子各持有
  * 一份独立的块列表(Notion 式)。顶层文档仍是扁平列表;布局块是唯一一层受控的嵌套,
  * 且**格子内不再出现布局块**(一层容器原则,UI 的插入/转换菜单在格子内会把它滤掉)。
@@ -411,12 +453,16 @@ export interface ChatBlock {
   messages: ChatMessage[]
 }
 
-export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | LedgerBlock | StatBlock | SubscriptionBlock | ChatBlock | LayoutBlock | HtmlBlock
+export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | LedgerBlock | StatBlock | SubscriptionBlock | PlaylistBlock | ChatBlock | LayoutBlock | HtmlBlock
 
 /**
- * 引用块展示设置的 patch 形状:四种引用块设置字段的并集,id / type / path 不在内
+ * 引用块展示设置的 patch 形状:六种引用块设置字段的并集,id / type / path 不在内
  * —— 设置改动只动「怎么展示」,不动「指哪张表」(换引用是块的重新指定,另一条路)。
  * `updateBlockSettings` 消费它;块类型守卫保证画册的 patch 写不进书签块。
+ *
+ * 歌单块不在这张并集里:它没有「纯展示」的设置,`sources` 与 `path` 是一体的
+ * (path 恒等于某项),换歌单 = 换指哪张表,走 `setPlaylistSources` 那条路 ——
+ * 从 patch 里漏掉 `path` 才能保住那条不变式。
  */
 export type BlockSettingsPatch = Partial<
   Omit<GalleryBlock, "id" | "type" | "path"> &

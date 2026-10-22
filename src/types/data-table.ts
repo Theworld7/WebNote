@@ -33,12 +33,16 @@ export type DataColumnType = "text" | "number" | "date" | "select" | "checkbox" 
  * - `date` → `string`，`YYYY-MM-DD`（不带时间与时区；日历日期就是日历日期）
  * - `select` → `string`，选项 id
  * - `checkbox` → `boolean`
- * - `image` → `string`，`data:image/…` 的 data URI
+ * - `image` → `string`，`data:image/…` 的 data URI，或 `http(s)://` 的在线地址
  *
  * 图片走 **data URI 内联**而不是附件目录：`.tbl` 是独立文档（ADR-0005），旁边挂一个
  * 图片目录会让「一个文件就是一份完整数据」变成谎话；笔记里的图片现在也是 data URI
  * 内联（见 `lib/image.ts`），两边同一个立场。代价是文件变大，写在明处：几十行 ×
  * 几十 KB 的表是几 MB 的 JSON，`mutate` 全量重写仍在几十毫秒量级，可接受。
+ *
+ * `http(s)://` 的在线地址是第二种合法值：封面这类图原本就在别人的服务器上，逼着
+ * 用户先下载再内联只会让「表里放着封面」变成一件麻烦事。代价是那份图不再随文件走
+ * —— 断网或对方删图时是一张裂图，接受这个代价（它比「填了地址却显示不出来」好）。
  *
  * 空值统一用 `null`，而不是「缺字段」—— 缺字段会让「这格是空的」和「这格不存在」
  * 无法区分，而列被删除时两种都可能发生。

@@ -650,7 +650,9 @@ function normalizeValue(value: unknown, type: DataColumnType): DataCellValue {
     case "checkbox":
       return value === true
     case "image":
-      // 与 date 同一个严格度：长得不对的一律空。任意字符串渲染出来是一张烂图。
-      return typeof value === "string" && /^data:image\//.test(value) ? value : null
+      // 与 date 同一个严格度:长得不对的一律空。任意字符串渲染出来是一张烂图。
+      // 两种形态例外地都放行:data URI(本地选的图)与 http(s) 地址(在线封面)——
+      // 歌单 / 画册里的封面常常就存在别人的服务器上,只认 data URI 等于把它们判成空。
+      return typeof value === "string" && /^(data:image\/|https?:\/\/)/i.test(value.trim()) ? value.trim() : null
   }
 }

@@ -221,6 +221,7 @@ export const BLOCK_SPACING: Readonly<Record<BlockType, BlockSpacing>> = {
   ledger: { top: 16, bottom: 16 },
   stat: { top: 16, bottom: 16 },
   subscription: { top: 16, bottom: 16 },
+  playlist: { top: 16, bottom: 16 },
   chat: { top: 16, bottom: 16 },
   layout: { top: 16, bottom: 16 },
   html: { top: 16, bottom: 16 },
@@ -415,7 +416,7 @@ ${headingRules}
     .note-layout > section { min-width: 0; border: 1px solid transparent; border-radius: 8px; }
     .note-layout > section:empty { border-color: var(--line); min-height: 3rem; }
     .note-layout[data-layout="flex"] > section { flex: 1 1 0; min-width: 8rem; }
-    .note-bookmark, .note-gallery, .note-kanban, .note-ledger, .note-subs { margin: ${BLOCK_SPACING.gallery.top}px 0; }
+    .note-bookmark, .note-gallery, .note-kanban, .note-ledger, .note-subs, .note-playlist { margin: ${BLOCK_SPACING.gallery.top}px 0; }
     /* 订阅卡与 SubscriptionBlockView 对齐:顶部汇总条 + 自适应卡片宫格。
        网格下限用 minmax(0,1fr) 的写法,窄窗口下卡片跟着收缩而不是横向溢出。 */
     .note-sub-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px;
@@ -441,6 +442,27 @@ ${headingRules}
     .note-sub-meta .v { font-variant-numeric: tabular-nums; }
     .note-sub-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px;
       padding-top: 6px; border-top: 1px solid var(--line); font-size: 10.5px; color: var(--muted); }
+    /* 歌单与 PlaylistBlockView 对齐:头部一行曲目数 / 总时长,下面是序号 + 封面 +
+       歌名 / 副标题 + 时长的行。行与行之间靠 1px 分隔线,不用卡片框 —— 一屏能多放几首。 */
+    .note-pl-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px;
+      padding: 0 4px; font-size: 11.5px; color: var(--muted); }
+    .note-pl-head .n { font-weight: 600; font-size: 12.5px; color: var(--fg); }
+    .note-pl-list { margin: 0; padding: 0; list-style: none; }
+    .note-pl-track { display: flex; align-items: center; gap: 10px; padding: 5px 4px;
+      border-bottom: 1px solid var(--line); }
+    .note-pl-track:last-child { border-bottom: 0; }
+    .note-pl-track .i { flex: none; width: 18px; text-align: right; font-size: 11px;
+      color: var(--muted); font-variant-numeric: tabular-nums; }
+    .note-pl-track .c { flex: none; width: 34px; height: 34px; overflow: hidden;
+      border-radius: 6px; background: var(--bg-soft); }
+    .note-pl-track .c img { display: block; width: 100%; height: 100%; margin: 0;
+      border-radius: 0; object-fit: cover; }
+    .note-pl-track .t { display: flex; min-width: 0; flex: 1; flex-direction: column; }
+    .note-pl-track .n { font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .note-pl-track .s { font-size: 11.5px; color: var(--muted); overflow: hidden;
+      white-space: nowrap; text-overflow: ellipsis; }
+    .note-pl-track .d { flex: none; font-size: 11.5px; color: var(--muted);
+      font-variant-numeric: tabular-nums; }
     /* 与 StatBlockView 应用内观感逐项对齐:满宽卡片、列名截断、合计下方还有
        一行参与求和的行数(.c)—— 静态页与笔记里看到的不该是两张脸。
        不能写 width:100%:静态页没有 border-box 预设,加上 padding/border 会

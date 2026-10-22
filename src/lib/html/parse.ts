@@ -1,8 +1,10 @@
-import type { Block, BookmarkBlock, ChatMessage, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, LedgerBlock, LedgerGroupMode, StatBlock, SubscriptionBlock, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
-import { createBookmarkBlock, createChatBlock, createGalleryBlock, createHtmlBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createLedgerBlock, createMermaidBlock, createStatBlock, createSubscriptionBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
+import type { Block, BookmarkBlock, ChatMessage, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, LedgerBlock, LedgerGroupMode, PlaylistBlock, StatBlock, SubscriptionBlock, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
+import { createBookmarkBlock, createChatBlock, createGalleryBlock, createHtmlBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createLedgerBlock, createMermaidBlock, createPlaylistBlockFrom, createStatBlock, createSubscriptionBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
 import { STAT_PRECISION_DEFAULT, STAT_PRECISION_OPTIONS } from "@/lib/data-table"
 import { SUBSCRIPTION_ROLE_ATTRS, SUBSCRIPTION_ROLES } from "@/lib/subscription"
 import type { SubscriptionRole } from "@/lib/subscription"
+import { createPlaylistSource, decodePlaylistSources, PLAYLIST_ROLE_ATTRS, PLAYLIST_ROLES } from "@/lib/playlist"
+import type { PlaylistRole } from "@/lib/playlist"
 import { runsText, textToRuns, trimRuns } from "@/lib/inline"
 import { isTableAlign } from "@/lib/table"
 import { docStyle } from "@/lib/typography"
@@ -294,6 +296,11 @@ function parseBlockElement(element: Element, state: ParseState, depth: number): 
       // 订阅块的展示快照容器:指针与十个字段映射在容器上,卡片内容是静态摘录,这里丢弃。
       if (element.hasAttribute("data-subscription")) {
         state.blocks.push(parseSubscription(element))
+        return
+      }
+      // 歌单块的展示快照容器:指针与四个字段映射在容器上,曲目列表是静态摘录,这里丢弃。
+      if (element.hasAttribute("data-playlist")) {
+        state.blocks.push(parsePlaylist(element))
         return
       }
       break
@@ -605,6 +612,28 @@ function parseSubscription(container: Element): SubscriptionBlock {
     if (value !== "") roles[role] = value
   }
   return createSubscriptionBlock(container.getAttribute("data-subscription") ?? "", roles)
+}
+
+/**
+ * `data-playlist` 容器 → 歌单块。没有 `data-playlist` 不会走到这里(调用方已判)。
+ *
+ * 绑了多份歌单的块把整组绑定写在 `data-sources` 里(JSON),优先读它;读不出就退回
+ * 四个 `data-title` 之类的单表属性 —— 老文件、以及只有一个歌单的块都走那条路。
+ * 四个字段映射的列 id 原样收下、不校验列还存在(指向的列被删后渲染时退化为自动识别,
+ * 与订阅块残留 id 的立场一致);空属性 = 不写,保持自动识别。路径留空走「读不到」提示态。
+ */
+function parsePlaylist(container: Element): PlaylistBlock {
+  const path = container.getAttribute("data-playlist") ?? ""
+  const sources = decodePlaylistSources(container.getAttribute("data-sources"))
+  if (sources.length === 0) {
+    const roles: Partial<Record<PlaylistRole, string>> = {}
+    for (const role of PLAYLIST_ROLES) {
+      const value = container.getAttribute(PLAYLIST_ROLE_ATTRS[role]) ?? ""
+      if (value !== "") roles[role] = value
+    }
+    sources.push(createPlaylistSource(path, roles))
+  }
+  return createPlaylistBlockFrom(sources, path)
 }
 
 /**

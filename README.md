@@ -61,7 +61,7 @@
 | 基础 | 文本、标题 1–6 |
 | 列表 | 待办、无序列表、有序列表 |
 | 内容 | 引用、代码块（按语言着色）、Mermaid 图、HTML、标注、分割线 |
-| 媒体与数据 | 图片、表格、数据表、画册、书签、看板、账目、统计卡、订阅、对话记录 |
+| 媒体与数据 | 图片、表格、数据表、画册、书签、看板、账目、统计卡、订阅、歌单、对话记录 |
 | 版面 | 布局块（2–4 栏网格，或并排换行） |
 
 代码块的正文始终是纯文本，着色只画在重合的另一层上，所以复制出去不带颜色、也不会被颜色改写。
@@ -92,6 +92,7 @@ Mermaid 与 HTML 的源码只在需要时加载，不画图的笔记不必为它
 | 账目 | 收入 / 支出两列、带符号金额、逐行余额、节小计与总计 | 两个金额列、是否显示余额、按月还是按列分组 |
 | 统计卡 | 把某一列的数值求和成一个大数字 | 求和列、小数位、可选筛选列 |
 | 订阅 | 每行一张订阅卡：名称、图标、金额 / 周期、起止日期、试用、自动续费、累计支付，顶部汇总月 / 年支出 | 名称、图标、金额、周期、自动续费、试用期、开始、到期、已取消、累计支付各指哪一列 |
+| 歌单 | 一份曲目表：序号、封面、歌名 / 副标题、时长，顶部是曲目数与总时长；就地加歌、删歌；可按歌名 / 歌手 / 专辑模糊搜索，一键复制成 `歌名 - 歌手` 的纯文本（导入听歌软件用）。一个块可绑多张表，顶部胶囊标签切换（标签名即表文件名） | 每张表各有一套：歌名、副标题、封面、时长各指哪一列 |
 
 所以同一张表可以在两篇笔记里长得完全不同：一篇按状态分组看进度，另一篇按月结算看余额，
 谁都不必复制数据。余额和合计都是**视图算出来的**，永远不写进文件。
@@ -177,6 +178,7 @@ CSS 碰不到，得由 Rust 侧直接跟系统说话。
 | 数据表是独立文件 | 一份数据多处引用，改一处全同步 | 移动笔记不会带走表；表丢了块会显示「表找不到了」，可以重新指过去 |
 | 引用块导出时写成快照 `<table>` | 导出的文件单独打开也能看到表格内容 | 把这个文件再读回来，得到的是普通表格块 —— 这是**有意的、有边界的不精确往返** |
 | 本地图片内联成 data URI | 笔记自包含，拷给别人不丢图，不依赖「图在哪个相对路径」 | 文件体积约增加三分之一 |
+| 图片格也接受在线地址 | 封面本来就存在别人的服务器上，粘个链接就能用 | 那张图不再随文件走；断网或对方删图时退化成图标 |
 | 偏好不进笔记 | 同一个文件在哪台机器上都渲染得一样 | 每台机器的显示偏好各自独立 |
 | 只发桌面端（Windows / macOS） | 交互可以只为桌面取舍：拖拽、分栏、内嵌 Monaco | 手机和平板上不能记；Linux 需要自己构建 |
 | 不做云同步、不做账号 | 没有服务端就没有服务端故障、订阅与迁移问题 | 同步要你自己用同步盘或 Git 解决 |
@@ -267,7 +269,7 @@ pnpm icon           # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | :-- | :-- |
 | 解析与往返 | `parse-check`、`inline-check` |
 | 编辑器交互 | `tab-check`、`toolbar-check`、`sidebar-check`、`tree-integration-check`、`drag-check`、`split-check`、`cell-check`、`undo-check`、`menu-nav-check`、`focus-check`、`link-check` |
-| 块类型 | `table-check`、`table-align-check`、`data-table-check`、`gallery-check`、`kanban-check`、`ledger-check`、`ledger-edit-check`、`subscription-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check` |
+| 块类型 | `table-check`、`table-align-check`、`data-table-check`、`gallery-check`、`kanban-check`、`ledger-check`、`ledger-edit-check`、`subscription-check`、`playlist-check`、`playlist-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check` |
 | 样式与外观 | `typography-check`、`theme-check`、`theme-mode-check`、`page-style-check`、`settings-check` |
 | 文件操作 | `create-check`、`move-check` |
 | 其它 | `drawer-jitter-probe`（抽屉抖动守卫）、`icon-check`（图标观感） |

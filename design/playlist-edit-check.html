@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>歌单块增删歌曲自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { height: 560px; display: flex; flex-direction: column; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>歌单块自检（挂真实编辑器 + OPFS：多歌单切换、增删歌曲、解除绑定、末了读盘核对）</h1>
+<!-- 脚本里有顶层 await（真实读盘、真实写盘），--dump-dom 抓不到结果，用 CDP 驱动跑：
+     node design/cdp-dump.mjs http://localhost:1420/design/playlist-edit-check.html -->
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { provideTables } from "../src/composables/useTables.ts"
+import { createPlaylistBlockFrom } from "../src/lib/blocks.ts"
+import { createPlaylistSource } from "../src/lib/playlist.ts"
+import { blocksToHtml } from "../src/lib/html/serialize.ts"
+import { tableFromJson } from "../src/lib/data-table.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function report(kind, detail) {
+  document.getElementById("out").textContent = [kind, "", detail, "", ...lines].join("\n")
+}
+window.addEventListener("unhandledrejection", (e) => report("REJECT", e.reason?.stack ?? String(e.reason)))
+window.addEventListener("error", (e) => report("ERROR", e.message))
+function step(name) {
+  document.getElementById("out").textContent = `running: ${name}\n${lines.join("\n")}`
+}
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+
+// ---- 夹具：一张三列两首的表（外加一行空行，模拟预设表的留白）+ 一张只有一首的歌单 ----
+// 笔记里的块**绑两张表**：验标签切换与解除绑定都要两张才跑得起来。
+const TABLE = {
+  version: 1,
+  columns: [
+    { id: "c1", name: "歌名", type: "text", options: [] },
+    { id: "c2", name: "歌手", type: "text", options: [] },
+    { id: "c3", name: "时长", type: "text", options: [] },
+  ],
+  rows: [
+    { id: "r1", values: { c1: "晴天", c2: "周杰伦", c3: "269" } },
+    { id: "r2", values: { c1: "七里香", c2: "周杰伦", c3: "299" } },
+    { id: "r3", values: { c1: null, c2: null, c3: null } },
+  ],
+}
+const COMMUTE = {
+  version: 1,
+  columns: [
+    { id: "d1", name: "歌名", type: "text", options: [] },
+    { id: "d2", name: "歌手", type: "text", options: [] },
+    { id: "d3", name: "时长", type: "text", options: [] },
+  ],
+  rows: [{ id: "e1", values: { d1: "夜曲", d2: "周杰伦", d3: "226" } }],
+}
+const TABLE_JSON = JSON.stringify(TABLE, null, 2) + "\n"
+const COMMUTE_JSON = JSON.stringify(COMMUTE, null, 2) + "\n"
+const NOTE_HTML = blocksToHtml(
+  [
+    createPlaylistBlockFrom(
+      [
+        createPlaylistSource("歌单.tbl", { title: "c1", subtitle: "c2", duration: "c3" }),
+        createPlaylistSource("通勤.tbl"),
+      ],
+      "歌单.tbl",
+    ),
+  ],
+  (path) => (path === "歌单.tbl" ? tableFromJson(TABLE_JSON) : path === "通勤.tbl" ? tableFromJson(COMMUTE_JSON) : null),
+)
+
+step("opfs")
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("playlist-edit-probe", { create: true })
+for (const [name, text] of [["歌单.tbl", TABLE_JSON], ["通勤.tbl", COMMUTE_JSON], ["歌单.html", NOTE_HTML]]) {
+  const handle = await dir.getFileHandle(name, { create: true })
+  const writable = await handle.createWritable()
+  await writable.write(text)
+  await writable.close()
+}
+window.showDirectoryPicker = async () => dir
+
+async function readFile(name) {
+  const handle = await dir.getFileHandle(name)
+  return (await handle.getFile()).text()
+}
+/** 等真实 I/O 与 Vue 重渲染落地：microtask 轮询等不到读盘。 */
+async function settle() {
+  for (let i = 0; i < 4; i += 1) {
+    await nextTick()
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
+
+step("mount")
+let workspace = null
+let tables = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    provideTheme(provideSettings())
+    tables = provideTables(workspace.fs, workspace.root)
+    // 与 App.vue 同一套接线:新建表由注册表写盘并 adopt,插入歌单块的路才走得通。
+    workspace.attachTableRegistry({
+      preload: (paths) => tables.preload(paths),
+      peek: (path) => tables.peek(path),
+      flush: (path) => tables.flush(path),
+      reload: (path) => tables.reload(path),
+      create: async (fsDriver, fsRoot, path, initial) => {
+        const start = initial ?? tables.defaultTable()
+        await fsDriver.createNote(fsRoot, path, tables.toJson(start))
+        tables.adopt(path, start)
+      },
+    })
+    return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+
+step("bootstrap")
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+const note = (function find(nodes) {
+  for (const node of nodes) {
+    if (node.kind === "note") return node
+    const hit = node.children ? find(node.children) : null
+    if (hit) return hit
+  }
+  return null
+})(workspace.tree.value)
+check("扫到了预置笔记", note !== null, JSON.stringify(workspace.tree.value.map((n) => n.name)))
+
+step("openFile")
+if (note !== null) {
+  workspace.openFile(note.id)
+  for (let i = 0; i < 60 && workspace.activeDocument.value.length < 1; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  await settle()
+}
+
+// ---- DOM 取景 ----
+/** 歌单块根：视图自己带的 `data-playlist-view`。
+ *  不能靠「里面有 ol」找 —— 搜索无结果时列表整个不渲染，那样会找不到块。 */
+function playlistRoot() {
+  return document.querySelector("[data-block-id] [data-playlist-view]") ?? null
+}
+function trackRows() {
+  const root = playlistRoot()
+  if (root === null) return []
+  return [...(root.querySelector("ol")?.children ?? [])]
+}
+function headText() {
+  // 头部就是曲目列表的前一个兄弟。不能取 root 里第一个 div —— 那是块左侧的 marker。
+  const list = playlistRoot()?.querySelector("ol")
+  return (list?.previousElementSibling?.textContent ?? "").trim()
+}
+function toolbarButton(label) {
+  const root = playlistRoot()
+  if (root === null) return null
+  return [...root.querySelectorAll("button")].find((b) => (b.textContent ?? "").trim() === label) ?? null
+}
+function dialog() {
+  // 只认「开着」的那一个：reka 在关闭后可能把节点留到过渡结束。
+  return document.querySelector('[role="alertdialog"][data-state="open"]')
+}
+function deleteButtonOf(row) {
+  return row.querySelector('[aria-label="删除这首"]')
+}
+/** 歌单标签：胶囊按钮上挂着 `title=表路径`。头部那几颗图标按钮也有 title 和
+ *  `aria-label`，所以这里把带 aria-label 的排除掉，只留纯标签胶囊。 */
+function tabs() {
+  const root = playlistRoot()
+  return root === null ? [] : [...root.querySelectorAll("button[title]:not([aria-label])")]
+}
+function tabNames() {
+  return tabs().map((el) => (el.textContent ?? "").trim()).join(",")
+}
+/** 按 aria-label 找头部行里的图标按钮（搜索 / 清空 / 复制）。 */
+function iconButton(label) {
+  const root = playlistRoot()
+  if (root === null) return null
+  return [...root.querySelectorAll("button")].find((b) => b.getAttribute("aria-label") === label) ?? null
+}
+function searchBox() {
+  const box = playlistRoot()?.querySelector('input[aria-label="搜索曲目"]')
+  return box instanceof HTMLInputElement ? box : null
+}
+function typeQuery(value) {
+  const box = searchBox()
+  if (box === null) return
+  box.value = value
+  box.dispatchEvent(new Event("input", { bubbles: true }))
+}
+
+step("render")
+const rows0 = trackRows()
+check("渲染出 2 首（表里那行空行不算）", rows0.length === 2, `实际 ${rows0.length}`)
+check("第一行是晴天 / 周杰伦 / 4:29",
+  (rows0[0]?.textContent ?? "").includes("晴天") &&
+    (rows0[0]?.textContent ?? "").includes("周杰伦") &&
+    (rows0[0]?.textContent ?? "").includes("4:29"),
+  rows0[0]?.textContent)
+check("序号从 1 起", (rows0[0]?.textContent ?? "").trim().startsWith("1"), rows0[0]?.textContent?.trim())
+check("头部写曲目数与总时长", headText().includes("2 首") && headText().includes("9:28"), headText())
+check("每行都有删除钮", rows0.every((row) => deleteButtonOf(row) !== null))
+
+// ---- 多歌单：顶部胶囊标签切换 ----
+step("tabs")
+check("绑了两张表就有两个标签", tabs().length === 2, String(tabs().length))
+check("标签名取表文件名", tabNames() === "歌单,通勤", tabNames())
+
+tabs()[1]?.click()
+await settle()
+check("切到通勤：只剩夜曲", trackRows().length === 1 && (trackRows()[0]?.textContent ?? "").includes("夜曲"),
+  `实际 ${trackRows().length} 行`)
+check("切过去后头部跟着变", headText().includes("1 首"), headText())
+
+tabs()[0]?.click()
+await settle()
+check("切回歌单：又是两首", trackRows().length === 2, `实际 ${trackRows().length}`)
+check("切回来头部也恢复", headText().includes("2 首") && headText().includes("9:28"), headText())
+
+// ---- 添加一首 ----
+step("add")
+const add = toolbarButton("添加歌曲")
+check("工具条里有「添加歌曲」", add !== null)
+add?.click()
+await settle()
+
+const box = dialog()
+check("添加对话框打开了", box !== null)
+const labels = [...(box?.querySelectorAll("label") ?? [])].map((el) => el.textContent.trim())
+check("表单字段按表的列现生成（三列）", labels.join(",") === "歌名,歌手,时长", labels.join(","))
+
+const titleInput = box?.querySelector('input[type="text"]')
+check("歌名列渲染成文本输入框", titleInput instanceof HTMLInputElement)
+if (titleInput instanceof HTMLInputElement) {
+  titleInput.value = "稻香"
+  titleInput.dispatchEvent(new Event("input", { bubbles: true }))
+  await settle()
+}
+const confirm = [...(box?.querySelectorAll("button") ?? [])].find((b) => (b.textContent ?? "").trim() === "添加")
+check("确认键可用", confirm !== undefined && !confirm.disabled)
+confirm?.click()
+await settle()
+
+const rows1 = trackRows()
+check("添加后变成 3 首", rows1.length === 3, `实际 ${rows1.length}`)
+check("新的一首在末尾且带歌名", (rows1[2]?.textContent ?? "").includes("稻香"), rows1[2]?.textContent)
+check("对话框已关闭", dialog() === null)
+check("头部跟着变成 3 首", headText().includes("3 首"), headText())
+
+// ---- 删掉刚加的那首 ----
+step("remove")
+deleteButtonOf(rows1[2])?.click()
+await settle()
+
+const rows2 = trackRows()
+check("删除后回到 2 首", rows2.length === 2, `实际 ${rows2.length}`)
+check("删的正是稻香", !rows2.some((row) => (row.textContent ?? "").includes("稻香")))
+
+// ---- 模糊搜索（合成 input 事件，走真实的 v-model） ----
+step("search")
+check("头部有搜索按钮", iconButton("搜索曲目") !== null)
+iconButton("搜索曲目")?.click()
+await settle()
+check("点开后出现搜索框", searchBox() !== null)
+check("搜索框自动聚焦", document.activeElement === searchBox(), document.activeElement?.tagName ?? "null")
+
+typeQuery("晴天")
+await settle()
+check("搜「晴天」只剩这一首",
+  trackRows().length === 1 && (trackRows()[0]?.textContent ?? "").includes("晴天"),
+  `实际 ${trackRows().length} 行`)
+check("头部曲目数跟着过滤", headText().includes("1 首"), headText())
+check("头部说明筛选自几首", headText().includes("筛选自 2 首"), headText())
+check("总时长跟着可见曲目走（不再是整表的 9:28）",
+  headText().includes("4:29") && !headText().includes("9:28"), headText())
+check("过滤后序号仍从 1 起", (trackRows()[0]?.textContent ?? "").trim().startsWith("1"))
+
+typeQuery("周杰伦")
+await settle()
+check("搜歌手命中两首", trackRows().length === 2, `实际 ${trackRows().length} 行`)
+
+typeQuery("周杰伦 晴天")
+await settle()
+check("多个词是全部命中", trackRows().length === 1, `实际 ${trackRows().length} 行`)
+
+typeQuery("薛之谦")
+await settle()
+check("没有匹配时不渲染列表", trackRows().length === 0)
+check("没有匹配时说清是搜索没命中，不是表空了",
+  (playlistRoot()?.textContent ?? "").includes("没有匹配"), playlistRoot()?.textContent?.slice(0, 140))
+check("无匹配时搜索框还在（否则连删一个字都做不到）", searchBox() !== null)
+check("无匹配时复制键禁用", iconButton("复制为纯文本歌单")?.disabled === true)
+
+iconButton("清空搜索")?.click()
+await settle()
+check("清空后回到两首", trackRows().length === 2, `实际 ${trackRows().length} 行`)
+check("清空后头部不再写筛选自", !headText().includes("筛选自"), headText())
+
+// ---- 一键复制成纯文本（stub 掉剪贴板，只核对写给它的那段文字） ----
+step("copy")
+const written = []
+Object.defineProperty(navigator, "clipboard", {
+  configurable: true,
+  value: { writeText: async (text) => void written.push(text) },
+})
+
+iconButton("复制为纯文本歌单")?.click()
+await settle()
+check("复制内容是一行一首「歌名 - 歌手」",
+  written[0] === "晴天 - 周杰伦\n七里香 - 周杰伦", JSON.stringify(written[0]))
+check("复制后按钮变「已复制」", iconButton("已复制") !== null)
+check("复制带时长以外的字段（不带 4:29）", !(written[0] ?? "").includes("4:29"), written[0])
+
+// 反馈 1.5 秒后退回去，等它回位再点第二次。
+await new Promise((resolve) => setTimeout(resolve, 1700))
+typeQuery("七里香")
+await settle()
+iconButton("复制为纯文本歌单")?.click()
+await settle()
+check("搜索状态下复制只复制可见的那几首", written[1] === "七里香 - 周杰伦", JSON.stringify(written[1]))
+await new Promise((resolve) => setTimeout(resolve, 1700))
+
+// ---- 切歌单时搜索自己收起 ----
+step("search-reset")
+typeQuery("晴天")
+await settle()
+check("切表前搜索框开着且已过滤", searchBox() !== null && trackRows().length === 1, `实际 ${trackRows().length} 行`)
+tabs()[1]?.click()
+await settle()
+check("切到另一张表后搜索框收起", searchBox() === null)
+check("切过去看到的是那张表的全部，不是被上一张的搜索词滤空",
+  trackRows().length === 1 && (trackRows()[0]?.textContent ?? "").includes("夜曲"),
+  `实际 ${trackRows().length} 行`)
+tabs()[0]?.click()
+await settle()
+check("切回来两首都在", trackRows().length === 2, `实际 ${trackRows().length} 行`)
+
+// ---- 落盘核对 ----
+step("save")
+await workspace.save()
+await settle()
+
+const saved = JSON.parse(await readFile("歌单.tbl"))
+check("盘上仍是 3 行（原有 3 + 新增 1 − 删除 1）", saved.rows.length === 3, `实际 ${saved.rows.length}`)
+check("被删的那首不在盘上", !saved.rows.some((row) => row.values.c1 === "稻香"),
+  JSON.stringify(saved.rows.map((row) => row.values.c1)))
+check("原有的两首还在", saved.rows.some((row) => row.values.c1 === "晴天") && saved.rows.some((row) => row.values.c1 === "七里香"))
+check("新增行是整行空值（每列都有键）",
+  saved.rows.every((row) => saved.columns.every((column) => column.id in row.values)))
+
+const noteText = await readFile("歌单.html")
+check("笔记快照仍是歌单块指针", noteText.includes('class="note-playlist"') && noteText.includes('data-playlist="歌单.tbl"'))
+check("快照里曲目数是 2（空行不进快照）", noteText.includes("2 首"), noteText.slice(0, 400))
+check("两张表都进 data-sources（重开还原得回来）",
+  noteText.includes("data-sources=") && noteText.includes("通勤.tbl"),
+  noteText.slice(0, 500))
+
+// ---- 插入路径：新建表 + 落块（菜单选「歌单」后走的就是这一条） ----
+step("insert")
+const before = workspace.activeDocument.value.length
+const insertedId = await workspace.insertReferenceBlock(before, "playlist", "", "新歌单")
+await settle()
+
+check("插入落了一个块", insertedId !== "" && workspace.activeDocument.value.length === before + 1,
+  `${before} → ${workspace.activeDocument.value.length}`)
+const insertedBlock = workspace.activeDocument.value.find((block) => block.id === insertedId)
+check("落的是歌单块且指向新表", insertedBlock !== undefined && insertedBlock.type === "playlist" && insertedBlock.path === "新歌单.tbl",
+  JSON.stringify(insertedBlock))
+check("新表按预设的五列落盘", (() => {
+  const fresh = tables.peek("新歌单.tbl")
+  return fresh !== null && fresh.columns.map((c) => c.name).join("/") === "歌名/歌手/专辑/时长/封面" && fresh.rows.length === 1
+})())
+check("预设列 id 已指到块上（列名再改也不影响）", (() => {
+  const fresh = tables.peek("新歌单.tbl")
+  const byName = (name) => fresh?.columns.find((c) => c.name === name)?.id
+  const source = insertedBlock.type === "playlist" ? insertedBlock.sources[0] : undefined
+  return source !== undefined &&
+    source.titleColumnId === byName("歌名") &&
+    source.subtitleColumnId === byName("歌手") &&
+    source.coverColumnId === byName("封面") &&
+    source.durationColumnId === byName("时长")
+})())
+check("空表显示引导句而不是空列表",
+  [...document.querySelectorAll("[data-block-id]")].some((el) => (el.textContent ?? "").includes("这张表还没有曲目")))
+
+// ---- 绑定新歌单：工作区层的两条路（视图里那颗「+」走的就是它们） ----
+step("bind")
+const reused = await workspace.createPlaylistTable("新歌单")
+check("撞名复用已有表（不再新建一份）", reused !== null && reused.path === "新歌单.tbl", JSON.stringify(reused))
+check("复用时不带预置列 id（那些列在别人的表里不存在）", reused !== null && reused.titleColumnId === "")
+
+const brandNew = await workspace.createPlaylistTable("睡前")
+check("新建表落在笔记旁边且按预设五列落盘",
+  brandNew !== null && brandNew.path === "睡前.tbl" && tables.peek("睡前.tbl")?.columns.length === 5,
+  JSON.stringify(brandNew))
+
+if (brandNew !== null) {
+  workspace.setPlaylistSources(insertedId, [...insertedBlock.sources, brandNew], brandNew.path)
+  await settle()
+  check("追加绑定后 path 指向新加的那张", insertedBlock.path === "睡前.tbl", insertedBlock.path)
+  check("块上多了一项绑定", insertedBlock.sources.length === 2, String(insertedBlock.sources.length))
+
+  workspace.setPlaylistSources(insertedId, [], "睡前.tbl")
+  await settle()
+  check("空列表被拒绝（一块歌单至少绑一张表）", insertedBlock.sources.length === 2, String(insertedBlock.sources.length))
+}
+
+// ---- 解除绑定（点标签上那颗叉，走真实 handler） ----
+step("unbind")
+check("解除前仍是两个标签", tabs().length === 2, String(tabs().length))
+document.querySelector('[aria-label="解除绑定 通勤"]')?.click()
+await settle()
+check("解除后只剩一个标签", tabs().length === 1, String(tabs().length))
+check("剩下的是歌单", tabNames() === "歌单", tabNames())
+check("列表还是两首（解除不影响当前那张）", trackRows().length === 2, `实际 ${trackRows().length}`)
+check("只剩一张时不再露叉", playlistRoot()?.querySelector('[aria-label^="解除绑定"]') === null)
+
+await workspace.save()
+await settle()
+const noteText2 = await readFile("歌单.html")
+// 这篇笔记里现在有两个歌单块（原来那个 + 插入的那个还绑着两张表），
+// 所以只看**第一个**块的指针属性，别把另一个块的 data-sources 算进来。
+const firstPointer = (noteText2.match(/<div class="note-playlist"[^>]*>/) ?? [""])[0]
+check("只剩一张表后那一块不再写 data-sources", firstPointer !== "" && !firstPointer.includes("data-sources"), firstPointer)
+check("指针还在", firstPointer.includes('data-playlist="歌单.tbl"'), firstPointer)
+
+lines.push(failed === 0 ? `自检 ${passed}/${passed}` : `自检 ${passed} 过 / ${failed} 败`)
+document.getElementById("out").textContent = lines.join("\n")
+</script>
+</body>
+</html>

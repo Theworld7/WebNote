@@ -17,6 +17,8 @@ import type {
   LedgerGroupMode,
   LedgerSortDirection,
   MermaidBlock,
+  PlaylistBlock,
+  PlaylistSource,
   StatBlock,
   SubscriptionBlock,
   TableBlock,
@@ -25,9 +27,11 @@ import type {
   TextualBlockType,
 } from "@/types/workspace"
 import type { SubscriptionRole } from "@/lib/subscription"
+import type { PlaylistRole } from "@/lib/playlist"
 import type { DataTable } from "@/types/data-table"
 import { cloneRuns, runsText, textToRuns } from "@/lib/inline"
 import { createLedgerPreset } from "@/lib/ledger"
+import { createPlaylistPreset, createPlaylistSource } from "@/lib/playlist"
 import { createSubscriptionPreset } from "@/lib/subscription"
 import { cloneCell } from "@/lib/table"
 
@@ -89,6 +93,8 @@ export const BLOCK_TYPES = [
   { type: "stat", group: "媒体与数据", marker: "Σ", label: "统计", initials: "tj" },
   // 紧挨 stat：订阅块同样吃数据表的数据,把每行渲染成一张订阅卡并汇总月 / 年支出。
   { type: "subscription", group: "媒体与数据", marker: "↻", label: "订阅", initials: "dy" },
+  // 紧挨 subscription：歌单块同样吃数据表的数据,把每行排成一行曲目。
+  { type: "playlist", group: "媒体与数据", marker: "♪", label: "歌单", initials: "gd" },
   // 紧挨 kanban 之后、布局压轴之前:聊天记录是内容块,不是版面级重结构。
   { type: "chat", group: "媒体与数据", marker: "◌", label: "聊天记录", initials: "ltjl" },
   // 压轴：容器块是「版面级」的重结构,跟在内容块族的最后。
@@ -182,6 +188,7 @@ export function isTextualBlock(block: Block): block is TextualBlock {
     block.type !== "ledger" &&
     block.type !== "stat" &&
     block.type !== "subscription" &&
+    block.type !== "playlist" &&
     block.type !== "chat" &&
     block.type !== "layout" &&
     block.type !== "html"
@@ -195,7 +202,7 @@ export function isTextualBlock(block: Block): block is TextualBlock {
  * 这张表派生。serialize / parse 各自的读写分派虽仍逐块列出（编译器靠穷尽性兜住），
  * 但**凡是凭「有没有 path」区分的行为**都必须走这张表，不再各持一份会腐烂的清单。
  */
-export const REFERENCE_BLOCK_TYPES = ["datatable", "gallery", "bookmark", "kanban", "ledger", "stat", "subscription"] as const
+export const REFERENCE_BLOCK_TYPES = ["datatable", "gallery", "bookmark", "kanban", "ledger", "stat", "subscription", "playlist"] as const
 export type ReferenceBlockType = (typeof REFERENCE_BLOCK_TYPES)[number]
 
 /** 带 `path` 指针的引用块本体 —— `isReferenceBlock` 收窄后的结果。 */
@@ -224,9 +231,13 @@ export function refPathsOf(blocks: readonly Block[]): string[] {
         continue
       }
       if (!isReferenceBlock(block)) continue
-      if (block.path === "" || seen.has(block.path)) continue
-      seen.add(block.path)
-      paths.push(block.path)
+      // 歌单块可以绑好几张表 —— 它们都是这篇笔记引用的表,整合视图与 preload 都该看见。
+      const bound = block.type === "playlist" ? block.sources.map((source) => source.path) : [block.path]
+      for (const path of bound) {
+        if (path === "" || seen.has(path)) continue
+        seen.add(path)
+        paths.push(path)
+      }
     }
   }
   visit(blocks)
@@ -425,6 +436,34 @@ export function createSubscriptionBlock(
 }
 
 /**
+ * 造歌单块。一块**至少**绑一张表:`path` 就是那张表,`sources` 只有它一项 ——
+ * 之后再从视图里追加别的歌单。
+ * 字段映射缺省全空 = 按列名与类型自动识别 —— 参考表插进来即可用。
+ * 新建路径会带上预设表的列 id(列名再改也不影响);已有表则留空走识别。
+ */
+export function createPlaylistBlock(path = "", roles: Partial<Record<PlaylistRole, string>> = {}): PlaylistBlock {
+  return {
+    id: createBlockId(),
+    type: "playlist",
+    path,
+    sources: [createPlaylistSource(path, roles)],
+  }
+}
+
+/**
+ * 由一组绑定项造歌单块(解析器用)。
+ *
+ * 不变式「`path` ∈ `sources`」在这里收口:传进来的激活路径不在列表里(属性被手改、
+ * 或某一张表的绑定写坏了)就退到第一项,而不是让视图停在一个空指针上。列表为空时
+ * 补一条空绑定 —— 一块歌单永远有「当前这张表」这个位置。
+ */
+export function createPlaylistBlockFrom(sources: PlaylistSource[], path = ""): PlaylistBlock {
+  const list = sources.length === 0 ? [createPlaylistSource()] : sources
+  const active = list.some((source) => source.path === path) ? path : (list[0]?.path ?? "")
+  return { id: createBlockId(), type: "playlist", path: active, sources: list }
+}
+
+/**
  * 新建一张表时的起手：初始内容，以及表落盘之后**指好列**的造块函数。
  *
  * 两项必须一起产出：预置列的 id 由 `table` 里的列对象生成，而 `create` 要指的就是它们。
@@ -463,6 +502,13 @@ export const REFERENCE_INSERT_SPEC: Record<ReferenceBlockType, ReferenceInsertSp
   bookmark: { create: (path) => createBookmarkBlock(path) },
   kanban: { create: (path) => createKanbanBlock(path) },
   stat: { create: (path) => createStatBlock(path) },
+  playlist: {
+    create: (path) => createPlaylistBlock(path),
+    preset: () => {
+      const preset = createPlaylistPreset()
+      return { table: preset.table, create: (path) => createPlaylistBlock(path, preset.roles) }
+    },
+  },
   subscription: {
     create: (path) => createSubscriptionBlock(path),
     preset: () => {
@@ -505,6 +551,7 @@ export function createBlock(type: BlockType, text = ""): Block {
   if (type === "ledger") return createLedgerBlock()
   if (type === "stat") return createStatBlock()
   if (type === "subscription") return createSubscriptionBlock()
+  if (type === "playlist") return createPlaylistBlock()
   if (type === "chat") return createChatBlock()
   if (type === "layout") return createLayoutBlock()
   if (type === "html") return createHtmlBlock()
@@ -527,7 +574,7 @@ export function retypeBlock(block: Block, type: BlockType): Block {
     const source = isTextualBlock(block) ? runsText(block.runs) : blockText(block)
     return type === "mermaid" ? { ...createMermaidBlock(), source } : { ...createHtmlBlock(), source }
   }
-  if (type === "image" || type === "table" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat" || type === "subscription" || type === "chat" || type === "layout") {
+  if (type === "image" || type === "table" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat" || type === "subscription" || type === "playlist" || type === "chat" || type === "layout") {
     return createBlock(type)
   }
   if (!isTextualBlock(block)) return createTextualBlock(type, textToRuns(blockText(block)))
@@ -548,6 +595,10 @@ export function cloneBlock(block: Block, id: string): Block {
   // 平坦形态浅拷即可：账目块与数据表 / 书签 / 统计一样全是原始值字段。
   if (block.type === "image" || block.type === "mermaid" || block.type === "html" || block.type === "datatable" || block.type === "bookmark" || block.type === "ledger" || block.type === "stat" || block.type === "subscription") {
     return { ...block, id }
+  }
+  // 歌单的 sources 是对象数组：整体替换,但拷贝不该共享同一批绑定项。
+  if (block.type === "playlist") {
+    return { ...block, id, sources: block.sources.map((source) => ({ ...source })) }
   }
   // 画册的 hiddenFields 是数组：更新总以整体替换发生，但拷贝不该共享同一份。
   if (block.type === "gallery") {
@@ -599,6 +650,8 @@ export function blockText(block: Block): string {
   if (block.type === "stat") return block.path
   // 订阅块只带路径 —— 字段映射是展示设置,不是文本。
   if (block.type === "subscription") return block.path
+  // 歌单块只带路径 —— 字段映射是展示设置,不是文本。
+  if (block.type === "playlist") return block.path
   // 布局块把格子里的块递归拼起来 —— 字数统计因此覆盖容器内的内容。
   if (block.type === "layout") {
     return block.cells.map((cell) => cell.map((item) => blockText(item)).join(" ")).join(" ")

@@ -74,7 +74,7 @@ check(
   BLOCK_TYPES.findIndex((m) => m.type === "datatable") ===
     BLOCK_TYPES.findIndex((m) => m.type === "table") + 1,
 )
-check("BLOCK_TYPES 共 27 种", BLOCK_TYPES.length === 27, `实际 ${BLOCK_TYPES.length}`)
+check("BLOCK_TYPES 共 28 种", BLOCK_TYPES.length === 28, `实际 ${BLOCK_TYPES.length}`)
 
 const refBlock = createDataTableBlock("客户.tbl")
 check("引用块是 datatable 且带路径", refBlock.type === "datatable" && refBlock.path === "客户.tbl")
@@ -286,6 +286,9 @@ check("image 列收到非法字符串 → null", imgParse('"abc"') === null)
 check("image 列收到数字 → null", imgParse("42") === null)
 check("image 列收到 data:image → 保住", imgParse(`"${URI}"`) === URI)
 check("image 列收到 data:text → null（只认 data:image/）", imgParse('"data:text/plain;base64,AAAA"') === null)
+// 在线封面：歌单 / 画册的封面常常存在别人的服务器上，只认 data URI 会把它判成空。
+check("image 列收到 http(s) 地址 → 保住", imgParse('"https://p1.music.126.net/a.jpg"') === "https://p1.music.126.net/a.jpg")
+check("image 列收到 ftp:// → null（只认 http/https）", imgParse('"ftp://x/a.jpg"') === null)
 
 // 换类型双向清空，image 不设任何无损通道。
 img = dt.replaceRow(img, dt.setCell(img.rows[0], img.columns[0].id, URI))
