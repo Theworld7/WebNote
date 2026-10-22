@@ -235,11 +235,14 @@ await settle()
 check("切到通勤：只剩夜曲", trackRows().length === 1 && (trackRows()[0]?.textContent ?? "").includes("夜曲"),
   `实际 ${trackRows().length} 行`)
 check("切过去后头部跟着变", headText().includes("1 首"), headText())
+// 切换只是看哪一张，不是改内容：不点亮未保存标记，关标签时也就不该为它弹保存提示。
+check("切歌单不标脏", workspace.activeTab.value?.dirty === false, String(workspace.activeTab.value?.dirty))
 
 tabs()[0]?.click()
 await settle()
 check("切回歌单：又是两首", trackRows().length === 2, `实际 ${trackRows().length}`)
 check("切回来头部也恢复", headText().includes("2 首") && headText().includes("9:28"), headText())
+check("切回来仍不脏", workspace.activeTab.value?.dirty === false, String(workspace.activeTab.value?.dirty))
 
 // ---- 添加一首 ----
 step("add")
@@ -447,6 +450,37 @@ const noteText2 = await readFile("歌单.html")
 const firstPointer = (noteText2.match(/<div class="note-playlist"[^>]*>/) ?? [""])[0]
 check("只剩一张表后那一块不再写 data-sources", firstPointer !== "" && !firstPointer.includes("data-sources"), firstPointer)
 check("指针还在", firstPointer.includes('data-playlist="歌单.tbl"'), firstPointer)
+
+// ---- 切换歌单是视图动作：不占撤销栈，也不被撤销带走 ----
+step("history")
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const liveBlock = (id) => workspace.activeDocument.value.find((block) => block.id === id)
+
+// 先把前面留下的改动定格掉，下面这一步才是干净的「插一个文本块」。
+await wait(700)
+const beforeUndo = workspace.activeDocument.value.length
+const textId = workspace.insertBlockAt(beforeUndo, "text")
+await settle()
+await wait(700)
+check("插入的文本块落了", textId !== "" && liveBlock(textId) !== undefined)
+
+// 再切歌单：纯视图动作，不该在撤销栈里留下一步。
+workspace.setPlaylistActive(insertedId, "新歌单.tbl")
+await settle()
+await wait(700)
+check("切换后指针指向另一张", liveBlock(insertedId)?.path === "新歌单.tbl", liveBlock(insertedId)?.path)
+
+workspace.undo()
+await settle()
+check("撤销撤掉的是那个文本块（真改动）",
+  workspace.activeDocument.value.length === beforeUndo && liveBlock(textId) === undefined,
+  `${beforeUndo + 1} → ${workspace.activeDocument.value.length}`)
+check("撤销没把正在看的歌单切回去", liveBlock(insertedId)?.path === "新歌单.tbl", liveBlock(insertedId)?.path)
+
+workspace.redo()
+await settle()
+check("重做把文本块放回来", liveBlock(textId) !== undefined)
+check("重做也没换掉正在看的歌单", liveBlock(insertedId)?.path === "新歌单.tbl", liveBlock(insertedId)?.path)
 
 lines.push(failed === 0 ? `自检 ${passed}/${passed}` : `自检 ${passed} 过 / ${failed} 败`)
 document.getElementById("out").textContent = lines.join("\n")

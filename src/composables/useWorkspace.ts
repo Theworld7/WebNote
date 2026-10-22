@@ -1038,6 +1038,66 @@ function createWorkspace() {
     return (documents.value[path] ?? []).map((block) => cloneBlock(block, block.id))
   }
 
+  /**
+   * 视图态:歌单块「当前看哪一张」(块上的 `path`)。
+   *
+   * 切换歌单只是换个看法(`setPlaylistActive` 不记脏),撤销栈也就不能把它当一步 ——
+   * 否则切两张之后按 Ctrl+Z,展示莫名其妙被切回去,而用户改的字一个都没回来。
+   * 撤销栈是整篇的全量快照,所以两头都收:比较时抹掉它(纯切换不定格成一步),
+   * 恢复后按恢复前的当前值补回去(撤销别的改动不会顺手换掉你正在看的那张)。
+   *
+   * 按块 id 对齐。补不上的照快照里那份走(`playlistActivePath` 会兜底到第一张):
+   * 块被转换过就换过 id,布局格子里的子块每次拷贝也换新 id —— 那两种情形本来
+   * 就没有稳定的 id 可对。
+   */
+  type ViewState = Map<string, string>
+
+  /** 块列表(含布局格子)里各歌单块的当前展示路径。 */
+  function viewStateOf(blocks: readonly Block[]): ViewState {
+    const state: ViewState = new Map()
+    const visit = (list: readonly Block[]): void => {
+      for (const block of list) {
+        if (block.type === "layout") {
+          for (const cell of block.cells) visit(cell)
+          continue
+        }
+        if (block.type === "playlist") state.set(block.id, block.path)
+      }
+    }
+    visit(blocks)
+    return state
+  }
+
+  /**
+   * 把视图态补回一份快照(就地改)。快照出栈后不再被历史引用,就地改是安全的;
+   * 调用方负责拿到的是一份独占的拷贝。
+   */
+  function applyViewState(blocks: Block[], state: ViewState): void {
+    const visit = (list: Block[]): void => {
+      for (const block of list) {
+        if (block.type === "layout") {
+          for (const cell of block.cells) visit(cell)
+          continue
+        }
+        if (block.type !== "playlist") continue
+        const path = state.get(block.id)
+        if (path !== undefined) block.path = path
+      }
+    }
+    visit(blocks)
+  }
+
+  /** 比较用的指纹:视图态抹平,只切了歌单的两份快照在这里完全相同。 */
+  function historySignature(blocks: readonly Block[]): string {
+    const blanked = (list: readonly Block[]): unknown[] =>
+      list.map((block) => {
+        if (block.type === "layout") return { ...block, cells: block.cells.map(blanked) }
+        if (block.type === "playlist") return { ...block, path: "" }
+        return block
+      })
+    return JSON.stringify(blanked(blocks))
+  }
+
   /** 取路径的历史，没有就现开一份 —— 基线取当下的快照，首笔改动从它起算。 */
   function historyOf(path: string): DocHistory {
     const existing = history.get(path)
@@ -1051,7 +1111,7 @@ function createWorkspace() {
   function recordHistory(path: string) {
     const entry = historyOf(path)
     const current = snapshotOf(path)
-    if (JSON.stringify(current) === JSON.stringify(entry.baseline)) return
+    if (historySignature(current) === historySignature(entry.baseline)) return
     entry.past.push(entry.baseline)
     if (entry.past.length > HISTORY_LIMIT) entry.past.shift()
     entry.baseline = current
@@ -1082,6 +1142,8 @@ function createWorkspace() {
     const previous = entry.past.pop()
     if (previous === undefined) return
     entry.future.push(snapshotOf(path))
+    // 视图态不随撤销走:补回当前正在看的那张歌单,再让快照成为文档。
+    applyViewState(previous, viewStateOf(documents.value[path] ?? []))
     entry.baseline = previous.map((block) => cloneBlock(block, block.id))
     documents.value[path] = previous
     markDirty()
@@ -1099,6 +1161,7 @@ function createWorkspace() {
     const next = entry.future.pop()
     if (next === undefined) return
     entry.past.push(snapshotOf(path))
+    applyViewState(next, viewStateOf(documents.value[path] ?? []))
     entry.baseline = next.map((block) => cloneBlock(block, block.id))
     documents.value[path] = next
     markDirty()
@@ -1459,6 +1522,27 @@ function createWorkspace() {
     markDirty()
   }
 
+  /**
+   * 切换歌单块**当前展示**哪一张表。
+   *
+   * 这是视图动作,不是改内容 —— 与块内搜索同一立场(ADR-0005:视图状态别当数据),
+   * 所以**不** `markDirty`:标签不亮脏点,关标签也不为「只是看了看另一张歌单」弹保存提示。
+   *
+   * 选择仍然记在块的 `path` 上:这篇笔记因为别的改动保存时,它顺带写进
+   * `data-playlist`,下次打开还是这一张。只切不存就关标签,则回到上次落盘的那张 ——
+   * 视图动作不落盘,是这条取舍的代价,而不是漏写。
+   *
+   * 不在 `sources` 里的路径不接:块上那条不变式(「path 恒等于 sources 中某一项」)
+   * 由 `setPlaylistSources` 独占,这里只允许在已绑定的几张之间挪动。
+   */
+  function setPlaylistActive(id: string, path: string) {
+    const block = activeBlock(id)
+    if (block === undefined || block.type !== "playlist") return
+    if (block.path === path) return
+    if (!block.sources.some((source) => source.path === path)) return
+    block.path = path
+  }
+
   // ---- 图片 ----
 
   /** 换图。`src` 是 URL 或 data URI（本地文件走 `readImageFile`）。 */
@@ -1766,6 +1850,7 @@ function createWorkspace() {
     bindStatTable,
     // playlist actions
     setPlaylistSources,
+    setPlaylistActive,
     createPlaylistTable,
     // layout actions
     setLayoutMode,

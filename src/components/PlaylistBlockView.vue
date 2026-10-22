@@ -59,12 +59,13 @@ import {
  *
  * 绑多张表时,顶部胶囊标签就是切换器,标签名取表文件名 —— 用户给自己的歌单起的名字
  * 本来就在文件名上,不另存一份「显示名」。每张表带自己那套字段映射,切过去不会错位。
+ * 切换是**看哪一张**,不是改内容:它不点亮未保存标记(见 `setPlaylistActive`)。
  *
  * 时长与曲目数是**从行里现算的投影**,不进 `.tbl` 也不进块:落进存储就是第二份真源。
  */
 const props = defineProps<{ block: PlaylistBlock }>()
 
-const { openFile, setPlaylistSources, createPlaylistTable, tablePaths } = useWorkspace()
+const { openFile, setPlaylistSources, setPlaylistActive, createPlaylistTable, tablePaths } = useWorkspace()
 
 /** 当前激活的绑定项。盘上数据被手改过时 `playlistActiveSource` 兜底成第一项。 */
 const active = computed<PlaylistSource | null>(() => playlistActiveSource(props.block))
@@ -221,9 +222,10 @@ const unboundTables = computed(() => {
   return tablePaths.value.filter((path) => !bound.has(path))
 })
 
+/** 切到另一张已绑定的歌单。只是换「看哪张」,不算改动 —— 所以不走 `setPlaylistSources`。 */
 function switchTo(path: string): void {
   if (path === activePath.value) return
-  setPlaylistSources(props.block.id, props.block.sources, path)
+  setPlaylistActive(props.block.id, path)
 }
 
 /** 绑上一张已有的表,并立刻切过去 —— 用户点它的意思就是要看它。 */
