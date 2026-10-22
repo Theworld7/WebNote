@@ -99,9 +99,17 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
        所以按钮不吃它，点得动）。双击标题栏最大化由 Tauri 内建处理。 -->
   <header class="flex h-9 flex-none items-center justify-between select-none" data-tauri-drag-region>
     <div class="flex flex-none items-center gap-0.5 pl-2">
+      <!-- 三颗按钮都 `@mousedown.prevent`：点下去不抢焦点。否则点完焦点留在按钮上，
+           接着按空格 / 回车会把「刚才那个动作」再触发一次。键盘用户照旧 Tab 得到它。 -->
       <Tooltip>
         <TooltipTrigger as-child>
-          <Button variant="ghost" :class="ACTION" aria-label="折叠侧栏" @click="emit('toggle-sidebar')">
+          <Button
+            variant="ghost"
+            :class="ACTION"
+            aria-label="折叠侧栏"
+            @mousedown.prevent
+            @click="emit('toggle-sidebar')"
+          >
             <PanelLeftIcon class="size-[15px]" />
           </Button>
         </TooltipTrigger>
@@ -111,7 +119,13 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
       <!-- 自动模式下它只覆盖当前时段，具体到下一个跳变点会不会被自动接管，看设置面板里的「外观」。 -->
       <Tooltip>
         <TooltipTrigger as-child>
-          <Button variant="ghost" :class="ACTION" :aria-label="themeActionLabel" @click="toggleTheme">
+          <Button
+            variant="ghost"
+            :class="ACTION"
+            :aria-label="themeActionLabel"
+            @mousedown.prevent
+            @click="toggleTheme"
+          >
             <SunIcon v-if="theme === 'dark'" class="size-[15px]" />
             <MoonIcon v-else class="size-[15px]" />
           </Button>
@@ -121,7 +135,13 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
 
       <Tooltip>
         <TooltipTrigger as-child>
-          <Button variant="ghost" :class="ACTION" aria-label="设置" @click="settingsOpen = true">
+          <Button
+            variant="ghost"
+            :class="ACTION"
+            aria-label="设置"
+            @mousedown.prevent
+            @click="settingsOpen = true"
+          >
             <SettingsIcon class="size-[15px]" />
           </Button>
         </TooltipTrigger>
