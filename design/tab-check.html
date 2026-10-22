@@ -119,63 +119,39 @@ workspace.activePath.value = ""
 await nextTick()
 check("无激活标签 → 隐藏", saveButton() === undefined)
 
-// ---- 动作组的按钮集合 ----
+// ---- 浮岛结构 ----
 //
-// 「在目录中定位」定的是激活标签那篇笔记，没打开文件时不该出现；「更多」按钮没有设计，已删。
-// 折叠侧栏 / 深浅切换 / 设置三颗全局按钮已移去标题栏（TitleBar.vue），这里只剩定位一个。
-// 用 aria-label 的完整序列断言，集合一变就红。
+// 「在目录中定位」从来没有接过 click，点了没反应，已连同那个只剩它一个按钮的动作组
+// 一起删掉。浮岛现在只剩标签条一个子节点 —— 动作组若被加回来，下面的几何断言会先红。
 
 const EPS = 0.5
 /** 浮岛随「有没有标签」整体挂载 / 卸载，每次都得重新查 —— 抓一次引用会在卸载后拿到死节点。 */
 const islandOf = () => document.querySelector('[class*="rounded-island"]')
-/** 动作组是浮岛的最后一个子节点。不用「定位按钮的父级」定位它 —— 那个按钮现在会消失。 */
-const actionsOf = () => islandOf()?.lastElementChild ?? null
-const actionLabels = () =>
-  [...(actionsOf()?.querySelectorAll("button") ?? [])].map(
-    (b) => b.getAttribute("aria-label") ?? b.textContent.trim(),
-  )
-const hasLocate = () => document.querySelector('button[aria-label="在目录中定位"]') !== null
-
+/** 浮岛的唯一子节点：标签条外层（relative，挂着两端渐变与滚动指示条）。 */
+const stripOf = () => islandOf()?.firstElementChild ?? null
 const leftOf = (el) => el.getBoundingClientRect().left
 const rightOf = (el) => el.getBoundingClientRect().right
-/** 动作组的前一个兄弟就是标签条。 */
-const stripOf = () => actionsOf()?.previousElementSibling ?? null
 
 workspace.tabs.value = []
 workspace.activePath.value = ""
 await nextTick()
 check("未打开文件时整条 Tab 栏不渲染", islandOf() === null)
-check("未打开文件时不显示「在目录中定位」", !hasLocate())
+check("无标签时不渲染标签条", stripOf() === null)
 check("「更多」按钮已移除", document.querySelector('button[aria-label="更多"]') === null)
 
 workspace.tabs.value = [{ path: "a.html", dirty: false, dirtyTables: [] }]
 workspace.activePath.value = "a.html"
 await nextTick()
-check("打开文件后出现「在目录中定位」", hasLocate())
-check(
-  "动作组只剩「在目录中定位」",
-  JSON.stringify(actionLabels()) === JSON.stringify(["在目录中定位"]),
-  JSON.stringify(actionLabels()),
-)
+check("「在目录中定位」已移除（曾是没接事件的死按钮）",
+  document.querySelector('button[aria-label="在目录中定位"]') === null)
+check("打开文件后浮岛只剩标签条一个子节点",
+  islandOf()?.children.length === 1,
+  `子节点=${islandOf()?.children.length ?? "（浮岛没渲染）"}`)
 
-// ---- 浮岛几何：间隔只由外层 gap 一处承担 ----
+// ---- 浮岛几何：标签条四周只留浮岛的 p-1 ----
 //
-// 曾经是 gap-1 + ml-1 + pl-1.5 三个机制叠出 14px，无标签时左缘会空出 18px。
-// 这几条断言锁住「一个机制」与「空标签不留白」两个性质，防止双 padding 复发。
-
-const actionsClass = actionsOf()?.getAttribute("class") ?? ""
-check(
-  "间隔不再由动作组自带 margin / padding 承担",
-  !/(^|\s)(ml-|pl-)/.test(actionsClass),
-  actionsClass,
-)
-
-workspace.tabs.value = []
-workspace.activePath.value = ""
-await nextTick()
-
-check("无标签时不渲染标签条", stripOf() === null)
-check("无标签时浮岛整个不在 DOM 里", islandOf() === null)
+// 曾经浮岛里还有动作组，要锁「间隔只由 gap 一处承担」；动作组删掉后只剩「标签条贴着
+// p-1 内边距」一个性质。内边距被改成 px-2 或又塞进别的东西，标签条就会被推离浮岛边缘。
 
 workspace.tabs.value = [
   { path: "a.html", dirty: false, dirtyTables: [] },
@@ -191,31 +167,21 @@ check(
   strip !== null && strip.querySelector('[class*="overflow-x-auto"]') !== null,
 )
 check(
-  "标签条左缘距浮岛左缘 4px",
+  "标签条左缘距浮岛左缘 4px（浮岛 p-1）",
   strip !== null && Math.abs(leftOf(strip) - leftOf(island) - 4) < EPS,
   strip === null ? "标签条缺失" : `实际 ${(leftOf(strip) - leftOf(island)).toFixed(1)}`,
 )
-
-/** 末个 tab 的右缘 —— 标签条的最后一个子节点。 */
-const lastTabRight = () => rightOf(strip.lastElementChild)
-/** 动作组的第一个按钮。间隔若靠动作组的 padding 顶出来，量动作组外框是看不出来的。 */
-const firstActionLeft = () => leftOf(actionsOf().firstElementChild)
-const stripGap = () => firstActionLeft() - lastTabRight()
 check(
-  "标签条到首个动作按钮的间隔 8px（gap-2，不再是 8 + 6）",
-  Math.abs(stripGap() - 8) < EPS,
-  `实际 ${stripGap().toFixed(1)}`,
+  "标签条右缘距浮岛右缘 4px（没有残留的动作组占位）",
+  strip !== null && Math.abs(rightOf(island) - rightOf(strip) - 4) < EPS,
+  strip === null ? "标签条缺失" : `实际 ${(rightOf(island) - rightOf(strip)).toFixed(1)}`,
 )
 
-// 出现「保存」按钮时动作组变宽，但它左锚在标签条之后 —— 间隔不能跟着变。
+// 标签变脏会长出「保存」按钮 —— 以前它在动作组里，现在浮岛宽度只由标签条决定。
 workspace.tabs.value[1].dirty = true
 await nextTick()
-check(
-  "出现保存按钮时间隔不变",
-  Math.abs(stripGap() - 8) < EPS,
-  `实际 ${stripGap().toFixed(1)}`,
-)
-check("此时右缘仍留 4px（= 浮岛 p-1）", Math.abs(rightOf(island) - rightOf(actionsOf()) - 4) < EPS)
+check("长出保存按钮后标签条右缘仍是 4px", Math.abs(rightOf(island) - rightOf(strip) - 4) < EPS,
+  `实际 ${(rightOf(island) - rightOf(strip)).toFixed(1)}`)
 
 // ---- 滚动行为 ----
 //

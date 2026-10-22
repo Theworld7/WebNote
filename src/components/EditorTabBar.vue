@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import { LocateFixedIcon } from "@lucide/vue"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -10,14 +9,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWorkspace } from "@/composables/useWorkspace"
 import EditorTab from "./EditorTab.vue"
 
 const {
   tabs,
   activePath,
-  activeTab,
   activateTab,
   requestCloseTab,
   saveTab,
@@ -26,8 +23,6 @@ const {
   resolveClose,
   cancelPendingClose,
 } = useWorkspace()
-
-const ACTION = "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foreground"
 
 /** 确认框里的按钮：h-7、13px，跟工具栏那批小按钮同一个体量。 */
 const DIALOG_BTN = "h-7 px-3 text-[13px]"
@@ -70,15 +65,13 @@ watch(() => tabs.value.length, () => nextTick(updateOverflow))
 
 <template>
   <!-- 浮岛：只占内容宽度、不通栏，靠 self-start 收在左侧，右侧留空。
-       标签条与动作组之间的间隔只由外层 gap 一处承担（曾经叠了 `gap-1` + `ml-1` + `pl-1.5`，
-       无标签时那段空白会露出来）。
-       **没开文件时整条浮岛不渲染**：动作组只剩「在目录中定位」，而它没有激活标签也无从定位，
-       留着就只是一块空白卡片压在编辑区上方。整块拿掉后编辑区直接顶到标题栏下面。
+       **没开文件时整条浮岛不渲染**：没有标签可显示，留着就只是一块空白卡片压在编辑区
+       上方。整块拿掉后编辑区直接顶到标题栏下面。
        max-w-full：标签多到放不下时浮岛不得撑破容器，超出交给标签条横向滚动。
        group/island：自绘滚动指示条挂在标签条下缘，hover 浮岛才显形。 -->
   <div
     v-if="tabs.length > 0"
-    class="group/island flex max-w-full flex-none items-center gap-2 self-start rounded-island bg-card p-1 shadow-island"
+    class="group/island flex max-w-full flex-none items-center self-start rounded-island bg-card p-1 shadow-island"
   >
     <div class="relative min-w-0">
       <div
@@ -115,18 +108,6 @@ watch(() => tabs.value.length, () => nextTick(updateOverflow))
       >
         <div class="absolute h-full rounded-full bg-line" :style="{ width: `${thumb.width}%`, left: `${thumb.left}%` }" />
       </div>
-    </div>
-
-    <div class="flex flex-none items-center gap-0.5">
-      <!-- 「在目录中定位」定的是当前激活的那篇笔记，没有激活标签就无从定位，不给按钮。 -->
-      <Tooltip v-if="activeTab !== null">
-        <TooltipTrigger as-child>
-          <Button variant="ghost" :class="ACTION" aria-label="在目录中定位">
-            <LocateFixedIcon class="size-[15px]" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>在目录中定位</TooltipContent>
-      </Tooltip>
     </div>
   </div>
 
