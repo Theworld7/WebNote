@@ -10,6 +10,7 @@ import AppSidebar from "@/components/AppSidebar.vue"
 import EditorSurface from "@/components/EditorSurface.vue"
 import EditorTabBar from "@/components/EditorTabBar.vue"
 import PaneResizer from "@/components/PaneResizer.vue"
+import TitleBar from "@/components/TitleBar.vue"
 
 const { hasDirty, bootstrap, fs, root, attachTableRegistry, attachIntegrateTables } = provideWorkspace()
 // 数据表注册表与工作区**共用同一对 driver / root**：切目录时两者必须一起换语境，
@@ -67,17 +68,22 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", onBeforeUnload)
 
 <template>
   <TooltipProvider>
-    <div class="flex h-screen overflow-hidden bg-canvas p-2.5">
-      <AppSidebar v-if="!sidebarCollapsed" :width="sidebarWidth" />
-      <PaneResizer v-if="!sidebarCollapsed" :dragging="dragging" @drag-start="startDrag" />
+    <!-- 窗口无系统装饰，标题栏是自绘的第一行：它贴着窗口上沿，下面的浮岛区才留内边距。
+         侧栏折叠状态要跨这两块用（标题栏里的按钮改它，下面的侧栏读它），所以留在根组件。 -->
+    <div class="flex h-screen flex-col overflow-hidden bg-canvas">
+      <TitleBar :sidebar-collapsed="sidebarCollapsed" @toggle-sidebar="sidebarCollapsed = !sidebarCollapsed" />
 
-      <section class="flex min-w-0 flex-1 flex-col gap-2.5">
-        <EditorTabBar
-          :sidebar-collapsed="sidebarCollapsed"
-          @toggle-sidebar="sidebarCollapsed = !sidebarCollapsed"
-        />
-        <EditorSurface />
-      </section>
+      <!-- 不给 gap：左右两区之间的间隔只由 PaneResizer 的 w-3 一处承担，
+           再叠 gap 会让它变成 12 + 10 + 10 = 32px。折叠侧栏时两者都不渲染，编辑区直接占满。 -->
+      <div class="flex min-h-0 flex-1 px-2.5 pb-2.5 pt-1">
+        <AppSidebar v-if="!sidebarCollapsed" :width="sidebarWidth" />
+        <PaneResizer v-if="!sidebarCollapsed" :dragging="dragging" @drag-start="startDrag" />
+
+        <section class="flex min-w-0 flex-1 flex-col gap-2.5">
+          <EditorTabBar />
+          <EditorSurface />
+        </section>
+      </div>
     </div>
   </TooltipProvider>
 </template>

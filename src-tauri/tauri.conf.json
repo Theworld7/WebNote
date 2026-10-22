@@ -15,7 +15,8 @@
         "title": "玉简",
         "width": 1200,
         "height": 900,
-        "dragDropEnabled": false
+        "dragDropEnabled": false,
+        "decorations": false
       }
     ],
     "security": {

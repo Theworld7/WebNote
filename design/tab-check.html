@@ -70,11 +70,10 @@ function dotIn(button) {
 let workspace = null
 const Root = defineComponent({
   setup() {
-    // 设置抽屉并进 EditorTabBar 后，它 setup 里会 useSettings —— 不 provide 就当场抛。
-    // 主题开关同理：它 setup 里会 useTheme，而配色推导读的是那份设置。
+    // 工作区一侧要读设置（表格整合视图等），主题推导也读同一份 —— 不 provide 就当场抛。
     provideTheme(provideSettings())
     workspace = provideWorkspace()
-    return () => h(TooltipProvider, null, { default: () => h(EditorTabBar, { sidebarCollapsed: false }) })
+    return () => h(TooltipProvider, null, { default: () => h(EditorTabBar) })
   },
 })
 
@@ -123,29 +122,29 @@ check("无激活标签 → 隐藏", saveButton() === undefined)
 // ---- 动作组的按钮集合 ----
 //
 // 「在目录中定位」定的是激活标签那篇笔记，没打开文件时不该出现；「更多」按钮没有设计，已删。
+// 折叠侧栏 / 深浅切换 / 设置三颗全局按钮已移去标题栏（TitleBar.vue），这里只剩定位一个。
 // 用 aria-label 的完整序列断言，集合一变就红。
 
 const EPS = 0.5
-const island = document.querySelector('[class*="rounded-island"]')
+/** 浮岛随「有没有标签」整体挂载 / 卸载，每次都得重新查 —— 抓一次引用会在卸载后拿到死节点。 */
+const islandOf = () => document.querySelector('[class*="rounded-island"]')
 /** 动作组是浮岛的最后一个子节点。不用「定位按钮的父级」定位它 —— 那个按钮现在会消失。 */
-const actions = island.lastElementChild
+const actionsOf = () => islandOf()?.lastElementChild ?? null
 const actionLabels = () =>
-  [...actions.querySelectorAll("button")].map((b) => b.getAttribute("aria-label") ?? b.textContent.trim())
+  [...(actionsOf()?.querySelectorAll("button") ?? [])].map(
+    (b) => b.getAttribute("aria-label") ?? b.textContent.trim(),
+  )
 const hasLocate = () => document.querySelector('button[aria-label="在目录中定位"]') !== null
 
 const leftOf = (el) => el.getBoundingClientRect().left
 const rightOf = (el) => el.getBoundingClientRect().right
-/** 动作组的前一个兄弟就是标签条；空标签时它整个不渲染，于是为 null。 */
-const stripOf = () => actions.previousElementSibling
+/** 动作组的前一个兄弟就是标签条。 */
+const stripOf = () => actionsOf()?.previousElementSibling ?? null
 
 workspace.tabs.value = []
 workspace.activePath.value = ""
 await nextTick()
-check(
-  "未打开文件时动作组只有「折叠侧栏 + 主题 + 设置」",
-  JSON.stringify(actionLabels()) === JSON.stringify(["折叠侧栏", "切换到深色", "设置"]),
-  JSON.stringify(actionLabels()),
-)
+check("未打开文件时整条 Tab 栏不渲染", islandOf() === null)
 check("未打开文件时不显示「在目录中定位」", !hasLocate())
 check("「更多」按钮已移除", document.querySelector('button[aria-label="更多"]') === null)
 
@@ -154,8 +153,8 @@ workspace.activePath.value = "a.html"
 await nextTick()
 check("打开文件后出现「在目录中定位」", hasLocate())
 check(
-  "动作组为「定位 + 折叠侧栏 + 主题 + 设置」",
-  JSON.stringify(actionLabels()) === JSON.stringify(["在目录中定位", "折叠侧栏", "切换到深色", "设置"]),
+  "动作组只剩「在目录中定位」",
+  JSON.stringify(actionLabels()) === JSON.stringify(["在目录中定位"]),
   JSON.stringify(actionLabels()),
 )
 
@@ -164,7 +163,7 @@ check(
 // 曾经是 gap-1 + ml-1 + pl-1.5 三个机制叠出 14px，无标签时左缘会空出 18px。
 // 这几条断言锁住「一个机制」与「空标签不留白」两个性质，防止双 padding 复发。
 
-const actionsClass = actions.getAttribute("class") ?? ""
+const actionsClass = actionsOf()?.getAttribute("class") ?? ""
 check(
   "间隔不再由动作组自带 margin / padding 承担",
   !/(^|\s)(ml-|pl-)/.test(actionsClass),
@@ -175,12 +174,8 @@ workspace.tabs.value = []
 workspace.activePath.value = ""
 await nextTick()
 
-check("无标签时不渲染标签条（零宽空条会吃掉一份 gap）", stripOf() === null)
-check(
-  "无标签时首个动作按钮距浮岛左缘 4px（= 浮岛 p-1）",
-  Math.abs(leftOf(actions.firstElementChild) - leftOf(island) - 4) < EPS,
-  `实际 ${(leftOf(actions.firstElementChild) - leftOf(island)).toFixed(1)}`,
-)
+check("无标签时不渲染标签条", stripOf() === null)
+check("无标签时浮岛整个不在 DOM 里", islandOf() === null)
 
 workspace.tabs.value = [
   { path: "a.html", dirty: false, dirtyTables: [] },
@@ -190,6 +185,7 @@ workspace.activePath.value = "b.html"
 await nextTick()
 
 const strip = stripOf()
+const island = islandOf()
 check(
   "有标签时标签条存在且是横向滚动容器（超出滚动而非截断）",
   strip !== null && strip.querySelector('[class*="overflow-x-auto"]') !== null,
@@ -203,7 +199,7 @@ check(
 /** 末个 tab 的右缘 —— 标签条的最后一个子节点。 */
 const lastTabRight = () => rightOf(strip.lastElementChild)
 /** 动作组的第一个按钮。间隔若靠动作组的 padding 顶出来，量动作组外框是看不出来的。 */
-const firstActionLeft = () => leftOf(actions.firstElementChild)
+const firstActionLeft = () => leftOf(actionsOf().firstElementChild)
 const stripGap = () => firstActionLeft() - lastTabRight()
 check(
   "标签条到首个动作按钮的间隔 8px（gap-2，不再是 8 + 6）",
@@ -219,7 +215,7 @@ check(
   Math.abs(stripGap() - 8) < EPS,
   `实际 ${stripGap().toFixed(1)}`,
 )
-check("此时右缘仍留 4px（= 浮岛 p-1）", Math.abs(rightOf(island) - rightOf(actions) - 4) < EPS)
+check("此时右缘仍留 4px（= 浮岛 p-1）", Math.abs(rightOf(island) - rightOf(actionsOf()) - 4) < EPS)
 
 // ---- 滚动行为 ----
 //
