@@ -36,12 +36,18 @@ function check(name, ok, detail = "") {
   else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
 }
 
-/** 从真实的渲染结果里找保存按钮，不碰内部状态。 */
+/**
+ * 从真实的渲染结果里找保存入口，不碰内部状态。
+ *
+ * 它是标签项里的一枚「保存图标」（`aria-label="保存"` 的 span，点它就是存这一页），没有
+ * 文字 —— 早先那版是写着「保存」二字的独立按钮，随「保存钮移入标签项」改成了这个形态，
+ * 这里的断言跟着认可及名而不是文案。
+ */
 function saveButton() {
-  return [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "保存")
+  return document.querySelector('[aria-label="保存"]') ?? undefined
 }
 
-/** 标签按钮本体。「未保存」文字与脏点都是常驻 DOM 靠 hidden 切换，所以要看计算样式。 */
+/** 标签按钮本体。脏态标记（图标按钮 / 圆点）都是常驻 DOM 靠 hidden 切换，所以要看计算样式。 */
 function tabButtons() {
   return [...document.querySelectorAll('button[class*="group/tab"]')]
 }
@@ -50,8 +56,9 @@ function visible(el) {
   return el !== undefined && getComputedStyle(el).display !== "none"
 }
 
-function tagIn(button) {
-  return [...button.querySelectorAll("span")].find((s) => s.textContent.trim() === "未保存")
+/** 某张标签项里的保存入口 —— 激活的脏标签把自己变成「点这里存」的按钮。 */
+function saveIn(button) {
+  return button.querySelector('[aria-label="保存"]') ?? undefined
 }
 
 function dotIn(button) {
@@ -85,8 +92,8 @@ workspace.tabs.value[0].dirty = true
 await nextTick()
 const shown = saveButton()
 check("激活的标签变脏 → 出现", shown !== undefined)
-check("按钮文字为「保存」", shown !== undefined && shown.textContent.trim() === "保存")
-check("激活的脏标签显示「未保存」文字", visible(tagIn(tabButtons()[0])))
+check("按钮的可及名是「保存」", shown !== undefined && shown.getAttribute("aria-label") === "保存")
+check("激活的脏标签里就是那枚保存图标", visible(saveIn(tabButtons()[0])))
 check("激活的脏标签不显示圆点", !visible(dotIn(tabButtons()[0])))
 
 workspace.tabs.value.push({ path: "b.html", dirty: false, dirtyTables: [] })
@@ -94,8 +101,8 @@ workspace.activePath.value = "b.html"
 await nextTick()
 check("切到干净标签 → 隐藏", saveButton() === undefined)
 check("此时仍存在未保存标签（脏态没被清掉）", workspace.hasDirty.value === true)
-check("非激活的脏标签只显示圆点，不显示文字", !visible(tagIn(tabButtons()[0])) && visible(dotIn(tabButtons()[0])))
-check("干净的激活标签两种脏标记都没有", !visible(tagIn(tabButtons()[1])) && !visible(dotIn(tabButtons()[1])))
+check("非激活的脏标签只显示圆点，没有保存图标", saveIn(tabButtons()[0]) === undefined && visible(dotIn(tabButtons()[0])))
+check("干净的激活标签两种脏标记都没有", saveIn(tabButtons()[1]) === undefined && !visible(dotIn(tabButtons()[1])))
 
 workspace.activePath.value = "a.html"
 await nextTick()
