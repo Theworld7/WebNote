@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { LedgerBlock } from "@/types/workspace"
 import type { DataColumn, DataRow } from "@/types/data-table"
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import { CheckIcon, ChevronDownIcon, DatabaseIcon, PlusIcon, Settings2Icon, Trash2Icon } from "@lucide/vue"
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { DatabaseIcon, PlusIcon, Settings2Icon, Trash2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -14,11 +14,13 @@ import {
 } from "@/components/ui/dropdown-menu"
 import TableRefNotice from "@/components/TableRefNotice.vue"
 import DateCalendar from "@/components/DateCalendar.vue"
+import OptionCell from "@/components/OptionCell.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
 import { useCellEditing } from "@/composables/useCellEditing"
 import * as dt from "@/lib/data-table"
 import { LEDGER_EXPENSE_COLOR, LEDGER_INCOME_COLOR, balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, ledgerSort, sortRows, sumRows } from "@/lib/ledger"
+import { placeBelow, watchScrollHosts } from "@/lib/floating"
 
 /**
  * 账目块:把一张数据表按财务口径渲染成流水账 —— 收入列 / 支出列带符号的金额、
@@ -289,67 +291,29 @@ const calendarPanel = ref<CalendarPanel | null>(null)
 const PANEL_WIDTH = 232
 const PANEL_HEIGHT = 272
 
+/** 日期面板的滚动订阅。同一时刻只有一个浮层开着,状态就挂在开它的这一处。 */
+let stopDateScroll: (() => void) | null = null
+
 /**
  * 打开面板并把位置钉在输入框下面。
  *
  * 浮层 `fixed` 且挂在 body 上:账目表外层是 `overflow-x-auto`,垂直方向同样被那个
- * 滚动容器截住,浮在格里的面板在靠下的几行会被裁掉。位置越界时夹回视口,下方放不下
- * 就翻到输入框上方。
+ * 滚动容器截住,浮在格里的面板在靠下的几行会被裁掉。落位与滚动订阅都在 `lib/floating`,
+ * 与选择格共用一份 —— 越界夹回视口,下方放不下就翻到输入框上方。
  */
 function openCalendar(row: DataRow, column: DataColumn, event: Event): void {
   const target = event.target
   if (!(target instanceof HTMLInputElement)) return
-  // 选择面板与日期面板不会同格共存,但换格时可能前一个还挂着。
-  closeSelect()
-  const rect = target.getBoundingClientRect()
-  const below = rect.bottom + 4
-  const top = below + PANEL_HEIGHT > window.innerHeight ? Math.max(8, rect.top - PANEL_HEIGHT - 4) : below
-  calendarPanel.value = {
-    rowId: row.id,
-    columnId: column.id,
-    top,
-    left: Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - PANEL_WIDTH - 8)),
-    value: editText(row, column),
-  }
-  watchScrollHosts(target, closeCalendar)
-}
-
-/**
- * 只盯**会影响面板位置的那几个滚动祖先**。
- *
- * `scroll` 不冒泡,所以在 window 上加 capture 会把所有后代的滚动都收进来 —— 页面
- * 一加载,编辑器自己的滚动容器滚一下就把刚打开的面板关掉。这里从锚点往上找真正
- * 可滚的祖先,只有它们滚动(块会跟着位移)才收面板。
- *
- * 日期面板与选择面板共用这一份:同一时刻只可能开一个,打开新的会先把旧的收掉。
- */
-let scrollHosts: { host: HTMLElement; close: () => void }[] = []
-
-function scrollAncestors(element: HTMLElement): HTMLElement[] {
-  const found: HTMLElement[] = []
-  let node = element.parentElement
-  while (node !== null) {
-    if (node.scrollHeight > node.clientHeight || node.scrollWidth > node.clientWidth) found.push(node)
-    node = node.parentElement
-  }
-  return found
-}
-
-function watchScrollHosts(anchor: HTMLElement, close: () => void): void {
-  unwatchScrollHosts()
-  scrollHosts = scrollAncestors(anchor).map((host) => {
-    host.addEventListener("scroll", close, { passive: true })
-    return { host, close }
-  })
-}
-
-function unwatchScrollHosts(): void {
-  for (const { host, close } of scrollHosts) host.removeEventListener("scroll", close)
-  scrollHosts = []
+  const { top, left } = placeBelow(target.getBoundingClientRect(), { height: PANEL_HEIGHT, width: PANEL_WIDTH })
+  calendarPanel.value = { rowId: row.id, columnId: column.id, top, left, value: editText(row, column) }
+  // 换格时上一个订阅先解除,否则旧的 close 会继续挂在滚动容器上。
+  stopDateScroll?.()
+  stopDateScroll = watchScrollHosts(target, closeCalendar)
 }
 
 function closeCalendar(): void {
-  unwatchScrollHosts()
+  stopDateScroll?.()
+  stopDateScroll = null
   calendarPanel.value = null
 }
 
@@ -378,173 +342,28 @@ function blurCell(row: DataRow, column: DataColumn, event: Event): void {
   commitOnBlur(row, column, event)
 }
 
-// ---- 选择格的下拉面板 ----
+// ---- 选择格 ----
 
 /**
- * 选择格为什么不用原生 `<select>`。
+ * 选中一项:写进格。
  *
- * 原生下拉的键盘模型是「Tab 落在格子上只是**选中**它,还得再按一次回车或空格才展开」,
- * 展开之后方向键、Esc、Tab 全交给系统控件,页面无从插手。这里要的是另一套:
- * **Tab 到就展开** —— 想跳过它得再按一次 Tab;方向键移高亮、回车选中、Esc 收起
- * 且焦点留在格子上、按回车再叫回来。原生控件给不了,只能自己画一个。
+ * 面板的开合、键盘、焦点、落位全在 `OptionCell` 里 —— 这套键盘模型（Tab 到就展开）
+ * 是**格子的约定**而不是账目的约定,数据表块与看板块的同类格子用的是同一个组件,
+ * 免得同一件事在两个入口有两种手感。
  *
- * 与日期面板同一套几何:`fixed` + `Teleport to="body"`(账目表外面是横向滚动容器,
- * 格内浮层会被裁掉),面板上所有 mousedown 都 prevent —— 焦点始终留在按钮上,
- * 于是 Esc 之后不用搬焦点,方向键也一直落在同一个按钮的 keydown 上。
- */
-interface SelectPanel {
-  rowId: string
-  columnId: string
-  top: number
-  left: number
-  /** 面板最小宽度:跟着格子走,免得短选项挤成一小块、与格子对不齐。 */
-  width: number
-  /** 高亮项的值。空串 = 「未选择」那一项。 */
-  active: string
-  options: { id: string; label: string }[]
-}
-
-const selectPanel = ref<SelectPanel | null>(null)
-const selectList = ref<HTMLElement | null>(null)
-
-const SELECT_PANEL_MAX_HEIGHT = 232
-/** 单项高度(含内边距)。用来估算面板总高,决定往下放还是往上翻。 */
-const SELECT_ITEM_HEIGHT = 27
-
-function isSelectOpen(row: DataRow, column: DataColumn): boolean {
-  const panel = selectPanel.value
-  return panel !== null && panel.rowId === row.id && panel.columnId === column.id
-}
-
-/**
- * 展开某一格的下拉。
- *
- * 幂等:鼠标点击会先 `focus()` 再走到这里,不幂等的话面板会开了又关。
- * 「未选择」也占一项 —— 清空是一个真实的选择,不该藏在面板外面。
- */
-function openSelect(row: DataRow, column: DataColumn, anchor: HTMLElement): void {
-  closeCalendar()
-  const options = [{ id: "", label: "未选择" }, ...column.options.map((option) => ({ id: option.id, label: option.name }))]
-  const rect = anchor.getBoundingClientRect()
-  const height = Math.min(SELECT_PANEL_MAX_HEIGHT, options.length * SELECT_ITEM_HEIGHT + 10)
-  const below = rect.bottom + 4
-  const top = below + height > window.innerHeight ? Math.max(8, rect.top - height - 4) : below
-  selectPanel.value = {
-    rowId: row.id,
-    columnId: column.id,
-    top,
-    left: Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - Math.max(rect.width, 160) - 8)),
-    width: Math.max(rect.width, 112),
-    active: String(dt.cellValue(row, column) ?? ""),
-    options,
-  }
-  watchScrollHosts(anchor, closeSelect)
-  scrollSelectActive()
-}
-
-function closeSelect(): void {
-  unwatchScrollHosts()
-  selectPanel.value = null
-}
-
-/** 高亮项滚进可视区 —— 选项多到面板要滚动时,方向键移过去必须看得见。 */
-function scrollSelectActive(): void {
-  void nextTick(() => {
-    selectList.value?.querySelector<HTMLElement>("[data-active='true']")?.scrollIntoView({ block: "nearest" })
-  })
-}
-
-/** 鼠标划过某一项 → 高亮跟着走,点下去选中就是它。 */
-function hoverOption(value: string): void {
-  const panel = selectPanel.value
-  if (panel !== null && panel.active !== value) panel.active = value
-}
-
-/** 方向键移高亮。到顶 / 到底就停住,不绕回 —— 绕回会让「已经到底了」这件事没手感。 */
-function moveSelect(step: number): void {
-  const panel = selectPanel.value
-  if (panel === null || panel.options.length === 0) return
-  const index = panel.options.findIndex((option) => option.id === panel.active)
-  const next = Math.min(panel.options.length - 1, Math.max(0, (index === -1 ? 0 : index) + step))
-  panel.active = panel.options[next].id
-  scrollSelectActive()
-}
-
-/**
- * 选中一项:写进格、收起面板,**焦点留在按钮上**。
- *
- * 行与列按 id 从当前表里重取 —— 面板开着的时候表可能已经变过(别的窗口改了同一张
+ * 行与列按 id 从**当前**表里重取:面板开着的时候表可能已经变过(别的窗口改了同一张
  * 表、或这一行刚被删),闭包里那份旧行写回去会把这中间别的改动覆盖掉。
  */
-function pickOption(value: string): void {
-  const panel = selectPanel.value
-  if (panel === null) return
-  closeSelect()
-  const row = rows.value.find((item) => item.id === panel.rowId)
-  const column = columns.value.find((item) => item.id === panel.columnId)
-  if (row === undefined || column === undefined) return
-  commit(row, column, value)
+function pickOption(row: DataRow, column: DataColumn, value: string): void {
+  const freshRow = rows.value.find((item) => item.id === row.id)
+  const freshColumn = columns.value.find((item) => item.id === column.id)
+  if (freshRow === undefined || freshColumn === undefined) return
+  commit(freshRow, freshColumn, value)
 }
 
-/**
- * 键盘。挂在按钮上,焦点从不离开它,所以这一条链是完整的:
- * 回车/空格 开 → 方向键移 → 回车选 / Esc 收 → 回车再开 → Tab 才走。
- */
-function onSelectKeydown(row: DataRow, column: DataColumn, event: KeyboardEvent): void {
-  const anchor = event.currentTarget
-  if (!(anchor instanceof HTMLElement)) return
-
-  if (event.key === "Enter" || event.key === " ") {
-    // 不拦的话,回车会合成一次 click(按钮的默认行为),等于开完立刻又点一下。
-    event.preventDefault()
-    if (isSelectOpen(row, column)) pickOption(selectPanel.value?.active ?? "")
-    else openSelect(row, column, anchor)
-    return
-  }
-
-  if (event.key === "Escape") {
-    if (!isSelectOpen(row, column)) return
-    // 只收面板,不 blur:焦点留在这一格是这套交互的前提。
-    event.preventDefault()
-    closeSelect()
-    return
-  }
-
-  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-    event.preventDefault()
-    if (!isSelectOpen(row, column)) {
-      openSelect(row, column, anchor)
-      return
-    }
-    moveSelect(event.key === "ArrowDown" ? 1 : -1)
-  }
-}
-
-/**
- * 鼠标点击。`mousedown.prevent` 挡住了「点一下就聚焦」,所以这里补上聚焦 ——
- * `focus` 事件是展开面板的一条入口(Tab 走的是同一条),补完焦点面板自己会开。
- * 已经展开时再点一次才是「收起」。
- */
-function onSelectClick(row: DataRow, column: DataColumn, event: MouseEvent): void {
-  const anchor = event.currentTarget
-  if (!(anchor instanceof HTMLElement)) return
-  if (isSelectOpen(row, column)) {
-    closeSelect()
-    return
-  }
-  if (anchor.ownerDocument.activeElement !== anchor) anchor.focus()
-  if (!isSelectOpen(row, column)) openSelect(row, column, anchor)
-}
-
-/** Tab 走掉 / 点到别处:焦点一离开就收面板。面板自己的 mousedown 已 prevent,不会走到这里。 */
-function blurSelect(): void {
-  closeSelect()
-}
-
-/** 窗口一改大小,面板就跟输入框对不上了 —— 与其漂着,不如收起来,再点一下就回来。 */
+/** 窗口一改大小,面板就跟格子的位置对不上了 —— 与其漂着,不如收起来,再点一下就回来。 */
 function closeCalendarOnResize(): void {
   closeCalendar()
-  closeSelect()
 }
 
 onMounted(() => {
@@ -553,7 +372,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.clearTimeout(flashTimer)
-  unwatchScrollHosts()
+  stopDateScroll?.()
   window.removeEventListener("resize", closeCalendarOnResize)
 })
 
@@ -799,26 +618,18 @@ function openTable() {
                 >
 
                 <!--
-                  选择格:自绘下拉,不用原生 <select> —— 键盘模型不一样(见 `openSelect`)。
-                  按钮本身就是一个格子大小的可聚焦块,Tab 一落上去 `focus` 即展开面板;
-                  面板永不接管焦点,所以 Esc 之后焦点还在这里,回车能再叫回来。
+                  选择格:自绘下拉(Tab 到就展开、↑↓ 移、回车选、Esc 收而焦点不丢)。
+                  按钮就是一个格子大小的可聚焦块,面板由 `OptionCell` 自己托管 —— 那套
+                  键盘模型是**格子的约定**,数据表块与看板块的同类格子用的是同一个组件。
                 -->
-                <button
+                <OptionCell
                   v-else-if="column.type === 'select'"
-                  type="button"
-                  class="flex w-full min-w-0 items-center gap-1 rounded px-0.5 text-left hover:bg-muted/60"
+                  class="rounded px-0.5 hover:bg-muted/60"
                   :class="cellText(row, column) === '' && 'text-muted-foreground'"
-                  aria-haspopup="listbox"
-                  :aria-expanded="isSelectOpen(row, column)"
-                  @mousedown.prevent
-                  @focus="openSelect(row, column, $event.target as HTMLElement)"
-                  @click="onSelectClick(row, column, $event)"
-                  @keydown="onSelectKeydown(row, column, $event)"
-                  @blur="blurSelect"
-                >
-                  <span class="truncate">{{ cellText(row, column) || "未选择" }}</span>
-                  <ChevronDownIcon class="ml-auto size-3 shrink-0 opacity-50" />
-                </button>
+                  :model-value="String(dt.cellValue(row, column) ?? '')"
+                  :options="column.options"
+                  @pick="pickOption(row, column, $event)"
+                />
 
                 <!--
                   格值按钮**始终留在文档流里**(进编辑态只是隐形),输入框绝对定位浮在它上面。
@@ -923,44 +734,6 @@ function openTable() {
       @mousedown.prevent
     >
       <DateCalendar :value="calendarPanel.value" @pick="pickDate($event)" @clear="pickDate('')" />
-    </div>
-
-    <!-- 选择浮层:与日期同一套(挂 body、fixed、mousedown 全 prevent)。
-         焦点始终在格子的按钮上,所以这里一个 focusable 元素都不放 —— 选项是 `div`
-         而非 `button`,Tab 序列里就没有它们,「再按 Tab 才走」是默认行为。 -->
-    <div
-      v-if="selectPanel !== null"
-      class="fixed z-50 overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10"
-      :style="{
-        top: `${selectPanel.top}px`,
-        left: `${selectPanel.left}px`,
-        minWidth: `${selectPanel.width}px`,
-        maxWidth: '260px',
-      }"
-      @mousedown.prevent
-    >
-      <div ref="selectList" role="listbox" class="m-0 max-h-[232px] overflow-y-auto p-1">
-        <div
-          v-for="option in selectPanel.options"
-          :key="option.id"
-          role="option"
-          :aria-selected="option.id === selectPanel.active"
-          :data-active="option.id === selectPanel.active"
-          class="flex cursor-pointer items-center gap-1.5 rounded-[6px] px-1.5 py-[5px] text-[12px]"
-          :class="[
-            option.id === selectPanel.active ? 'bg-selection' : 'hover:bg-muted/60',
-            option.id === '' && 'text-muted-foreground',
-          ]"
-          @mouseenter="hoverOption(option.id)"
-          @click="pickOption(option.id)"
-        >
-          <span class="truncate">{{ option.label }}</span>
-          <CheckIcon v-if="option.id === selectPanel.active" class="ml-auto size-3 shrink-0 opacity-70" />
-        </div>
-        <div v-if="selectPanel.options.length === 1" class="px-1.5 py-1 text-[11px] text-muted-foreground">
-          这一列还没有选项 —— 去数据表里加。
-        </div>
-      </div>
     </div>
   </Teleport>
 </template>

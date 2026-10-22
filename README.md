@@ -97,6 +97,10 @@ Mermaid 与 HTML 的源码只在需要时加载，不画图的笔记不必为它
 所以同一张表可以在两篇笔记里长得完全不同：一篇按状态分组看进度，另一篇按月结算看余额，
 谁都不必复制数据。余额和合计都是**视图算出来的**，永远不写进文件。
 
+单选格的那套键盘（Tab 到就展开、↑↓ 移高亮、回车选、Esc 收而焦点不丢）是**格子的约定**，
+由 `OptionCell` 一处实现，账目行 / 数据表格 / 看板卡共用；设置菜单与表单里的下拉仍是原生
+`<select>` —— 在那里 Tab 到就展开只会碍事。
+
 ### 版面
 
 布局块是笔记里**唯一**的容器块：网格模式分成 2–4 个等宽格子，或者并排换行。每格是一个独立的块列表，
@@ -269,7 +273,7 @@ pnpm icon           # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | :-- | :-- |
 | 解析与往返 | `parse-check`、`inline-check` |
 | 编辑器交互 | `tab-check`、`toolbar-check`、`sidebar-check`、`tree-integration-check`、`drag-check`、`split-check`、`cell-check`、`undo-check`、`menu-nav-check`、`focus-check`、`link-check` |
-| 块类型 | `table-check`、`table-align-check`、`data-table-check`、`gallery-check`、`kanban-check`、`ledger-check`、`ledger-edit-check`、`ledger-date-check`、`subscription-check`、`playlist-check`、`playlist-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check` |
+| 块类型 | `table-check`、`table-align-check`、`data-table-check`、`gallery-check`、`kanban-check`、`ledger-check`、`ledger-edit-check`、`ledger-date-check`、`option-cell-check`、`subscription-check`、`playlist-check`、`playlist-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check` |
 | 样式与外观 | `typography-check`、`theme-check`、`theme-mode-check`、`page-style-check`、`settings-check` |
 | 文件操作 | `create-check`、`move-check` |
 | 其它 | `drawer-jitter-probe`（抽屉抖动守卫）、`icon-check`（图标观感） |

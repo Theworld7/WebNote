@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import TableRefNotice from "@/components/TableRefNotice.vue"
+import OptionCell from "@/components/OptionCell.vue"
 import { useSettings } from "@/composables/useSettings"
 import { useTableEntry } from "@/composables/useTableEntry"
 import { useWorkspace } from "@/composables/useWorkspace"
@@ -86,17 +87,12 @@ function commitOnBlur(row: DataRow, column: DataColumn, event: Event): void {
   void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, parsed)))
 }
 
-/** 单选格的原始值（选项 id）。`cellOf` 给的是**名字**，select 的选中项要按 id 对上。 */
-function optionIdOf(row: DataRow, column: DataColumn): string {
-  const value = dt.cellValue(row, column)
-  return typeof value === "string" ? value : ""
-}
-
-/** 单选格的提交：空项即清空。选项本身的增删改名留在数据表编辑页 —— 这里是「一扇窗」。 */
-function commitOption(row: DataRow, column: DataColumn, event: Event): void {
-  const target = event.target
-  if (!(target instanceof HTMLSelectElement)) return
-  const next = target.value === "" ? null : target.value
+/**
+ * 单选格的提交：空项即清空。选项本身的增删改名留在数据表编辑页 —— 这里是「一扇窗」。
+ * 值由 `OptionCell` 递过来（选项 id 或空串），不再从事件里摸 DOM 控件。
+ */
+function commitOption(row: DataRow, column: DataColumn, value: string): void {
+  const next = value === "" ? null : value
   if (next === dt.cellValue(row, column)) return
   void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, next)))
 }
@@ -232,16 +228,17 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
                 >
               </div>
               <!-- 单选格：下拉选已有选项，空项给「—」。选项的增删改名在数据表编辑页，
-                   这里只负责选值 —— 引用块是「一扇窗」，不是第二个编辑入口。 -->
-              <select
+                   这里只负责选值 —— 引用块是「一扇窗」，不是第二个编辑入口。
+                   键盘模型与账目格同源（Tab 到就展开），组件是 `OptionCell`。 -->
+              <OptionCell
                 v-else-if="column.type === 'select'"
-                class="w-full cursor-pointer bg-transparent outline-none"
-                :value="optionIdOf(row, column)"
-                @change="(event: Event) => commitOption(row, column, event)"
-              >
-                <option value="">—</option>
-                <option v-for="option in column.options" :key="option.id" :value="option.id">{{ option.name }}</option>
-              </select>
+                class="cursor-pointer rounded hover:bg-muted/60"
+                :model-value="String(dt.cellValue(row, column) ?? '')"
+                :options="column.options"
+                empty-label="—"
+                :chevron="false"
+                @pick="commitOption(row, column, $event)"
+              />
               <!-- 其余类型都是文本外观。编辑用 contenteditable 太复杂（要处理富文本、
                    选区、非受控 DOM），这里用最朴素的输入：提交（blur / Enter）时写盘。
                    数据表的单元格本来就是数据，不是正文。 -->

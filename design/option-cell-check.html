@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>选择格组件自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  p.lead { margin: 0 0 16px; color: #6b7280; }
+  #app { margin: 0 0 16px; }
+  #cells { display: flex; flex-direction: column; gap: 10px; }
+  .row { width: 190px; }
+  #scroller { height: 62px; overflow: auto; width: 190px; border: 1px dashed #d4d4d8; padding: 4px; }
+  #flip { position: fixed; left: 8px; bottom: 4px; width: 190px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>选择格（`OptionCell`）：Tab 到就展开、↑↓ 移高亮、回车选、Esc 收而焦点不丢</h1>
+<p class="lead">这是账目格 / 数据表块 / 看板卡共用的那一个组件，所以在这里单独立一页 —— 不借账目的夹具，只看它自己的契约。</p>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick, reactive } from "vue"
+import OptionCell from "../src/components/OptionCell.vue"
+
+const out = document.querySelector("#out")
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  out.textContent = lines.join("\n")
+}
+
+const OPTIONS = [
+  { id: "o1", name: "工作" },
+  { id: "o2", name: "生活" },
+  { id: "o3", name: "人情" },
+]
+
+/** 父组件的状态：值只能由它改 —— `pick` 只是「请求改」，选中与否看这里有没有动。 */
+const state = reactive({ a: "o2", b: "", c: "gone", d: "", e: "o1", f: "o1" })
+const picks = []
+window.__state = state
+
+const cell = (key) =>
+  h(OptionCell, {
+    modelValue: state[key],
+    options: key === "d" ? [] : OPTIONS,
+    chevron: key !== "d",
+    onPick: (value) => {
+      picks.push([key, value])
+      state[key] = value
+    },
+  })
+
+const Root = defineComponent({
+  setup() {
+    return () =>
+      h("div", { id: "cells" }, [
+        h("div", { id: "cell-a", class: "row" }, cell("a")),
+        h("div", { id: "cell-b", class: "row" }, cell("b")),
+        h("div", { id: "cell-c", class: "row" }, cell("c")),
+        h("div", { id: "cell-d", class: "row" }, cell("d")),
+        // 滚动容器：面板要跟着滚动收起，而不是漂在原地。
+        h("div", { id: "scroller" }, [
+          h("div", { style: "height: 120px" }, "滚动占位"),
+          h("div", { id: "cell-e" }, cell("e")),
+        ]),
+        // 贴着视口底部：面板应当翻到格子上方，而不是被切掉。
+        h("div", { id: "flip" }, cell("f")),
+      ])
+  },
+})
+
+createApp(Root).mount("#app")
+await nextTick()
+
+const button = (id) => document.querySelector(`#${id} button[aria-haspopup="listbox"]`)
+const panelEl = () => document.querySelector('[role="listbox"]')?.parentElement ?? null
+const listEl = () => document.querySelector('[role="listbox"]')
+const optionTexts = () => [...(listEl()?.querySelectorAll('[role="option"]') ?? [])].map((el) => (el.textContent ?? "").trim())
+const activeText = () => (listEl()?.querySelector('[data-active="true"]')?.textContent ?? "").trim()
+const key = (el, k) => el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }))
+const click = (el) => {
+  el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }))
+  el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }))
+  el.click()
+}
+const tick = async () => {
+  // 组件把「订阅滚动」推迟到下一帧（躲开 Tab 带来的「滚进视口」），所以这里也要等一帧，
+  // 否则脚本比组件先跑，测出来的时序不是用户会遇到的时序。
+  await nextTick()
+  await new Promise((resolve) => requestAnimationFrame(() => resolve()))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  await nextTick()
+}
+
+// ---------- 一、渲染 ----------
+const a = button("cell-a")
+check("是一个可聚焦的按钮（Tab 能停在它上面）", a !== null && a.tabIndex >= 0, String(a?.tabIndex))
+check("显示当前值的名字，不漏 id", (a?.textContent ?? "").trim() === "生活", (a?.textContent ?? "").trim())
+check("空值显示空标签（默认「未选择」）", (button("cell-b")?.textContent ?? "").trim() === "未选择", (button("cell-b")?.textContent ?? "").trim())
+check(
+  "指向已删选项时退回空标签（不把内部 id 露给用户）",
+  (button("cell-c")?.textContent ?? "").trim() === "未选择",
+  (button("cell-c")?.textContent ?? "").trim(),
+)
+check("aria-expanded 跟着开合走（关着时 false）", a?.getAttribute("aria-expanded") === "false", String(a?.getAttribute("aria-expanded")))
+check("默认带那颗小箭头", a?.querySelector("svg") !== undefined && a?.querySelector("svg") !== null)
+check("chevron=false 时不画箭头", button("cell-d")?.querySelector("svg") === null)
+
+// ---------- 二、Tab 到就展开 ----------
+a.focus()
+await tick()
+check("聚焦即展开（Tab 落到格子上不用再按一次键）", listEl() !== null)
+check("面板挂在 body 上（块的 overflow 容器裁不到它）", panelEl() !== null && panelEl().parentElement === document.body)
+check("面板是 fixed 定位", getComputedStyle(panelEl()).position === "fixed", getComputedStyle(panelEl()).position)
+check("空值那一项占第一项", optionTexts()[0] === "未选择", optionTexts().join(","))
+check("选项按定义顺序、显示名字", optionTexts().join(",") === "未选择,工作,生活,人情", optionTexts().join(","))
+check("打开时高亮的是当前值", activeText() === "生活", activeText())
+check("展开后 aria-expanded 是 true", a.getAttribute("aria-expanded") === "true", String(a.getAttribute("aria-expanded")))
+check("焦点留在按钮上（没被面板抢走）", document.activeElement === a, document.activeElement?.tagName ?? "null")
+
+// 面板自身不可聚焦：Tab 序列里没有它 —— 一次 Tab 直接落到下一格。
+const focusables = [...(listEl()?.querySelectorAll("*") ?? [])].filter(
+  (el) => el.tagName === "BUTTON" || el.tagName === "INPUT" || el.tagName === "A" || el.tabIndex >= 0,
+)
+check("面板里没有任何可聚焦元素（Tab 不进面板）", focusables.length === 0, focusables.map((el) => el.tagName).join(","))
+
+// ---------- 三、方向键只移高亮，不改值 ----------
+key(a, "ArrowDown")
+await tick()
+check("↓ 把高亮移到下一项", activeText() === "人情", activeText())
+check("移高亮**不**改值（值只在选中时才动）", state.a === "o2", state.a)
+key(a, "ArrowDown")
+await tick()
+check("到底就停住，不绕回第一项", activeText() === "人情", activeText())
+for (let i = 0; i < 6; i += 1) key(a, "ArrowUp")
+await tick()
+check("到顶也停住（连按 ↑ 停在第一项「未选择」，不绕到末尾）", activeText() === "未选择", activeText())
+
+// ---------- 四、Esc：只收面板，焦点与值都不动 ----------
+key(a, "Escape")
+await tick()
+check("Esc 收起面板", listEl() === null)
+check("Esc 之后焦点还在格子上", document.activeElement === a, document.activeElement?.tagName ?? "null")
+check("Esc 不改值", state.a === "o2", state.a)
+check("收起后 aria-expanded 回到 false", a.getAttribute("aria-expanded") === "false", String(a.getAttribute("aria-expanded")))
+
+// ---------- 五、Enter：关着时重开，开着时选中 ----------
+key(a, "Enter")
+await tick()
+check("关着时按回车重新展开", listEl() !== null)
+check("重新展开时高亮回到当前值（不是上次移到的位置）", activeText() === "生活", activeText())
+key(a, "ArrowDown")
+await tick()
+key(a, "Enter")
+await tick()
+check("回车选中高亮项并收起", listEl() === null)
+check("选中后焦点仍在格子上", document.activeElement === a, document.activeElement?.tagName ?? "null")
+check("选中把新值报给父组件", state.a === "o3", state.a)
+check("格子上显示的是新值的名字", (a?.textContent ?? "").trim() === "人情", (a?.textContent ?? "").trim())
+
+// ---------- 六、空格也能选（与回车同一条路） ----------
+key(a, "Enter")
+await tick()
+for (let i = 0; i < 3; i += 1) key(a, "ArrowUp")
+await tick()
+key(a, " ")
+await tick()
+check("空格与回车等价：选中当前高亮项", state.a === "" && listEl() === null, `${state.a}/${listEl() === null}`)
+check("选中空项 = 清空，格子回到空标签", (a?.textContent ?? "").trim() === "未选择", (a?.textContent ?? "").trim())
+
+// ---------- 七、鼠标：点开、再点收起、点选项选中 ----------
+a.blur()
+await tick()
+click(a)
+await tick()
+check("点击格子会聚焦并展开", listEl() !== null && document.activeElement === a, `${listEl() === null}/${document.activeElement?.tagName}`)
+click(a)
+await tick()
+check("已经展开时再点一次是收起", listEl() === null)
+click(a)
+await tick()
+const optionLife = [...(listEl()?.querySelectorAll('[role="option"]') ?? [])].find((el) => (el.textContent ?? "").trim() === "生活")
+optionLife?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }))
+optionLife?.click()
+await tick()
+check("点选项即选中并收起", state.a === "o2" && listEl() === null, `${state.a}/${listEl() === null}`)
+check("点选项不夺焦点（焦点仍在格子上）", document.activeElement === a, document.activeElement?.tagName ?? "null")
+
+// ---------- 八、失焦收起 ----------
+click(a)
+await tick()
+check("再展开一次", listEl() !== null)
+a.blur()
+await tick()
+check("焦点走掉（Tab 到下一格）时面板收起", listEl() === null)
+
+// ---------- 九、没有选项时给一条出路 ----------
+button("cell-d").focus()
+await tick()
+check("只剩「未选择」时仍能展开", listEl() !== null)
+check("选项为空时列出空项 + 提示", optionTexts().join(",") === "未选择", optionTexts().join(","))
+check(
+  "提示告诉用户去哪儿加选项（不是干瞪眼）",
+  (panelEl()?.textContent ?? "").includes("去数据表里加"),
+  (panelEl()?.textContent ?? "").trim().slice(0, 40),
+)
+button("cell-d").blur()
+await tick()
+
+// ---------- 十、几何：贴着底边时翻到上方，滚动时收起 ----------
+const flip = button("flip")
+check("贴底的那格存在", flip !== null && flip.closest("#flip") !== null)
+flip?.focus()
+await tick()
+const flipRect = flip.getBoundingClientRect()
+const flipTop = parseFloat(panelEl()?.style.top ?? "NaN")
+check("下方放不下时面板翻到格子上方（不被视口切掉）", flipTop < flipRect.top, `${flipTop} vs ${flipRect.top}`)
+flip?.blur()
+await tick()
+
+const cellE = button("cell-e")
+const scroller = document.querySelector("#scroller")
+cellE?.focus()
+await tick()
+check("滚动容器里的格子也能展开", listEl() !== null)
+scroller.scrollTop = 30
+scroller.dispatchEvent(new Event("scroll"))
+await tick()
+check("滚动祖先一滚，面板就收起（不悬在旧位置）", listEl() === null)
+cellE?.blur()
+await tick()
+
+// 屏幕外的格子：Tab 过去时浏览器会先把它滚进视口。那一滚发生在 focus 之后 ——
+// 订阅要是立刻挂上，它会被当成「用户在滚动」，面板刚开就被关掉。
+scroller.scrollTop = 0
+await tick()
+check("前提：这一格确实在滚动容器的视野外", cellE.getBoundingClientRect().bottom > scroller.getBoundingClientRect().bottom)
+cellE.focus()
+await tick()
+check("Tab 到屏幕外的格子：滚进视口不会把面板误关", listEl() !== null)
+const scrolledRect = cellE.getBoundingClientRect()
+check(
+  "落点按滚完的位置重算（不歪在半空）",
+  Math.abs(parseFloat(panelEl()?.style.top ?? "NaN") - (scrolledRect.bottom + 4)) <= 1,
+  `${panelEl()?.style.top} vs ${scrolledRect.bottom + 4}`,
+)
+cellE.blur()
+await tick()
+
+// ---------- 十一、收尾 ----------
+check("整个过程只报过这些选择，没有多余的 pick", picks.every(([, value]) => typeof value === "string"), JSON.stringify(picks))
+
+out.textContent = `${failed === 0 ? "ALL OK" : "FAIL " + failed}\n自检 ${passed}/${passed + failed}\n\n${lines.join("\n")}`
+document.title = failed === 0 ? "ok" : "fail"
+</script>
+</body>
+</html>

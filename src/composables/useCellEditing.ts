@@ -29,8 +29,8 @@ export interface CellEditing {
   commitOnBlur(row: DataRow, column: DataColumn, event: Event): void
   /** 输入框里回车 = 提交（失焦即写盘，与表格编辑页同一直觉）。 */
   commitOnEnter(event: Event): void
-  /** select 格：下拉直接换选项（值就是选项 id），空选项 = 清空。 */
-  commitSelect(row: DataRow, column: DataColumn, event: Event): void
+  /** select 格：直接给新值（选项 id），空串 = 清空。面板由 `OptionCell` 托管。 */
+  commitOption(row: DataRow, column: DataColumn, value: string): void
   /** 勾选格直接切换，不需要「点进编辑」那一层。 */
   toggleCheck(row: DataRow, column: DataColumn, event: Event): void
   /** 编辑框一挂上就拿焦点。 */
@@ -70,12 +70,10 @@ export function useCellEditing(change: (next: (table: DataTable) => DataTable) =
     if (target instanceof HTMLInputElement) target.blur()
   }
 
-  function commitSelect(row: DataRow, column: DataColumn, event: Event): void {
-    const target = event.target
-    if (!(target instanceof HTMLSelectElement)) return
-    const value = target.value === "" ? null : target.value
-    if (value === dt.cellValue(row, column)) return
-    void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, value)))
+  function commitOption(row: DataRow, column: DataColumn, value: string): void {
+    const next = value === "" ? null : value
+    if (next === dt.cellValue(row, column)) return
+    void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, next)))
   }
 
   function toggleCheck(row: DataRow, column: DataColumn, event: Event): void {
@@ -88,5 +86,5 @@ export function useCellEditing(change: (next: (table: DataTable) => DataTable) =
     if (el instanceof HTMLInputElement) el.focus()
   }
 
-  return { editing, cellKey, begin, commit, commitOnBlur, commitOnEnter, commitSelect, toggleCheck, focusOnMount }
+  return { editing, cellKey, begin, commit, commitOnBlur, commitOnEnter, commitOption, toggleCheck, focusOnMount }
 }

@@ -545,20 +545,34 @@ check("渲染出表格格子（表头 + 一行）", renderedCells.length === 2, 
 // 列头是一个下拉菜单（改类型 / 删列），所以它的 textContent 是「列名 + 类型名」两段。
 check("表头带上了列名", renderedCells[0].startsWith("状态"), renderedCells.join(" | "))
 check("表头带上了列类型（列有类型是数据表与内嵌表格的分别）", renderedCells[0].includes("单选"), renderedCells.join(" | "))
-// select 列的格子在引用块里是**下拉**（不是文本框）：显示的是选项名，元素的 `value`
-// 却是选项 id —— 两个都要对。显示漏 id 给用户是错，值绑错则一改就写坏数据。
-const renderedSelects = [...document.querySelectorAll("#host td select")]
-const renderedSelectText = renderedSelects.map((select) => select.selectedOptions[0]?.textContent?.trim() ?? "")
+// select 列的格子在引用块里是**下拉按钮**（`OptionCell` 托管，与账目格、看板卡同一套
+// 键盘模型）：格上显示选项名，面板里的高亮项按**选项 id** 对上 —— 显示漏 id 给用户是错，
+// 值绑错则一改就写坏数据。
+const cellPicker = host.querySelector('td button[aria-haspopup="listbox"]')
 check(
   "单元格显示的是选项名（不是内部 id）",
-  renderedSelects.length === 1 && renderedSelectText[0] === "进行中",
-  `实际 ${JSON.stringify(renderedSelectText)}`,
+  cellPicker !== null && (cellPicker.textContent ?? "").trim() === "进行中",
+  (cellPicker?.textContent ?? "").trim(),
 )
 check(
-  "下拉绑的是选项 id（显示名、值是 id）",
-  renderedSelects.length === 1 && renderedSelects[0].value === option.id,
-  `实际 ${JSON.stringify(renderedSelects.map((select) => select.value))}`,
+  "格子是下拉按钮，不再用原生 select（全应用一套键盘模型）",
+  host.querySelector("td select") === null && cellPicker !== null,
+  String(host.querySelectorAll("td select").length),
 )
+cellPicker.focus()
+await nextTick()
+await nextTick()
+const pickerList = document.querySelector('[role="listbox"]')
+const pickerTexts = [...(pickerList?.querySelectorAll('[role="option"]') ?? [])].map((el) => (el.textContent ?? "").trim())
+check("聚焦即展开，空项与选项都按名字列出", pickerTexts.join(",") === "—,进行中", pickerTexts.join(","))
+check(
+  "高亮的是当前值（按选项 id 对上，不是按名字）",
+  (pickerList?.querySelector('[data-active="true"]')?.textContent ?? "").trim() === "进行中",
+  (pickerList?.querySelector('[data-active="true"]')?.textContent ?? "").trim(),
+)
+cellPicker.blur()
+await nextTick()
+check("失焦后面板收起", document.querySelector('[role="listbox"]') === null)
 
 // 悬空引用：注册表里读不到 → 提示态，文案里带路径。
 // 换一个**新的**组件实例而不是改 props —— 改 props 会走 watch → 重挂那条路，

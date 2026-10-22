@@ -183,6 +183,19 @@ id-valued one. A value matching neither an id nor a name is left alone: there is
 to fold it into.
 _Avoid_: Tag, label, enum, status
 
+**Option cell**:
+The one picker a `select` cell uses, wherever the cell appears — a Ledger row, a Data table
+block, a Kanban card. Its keyboard model is a **cell** convention, not a view's: Tab lands on the
+cell and the list opens at once (no second keystroke), ↑/↓ move the highlight without changing the
+value, Enter picks, Esc closes and leaves focus on the cell, Enter again reopens, and only then
+does Tab move on. The panel never holds focus (its option rows are not focusable), which is what
+makes that chain possible, and it is positioned by `lib/floating` **outside** the block so a
+scrolling table cannot clip it. Writing the chosen id back is the caller's job — each view has its
+own row lookup and commit path.
+Settings menus and form fields keep the native `<select>`: there Tab-to-open would be a nuisance,
+because those are not cells you step through.
+_Avoid_: Dropdown (that names the native control too), combo box, list box component
+
 **Data table block**:
 A Block inside a Note that points at a Data table by workspace path. It carries the path and
 nothing else — the records stay in the `.tbl` file, so the same table seen from two Notes is
@@ -278,14 +291,10 @@ money columns, the balance toggle, the grouping, the sort column and direction) 
 the block. Rows are ordered by that sort column before they are sectioned (blank cells last,
 newest first by default — ADR-0016). The balance is computed over the table's own row order
 every render — never stored, and never re-derived from the sorted order. Cells edit in place; a
-date cell opens a month grid on focus rather than being a bare text field, and a select cell
-opens its own option list on focus — **Tab into the cell expands it, so skipping it takes a
-second Tab**. The option list is drawn by the Block rather than by a native `<select>`, because
-the native keyboard model makes you press Enter before anything opens and then hands the arrow
-keys, Esc and Tab to the OS control. Here ↑/↓ move the highlight, Enter picks, Esc closes while
-**leaving focus on the cell** (Enter reopens it), and the list holds no focusable element so Tab
-walks straight to the next cell. While **any** cell is
-being edited the order **and** the section structure are pinned: writing a date would otherwise
+date cell opens a month grid on focus rather than being a bare text field, and a select cell uses
+the shared **Option cell** picker (so Tab into the cell expands the list, and skipping it takes a
+second Tab). While **any** cell is being edited the order **and** the section structure are
+pinned: writing a date would otherwise
 resort the row (and move it to another month's section) the moment the field loses focus, before
 the amount is typed — and moving a focused element also steals focus from the input mid-edit. The
 pin lifts when editing ends; a row that then changes position is briefly tinted so the eye can

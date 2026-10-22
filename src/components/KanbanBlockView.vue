@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import TableRefNotice from "@/components/TableRefNotice.vue"
+import OptionCell from "@/components/OptionCell.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
 import { useCellEditing } from "@/composables/useCellEditing"
@@ -109,7 +110,7 @@ function cellOf(row: DataRow, column: DataColumn): string {
  * 勾选直接切换。这一套与画册卡 / 账目行共用 `useCellEditing` ——
  * 同一格在表格编辑页与三种引用块里编辑,规则必须是同一条。
  */
-const { editing, cellKey, commitOnEnter, commitOnBlur, commitSelect, toggleCheck, focusOnMount } = useCellEditing(change)
+const { editing, cellKey, commitOnEnter, commitOnBlur, commitOption, toggleCheck, focusOnMount } = useCellEditing(change)
 
 // ---- 拖拽改值 ----
 
@@ -374,15 +375,15 @@ function openTable() {
                 @change="(event: Event) => toggleCheck(row, column, event)"
               >
 
-              <select
+              <!-- 单选格：键盘模型与账目格、数据表格同源（Tab 到就展开），走 `OptionCell`。 -->
+              <OptionCell
                 v-else-if="column.type === 'select'"
-                class="w-full cursor-pointer rounded bg-transparent text-[12px] leading-snug outline-none"
-                :value="String(dt.cellValue(row, column) ?? '')"
-                @change="(event: Event) => commitSelect(row, column, event)"
-              >
-                <option value="">未选择</option>
-                <option v-for="option in column.options" :key="option.id" :value="option.id">{{ option.name }}</option>
-              </select>
+                class="rounded text-[12px] leading-snug hover:bg-black/5"
+                :model-value="String(dt.cellValue(row, column) ?? '')"
+                :options="column.options"
+                :chevron="false"
+                @pick="commitOption(row, column, $event)"
+              />
 
               <input
                 v-else-if="editing === cellKey(row, column)"
