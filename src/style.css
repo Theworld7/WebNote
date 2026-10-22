@@ -284,8 +284,10 @@
      下划线压到 40% 的浓度：一条贯穿到底的重线在正文里比字本身还吵；悬停再收满，
      顺手给出「这里可以点」的信号。
      卡片形态（a[data-link-shape="card"]）有自己的盒子，显式排除掉 —— 两条规则的
-     特异度相同，靠书写顺序分胜负太脆。 */
-  [data-doc] a[href]:not([data-link-shape="card"]) {
+     特异度相同，靠书写顺序分胜负太脆。
+     书签块的卡片（.note-bm-card）同理排除：它整张卡都是可点区域，不是正文里的
+     字词链接，品牌色与下划线在这里只会把卡片画花。 */
+  [data-doc] a[href]:not([data-link-shape="card"]):not(.note-bm-card) {
     color: var(--color-brand);
     text-decoration: underline;
     text-decoration-thickness: 1px;
@@ -293,7 +295,7 @@
     text-underline-offset: 2px;
     cursor: pointer;
     }
-  [data-doc] a[href]:not([data-link-shape="card"]):hover {
+  [data-doc] a[href]:not([data-link-shape="card"]):not(.note-bm-card):hover {
     text-decoration-color: currentColor;
     }
   /* 书签卡片形态的链接（上图标下名称）。与导出侧 docStyle 的同一条规则同一套几何，
