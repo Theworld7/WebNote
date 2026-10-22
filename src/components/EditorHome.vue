@@ -41,7 +41,7 @@ const { hasRoot, scanning, isLoadingDocument, tabs, fsHint, openRoot } = useWork
 
     <template v-else>
       <p class="text-[13px] text-muted-foreground">
-        {{ tabs.length === 0 ? "从左侧目录里选一篇笔记开始" : "这篇笔记还是空的" }}
+        {{ tabs.length === 0 ? "开始你的想法" : "这篇笔记还是空的" }}
       </p>
     </template>
   </div>
