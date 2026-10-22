@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { LedgerBlock } from "@/types/workspace"
-import type { DataCellValue, DataColumn, DataRow } from "@/types/data-table"
-import { computed, ref } from "vue"
+import type { DataColumn, DataRow } from "@/types/data-table"
+import { computed } from "vue"
 import { DatabaseIcon, PlusIcon, Settings2Icon, Trash2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
@@ -15,6 +15,7 @@ import {
 import TableRefNotice from "@/components/TableRefNotice.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
+import { useCellEditing } from "@/composables/useCellEditing"
 import * as dt from "@/lib/data-table"
 import { LEDGER_EXPENSE_COLOR, LEDGER_INCOME_COLOR, balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, ledgerSort, sortRows, sumRows } from "@/lib/ledger"
 
@@ -132,16 +133,11 @@ const cellCount = computed(() => columns.value.length + (balances.value === null
 
 // ---- 就地增删改 ----
 
-/** 正在编辑的格(`行id:列id`);空串 = 没有。与看板卡同一口径。 */
-const editing = ref("")
-
-function cellKey(row: DataRow, column: DataColumn): string {
-  return row.id + ":" + column.id
-}
-
-function focusOnMount(el: unknown): void {
-  if (el instanceof HTMLInputElement) el.focus()
-}
+/**
+ * 格编辑（编辑态 / 提交 / 勾选 / select）走共用模块；账目只多两件**读法**上的事：
+ * 编辑态初值要把金额换回原始数字，回车要跳到下一行同列。
+ */
+const { editing, cellKey, commit, commitOnBlur, commitSelect, toggleCheck, focusOnMount } = useCellEditing(change)
 
 /**
  * 编辑态的初值。金额格显示的是 `+5,000.00` 这种格式化文本,进编辑态必须换回原始数字
@@ -155,22 +151,6 @@ function editText(row: DataRow, column: DataColumn): string {
   return dt.valueText(value, column)
 }
 
-/** 提交一格。解析走共用的 `parseCellInput`(与数据表编辑页 / 画册卡 / 看板卡同一口径),值没变不写盘。 */
-function commit(row: DataRow, column: DataColumn, raw: string): void {
-  const parsed = dt.parseCellInput(raw, column.type)
-  if (parsed === dt.cellValue(row, column)) return
-  void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, parsed)))
-}
-
-/** 失焦提交。焦点若已由「回车跳格」交给同一列的下一行,就不能再把编辑态清掉。 */
-function commitOnBlur(row: DataRow, column: DataColumn, event: Event): void {
-  const target = event.target
-  if (!(target instanceof HTMLInputElement)) return
-  commit(row, column, target.value)
-  if (editing.value !== cellKey(row, column)) return
-  editing.value = ""
-}
-
 /** 回车:提交 + 跳到**展示序**的下一行同列(纵向录一列最快);已是最后一行就退出编辑态。 */
 function commitOnEnter(row: DataRow, column: DataColumn, event: Event): void {
   const target = event.target
@@ -179,22 +159,6 @@ function commitOnEnter(row: DataRow, column: DataColumn, event: Event): void {
   const index = orderedRows.value.findIndex((item) => item.id === row.id)
   const next = orderedRows.value[index + 1]
   editing.value = next === undefined ? "" : cellKey(next, column)
-}
-
-/** select 格:下拉直接换选项(值就是选项 id),空选项 = 清空。 */
-function commitSelect(row: DataRow, column: DataColumn, event: Event): void {
-  const target = event.target
-  if (!(target instanceof HTMLSelectElement)) return
-  const value: DataCellValue = target.value === "" ? null : target.value
-  if (value === dt.cellValue(row, column)) return
-  void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, value)))
-}
-
-/** 勾选格直接切换,不经过「点进编辑」那一层。 */
-function toggleCheck(row: DataRow, column: DataColumn, event: Event): void {
-  const target = event.target
-  if (!(target instanceof HTMLInputElement)) return
-  void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, target.checked)))
 }
 
 /**

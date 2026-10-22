@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { DataColumn } from "@/types/data-table"
 import type { DataRow } from "@/types/data-table"
-import type { DataCellValue, DataColumnType, DataSelectOption } from "@/types/data-table"
+import type { DataColumnType, DataSelectOption } from "@/types/data-table"
 import { computed, ref } from "vue"
 import { ImagePlusIcon, PlusIcon, Trash2Icon, XIcon } from "@lucide/vue"
 import { isFileDrag, isImageFile, pickImageFile, readImageFile } from "@/lib/image"
@@ -55,25 +55,10 @@ function displayOf(row: DataRow, column: DataColumn): string {
   return dt.valueText(dt.cellValue(row, column), column)
 }
 
-/** 输入框文本 → 列类型对应的值。非法输入给空值，不保留原字符串（见引用块里的同一条注释）。 */
-function parseCellInput(raw: string, type: DataColumnType): DataCellValue {
-  if (type === "number") {
-    if (raw.trim() === "") return null
-    const parsed = Number(raw)
-    return Number.isFinite(parsed) ? parsed : null
-  }
-  if (type === "date") {
-    const trimmed = raw.trim()
-    return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null
-  }
-  if (type === "checkbox") return raw !== ""
-  return raw === "" ? null : raw
-}
-
 function commitCell(row: DataRow, column: DataColumn, event: Event): void {
   const target = event.target
   if (!(target instanceof HTMLInputElement)) return
-  const parsed = parseCellInput(target.value, column.type)
+  const parsed = dt.parseCellInput(target.value, column.type)
   if (parsed === dt.cellValue(row, column)) return
   void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, parsed)))
 }

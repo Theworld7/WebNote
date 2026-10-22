@@ -25,7 +25,7 @@ import { provideSettings } from "../src/composables/useSettings.ts"
 import { provideTheme } from "../src/composables/useTheme.ts"
 import { provideWorkspace } from "../src/composables/useWorkspace.ts"
 import { provideTables } from "../src/composables/useTables.ts"
-import { createBlock, createLedgerBlock, refPathsOf } from "../src/lib/blocks.ts"
+import { createBlock, createLedgerBlock } from "../src/lib/blocks.ts"
 import { blocksToHtml } from "../src/lib/html/serialize.ts"
 import { tableFromJson } from "../src/lib/data-table.ts"
 
@@ -99,10 +99,13 @@ const Root = defineComponent({
     // 数据表注册表与工作区共用同一对 driver / root（同 App.vue 的接线）：
     // 引用块取数、快照预读、保存时落盘都靠这几个 attach 点。
     const tables = provideTables(workspace.fs, workspace.root)
-    workspace.attachTableLookup((path) => tables.peek(path))
-    workspace.attachTablePreload((blocks) => tables.preload(refPathsOf(blocks)))
-    workspace.attachTableFlush((path) => tables.flush(path))
-    workspace.attachTableReload((path) => tables.reload(path))
+    workspace.attachTableRegistry({
+      preload: (paths) => tables.preload(paths),
+      peek: (path) => tables.peek(path),
+      flush: (path) => tables.flush(path),
+      reload: (path) => tables.reload(path),
+      create: () => Promise.reject(new Error("本页不新建数据表")),
+    })
     return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
   },
 })

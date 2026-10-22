@@ -6,35 +6,30 @@ import { provideTables } from "@/composables/useTables"
 import { provideSettings } from "@/composables/useSettings"
 import { provideTheme } from "@/composables/useTheme"
 import { useResizableWidth } from "@/composables/useResizableWidth"
-import { refPathsOf } from "@/lib/blocks"
 import AppSidebar from "@/components/AppSidebar.vue"
 import EditorSurface from "@/components/EditorSurface.vue"
 import EditorTabBar from "@/components/EditorTabBar.vue"
 import PaneResizer from "@/components/PaneResizer.vue"
 
-const { hasDirty, bootstrap, fs, root, attachTableLookup, attachTablePreload, attachTableFlush, attachTableReload, attachTableCreate, attachIntegrateTables } =
-  provideWorkspace()
+const { hasDirty, bootstrap, fs, root, attachTableRegistry, attachIntegrateTables } = provideWorkspace()
 // 数据表注册表与工作区**共用同一对 driver / root**：切目录时两者必须一起换语境，
 // 各持一份引用迟早对不齐（见 useTables 的注释）。
 const tables = provideTables(fs, root)
-// 保存笔记时要把引用块写成快照：先把引用到的表读进内存，再同步取值拼 HTML
-// （见 attachTableLookup / attachTablePreload 的注释）。
-attachTableLookup((path) => tables.peek(path))
-// 哪些块带 path 由 refPathsOf 唯一裁决 —— 它曾经是一行手写的 type filter，
-// gallery / bookmark 就是从那份拷贝里漏掉的（快照被写成空）。
-attachTablePreload((blocks) => tables.preload(refPathsOf(blocks)))
-// 数据表编辑只进内存记脏，落盘发生在标签的统一保存（与笔记同一条出口）；
-// 丢弃标签则把改过的表退回盘上真相。两个动作都是注册表的能力，这里接上。
-attachTableFlush((path) => tables.flush(path))
-attachTableReload((path) => tables.reload(path))
-// 新建数据表：写什么内容由注册表这边的知识决定（一张带两列的初始表），
-// 工作区只负责把它写到指定路径。`initial` 是调用方指定的初始内容（账目块的
-// 预置四列），没指定才落默认表。见 attachTableCreate 的注释。
-attachTableCreate(async (fsDriver, fsRoot, path, initial) => {
-  const start = initial ?? tables.defaultTable()
-  await fsDriver.createNote(fsRoot, path, tables.toJson(start))
-  // 盘上建好了，把内存也填上 —— 否则紧接着打开它还要多读一次盘。
-  tables.adopt(path, start)
+// 工作区要用注册表做的五件事，一次交齐（见 `TableRegistry` 的注释）：保存笔记时
+// 先 preload 再 peek 出快照、flush 改过的表；丢弃标签时 reload；新建 `.tbl` 时 create。
+// 缺省内容由注册表的知识决定（一张带两列的空表），`initial` 是调用方指定的初始内容
+// （账目块的预置四列），没指定才落默认表。
+attachTableRegistry({
+  preload: (paths) => tables.preload(paths),
+  peek: (path) => tables.peek(path),
+  flush: (path) => tables.flush(path),
+  reload: (path) => tables.reload(path),
+  create: async (fsDriver, fsRoot, path, initial) => {
+    const start = initial ?? tables.defaultTable()
+    await fsDriver.createNote(fsRoot, path, tables.toJson(start))
+    // 盘上建好了，把内存也填上 —— 否则紧接着打开它还要多读一次盘。
+    tables.adopt(path, start)
+  },
 })
 // 设置与工作区正交：它只装用户偏好，不参与任何笔记读写，所以在根组件独立 provide 一次。
 // 接上 driver / root 这对引用后，偏好才多落一份到工作区根的 webnote.json（换目录重读）。

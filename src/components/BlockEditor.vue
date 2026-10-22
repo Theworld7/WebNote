@@ -41,7 +41,7 @@ const {
   insertBlockAfter,
   insertBlockBefore,
   insertBlockAt,
-  insertDataTableBlock,
+  insertReferenceBlock,
   convertBlockToFileType,
   appendBlock,
   changeBlockType,
@@ -146,7 +146,7 @@ function handleInsert(id: string, type: BlockType, offset: 0 | 1) {
   if (type === "datatable") {
     const blocks = activeDocument.value
     const index = blocks.findIndex((item) => item.id === id)
-    void insertDataTableBlock(index === -1 ? blocks.length : index + offset).then((blockId) => {
+    void insertReferenceBlock(index === -1 ? blocks.length : index + offset, "datatable").then((blockId) => {
       if (blockId !== "") void focusBlockById(blockId)
     })
     return

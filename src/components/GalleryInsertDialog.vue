@@ -34,7 +34,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ close: [] }>()
 
-const { tablePaths, insertGalleryBlock, insertBookmarkBlock, insertKanbanBlock, insertLedgerBlock, insertStatBlock, insertSubscriptionBlock, convertBlockToFileType, activePath } = useWorkspace()
+const { tablePaths, insertReferenceBlock, convertBlockToFileType, activePath } = useWorkspace()
 
 const NEW = "__new__"
 
@@ -79,19 +79,7 @@ async function confirm() {
   }
 
   if (props.index === null) return
-  const insert =
-    props.kind === "gallery"
-      ? insertGalleryBlock
-      : props.kind === "bookmark"
-        ? insertBookmarkBlock
-        : props.kind === "kanban"
-          ? insertKanbanBlock
-          : props.kind === "ledger"
-            ? insertLedgerBlock
-            : props.kind === "stat"
-              ? insertStatBlock
-              : insertSubscriptionBlock
-  const blockId = await insert(props.index, target, stem)
+  const blockId = await insertReferenceBlock(props.index, props.kind, target, stem)
   if (blockId !== "") emit("close")
 }
 </script>

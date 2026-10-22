@@ -24,6 +24,7 @@ import {
 import TableRefNotice from "@/components/TableRefNotice.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
+import { useCellEditing } from "@/composables/useCellEditing"
 import * as dt from "@/lib/data-table"
 
 /**
@@ -224,37 +225,11 @@ function posterOfRows(rowsOfGroup: readonly DataRow[]): string {
 
 // ---- 卡片上的内联编辑 ----
 
-/** 正在编辑的格:`rowId:columnId`,null 表示没有格在编辑。 */
-const editing = ref("")
-
-function cellKey(row: DataRow, column: DataColumn): string {
-  return row.id + ":" + column.id
-}
+/** 格编辑那一套（编辑态 / 提交 / 勾选 / select）走共用模块，视图只管显示什么。 */
+const { editing, cellKey, commitOnEnter, commitOnBlur, toggleCheck, focusOnMount } = useCellEditing(change)
 
 function cellOf(row: DataRow, column: DataColumn): string {
   return dt.valueText(dt.cellValue(row, column), column)
-}
-
-/** Enter 提交:失焦即触发写盘。卡片上按 Enter 的直觉与表格一致 ——「这个值填完了」。 */
-function commitOnEnter(event: Event): void {
-  const target = event.target
-  if (target instanceof HTMLInputElement) target.blur()
-}
-
-/** 失焦提交。值没变就不写盘;解析口径与表格编辑页共用 `dt.parseCellInput`。 */
-function commitOnBlur(row: DataRow, column: DataColumn, event: Event): void {
-  const target = event.target
-  if (!(target instanceof HTMLInputElement)) return
-  const parsed = dt.parseCellInput(target.value, column.type)
-  if (parsed === dt.cellValue(row, column)) return
-  void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, parsed)))
-}
-
-/** 勾选格直接切换,不需要「点进编辑」那一层。 */
-function toggleCheck(row: DataRow, column: DataColumn, event: Event): void {
-  const target = event.target
-  if (!(target instanceof HTMLInputElement)) return
-  void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, target.checked)))
 }
 
 // ---- 块设置 ----
@@ -379,9 +354,6 @@ function openTable() {
 }
 
 /** 编辑态的输入框一挂载就聚焦:点值即编辑,焦点应已在框里,而不是再点一下。 */
-function focusOnMount(el: unknown): void {
-  if (el instanceof HTMLInputElement) el.focus()
-}
 </script>
 
 <template>
@@ -644,7 +616,7 @@ function focusOnMount(el: unknown): void {
                     :value="cellOf(row, column)"
                     :placeholder="column.type === 'date' ? 'YYYY-MM-DD' : ''"
                     @keydown.enter.prevent="commitOnEnter"
-                    @blur="(event: Event) => { commitOnBlur(row, column, event); editing = '' }"
+                    @blur="(event: Event) => commitOnBlur(row, column, event)"
                   >
 
                   <button

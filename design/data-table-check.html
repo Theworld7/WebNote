@@ -633,8 +633,14 @@ const EditorRoot = defineComponent({
     provideTheme(provideSettings())
     const workspace = provideWorkspace()
     const tables = provideTables(workspace.fs, workspace.root)
-    // 编辑器的落盘走工作区的统一保存钩子,这里接上(与 App.vue 同一套接线)。
-    workspace.attachTableFlush((path) => tables.flush(path))
+    // 编辑器的落盘走工作区的统一保存出口,这里一次接齐(与 App.vue 同一套接线)。
+    workspace.attachTableRegistry({
+      preload: (paths) => tables.preload(paths),
+      peek: (path) => tables.peek(path),
+      flush: (path) => tables.flush(path),
+      reload: (path) => tables.reload(path),
+      create: () => Promise.reject(new Error("数据表编辑页不新建表")),
+    })
     Object.assign(editorProbe, workspace)
     return () => (editorReady.value ? h(DataTableEditor) : h("div"))
   },

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { KanbanBlock } from "@/types/workspace"
 import type { DataColumn, DataRow, DataCellValue } from "@/types/data-table"
-import { computed, ref } from "vue"
+import { computed } from "vue"
 import { ChevronDownIcon, ChevronUpIcon, DatabaseIcon, PlusIcon, Settings2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
@@ -15,6 +15,7 @@ import {
 import TableRefNotice from "@/components/TableRefNotice.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
+import { useCellEditing } from "@/composables/useCellEditing"
 import * as dt from "@/lib/data-table"
 
 /**
@@ -105,49 +106,10 @@ function cellOf(row: DataRow, column: DataColumn): string {
 
 /**
  * 点击格值 → 就地编辑:文本 / 数字 / 日期是输入框(失焦提交),select 换成下拉,
- * 勾选直接切换。与画册卡片共用同一套口径(解析走 `dt.parseCellInput`)——
- * 同一格在表格编辑页 / 画册卡 / 看板卡三个入口编辑,规则必须一致。
+ * 勾选直接切换。这一套与画册卡 / 账目行共用 `useCellEditing` ——
+ * 同一格在表格编辑页与三种引用块里编辑,规则必须是同一条。
  */
-const editing = ref("")
-
-function cellKey(row: DataRow, column: DataColumn): string {
-  return row.id + ":" + column.id
-}
-
-function focusOnMount(el: unknown): void {
-  if (el instanceof HTMLInputElement) el.focus()
-}
-
-/** Enter 提交:失焦即触发写盘。卡片上按 Enter 的直觉是「这个值填完了」。 */
-function commitOnEnter(event: Event): void {
-  const target = event.target
-  if (target instanceof HTMLInputElement) target.blur()
-}
-
-/** 失焦提交。值没变就不写盘。 */
-function commitOnBlur(row: DataRow, column: DataColumn, event: Event): void {
-  const target = event.target
-  if (!(target instanceof HTMLInputElement)) return
-  const parsed = dt.parseCellInput(target.value, column.type)
-  if (parsed === dt.cellValue(row, column)) return
-  void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, parsed)))
-}
-
-/** select 格:下拉直接换选项(值就是选项 id),空选项 = 清空。 */
-function commitSelect(row: DataRow, column: DataColumn, event: Event): void {
-  const target = event.target
-  if (!(target instanceof HTMLSelectElement)) return
-  const value: DataCellValue = target.value === "" ? null : target.value
-  if (value === dt.cellValue(row, column)) return
-  void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, value)))
-}
-
-/** 勾选格直接切换,不需要「点进编辑」那一层。 */
-function toggleCheck(row: DataRow, column: DataColumn, event: Event): void {
-  const target = event.target
-  if (!(target instanceof HTMLInputElement)) return
-  void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, target.checked)))
-}
+const { editing, cellKey, commitOnEnter, commitOnBlur, commitSelect, toggleCheck, focusOnMount } = useCellEditing(change)
 
 // ---- 拖拽改值 ----
 
@@ -429,7 +391,7 @@ function openTable() {
                 :value="cellOf(row, column)"
                 :placeholder="column.type === 'date' ? 'YYYY-MM-DD' : ''"
                 @keydown.enter.prevent="commitOnEnter"
-                @blur="(event: Event) => { commitOnBlur(row, column, event); editing = '' }"
+                @blur="(event: Event) => commitOnBlur(row, column, event)"
               >
 
               <button

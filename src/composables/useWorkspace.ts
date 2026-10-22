@@ -2,9 +2,8 @@ import type { InjectionKey, Ref } from "vue"
 import type { Block, BlockSettingsPatch, BlockType, ChatMessage, CloseStrategy, CreateTarget, FileNode, InlineRun, LayoutMode, OpenTab, TableAlign, TableCell } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref, watch } from "vue"
-import { CELL_EXCLUDED_TYPES, cloneBlock, countChars, createBlock, createBlockId, createBookmarkBlock, createDataTableBlock, createGalleryBlock, createKanbanBlock, createLedgerBlock, createStatBlock, createSubscriptionBlock, isReferenceBlock, isTextualBlock, refPathsOf, retypeBlock } from "@/lib/blocks"
-import { createLedgerPreset } from "@/lib/ledger"
-import { createSubscriptionPreset } from "@/lib/subscription"
+import { CELL_EXCLUDED_TYPES, REFERENCE_INSERT_SPEC, cloneBlock, countChars, createBlock, createBlockId, isReferenceBlock, isTextualBlock, refPathsOf, retypeBlock } from "@/lib/blocks"
+import type { ReferenceBlock, ReferenceBlockType } from "@/lib/blocks"
 import type { DataTable } from "@/types/data-table"
 import { describeError } from "@/lib/errors"
 import { parseNote, serializeHtml } from "@/lib/html"
@@ -81,6 +80,31 @@ function replaceChildren(nodes: FileNode[], parentPath: string, children: FileNo
     const next = replaceChildren(node.children, parentPath, children)
     return next === node.children ? node : { ...node, children: next }
   })
+}
+
+/**
+ * 工作区要用数据表注册表做的五件事 —— 一条**端口**。
+ *
+ * 注册表要用工作区的 driver / root（它依赖工作区），而保存笔记时要读表（工作区反过来
+ * 要用它），直接互相 import 会成环。`App.vue` 在两边都建好之后把适配器递进来一次，
+ * 依赖方向于是各自单向；自检页不接，五项各自退化成「什么都不做」，引用块写成提示态。
+ *
+ * 五项的顺序不能合：
+ * - `preload` 是异步的**前置动作**（读盘），`peek` 是同步的**取值**（拼快照）——
+ *   合成一个就得让 `blocksToHtml` 变成异步，而它是纯函数。
+ * - `flush` / `reload` / `create` 是写盘动作：保存前落盘、丢弃时退回盘上真相、新建表。
+ */
+export interface TableRegistry {
+  /** 把一批表读进内存。保存前调用，让随后的 `peek` 拿得到内容。 */
+  preload(paths: readonly string[]): Promise<void>
+  /** 同步取一张表的内容。读不到（没读过、文件没了）返回 `null`。 */
+  peek(path: string): DataTable | null
+  /** 把一张改过的表落盘。返回错误描述；`null` 表示写成功或本来就没改过。 */
+  flush(path: string): Promise<string | null>
+  /** 把一张表退回盘上真相 —— 丢弃标签时用。 */
+  reload(path: string): Promise<void>
+  /** 新建一张 `.tbl`。`initial` 缺省时由注册表给默认内容。 */
+  create(driver: WorkspaceFs, root: FsRoot, path: string, initial?: DataTable): Promise<void>
 }
 
 function createWorkspace() {
@@ -431,78 +455,15 @@ function createWorkspace() {
 
   // ---- 文档 ----
 
-  /**
-   * 引用块 → 快照表格时用的数据来源。
-   *
-   * 由 `App.vue` 在 `provideTables` 之后接上（`attachTableLookup`）。之所以走一层间接：
-   * 数据表注册表要用工作区的 driver / root，所以它依赖工作区；而保存笔记时又需要读
-   * 数据表，于是工作区反过来要用它 —— 直接互相 import 会成环。用这个钩子把「用」的
-   * 方向反转过来，两边各自是单向依赖。
-   *
-   * 缺省返回 `null`：没有接上时（自检页、单元测试）引用块写成提示态，不抛错。
-   */
-  const tableLookup = ref<DataTableLookup>(() => null)
+  /** 数据表注册表端口。`null` = 还没接上（自检页 / 单元测试）。 */
+  const registry = ref<TableRegistry | null>(null)
 
-  function attachTableLookup(lookup: DataTableLookup) {
-    tableLookup.value = lookup
+  function attachTableRegistry(next: TableRegistry) {
+    registry.value = next
   }
 
-  /**
-   * 「把这篇笔记引用到的表都读进内存」。
-   *
-   * 与 `tableLookup` 分成两个钩子，因为方向不同：这个是异步的**前置动作**（读盘），
-   * 那个是同步的**取值**（拼 HTML）。合成一个就得让 `blocksToHtml` 变成异步，
-   * 而它是纯函数（见 `mermaidHtml` 的注释）。
-   *
-   * 缺省实现什么都不做：没接上时（自检页）引用块写成提示态，不影响其它块。
-   */
-  const preloadTables = ref<(blocks: readonly Block[]) => Promise<void>>(async () => {})
-
-  function attachTablePreload(preload: (blocks: readonly Block[]) => Promise<void>) {
-    preloadTables.value = preload
-  }
-
-  /**
-   * 「把一张改过的数据表落盘」与「把一张表退回盘上真相」。
-   *
-   * 与上面两个钩子同一理由：工作区不能反向 import 注册表。保存标签前要把改过的表
-   * 先写掉（快照取的就是内存那份，`.tbl` 不跟着落盘，盘上就有两份互相矛盾的真相），
-   * 丢弃标签时要把它改过的表退回盘上 —— 这两个动作都是注册表的知识，由 `App.vue` 接上。
-   * 缺省实现什么都不做：没接上时（自检页）保存/丢弃不影响其它流程。
-   */
-  const flushTable = ref<(path: string) => Promise<string | null>>(async () => null)
-
-  function attachTableFlush(flush: (path: string) => Promise<string | null>) {
-    flushTable.value = flush
-  }
-
-  const reloadTable = ref<(path: string) => Promise<void>>(async () => {})
-
-  function attachTableReload(reload: (path: string) => Promise<void>) {
-    reloadTable.value = reload
-  }
-
-  /**
-   * 新建数据表文件时要写什么内容、怎么写。
-   *
-   * 与上面两个钩子同一个理由（避免工作区 ↔ 注册表互相 import 成环），只是方向不同：
-   * 这里工作区是**调用方**，而内容是注册表那边的知识（一张带两列的 `DataTable`）。
-   * 所以把「怎么造」与「怎么写」也做成钩子，由 `App.vue` 在 provide 之后接上。
-   *
-   * 拿到 `driver` 与 `root` 当参数而不是自己去取：调用点（`createInto`）已经握有
-   * 它们，而写盘必须在**同一个 driver** 上发生 —— 传进来比再查一次更不容易漂。
-   *
-   * `null` 表示没接上 —— 那时新建数据表会失败并给出一句明确的错，而不是写一个空文件。
-   */
-  const tableWriter = ref<
-    ((driver: WorkspaceFs, root: FsRoot, path: string, initial?: DataTable) => Promise<void>) | null
-  >(null)
-
-  function attachTableCreate(
-    writer: (driver: WorkspaceFs, root: FsRoot, path: string, initial?: DataTable) => Promise<void>,
-  ) {
-    tableWriter.value = writer
-  }
+  /** 引用块 → 快照表格时的数据来源。没接上时返回 `null`，序列化写成提示态。 */
+  const lookupTable: DataTableLookup = (path) => registry.value?.peek(path) ?? null
 
   /**
    * 读一篇笔记并解析。
@@ -639,7 +600,7 @@ function createWorkspace() {
       // 丢弃：把它改过的表退回盘上真相。否则改动还挂在注册表内存里，之后任何一次
       // 保存都会把它们无声写出去 —— 「不保存」就不能只是不保存笔记那份。
       const tab = tabs.value.find((item) => item.path === path)
-      for (const tablePath of tab?.dirtyTables ?? []) await reloadTable.value(tablePath)
+      for (const tablePath of tab?.dirtyTables ?? []) await registry.value?.reload(tablePath)
       // 笔记正文同样要退回盘上真相：documents 里还挂着带未保存修改的块，缓存不清，
       // 重新打开只会读到内存这份 —— 「丢弃」对正文就成了空话。历史一并作废：
       // 重读盘 = 语境重开，旧历史对新内容是错位的（同 loadDocument）。
@@ -686,7 +647,7 @@ function createWorkspace() {
     if (tab === undefined) return
 
     for (const tablePath of tab.dirtyTables) {
-      const error = await flushTable.value(tablePath)
+      const error = (await registry.value?.flush(tablePath)) ?? null
       if (error !== null) {
         fsError.value = `保存数据表「${fileName(tablePath)}」失败：${error}`
         return
@@ -703,12 +664,12 @@ function createWorkspace() {
     // 引用块要写成快照，所以它引用的表必须已经在内存里。`preload` 由 App.vue 接上
     // （注册表的 `acquire`），它负责把还没读过的表读进来。读不回来（文件没了）不算
     // 错误 —— 那种情况快照本来就要写成提示态。
-    await preloadTables.value(blocks)
+    await registry.value?.preload(refPathsOf(blocks))
 
     // 引用块在这里被写成**快照**（当前的表格内容），不是指针 —— 导出的文件要能在
     // 没有那个 `.tbl` 的地方双击打开（ADR-0005）。这一步是同步的纯查询：表已经由
     // 数据表注册表读进内存了，这里只是把内容拼进去。
-    const html = serializeHtml(blocks, { title: titleOf(path), style: styles.value[path] ?? "" }, tableLookup.value)
+    const html = serializeHtml(blocks, { title: titleOf(path), style: styles.value[path] ?? "" }, lookupTable)
     try {
       await driver.writeNote(current, path, html)
     } catch (error) {
@@ -791,10 +752,10 @@ function createWorkspace() {
         await driver.createFolder(current, path)
       } else if (kind === "table") {
         // 初始内容由数据表那边给（一张带两列的空表）。这里不直接 import 注册表 ——
-        // 方向是注册表依赖工作区，反过来引用会成环。走 `tableWriter` 这个钩子。
-        const write = tableWriter.value
-        if (write === null) throw new Error("数据表写入通道未接上")
-        await write(driver, current, path)
+        // 方向是注册表依赖工作区，反过来引用会成环。走 `TableRegistry` 这层端口。
+        const tables = registry.value
+        if (tables === null) throw new Error("数据表注册表未接上")
+        await tables.create(driver, current, path)
       } else {
         await driver.createNote(current, path, serializeHtml([createBlock("text")], { title: titleOf(path) }))
       }
@@ -1259,168 +1220,32 @@ function createWorkspace() {
   }
 
   /**
-   * 在当前笔记里插入一个数据表引用块。
+   * 在当前笔记里插入一个引用块。
    *
-   * 与其它块的区别是它**不能只造一个空块**：引用块必须指向一个真实存在的 `.tbl`，
-   * 否则插进去就是一个永远读不到的提示态。所以这里同时做两件事：
+   * 引用块**不能只造一个空块**：它必须指向一个真实存在的 `.tbl`，否则插进去就是一个
+   * 永远读不到的提示态。所以这条流程总是两件事：`target` 为空时先按 `stem`（缺省取
+   * 当前笔记的名字主干）在笔记旁边新建一张表，撞名则直接引用已有的那个 —— 用户的意思
+   * 显然是「我那张表」，不是「再给我一份同名副本」；拿到路径再落块。
    *
-   * - `path` 为空时：在当前笔记旁边**新建**一个 `.tbl`，默认名取当前笔记的名字主干
-   *   （`客户.html` 里新建 → `客户.tbl`），撞名则不新建、直接引用已存在的那个。
-   * - `path` 非空时：直接引用它（工作区里已经有的表）。
+   * 各类型的差别只有「引用已有表造什么块、新建表时拿什么起手」，收在
+   * `REFERENCE_INSERT_SPEC` 里。这条流程不按类型分叉 —— 新增一种引用块只加一条表项。
    *
-   * 返回新建块的 id，调用方（菜单）拿它做聚焦。
+   * 返回新块的 id，调用方（菜单 / 对话框）拿它做聚焦；解析不出路径时返回空串、不插块
+   * （没有工作区、写盘失败），原文档保持不动。
    */
-  async function insertDataTableBlock(index: number, target = ""): Promise<string> {
+  async function insertReferenceBlock(index: number, type: ReferenceBlockType, target = "", stem = ""): Promise<string> {
     const blocks = activeDocument.value
-    const notePath = activePath.value
+    const spec = REFERENCE_INSERT_SPEC[type]
 
-    let path = target
-    if (path === "") {
-      const resolved = await resolveDataTableForNote(notePath)
-      // 解析不出来（没有工作区、用户取消、写盘失败）就不插块 —— 留一个读不到的
-      // 引用块比什么都不做更糟，用户会以为已经建好了。
-      path = resolved.path
-      if (path === "") return ""
-    }
-
-    const block = createDataTableBlock(path)
-    const at = Math.min(Math.max(index, 0), blocks.length)
-    blocks.splice(at, 0, block)
-    markDirty()
-    return block.id
-  }
-
-  /**
-   * 在当前笔记里插入一个画册块。
-   *
-   * 与 `insertDataTableBlock` 同构,差别在入口:画册块由**对话框**先行确定目标 ——
-   * - `target` 非空:直接引用工作区里已有的那张表。
-   * - `target` 为空:按 `stem`(用户在对话框里起的名)在当前笔记旁边新建一张,
-   *   撞名则直接引用已有的 —— 与数据表的新建规则同一条,「再给我一份同名副本」
-   *   不会是任何人的本意。
-   */
-  async function insertGalleryBlock(index: number, target = "", stem = ""): Promise<string> {
-    const blocks = activeDocument.value
-    const notePath = activePath.value
-
-    let path = target
-    if (path === "") {
-      path = (await resolveDataTableForNote(notePath, stem)).path
-      if (path === "") return ""
-    }
-
-    const block = createGalleryBlock(path)
-    const at = Math.min(Math.max(index, 0), blocks.length)
-    blocks.splice(at, 0, block)
-    markDirty()
-    return block.id
-  }
-
-  /**
-   * 在当前笔记里插入一个书签块。与 `insertGalleryBlock` 完全同构：
-   * 先有表才有块，`target` 为空时按 `stem` 新建、撞名直接引用。
-   */
-  async function insertBookmarkBlock(index: number, target = "", stem = ""): Promise<string> {
-    const blocks = activeDocument.value
-    const notePath = activePath.value
-
-    let path = target
-    if (path === "") {
-      path = (await resolveDataTableForNote(notePath, stem)).path
-      if (path === "") return ""
-    }
-
-    const block = createBookmarkBlock(path)
-    const at = Math.min(Math.max(index, 0), blocks.length)
-    blocks.splice(at, 0, block)
-    markDirty()
-    return block.id
-  }
-
-  /**
-   * 在当前笔记里插入一个看板块。与 `insertBookmarkBlock` 完全同构:
-   * 先有表才有块,`target` 为空时按 `stem` 新建、撞名直接引用。
-   */
-  async function insertKanbanBlock(index: number, target = "", stem = ""): Promise<string> {
-    const blocks = activeDocument.value
-    const notePath = activePath.value
-
-    let path = target
-    if (path === "") {
-      path = (await resolveDataTableForNote(notePath, stem)).path
-      if (path === "") return ""
-    }
-
-    const block = createKanbanBlock(path)
-    const at = Math.min(Math.max(index, 0), blocks.length)
-    blocks.splice(at, 0, block)
-    markDirty()
-    return block.id
-  }
-
-  /** 在当前笔记里插入一个统计块。与看板块同构:先有表才有块,`target` 为空时按 `stem` 新建、撞名直接引用。 */
-  async function insertStatBlock(index: number, target = "", stem = ""): Promise<string> {
-    const blocks = activeDocument.value
-    const notePath = activePath.value
-
-    let path = target
-    if (path === "") {
-      path = (await resolveDataTableForNote(notePath, stem)).path
-      if (path === "") return ""
-    }
-
-    const block = createStatBlock(path)
-    const at = Math.min(Math.max(index, 0), blocks.length)
-    blocks.splice(at, 0, block)
-    markDirty()
-    return block.id
-  }
-
-  /**
-   * 在当前笔记里插入一个订阅块。新建时写参考表那十列(名称 / 图标 / 金额 / 周期 /
-   * 自动续费 / 试用期到期 / 开始 / 到期 / 已取消 / 累计支付),并把字段映射指到预置列 ——
-   * 插入即可填。撞名引用已有表时不指列(id 对不上),交给自动识别。
-   */
-  async function insertSubscriptionBlock(index: number, target = "", stem = ""): Promise<string> {
-    const blocks = activeDocument.value
-    const notePath = activePath.value
-
-    let block = createSubscriptionBlock(target)
+    let block: ReferenceBlock
     if (target === "") {
-      const preset = createSubscriptionPreset()
-      const resolved = await resolveDataTableForNote(notePath, stem, preset.table)
+      const preset = spec.preset?.()
+      const resolved = await resolveDataTableForNote(activePath.value, stem, preset?.table)
       if (resolved.path === "") return ""
-      block = resolved.created
-        ? createSubscriptionBlock(resolved.path, preset.roles)
-        : createSubscriptionBlock(resolved.path)
-    }
-
-    const at = Math.min(Math.max(index, 0), blocks.length)
-    blocks.splice(at, 0, block)
-    markDirty()
-    return block.id
-  }
-
-  /**
-   * 在当前笔记里插入一个账目块。与看板块同构(先有表才有块,`target` 为空时按 `stem`
-   * 新建、撞名直接引用),差别在**新建**那一步:预置 `日期 / 摘要 / 收入 / 支出` 四列
-   * 写盘,并把收入 / 支出列指到预置列上 —— 三种记账场景开箱即录,不用先去设置里挑列。
-   * 撞名引用已有表时不指列(id 对不上别人的列),视图走「未设置」提示态让用户自己挑。
-   */
-  async function insertLedgerBlock(index: number, target = "", stem = ""): Promise<string> {
-    const blocks = activeDocument.value
-    const notePath = activePath.value
-
-    let block = createLedgerBlock(target)
-    if (target === "") {
-      const preset = createLedgerPreset()
-      const resolved = await resolveDataTableForNote(notePath, stem, preset.table)
-      if (resolved.path === "") return ""
-      // 只有真的新建才按预置列指好金额列与排序列;撞名引用的是别人的表,id 对不上。
-      // 排序起手是「日期列 + 倒序」—— 流水账先看见最近一笔,这也是块的缺省读法。
-      block = resolved.created
-        ? createLedgerBlock(resolved.path, preset.incomeColumnId, preset.expenseColumnId, true, "none", "", preset.dateColumnId, "desc")
-        : createLedgerBlock(resolved.path)
+      // 只有真的新建了表，预置列的 id 才可信；撞名引用别人的表时走不带列的形态。
+      block = preset !== undefined && resolved.created ? preset.create(resolved.path) : spec.create(resolved.path)
+    } else {
+      block = spec.create(target)
     }
 
     const at = Math.min(Math.max(index, 0), blocks.length)
@@ -1438,7 +1263,7 @@ function createWorkspace() {
    */
   async function convertBlockToFileType(
     id: string,
-    type: "datatable" | "gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "subscription",
+    type: ReferenceBlockType,
     target = "",
     stem = "",
   ): Promise<string> {
@@ -1452,20 +1277,8 @@ function createWorkspace() {
       if (path === "") return ""
     }
 
-    const block =
-      type === "gallery"
-        ? createGalleryBlock(path)
-        : type === "bookmark"
-          ? createBookmarkBlock(path)
-          : type === "kanban"
-            ? createKanbanBlock(path)
-            : type === "ledger"
-              ? createLedgerBlock(path)
-              : type === "stat"
-                ? createStatBlock(path)
-                : type === "subscription"
-                  ? createSubscriptionBlock(path)
-                  : createDataTableBlock(path)
+    // 转换不带预置表：转换的目标是「换一个形态」，不是「顺手替我起一张表」。
+    const block = REFERENCE_INSERT_SPEC[type].create(path)
     blocks[index] = block
     markDirty()
     return block.id
@@ -1500,13 +1313,13 @@ function createWorkspace() {
       return { path: "", created: false }
     }
 
-    const write = tableWriter.value
-    if (write === null) {
-      fsError.value = "数据表写入通道未接上"
+    const tables = registry.value
+    if (tables === null) {
+      fsError.value = "数据表注册表未接上"
       return { path: "", created: false }
     }
     try {
-      await write(driver, current, candidate, initial)
+      await tables.create(driver, current, candidate, initial)
     } catch (error) {
       fsError.value = `新建数据表「${name}${TABLE_EXTENSION}」失败：${describeError(error)}`
       return { path: "", created: false }
@@ -1870,11 +1683,7 @@ function createWorkspace() {
     // 会各自持有一份驱动引用，切目录时对不齐。
     fs,
     root,
-    attachTableLookup,
-    attachTablePreload,
-    attachTableFlush,
-    attachTableReload,
-    attachTableCreate,
+    attachTableRegistry,
     // 整合数据表视图：偏好由 `App.vue` 递进来，工作区自己不认识设置模块。
     attachIntegrateTables,
     // file actions
@@ -1906,13 +1715,7 @@ function createWorkspace() {
     insertBlockAfter,
     insertBlockBefore,
     insertBlockAt,
-    insertDataTableBlock,
-    insertGalleryBlock,
-    insertBookmarkBlock,
-    insertKanbanBlock,
-    insertLedgerBlock,
-    insertStatBlock,
-    insertSubscriptionBlock,
+    insertReferenceBlock,
     convertBlockToFileType,
     updateBlockSettings,
     tablePaths,

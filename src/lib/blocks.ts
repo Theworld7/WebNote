@@ -25,7 +25,10 @@ import type {
   TextualBlockType,
 } from "@/types/workspace"
 import type { SubscriptionRole } from "@/lib/subscription"
+import type { DataTable } from "@/types/data-table"
 import { cloneRuns, runsText, textToRuns } from "@/lib/inline"
+import { createLedgerPreset } from "@/lib/ledger"
+import { createSubscriptionPreset } from "@/lib/subscription"
 import { cloneCell } from "@/lib/table"
 
 /**
@@ -195,8 +198,11 @@ export function isTextualBlock(block: Block): block is TextualBlock {
 export const REFERENCE_BLOCK_TYPES = ["datatable", "gallery", "bookmark", "kanban", "ledger", "stat", "subscription"] as const
 export type ReferenceBlockType = (typeof REFERENCE_BLOCK_TYPES)[number]
 
-/** 是否是引用块。命中时收窄到四种带 `path` 的结构块。 */
-export function isReferenceBlock(block: Block): block is Extract<Block, { path: string }> {
+/** 带 `path` 指针的引用块本体 —— `isReferenceBlock` 收窄后的结果。 */
+export type ReferenceBlock = Extract<Block, { path: string }>
+
+/** 是否是引用块。命中时收窄到带 `path` 的结构块。 */
+export function isReferenceBlock(block: Block): block is ReferenceBlock {
   return REFERENCE_BLOCK_TYPES.some((type) => block.type === type)
 }
 
@@ -351,7 +357,7 @@ export function createKanbanBlock(
 
 /**
  * 造账目块。缺省不设收入 / 支出列、不分组、不排序 —— 视图显示提示态引导去设置;
- * 新建路径(`useWorkspace.insertLedgerBlock`)会按预置列把收入 / 支出指好、并按
+ * 新建路径(`useWorkspace.insertReferenceBlock` 走 `REFERENCE_INSERT_SPEC`)会按预置列把收入 / 支出指好、并按
  * 「日期列 + 倒序」起手,开箱即录。
  * 带全参数的调用来自解析器 —— 盘上属性宽容读取后的值在这里收口成合法类型。
  * `showBalance` 缺省 true;`groupMode` 传 month / column 时必须带 `groupColumnId`;
@@ -416,6 +422,66 @@ export function createSubscriptionBlock(
     cancelledColumnId: roles.cancelled ?? "",
     paidColumnId: roles.paid ?? "",
   }
+}
+
+/**
+ * 新建一张表时的起手：初始内容，以及表落盘之后**指好列**的造块函数。
+ *
+ * 两项必须一起产出：预置列的 id 由 `table` 里的列对象生成，而 `create` 要指的就是它们。
+ */
+export interface ReferencePreset {
+  /** 新建表时写进 `.tbl` 的初始内容。 */
+  table: DataTable
+  /** 表写好之后造块。只在**这次真的新建**了表时调用 —— 那时列 id 才可信。 */
+  create(path: string): ReferenceBlock
+}
+
+/**
+ * 一种引用块的建造方式。
+ *
+ * 引用块的插入与转换是**同一条流程**（先有文件才能指），各类型的差别只有这两项：
+ * 引用已有表时造什么块、新建表时拿什么起手。流程本身在
+ * `useWorkspace.insertReferenceBlock` 里写一次，不按类型抄七遍。
+ */
+export interface ReferenceInsertSpec {
+  /** 引用工作区里已有的表时造块（不指任何预置列）。 */
+  create(path: string): ReferenceBlock
+  /** 新建表时的起手。缺省 = 空表（一列「标题」）+ `create`。 */
+  preset?: () => ReferencePreset
+}
+
+/**
+ * 引用块的建造表 —— 键就是 `REFERENCE_BLOCK_TYPES`，漏一种或写错名字都编译不过。
+ *
+ * 两种块带预置表：订阅（十列参考表）与账目（日期 / 摘要 / 收入 / 支出）。
+ * 它们只在**真的新建**时指列；撞名引用别人的表时列 id 对不上，走 `create` 的留空形态，
+ * 交给视图的自动识别 / 「未设置」提示。
+ */
+export const REFERENCE_INSERT_SPEC: Record<ReferenceBlockType, ReferenceInsertSpec> = {
+  datatable: { create: (path) => createDataTableBlock(path) },
+  gallery: { create: (path) => createGalleryBlock(path) },
+  bookmark: { create: (path) => createBookmarkBlock(path) },
+  kanban: { create: (path) => createKanbanBlock(path) },
+  stat: { create: (path) => createStatBlock(path) },
+  subscription: {
+    create: (path) => createSubscriptionBlock(path),
+    preset: () => {
+      const preset = createSubscriptionPreset()
+      return { table: preset.table, create: (path) => createSubscriptionBlock(path, preset.roles) }
+    },
+  },
+  ledger: {
+    create: (path) => createLedgerBlock(path),
+    preset: () => {
+      const preset = createLedgerPreset()
+      return {
+        table: preset.table,
+        // 起手按「日期列 + 倒序」排 —— 流水账先看见最近一笔。
+        create: (path) =>
+          createLedgerBlock(path, preset.incomeColumnId, preset.expenseColumnId, true, "none", "", preset.dateColumnId, "desc"),
+      }
+    },
+  },
 }
 
 /**
