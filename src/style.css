@@ -259,6 +259,12 @@
   .dark .cross-selection-rect {
     mix-blend-mode: screen;
     }
+  /* 拖块期间整篇正文换成「抓着」光标。子元素（contenteditable 有 text 光标）会盖住
+     容器上的 cursor，所以铺到后代上，且必须 !important 才压得住。 */
+  .doc-dragging,
+  .doc-dragging * {
+    cursor: grabbing !important;
+    }
   /* 行内代码。数值照搬 naive typography 的 text--code：0.9em / line-height 1.4 /
      padding .05em .35em 0 / 圆角 2px。`inline-block` 不能省 —— 行内元素的垂直
      padding 不撑开行盒，底色会溢到上下相邻的行上。

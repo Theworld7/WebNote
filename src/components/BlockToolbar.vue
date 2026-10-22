@@ -81,10 +81,10 @@ const TOOL = "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foregrou
  * 尺寸与「＋」一致（24px 方形），工具条左偏移随之为 `left:-52px`
  * （＋24 + gap 2 + 把手 24，再让 2px 呼吸位，见模板）。
  *
- * `[-webkit-user-drag:element]` 是给 WKWebView（Tauri 在 macOS 上的实际渲染器）兜底的：
- * WebKit 里光有 `draggable="true"` 不足以让 `<button>` 发起原生拖拽，还得声明这个属性。
+ * 刻意**不带** `draggable`：原生拖拽会让浏览器进入拖拽模式，那期间 wheel 被底层吞掉，
+ * 滚轮就滚不动正文了。拖拽由 `BlockEditor` 用 pointer 事件接管（手柄只是按下点）。
  */
-const GRIP = `${TOOL} cursor-grab active:cursor-grabbing [-webkit-user-drag:element]`
+const GRIP = `${TOOL} cursor-grab active:cursor-grabbing`
 
 /**
  * 菜单外框：浮岛圆角、去掉 shadcn 默认的 1px ring，换成原型那套双层阴影。
@@ -336,7 +336,9 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
 
     <!-- 类型标识（¶ / H1 / • / </> / ⊞ …）：点击开块操作菜单，按住拖动则是排序手柄。
          与类型菜单左列同源（都取 BLOCK_TYPES 的 marker）—— hover 上来一眼就知道在操作什么块。
-         拖拽由 BlockEditor 在容器上统一接管（dragstart 会冒泡），这里只负责让元素可拖。 -->
+         拖拽由 BlockEditor 在容器上统一接管（pointerdown 冒泡到那里，过阈值才算拖），
+         这里只负责按下点与 `data-drag-handle` 这个契约属性 —— 别加 `draggable`，
+         原生拖拽会吞掉滚轮事件。 -->
     <DropdownMenu
       :open="openMenu === 'action'"
       @update:open="(open: boolean) => emit('update:openMenu', open ? 'action' : '')"
@@ -345,7 +347,6 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
         <Button
           variant="ghost"
           :class="[GRIP, inside && 'bg-background']"
-          draggable="true"
           data-drag-handle="true"
           :aria-label="`${meta.label}块操作菜单，拖动可重排`"
         >

@@ -128,51 +128,59 @@ lines.push(`自检 ${passed}/${passed + failed}`)
 document.getElementById("out").textContent = lines.join("\n")
 
 async function run() {
-/** 合成一次拖拽。target 是真实手柄按钮，事件冒泡到 BlockEditor 的容器。 */
-function dragStart(rowIndex) {
+/** 指针当前位置：松手时拿它当落点（BlockEditor 也是按最后一次移动的位置提交）。 */
+let point = { x: 0, y: 0 }
+
+/** 在真实手柄上按下 —— 此刻还只是「可能拖、也可能只是点菜单」，没过阈值不算拖。 */
+function grab(rowIndex) {
   const handle = rows()[rowIndex].querySelector("[data-drag-handle]")
-  const dt = new DataTransfer()
-  dt.setData("text/plain", rows()[rowIndex].dataset.blockId)
-  handle.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: dt }))
-  return dt
+  const rect = handle.getBoundingClientRect()
+  point = { x: rect.left + 4, y: rect.top + 4 }
+  handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, button: 0, pointerId: 1, clientX: point.x, clientY: point.y }))
 }
 
-async function dragOver(dt, rowIndex, where) {
-  const rect = rows()[rowIndex].getBoundingClientRect()
-  const clientY = where === "top" ? rect.top + 1 : rect.bottom - 1
-  root.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt, clientX: rect.left + 20, clientY }))
+/** 移动指针。监听挂在 window 上（拖出正文容器也不能丢）。 */
+async function moveTo(x, y) {
+  point = { x, y }
+  window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 1, clientX: x, clientY: y }))
   await nextTick()
 }
 
-function drop(dt) {
-  root.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }))
+async function dragOver(rowIndex, where) {
+  const rect = rows()[rowIndex].getBoundingClientRect()
+  await moveTo(rect.left + 20, where === "top" ? rect.top + 1 : rect.bottom - 1)
+}
+
+function release() {
+  window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1, clientX: point.x, clientY: point.y }))
 }
 
 // ---- 拖第 0 块，落到第 2 块上沿 ----
-let dt = dragStart(0)
-await dragOver(dt, 2, "top")
+grab(0)
+await dragOver(2, "top")
+check("过阈值就进入拖拽（原块变半透明）", rows()[0].className.includes("opacity-40"), rows()[0].className)
 check("落到第 2 块上沿 → 该块画线", lined().length === 1 && lined()[0] === rows()[2].dataset.blockId, `带线的块：${JSON.stringify(lined())}`)
 check("线的类名是 before 那一组", rows()[2].className.includes("before:pointer-events-none"))
 check("同一时刻只有一条线", lined().length === 1)
 
 // ---- 落到第 1 块下沿（等价于第 2 块上沿）----
-await dragOver(dt, 1, "bottom")
+await dragOver(1, "bottom")
 check("落到第 1 块下沿 → 标在第 2 块上沿", lined().length === 1 && lined()[0] === rows()[2].dataset.blockId, `带线的块：${JSON.stringify(lined())}`)
 
 // ---- 落到末尾 ----
-await dragOver(dt, 3, "bottom")
+await dragOver(3, "bottom")
 check("落到最后一块下沿 → 标在最后一块的 after", rows()[3].className.includes("after:pointer-events-none"), `实际 classed=${JSON.stringify(lined())}`)
 check("末尾落点不再有别的线", lined().length === 1)
 
 // ---- 拖回原处：不画线 ----
-await dragOver(dt, 0, "top")
+await dragOver(0, "top")
 check("落点回到原位 → 不画线（免得松手白动）", lined().length === 0, `带线的块：${JSON.stringify(lined())}`)
 
 // ---- 真的提交一次 ----
 const before = texts()
-dt = dragStart(0)
-await dragOver(dt, 3, "bottom")
-drop(dt)
+grab(0)
+await dragOver(3, "bottom")
+release()
 await nextTick()
 check("落点线在松手后收起", lined().length === 0)
 check(
@@ -181,14 +189,90 @@ check(
   `${JSON.stringify(before)} → ${JSON.stringify(texts())}`,
 )
 
-// ---- 非块拖拽（选中文字）不放行 ----
+// ---- 没过阈值只是点击：菜单照常开，块不动 ----
+const kept = texts()
+grab(1)
+release()
+await nextTick()
+check("按住不动就松手 → 不当成拖拽", JSON.stringify(texts()) === JSON.stringify(kept), JSON.stringify(texts()))
+
+// ---- 原生拖拽（拖选文字）不放行 ----
 const plain = new DataTransfer()
 plain.setData("text/plain", "随便一段被选中的文字")
 root.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: plain, clientX: 0, clientY: rows()[1].getBoundingClientRect().top + 1 }))
 await nextTick()
-check("非块拖拽不画线", lined().length === 0)
+check("原生 dragover（非文件）不画线", lined().length === 0)
 
 root.dispatchEvent(new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer: plain }))
+
+// ---- 拖到视口下沿：页面自己滚起来 ----
+// 先追加到一定高度，短文档滚不动。
+for (let i = 0; i < 30; i += 1) workspace.appendBlock("text")
+await nextTick()
+const viewport = root.closest('[data-slot="scroll-area-viewport"]')
+const scrollable = viewport !== null && viewport.scrollHeight > viewport.clientHeight
+check("正文长到能滚", scrollable, `scrollHeight=${viewport?.scrollHeight} clientHeight=${viewport?.clientHeight}`)
+
+if (scrollable) {
+  // ---- 拖拽中滚动（滚轮走的就是这条路）：落点跟着内容走 ----
+  viewport.scrollTop = 0
+  await nextTick()
+  grab(1)
+  await dragOver(2, "top")
+  const lineAtTop = lined()[0]
+  viewport.scrollTop = 200
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  check(
+    "滚动后落点按指针位置重算（线换到别的块）",
+    lined().length === 1 && lined()[0] !== lineAtTop,
+    `${lineAtTop} → ${JSON.stringify(lined())}`,
+  )
+  release()
+  await nextTick()
+
+  viewport.scrollTop = 0
+  const box = viewport.getBoundingClientRect()
+  grab(0)
+  // 指针贴在容器下沿 4px 处不动：靠 rAF 循环自己滚，不依赖事件重复频率。
+  await moveTo(box.left + 10, box.bottom - 4)
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  check("指针贴住下沿时页面自动下滚", viewport.scrollTop > 0, `scrollTop=${viewport.scrollTop}`)
+
+  release()
+  await nextTick()
+  const settled = viewport.scrollTop
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  check("撒手就停，不会自己滚到底", viewport.scrollTop === settled, `${settled} → ${viewport.scrollTop}`)
+
+  // ---- 拖进布局格子（落点判定走命中测试，和顶层不是一条路）----
+  const layoutId = workspace.appendBlock("layout")
+  workspace.setLayoutMode(layoutId, "grid")
+  await nextTick()
+  const cells = [...document.querySelectorAll("[data-layout-cell]")]
+  check("布局块铺出两个格子", cells.length === 2, `格子数 ${cells.length}`)
+
+  if (cells.length === 2) {
+    cells[0].scrollIntoView({ block: "center" })
+    await nextTick()
+    const target = cells[0].getBoundingClientRect()
+    grab(0)
+    await moveTo(target.left + 10, target.top + 10)
+    check(
+      "悬在格子上时顶层不画线",
+      lined().length === 0,
+      `带线的块：${JSON.stringify(lined())}`,
+    )
+    check("格子被描成落点", cells[0].className.includes("border-dashed"), cells[0].className)
+    release()
+    await nextTick()
+    const layout = workspace.activeDocument.value.find((block) => block.id === layoutId)
+    check(
+      "松手后块进了格子",
+      layout !== undefined && layout.cells[0].length === 1,
+      JSON.stringify(layout?.cells.map((cell) => cell.length)),
+    )
+  }
+}
 }
 </script>
 </body>

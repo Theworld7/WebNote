@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { BlockType, LayoutBlock } from "@/types/workspace"
-import { computed, ref } from "vue"
+import { computed } from "vue"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -12,7 +12,8 @@ import {
 import { ChevronDownIcon, Grid2x2PlusIcon, Grid2x2XIcon } from "@lucide/vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { LAYOUT_COLUMNS, orderedIndexes as orderedIndexesOf } from "@/lib/blocks"
-import { BLOCK_DRAG_TYPE, focusBlockById } from "@/lib/dom"
+import { dragOverCell } from "@/lib/block-drag"
+import { focusBlockById } from "@/lib/dom"
 import BlockItem from "@/components/BlockItem.vue"
 
 /**
@@ -26,7 +27,7 @@ import BlockItem from "@/components/BlockItem.vue"
  */
 const props = defineProps<{ block: LayoutBlock }>()
 
-const { setLayoutMode, setLayoutColumns, addLayoutCell, removeLayoutCell, insertBlockAfter, insertBlockBefore, changeBlockType, duplicateBlock, removeBlock, moveBlockIntoCell } =
+const { setLayoutMode, setLayoutColumns, addLayoutCell, removeLayoutCell, insertBlockAfter, insertBlockBefore, changeBlockType, duplicateBlock, removeBlock } =
   useWorkspace()
 
 const isGrid = computed(() => props.block.mode === "grid")
@@ -77,40 +78,15 @@ function pickMode(value: string) {
 
 // ---- 拖块进格子 ----
 
-/** 正被悬停的格子下标，悬停期间给格子描高亮。null = 没有拖拽悬在任何格子上。 */
-const dragOverCell = ref<number | null>(null)
-
-/** dragover 受保护模式读不到 dataTransfer 数据，但 types 可查 —— 足够认出块拖拽。 */
-function isBlockDrag(event: DragEvent): boolean {
-  return event.dataTransfer?.types.includes(BLOCK_DRAG_TYPE) ?? false
-}
-
-function onCellDragOver(event: DragEvent, cellIndex: number) {
-  if (!isBlockDrag(event)) return
-  // preventDefault 才放行放置；stopPropagation 别让顶层容器把这次悬停画成顶层落点线。
-  event.preventDefault()
-  event.stopPropagation()
-  if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "move"
-  dragOverCell.value = cellIndex
-}
-
-/** dragleave 在格内子块之间移动会反复触发：只真正离开格子（relatedTarget 出界）才清。 */
-function onCellDragLeave(event: DragEvent) {
-  const next = event.relatedTarget
-  if (next instanceof Node && (event.currentTarget as Node).contains(next)) return
-  if (dragOverCell.value !== null) dragOverCell.value = null
-}
-
-function onCellDrop(event: DragEvent, cellIndex: number) {
-  dragOverCell.value = null
-  if (!isBlockDrag(event)) return
-  event.preventDefault()
-  // 顶层 onDrop 把这次放置当顶层排序处理会双重生效，必须拦在这里。
-  event.stopPropagation()
-  const id = event.dataTransfer?.getData(BLOCK_DRAG_TYPE) ?? ""
-  if (id === "") return
-  // 能不能进格子由 moveBlockIntoCell 按 CELL_EXCLUDED_TYPES 把关。
-  moveBlockIntoCell(props.block.id, cellIndex, id)
+/**
+ * 指针是否正悬在这个格子上。
+ *
+ * 落点由 `BlockEditor` 的拖拽统一算（它按命中测试找 `data-layout-cell`），这里只读
+ * 共享状态画高亮、由它提交 `moveBlockIntoCell` —— 格子自己不再挂原生 drag 监听。
+ */
+function isDropTarget(cellIndex: number): boolean {
+  const cell = dragOverCell.value
+  return cell !== null && cell.blockId === props.block.id && cell.cellIndex === cellIndex
 }
 </script>
 
@@ -146,15 +122,13 @@ function onCellDrop(event: DragEvent, cellIndex: number) {
         v-for="(cell, cellIndex) in block.cells"
         :key="cellIndex"
         class="min-w-0 rounded-lg border transition-colors"
+        :data-layout-cell="cellIndex"
         :class="[
           !isGrid && 'min-w-[8rem] flex-1',
           // 空格子保留边框（和一点最小高度）当落点提示；有内容后边框透明让位给内容。
           cell.length === 0 ? 'min-h-12 border-line' : 'border-transparent',
-          dragOverCell === cellIndex && 'border-selection-foreground border-dashed bg-muted/40',
+          isDropTarget(cellIndex) && 'border-selection-foreground border-dashed bg-muted/40',
         ]"
-        @dragover="onCellDragOver($event, cellIndex)"
-        @dragleave="onCellDragLeave"
-        @drop="onCellDrop($event, cellIndex)"
       >
         <BlockItem
           v-for="child in cell"

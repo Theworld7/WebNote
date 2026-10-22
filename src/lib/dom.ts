@@ -22,6 +22,8 @@ export const DOM_ATTR = {
   editable: "data-editable",
   /** 类型菜单里的「块类型选项」，值恒为 `"true"`。位置项、动作项不带它。 */
   typeOption: "data-type-option",
+  /** 布局格子，值为格子在布局块里的下标。拖块时靠它认出指针落在哪个格子。 */
+  layoutCell: "data-layout-cell",
 } as const
 
 /** 所有块根节点。遍历它算落点、量几何。 */
@@ -36,8 +38,11 @@ export const BLOCK_ROW_SELECTOR = `[${DOM_ATTR.blockId}]`
  */
 export const TOP_BLOCK_ROW_SELECTOR = `:scope > [${DOM_ATTR.blockId}]`
 
-/** 拖拽手柄。只有手柄发起的 dragstart 才算块排序。 */
+/** 拖拽手柄。只有手柄发起的拖拽才算块排序。 */
 export const DRAG_HANDLE_SELECTOR = `[${DOM_ATTR.dragHandle}]`
+
+/** 布局块的一个格子。写入方是 `LayoutBlockView`，读取方是 `BlockEditor` 的落点判定。 */
+export const LAYOUT_CELL_SELECTOR = `[${DOM_ATTR.layoutCell}]`
 
 /**
  * 类型菜单里的块类型选项。
@@ -46,15 +51,6 @@ export const DRAG_HANDLE_SELECTOR = `[${DOM_ATTR.dragHandle}]`
  * 前者 Enter 归菜单（点那一项），后者 Enter 得按检索结果落块。也用它找筛选后该聚焦的项。
  */
 export const TYPE_OPTION_SELECTOR = `[${DOM_ATTR.typeOption}]`
-
-/**
- * 块拖拽的自定义 dataTransfer 类型。
- *
- * 拖进布局格子（ADR-0007）的落点判定靠它：`text/plain` 与选中文字的拖拽撞车，
- * 自定义类型只在手柄发起的排序里出现 —— dragover 受保护模式读不到数据，但
- * `types` 列表可以查，足够区分「这是块在拖」；drop 时再 getData 取 id。
- */
-export const BLOCK_DRAG_TYPE = "application/x-block-id"
 
 /** 表格格子的可编辑体键：一个表格块里有多个可编辑体，只用块 id 定位不到具体格子。 */
 export function tableCellKey(blockId: string, row: number, column: number): string {

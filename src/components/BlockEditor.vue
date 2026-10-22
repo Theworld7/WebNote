@@ -17,7 +17,8 @@ import { useSettings, CONTENT_WIDTH_PX } from "@/composables/useSettings"
 import { useTheme } from "@/composables/useTheme"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { isTextualBlock, orderedIndexes as orderedIndexesOf } from "@/lib/blocks"
-import { BLOCK_DRAG_TYPE, DRAG_HANDLE_SELECTOR, TOP_BLOCK_ROW_SELECTOR, closestBlockId, findEditable, focusBlockById } from "@/lib/dom"
+import { DOM_ATTR, DRAG_HANDLE_SELECTOR, LAYOUT_CELL_SELECTOR, TOP_BLOCK_ROW_SELECTOR, closestBlockId, findEditable, focusBlockById } from "@/lib/dom"
+import { dragOverCell, draggingBlockId } from "@/lib/block-drag"
 import { isFileDrag, pickImageFiles, readImageFile } from "@/lib/image"
 import { rangeForOffsets, sliceRuns } from "@/lib/marks"
 import { scopeCss } from "@/lib/note-style"
@@ -46,6 +47,7 @@ const {
   changeBlockType,
   duplicateBlock,
   mergeBlockRange,
+  moveBlockIntoCell,
   removeBlock,
   moveBlock,
   setImageSource,
@@ -198,21 +200,35 @@ function handleRemove(id: string) {
 
 // ---- 拖拽排序 ----
 //
-// 用原生 HTML5 拖拽而不是 pointer 事件：手柄同时还是块菜单的触发器，而 reka 的
-// 菜单是**点击**打开的 —— 原生拖拽成功后会吃掉那次 click，两者天然不打架。
-// pointer 方案得自己判阈值再手动压掉菜单，反而更绕。
+// 用 pointer 事件而不是原生 HTML5 拖拽：原生拖拽一旦 dragstart，浏览器就切进「拖拽
+// 模式」，这期间 wheel 事件被底层吞掉 —— 加监听也收不到（Chromium 在 Windows 上连
+// 页面都不滚），而拖长文档恰恰最需要滚轮。pointer 不进那个模式，滚轮照常滚 viewport。
+//
+// 代价是手柄同时还是块菜单的触发器（reka 的菜单是 **click** 打开的），所以两次动作
+// 要自己分开：按住不动 = 点击开菜单，过阈值移动 = 拖拽；拖完压掉随之而来的那次 click。
 
 const docRef = ref<HTMLElement | null>(null)
-/** 正在被拖的块 id。null 表示当前没有块拖拽（也因此拒绝一切 drop）。 */
-const dragId = ref<string | null>(null)
 /** 落点：插入到 activeDocument 中的下标，取值 0..length。 */
 const dropIndex = ref<number | null>(null)
-/** 拖入的是**文件**时的落点。与块排序是两条独立的路，谁在拖由 dragId / 它区分。 */
+/** 拖入的是**文件**时的落点。与块排序是两条独立的路，谁在拖由文件拖拽自己的状态区分。 */
 const fileDropIndex = ref<number | null>(null)
 
+/** 位移超过这个距离才算在拖 —— 拖块与拖选正文共用一把尺子，手感一致；单击（含点完微抖）都不算。 */
+const DRAG_THRESHOLD = 4
+
+/** 按住手柄、还没过阈值：可能是在点菜单，也可能是拖拽起点。 */
+let pressedId: string | null = null
+let pressedX = 0
+let pressedY = 0
+/** 拖拽中指针的最后位置：滚动之后要按它重算落点（滚轮动的是内容，指针没动）。 */
+let pointerX = 0
+let pointerY = 0
+/** 这个时刻之前来的那次 click 要被吞掉（拖完会紧跟一次，见 `onDocClickCapture`）。 */
+let suppressClickUntil = 0
+
 const dragFrom = computed(() => {
-  if (dragId.value === null) return -1
-  return activeDocument.value.findIndex((block) => block.id === dragId.value)
+  if (draggingBlockId.value === null) return -1
+  return activeDocument.value.findIndex((block) => block.id === draggingBlockId.value)
 })
 
 /** 落点与当前位置等价（拖回原处）时不画线也不提交，免得松手白动一下。 */
@@ -225,8 +241,8 @@ const dropIsNoop = computed(() => {
 /**
  * 按指针纵向位置算落点。
  *
- * 走「遍历所有块取中线」而不是「看 event.target 落在哪个块」：指针落进块之间的
- * 空隙、容器上下留白时 target 是容器本身，按 target 判定会漏；遍历 rect 一律有效。
+ * 走「遍历所有块取中线」而不是「看指针落在哪个块」：指针落进块之间的空隙、容器上下
+ * 留白时命中的是容器本身，按目标判定会漏；遍历 rect 一律有效。
  */
 function computeDropIndex(clientY: number): number | null {
   const root = docRef.value
@@ -243,44 +259,208 @@ function computeDropIndex(clientY: number): number | null {
   return rows.length
 }
 
-function onDragStart(event: DragEvent) {
-  // HTML5 拖拽期间 mousemove / mouseup 不触发 —— 无论是排序还是拖文字,先撤掉
-  // 跨块选择的按住状态,免得拖完之后指针一动就拿残留的锚点误开选区。
-  dragPressed = false
-  window.removeEventListener("mousemove", onCrossMove)
-  window.removeEventListener("mouseup", onCrossEnd)
+/**
+ * 指针落在哪个布局格子上。
+ *
+ * 用命中测试而不是监听格子的 pointermove：格子是 `LayoutBlockView` 的内部结构，
+ * 拖拽的落点判定统一留在这层，格子只负责挂 `data-layout-cell` 和画高亮。
+ */
+function cellAt(clientX: number, clientY: number): { blockId: string; cellIndex: number } | null {
+  const hit = document.elementFromPoint(clientX, clientY)
+  if (hit === null) return null
+  const cell = hit.closest(LAYOUT_CELL_SELECTOR)
+  if (cell === null) return null
+  const index = Number(cell.getAttribute(DOM_ATTR.layoutCell))
+  if (!Number.isInteger(index)) return null
+  // 格子最近的块行就是它所属的布局块（格子自身不是块行）。
+  const blockId = closestBlockId(cell)
+  return blockId === null ? null : { blockId, cellIndex: index }
+}
+
+/** 指针位置 → 落点。悬在格子上时改投格子，顶层不再画线。 */
+function updateDropTarget(clientX: number, clientY: number) {
+  const cell = cellAt(clientX, clientY)
+  dragOverCell.value = cell
+  dropIndex.value = cell === null ? computeDropIndex(clientY) : null
+}
+
+function onHandlePointerDown(event: PointerEvent) {
+  if (event.button !== 0) return
   const target = event.target
-  // 只有手柄发起的才算排序。正文里选中文字也会触发 dragstart，那种放过。
   if (!(target instanceof HTMLElement) || target.closest(DRAG_HANDLE_SELECTOR) === null) return
   const id = closestBlockId(target)
   if (id === null) return
+  pressedId = id
+  pressedX = event.clientX
+  pressedY = event.clientY
+  pointerX = event.clientX
+  pointerY = event.clientY
+  window.addEventListener("pointermove", onHandlePointerMove)
+  window.addEventListener("pointerup", onHandlePointerUp)
+  window.addEventListener("pointercancel", onHandlePointerUp)
+}
 
-  dragId.value = id
+function onHandlePointerMove(event: PointerEvent) {
+  if (pressedId === null) return
+  pointerX = event.clientX
+  pointerY = event.clientY
+  if (draggingBlockId.value === null) {
+    if (Math.abs(pointerX - pressedX) < DRAG_THRESHOLD && Math.abs(pointerY - pressedY) < DRAG_THRESHOLD) return
+    startBlockDrag(pressedId)
+  }
+  updateDropTarget(pointerX, pointerY)
+  trackDragScroll(pointerX, pointerY)
+}
+
+function startBlockDrag(id: string) {
+  draggingBlockId.value = id
   dropIndex.value = null
-  if (event.dataTransfer === null) return
-  event.dataTransfer.effectAllowed = "move"
-  // 必须写点数据：某些 WebView 在 dataTransfer 全空时干脆不认这次拖拽，连 dragover 都不给。
-  event.dataTransfer.setData("text/plain", id)
-  // 自定义类型给布局格子认落点用：dragover 受保护模式读不到数据，但 types 可查；
-  // `text/plain` 与拖选文字撞车，它区分不了「块在拖」还是「一段文字在拖」。
-  event.dataTransfer.setData(BLOCK_DRAG_TYPE, id)
+  dragOverCell.value = null
+  // 拖拽期间不让人在正文里划出选区、也不让浏览器把这段文字当成可拖的东西。
+  docRef.value?.classList.add("select-none", "doc-dragging")
+  window.getSelection()?.removeAllRanges()
+  scrollViewport()?.addEventListener("scroll", onViewportScroll)
+  // 指针跑到窗口外松手：pointerup 不会回来，拖拽会一直挂着。
+  window.addEventListener("blur", endBlockDrag)
+}
+
+/** 滚轮 / 自动滚动都会改变内容位置，指针没动但落点变了 —— 重算一次，指示线不滞留。 */
+function onViewportScroll() {
+  if (draggingBlockId.value !== null) {
+    updateDropTarget(pointerX, pointerY)
+    return
+  }
+  if (fileDropIndex.value === null) return
+  const index = computeDropIndex(dragScrollY)
+  if (index !== null) fileDropIndex.value = index
+}
+
+function onHandlePointerUp(event: PointerEvent) {
+  window.removeEventListener("pointermove", onHandlePointerMove)
+  window.removeEventListener("pointerup", onHandlePointerUp)
+  window.removeEventListener("pointercancel", onHandlePointerUp)
+  const pressed = pressedId
+  pressedId = null
+  // 没过阈值：这是点击，交给菜单。
+  if (draggingBlockId.value === null || pressed === null) return
+
+  const id = draggingBlockId.value
+  const from = dragFrom.value
+  updateDropTarget(event.clientX, event.clientY)
+  const cell = dragOverCell.value
+  const to = dropIndex.value
+  endBlockDrag()
+  // 紧接着还会来一次 click，不拦就会当场弹出块菜单。
+  suppressClickUntil = performance.now() + 200
+  if (cell !== null) {
+    moveBlockIntoCell(cell.blockId, cell.cellIndex, id)
+    return
+  }
+  if (to !== null && from !== -1) moveBlock(from, to)
+}
+
+function endBlockDrag() {
+  draggingBlockId.value = null
+  dropIndex.value = null
+  dragOverCell.value = null
+  docRef.value?.classList.remove("select-none", "doc-dragging")
+  scrollViewport()?.removeEventListener("scroll", onViewportScroll)
+  window.removeEventListener("blur", endBlockDrag)
+  stopDragScroll()
+}
+
+/** 吞掉拖拽结尾那次 click：reka 的菜单在 click 上打开，不拦就白拖一次还弹菜单。 */
+function onDocClickCapture(event: MouseEvent) {
+  if (performance.now() >= suppressClickUntil) return
+  suppressClickUntil = 0
+  event.stopPropagation()
+  event.preventDefault()
+}
+
+/** 原生拖拽（正文里拖选文字）会吞掉 mousemove / mouseup：先撤掉跨块选区的按住状态。 */
+function onDragStart() {
+  dragPressed = false
+  window.removeEventListener("mousemove", onCrossMove)
+  window.removeEventListener("mouseup", onCrossEnd)
 }
 
 function onDragOver(event: DragEvent) {
-  // 拖文件进来 = 在落点插入图片块，与块排序是两条路，优先判它。
-  if (isFileDrag(event.dataTransfer)) {
-    // 必须 preventDefault，否则浏览器默认行为是「打开这个文件」，页面直接被替换掉。
-    event.preventDefault()
-    const index = computeDropIndex(event.clientY)
-    if (index !== null) fileDropIndex.value = index
+  // 剩下的原生拖拽只有一种：从系统里拖文件进来 = 在落点插入图片块。
+  if (!isFileDrag(event.dataTransfer)) return
+  // 必须 preventDefault，否则浏览器默认行为是「打开这个文件」，页面直接被替换掉。
+  event.preventDefault()
+  const index = computeDropIndex(event.clientY)
+  if (index !== null) fileDropIndex.value = index
+  trackDragScroll(event.clientX, event.clientY)
+}
+
+// ---- 拖拽时自动滚动 ----
+//
+// 滚轮能用了（pointer 拖拽不进拖拽模式），但指针贴着上下边缘不动时还是得靠这个：
+// 按指针到边缘的深度定一个每帧步长，rAF 循环推 scrollTop，让内容跟着走。
+// 落点由 viewport 的 scroll 监听统一重算，循环只管滚。
+
+/** 指针进入滚动容器上下这么宽的一条带子就开始滚。 */
+const DRAG_SCROLL_BAND = 80
+/** 贴到最边上时每帧的滚动量（像素）。 */
+const DRAG_SCROLL_MAX_STEP = 16
+
+/** 当前每帧滚动量：负数向上、正数向下、0 表示不滚。 */
+let dragScrollStep = 0
+/** 最近一次拖拽指针位置：判指针是否还在容器上靠它（块拖拽与文件拖入共用）。 */
+let dragScrollX = 0
+let dragScrollY = 0
+let dragScrollFrame = 0
+
+/** 指针到上下边缘的距离换算成每帧滚动量；不在带子里给 0。 */
+function dragScrollStepAt(clientY: number): number {
+  const viewport = scrollViewport()
+  if (viewport === null) return 0
+  const rect = viewport.getBoundingClientRect()
+  const topDepth = (rect.top + DRAG_SCROLL_BAND - clientY) / DRAG_SCROLL_BAND
+  const bottomDepth = (clientY - (rect.bottom - DRAG_SCROLL_BAND)) / DRAG_SCROLL_BAND
+  // 指针能被拖出容器，深度夹在 1 以内，免得贴边时速度飙到离谱。
+  const depth = Math.min(1, Math.max(topDepth, bottomDepth))
+  if (depth <= 0) return 0
+  const step = Math.max(1, Math.ceil(depth * DRAG_SCROLL_MAX_STEP))
+  return topDepth > bottomDepth ? -step : step
+}
+
+function pumpDragScroll() {
+  dragScrollFrame = 0
+  const viewport = scrollViewport()
+  if (viewport === null || dragScrollStep === 0) return
+  // 指针横向出了容器：不会再有拖拽事件送新位置，就此收手，别让页面自己跑到底。
+  const rect = viewport.getBoundingClientRect()
+  if (dragScrollX < rect.left || dragScrollX > rect.right) {
+    dragScrollStep = 0
     return
   }
-  // 非块拖拽（比如拖一段选中文字）不放行：不 preventDefault，浏览器就画禁止光标。
-  if (dragId.value === null) return
-  event.preventDefault()
-  if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "move"
-  const index = computeDropIndex(event.clientY)
-  if (index !== null) dropIndex.value = index
+  const before = viewport.scrollTop
+  viewport.scrollTop = before + dragScrollStep
+  // 到顶 / 到底：再推也不动，停循环等下一次拖拽事件重新量。
+  if (viewport.scrollTop === before) {
+    dragScrollStep = 0
+    return
+  }
+  dragScrollFrame = requestAnimationFrame(pumpDragScroll)
+}
+
+function trackDragScroll(clientX: number, clientY: number) {
+  dragScrollX = clientX
+  dragScrollY = clientY
+  dragScrollStep = dragScrollStepAt(clientY)
+  if (dragScrollStep === 0) {
+    stopDragScroll()
+    return
+  }
+  if (dragScrollFrame === 0) dragScrollFrame = requestAnimationFrame(pumpDragScroll)
+}
+
+function stopDragScroll() {
+  if (dragScrollFrame !== 0) cancelAnimationFrame(dragScrollFrame)
+  dragScrollFrame = 0
+  dragScrollStep = 0
 }
 
 /**
@@ -293,24 +473,17 @@ function onDragLeave(event: DragEvent) {
   const next = event.relatedTarget
   if (next instanceof Node && docRef.value?.contains(next) === true) return
   fileDropIndex.value = null
+  // 指针离开正文容器，不再有 dragover 送位置，滚动循环跟着停。
+  stopDragScroll()
 }
 
 function onDrop(event: DragEvent) {
-  if (isFileDrag(event.dataTransfer)) {
-    event.preventDefault()
-    const index = fileDropIndex.value
-    fileDropIndex.value = null
-    void insertImageFiles(pickImageFiles(event.dataTransfer), index)
-    return
-  }
-
-  if (dragId.value === null) return
+  if (!isFileDrag(event.dataTransfer)) return
   event.preventDefault()
-  const from = dragFrom.value
-  const to = dropIndex.value
-  resetDrag()
-  if (to === null) return
-  moveBlock(from, to)
+  const index = fileDropIndex.value
+  fileDropIndex.value = null
+  stopDragScroll()
+  void insertImageFiles(pickImageFiles(event.dataTransfer), index)
 }
 
 /**
@@ -352,10 +525,10 @@ function onPaste(event: ClipboardEvent) {
   void insertImageFiles(files, pasteAnchor())
 }
 
+/** 原生拖拽的兜底收尾：块拖拽由 pointerup 收，这里只管文件落点与滚动。 */
 function resetDrag() {
-  dragId.value = null
-  dropIndex.value = null
   fileDropIndex.value = null
+  stopDragScroll()
 }
 
 // ---- 跨块选区 ----
@@ -377,9 +550,6 @@ let dragPressed = false
 let dragStartX = 0
 let dragStartY = 0
 let overlayOn = false
-
-/** 位移超过这个距离才算拖选 —— 单击（含点完微抖）仍是原生光标落点。 */
-const DRAG_THRESHOLD = 4
 
 function clearCrossSelection() {
   crossAnchor.value = null
@@ -456,6 +626,8 @@ function onDocMouseDown(event: MouseEvent) {
   const root = docRef.value
   const target = event.target
   if (root === null || !(target instanceof Element)) return
+  // 手柄上按下是在准备拖块 / 点开菜单，不是要选正文。
+  if (target.closest(DRAG_HANDLE_SELECTOR) !== null) return
   // 只从顶层块的可编辑体起选。resolvePoint 按落点返回顶层块端点,
   // 返回的块与 mousedown 归属的块对不上（格子内、树、工具条）就整段交给原生。
   const point = resolvePoint(root, activeDocument.value, event.clientX, event.clientY)
@@ -621,6 +793,7 @@ onMounted(() => restoreScroll(activePath.value))
 onBeforeUnmount(() => {
   rememberScroll(activePath.value)
   clearCrossSelection()
+  endBlockDrag()
 })
 
 /** 每个块的落点标记。同一时刻只画一条线：先判 before，末尾再特判 after。 */
@@ -630,7 +803,7 @@ function dropEdgeAt(index: number): BlockDropEdge {
   if (file !== null) return edgeOf(index, file)
 
   const to = dropIndex.value
-  if (dragId.value === null || to === null || dropIsNoop.value) return "none"
+  if (draggingBlockId.value === null || to === null || dropIsNoop.value) return "none"
   return edgeOf(index, to)
 }
 
@@ -655,6 +828,8 @@ function edgeOf(index: number, to: number): BlockDropEdge {
       @dragleave="onDragLeave"
       @drop="onDrop"
       @dragend="resetDrag"
+      @pointerdown="onHandlePointerDown"
+      @click.capture="onDocClickCapture"
       @paste="onPaste"
       @mousedown="onDocMouseDown"
     >
@@ -663,7 +838,7 @@ function edgeOf(index: number, to: number): BlockDropEdge {
         :key="`${restoreTick}:${block.id}`"
         :block="block"
         :ordered-index="orderedIndexes.get(block.id) ?? 0"
-        :dragging="dragId === block.id"
+        :dragging="draggingBlockId === block.id"
         :drop-edge="dropEdgeAt(index)"
         @insert-after="(id: string, type: BlockType) => handleInsert(id, type, 1)"
         @insert-before="(id: string, type: BlockType) => handleInsert(id, type, 0)"
