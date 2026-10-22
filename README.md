@@ -89,7 +89,7 @@ Mermaid 与 HTML 的源码只在需要时加载，不画图的笔记不必为它
 | 画册 | 每行一张海报卡：图在上、字段在下，就地改 | 列数、图比例、填充方式、隐藏哪些字段 |
 | 书签 | 每行一张链接卡，图标在上、名字在下 | 哪列当名字、哪列当地址 |
 | 看板 | 按某列的值分列，卡片在列间拖动**就是改那一行的值** | 分组列、卡片显示哪些字段 |
-| 账目 | 收入 / 支出两列、带符号金额、逐行余额、节小计与总计 | 两个金额列、是否显示余额、按月还是按列分组 |
+| 账目 | 收入 / 支出两列、带符号金额、逐行余额、节小计与总计；日期格点开就是月历，Tab 到的格直接进输入态；选择格 Tab 到即展开下拉，方向键移、回车选、Esc 收而焦点不丢；编辑一行期间不重排，填完才归位 | 两个金额列、是否显示余额、按月还是按列分组 |
 | 统计卡 | 把某一列的数值求和成一个大数字 | 求和列、小数位、可选筛选列 |
 | 订阅 | 每行一张订阅卡：名称、图标、金额 / 周期、起止日期、试用、自动续费、累计支付，顶部汇总月 / 年支出 | 名称、图标、金额、周期、自动续费、试用期、开始、到期、已取消、累计支付各指哪一列 |
 | 歌单 | 一份曲目表：序号、封面、歌名 / 副标题、时长，顶部是曲目数与总时长；就地加歌、删歌；可按歌名 / 歌手 / 专辑模糊搜索，一键复制成 `歌名 - 歌手` 的纯文本（导入听歌软件用）。一个块可绑多张表，顶部胶囊标签切换（标签名即表文件名） | 每张表各有一套：歌名、副标题、封面、时长各指哪一列 |
@@ -269,7 +269,7 @@ pnpm icon           # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | :-- | :-- |
 | 解析与往返 | `parse-check`、`inline-check` |
 | 编辑器交互 | `tab-check`、`toolbar-check`、`sidebar-check`、`tree-integration-check`、`drag-check`、`split-check`、`cell-check`、`undo-check`、`menu-nav-check`、`focus-check`、`link-check` |
-| 块类型 | `table-check`、`table-align-check`、`data-table-check`、`gallery-check`、`kanban-check`、`ledger-check`、`ledger-edit-check`、`subscription-check`、`playlist-check`、`playlist-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check` |
+| 块类型 | `table-check`、`table-align-check`、`data-table-check`、`gallery-check`、`kanban-check`、`ledger-check`、`ledger-edit-check`、`ledger-date-check`、`subscription-check`、`playlist-check`、`playlist-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check` |
 | 样式与外观 | `typography-check`、`theme-check`、`theme-mode-check`、`page-style-check`、`settings-check` |
 | 文件操作 | `create-check`、`move-check` |
 | 其它 | `drawer-jitter-probe`（抽屉抖动守卫）、`icon-check`（图标观感） |

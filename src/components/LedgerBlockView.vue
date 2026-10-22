@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { LedgerBlock } from "@/types/workspace"
 import type { DataColumn, DataRow } from "@/types/data-table"
-import { computed } from "vue"
-import { DatabaseIcon, PlusIcon, Settings2Icon, Trash2Icon } from "@lucide/vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { CheckIcon, ChevronDownIcon, DatabaseIcon, PlusIcon, Settings2Icon, Trash2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import TableRefNotice from "@/components/TableRefNotice.vue"
+import DateCalendar from "@/components/DateCalendar.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
 import { useCellEditing } from "@/composables/useCellEditing"
@@ -69,9 +70,67 @@ const sort = computed(() => ledgerSort(columns.value, props.block.sortColumnId, 
 /** 展示序 = 表内行序按块的排序设置排过 —— 分节、行号、回车跳格都读它。 */
 const orderedRows = computed(() => sortRows(rows.value, sort.value))
 
+/** 编辑开始时钉住的顺序快照。null = 没在编辑，跟着排序走。 */
+const frozenOrder = ref<string[] | null>(null)
+
+/**
+ * 编辑开始时钉住的**分节**快照 —— 节序、节标题、每节里有哪几行。
+ *
+ * 只冻行序不够:改日期往往同时改了它属于哪一月,`ledgerSections` 会把这一行从旧节
+ * 搬到新节。DOM 上一搬,浏览器就会把正在输入的 `<input>` 里那口气断掉(移动聚焦元素
+ * 即失焦)—— 失焦提交、退出编辑、冻结解除,行再排一次,用户眼前就是「点了日期,行跑了」。
+ * 所以编辑期间整棵分节结构一起钉住,行只在原节原位置上换值,退出编辑才归位。
+ */
+const frozenSections = ref<{ key: string; title: string; rowIds: string[] }[] | null>(null)
+
+/**
+ * 眼前这一份顺序。
+ *
+ * **编辑期间冻结排序**：按日期倒序记一笔时，新行(日期还空)先落在末尾;用户刚输完
+ * 日期一失焦,行就按日期飞到中间,而金额还没填 —— 眼前那行凭空换位,下一格落空。
+ * 冻结到这次编辑结束(焦点离开表格 / 回车走到表尾)再重排,那时数据已填完,跳过去
+ * 正好是它该在的位置。
+ *
+ * 冻结期间新增的行(「记一笔」)不在快照里,按当前排序追加在末尾,不会消失。
+ */
+const displayRows = computed(() => {
+  const sorted = orderedRows.value
+  const order = frozenOrder.value
+  if (order === null) return sorted
+  const byId = new Map(sorted.map((row) => [row.id, row]))
+  const frozen = order.flatMap((id) => {
+    const row = byId.get(id)
+    return row === undefined ? [] : [row]
+  })
+  if (frozen.length === sorted.length) return frozen
+  const seen = new Set(order)
+  for (const row of sorted) if (!seen.has(row.id)) frozen.push(row)
+  return frozen
+})
+
 /** 分节(按月 / 按列 / 平铺)+ 节小计,含末尾的落空节。公式在 `ledgerSections`,与导出快照共用。 */
 const allSections = computed(() => {
-  const { sections, loose } = ledgerSections(orderedRows.value, incomeColumn.value, expenseColumn.value, {
+  const frozen = frozenSections.value
+  if (frozen !== null) {
+    const byId = new Map(displayRows.value.map((row) => [row.id, row]))
+    const rebuild = (section: { key: string; title: string; rowIds: string[] }) => {
+      const rows = section.rowIds.flatMap((id) => {
+        const row = byId.get(id)
+        return row === undefined ? [] : [row]
+      })
+      return { key: section.key, title: section.title, rows, totals: sumRows(rows, incomeColumn.value, expenseColumn.value) }
+    }
+    const sections = frozen.map(rebuild)
+    // 冻结期间新增的行(理论上「记一笔」前一定先失焦,但别让数据因为结构化快照而消失)。
+    const known = new Set(frozen.flatMap((section) => section.rowIds))
+    const extra = displayRows.value.filter((row) => !known.has(row.id))
+    if (extra.length > 0) {
+      sections.push({ key: "__frozen_extra__", title: "", rows: extra, totals: sumRows(extra, incomeColumn.value, expenseColumn.value) })
+    }
+    return sections
+  }
+
+  const { sections, loose } = ledgerSections(displayRows.value, incomeColumn.value, expenseColumn.value, {
     mode: groupColumn.value === null ? "none" : props.block.groupMode,
     column: groupColumn.value,
     monthOrder: sort.value.monthOrder,
@@ -124,7 +183,7 @@ const labelIndex = computed(() =>
 /** 行号:按**展示序**编号 —— 表里从上往下第几行,与眼前看到的顺序一致。 */
 const rowNumbers = computed(() => {
   const numbers = new Map<string, number>()
-  orderedRows.value.forEach((row, index) => numbers.set(row.id, index + 1))
+  displayRows.value.forEach((row, index) => numbers.set(row.id, index + 1))
   return numbers
 })
 
@@ -137,7 +196,7 @@ const cellCount = computed(() => columns.value.length + (balances.value === null
  * 格编辑（编辑态 / 提交 / 勾选 / select）走共用模块；账目只多两件**读法**上的事：
  * 编辑态初值要把金额换回原始数字，回车要跳到下一行同列。
  */
-const { editing, cellKey, commit, commitOnBlur, commitSelect, toggleCheck, focusOnMount } = useCellEditing(change)
+const { editing, cellKey, commit, commitOnBlur, toggleCheck, focusOnMount } = useCellEditing(change)
 
 /**
  * 编辑态的初值。金额格显示的是 `+5,000.00` 这种格式化文本,进编辑态必须换回原始数字
@@ -156,10 +215,347 @@ function commitOnEnter(row: DataRow, column: DataColumn, event: Event): void {
   const target = event.target
   if (!(target instanceof HTMLInputElement)) return
   commit(row, column, target.value)
-  const index = orderedRows.value.findIndex((item) => item.id === row.id)
-  const next = orderedRows.value[index + 1]
+  const index = displayRows.value.findIndex((item) => item.id === row.id)
+  const next = displayRows.value[index + 1]
   editing.value = next === undefined ? "" : cellKey(next, column)
 }
+
+// ---- 编辑期间钉住顺序 ----
+
+const flashRow = ref("")
+let flashTimer: number | undefined
+/** 最后一次编辑的是哪一行 —— 退出编辑时拿它看有没有挪位置。 */
+let lastRowId = ""
+
+watch(editing, (key) => {
+  if (key !== "") {
+    if (frozenOrder.value === null) {
+      // 先拍分节(此刻还没冻结,拿到的是实时结果),再钉行序。
+      frozenSections.value = allSections.value.map((section) => ({
+        key: section.key,
+        title: section.title,
+        rowIds: section.rows.map((row) => row.id),
+      }))
+      frozenOrder.value = orderedRows.value.map((row) => row.id)
+    }
+    lastRowId = key.slice(0, key.indexOf(":"))
+    // 回车跳到下一格时不会走 blur —— 面板若还挂着,就是悬在旧格下面的一块浮层。
+    const panel = calendarPanel.value
+    if (panel !== null && `${panel.rowId}:${panel.columnId}` !== key) closeCalendar()
+    return
+  }
+  const id = lastRowId
+  const before = displayRows.value.findIndex((row) => row.id === id)
+  frozenOrder.value = null
+  frozenSections.value = null
+  const after = displayRows.value.findIndex((row) => row.id === id)
+  if (id !== "" && before !== -1 && after !== -1 && before !== after) flash(id)
+})
+
+/**
+ * 行被重排到别处时给一段短暂底纹。
+ *
+ * 没有这一步,用户只会看到「我刚填的那行不见了」—— 它其实在同一张表的另一个位置,
+ * 只是眼睛没跟上。底纹只闪一次,不阻挡任何操作。
+ */
+function flash(id: string): void {
+  flashRow.value = id
+  window.clearTimeout(flashTimer)
+  flashTimer = window.setTimeout(() => (flashRow.value = ""), 1400)
+}
+
+// ---- 日期格的下拉面板 ----
+
+/**
+ * 面板状态。`null` = 没展开。
+ *
+ * 不用 Popover 那套:它的 FocusScope 在关闭时会把焦点从输入框挪走(还给 trigger,
+ * trigger 不存在就落回 body)—— 输入框的 blur 一触发就提交并退出编辑态,紧接着面板
+ * 与被编辑的格一起消失,点中的那一天根本落不进表里。日期面板要的是「一个跟着输入框
+ * 走的浮层」而不是「一个弹窗」,所以这里只记位置,焦点**始终留在输入框**:
+ * 面板上所有 mousedown 都 prevent,点日期不会让输入框失焦。
+ */
+interface CalendarPanel {
+  rowId: string
+  columnId: string
+  top: number
+  left: number
+  /** 打开那一刻的值,给日历定初始月份与选中态。 */
+  value: string
+}
+
+const calendarPanel = ref<CalendarPanel | null>(null)
+
+const PANEL_WIDTH = 232
+const PANEL_HEIGHT = 272
+
+/**
+ * 打开面板并把位置钉在输入框下面。
+ *
+ * 浮层 `fixed` 且挂在 body 上:账目表外层是 `overflow-x-auto`,垂直方向同样被那个
+ * 滚动容器截住,浮在格里的面板在靠下的几行会被裁掉。位置越界时夹回视口,下方放不下
+ * 就翻到输入框上方。
+ */
+function openCalendar(row: DataRow, column: DataColumn, event: Event): void {
+  const target = event.target
+  if (!(target instanceof HTMLInputElement)) return
+  // 选择面板与日期面板不会同格共存,但换格时可能前一个还挂着。
+  closeSelect()
+  const rect = target.getBoundingClientRect()
+  const below = rect.bottom + 4
+  const top = below + PANEL_HEIGHT > window.innerHeight ? Math.max(8, rect.top - PANEL_HEIGHT - 4) : below
+  calendarPanel.value = {
+    rowId: row.id,
+    columnId: column.id,
+    top,
+    left: Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - PANEL_WIDTH - 8)),
+    value: editText(row, column),
+  }
+  watchScrollHosts(target, closeCalendar)
+}
+
+/**
+ * 只盯**会影响面板位置的那几个滚动祖先**。
+ *
+ * `scroll` 不冒泡,所以在 window 上加 capture 会把所有后代的滚动都收进来 —— 页面
+ * 一加载,编辑器自己的滚动容器滚一下就把刚打开的面板关掉。这里从锚点往上找真正
+ * 可滚的祖先,只有它们滚动(块会跟着位移)才收面板。
+ *
+ * 日期面板与选择面板共用这一份:同一时刻只可能开一个,打开新的会先把旧的收掉。
+ */
+let scrollHosts: { host: HTMLElement; close: () => void }[] = []
+
+function scrollAncestors(element: HTMLElement): HTMLElement[] {
+  const found: HTMLElement[] = []
+  let node = element.parentElement
+  while (node !== null) {
+    if (node.scrollHeight > node.clientHeight || node.scrollWidth > node.clientWidth) found.push(node)
+    node = node.parentElement
+  }
+  return found
+}
+
+function watchScrollHosts(anchor: HTMLElement, close: () => void): void {
+  unwatchScrollHosts()
+  scrollHosts = scrollAncestors(anchor).map((host) => {
+    host.addEventListener("scroll", close, { passive: true })
+    return { host, close }
+  })
+}
+
+function unwatchScrollHosts(): void {
+  for (const { host, close } of scrollHosts) host.removeEventListener("scroll", close)
+  scrollHosts = []
+}
+
+function closeCalendar(): void {
+  unwatchScrollHosts()
+  calendarPanel.value = null
+}
+
+/**
+ * 选中一天:写进格、收起面板,但**留在编辑态**。
+ *
+ * 用户选完日期接下来就要填金额,这时退出编辑会立刻触发重排(日期已经能排序了)——
+ * 那正是「还没填金额,行就跳走」的老毛病。焦点一直在输入框里,所以这里什么都不用搬。
+ *
+ * 行与列按 id 从**当前**表里重取:面板开着的时候表可能已经变过,闭包里那份旧行写回去
+ * 会把这中间别的改动覆盖掉。
+ */
+function pickDate(value: string): void {
+  const panel = calendarPanel.value
+  if (panel === null) return
+  closeCalendar()
+  const row = rows.value.find((item) => item.id === panel.rowId)
+  const column = columns.value.find((item) => item.id === panel.columnId)
+  if (row === undefined || column === undefined) return
+  commit(row, column, value)
+}
+
+/** 失焦:先收面板(点表格别处 / 点正文都会走到这里),再提交这一格。 */
+function blurCell(row: DataRow, column: DataColumn, event: Event): void {
+  closeCalendar()
+  commitOnBlur(row, column, event)
+}
+
+// ---- 选择格的下拉面板 ----
+
+/**
+ * 选择格为什么不用原生 `<select>`。
+ *
+ * 原生下拉的键盘模型是「Tab 落在格子上只是**选中**它,还得再按一次回车或空格才展开」,
+ * 展开之后方向键、Esc、Tab 全交给系统控件,页面无从插手。这里要的是另一套:
+ * **Tab 到就展开** —— 想跳过它得再按一次 Tab;方向键移高亮、回车选中、Esc 收起
+ * 且焦点留在格子上、按回车再叫回来。原生控件给不了,只能自己画一个。
+ *
+ * 与日期面板同一套几何:`fixed` + `Teleport to="body"`(账目表外面是横向滚动容器,
+ * 格内浮层会被裁掉),面板上所有 mousedown 都 prevent —— 焦点始终留在按钮上,
+ * 于是 Esc 之后不用搬焦点,方向键也一直落在同一个按钮的 keydown 上。
+ */
+interface SelectPanel {
+  rowId: string
+  columnId: string
+  top: number
+  left: number
+  /** 面板最小宽度:跟着格子走,免得短选项挤成一小块、与格子对不齐。 */
+  width: number
+  /** 高亮项的值。空串 = 「未选择」那一项。 */
+  active: string
+  options: { id: string; label: string }[]
+}
+
+const selectPanel = ref<SelectPanel | null>(null)
+const selectList = ref<HTMLElement | null>(null)
+
+const SELECT_PANEL_MAX_HEIGHT = 232
+/** 单项高度(含内边距)。用来估算面板总高,决定往下放还是往上翻。 */
+const SELECT_ITEM_HEIGHT = 27
+
+function isSelectOpen(row: DataRow, column: DataColumn): boolean {
+  const panel = selectPanel.value
+  return panel !== null && panel.rowId === row.id && panel.columnId === column.id
+}
+
+/**
+ * 展开某一格的下拉。
+ *
+ * 幂等:鼠标点击会先 `focus()` 再走到这里,不幂等的话面板会开了又关。
+ * 「未选择」也占一项 —— 清空是一个真实的选择,不该藏在面板外面。
+ */
+function openSelect(row: DataRow, column: DataColumn, anchor: HTMLElement): void {
+  closeCalendar()
+  const options = [{ id: "", label: "未选择" }, ...column.options.map((option) => ({ id: option.id, label: option.name }))]
+  const rect = anchor.getBoundingClientRect()
+  const height = Math.min(SELECT_PANEL_MAX_HEIGHT, options.length * SELECT_ITEM_HEIGHT + 10)
+  const below = rect.bottom + 4
+  const top = below + height > window.innerHeight ? Math.max(8, rect.top - height - 4) : below
+  selectPanel.value = {
+    rowId: row.id,
+    columnId: column.id,
+    top,
+    left: Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - Math.max(rect.width, 160) - 8)),
+    width: Math.max(rect.width, 112),
+    active: String(dt.cellValue(row, column) ?? ""),
+    options,
+  }
+  watchScrollHosts(anchor, closeSelect)
+  scrollSelectActive()
+}
+
+function closeSelect(): void {
+  unwatchScrollHosts()
+  selectPanel.value = null
+}
+
+/** 高亮项滚进可视区 —— 选项多到面板要滚动时,方向键移过去必须看得见。 */
+function scrollSelectActive(): void {
+  void nextTick(() => {
+    selectList.value?.querySelector<HTMLElement>("[data-active='true']")?.scrollIntoView({ block: "nearest" })
+  })
+}
+
+/** 鼠标划过某一项 → 高亮跟着走,点下去选中就是它。 */
+function hoverOption(value: string): void {
+  const panel = selectPanel.value
+  if (panel !== null && panel.active !== value) panel.active = value
+}
+
+/** 方向键移高亮。到顶 / 到底就停住,不绕回 —— 绕回会让「已经到底了」这件事没手感。 */
+function moveSelect(step: number): void {
+  const panel = selectPanel.value
+  if (panel === null || panel.options.length === 0) return
+  const index = panel.options.findIndex((option) => option.id === panel.active)
+  const next = Math.min(panel.options.length - 1, Math.max(0, (index === -1 ? 0 : index) + step))
+  panel.active = panel.options[next].id
+  scrollSelectActive()
+}
+
+/**
+ * 选中一项:写进格、收起面板,**焦点留在按钮上**。
+ *
+ * 行与列按 id 从当前表里重取 —— 面板开着的时候表可能已经变过(别的窗口改了同一张
+ * 表、或这一行刚被删),闭包里那份旧行写回去会把这中间别的改动覆盖掉。
+ */
+function pickOption(value: string): void {
+  const panel = selectPanel.value
+  if (panel === null) return
+  closeSelect()
+  const row = rows.value.find((item) => item.id === panel.rowId)
+  const column = columns.value.find((item) => item.id === panel.columnId)
+  if (row === undefined || column === undefined) return
+  commit(row, column, value)
+}
+
+/**
+ * 键盘。挂在按钮上,焦点从不离开它,所以这一条链是完整的:
+ * 回车/空格 开 → 方向键移 → 回车选 / Esc 收 → 回车再开 → Tab 才走。
+ */
+function onSelectKeydown(row: DataRow, column: DataColumn, event: KeyboardEvent): void {
+  const anchor = event.currentTarget
+  if (!(anchor instanceof HTMLElement)) return
+
+  if (event.key === "Enter" || event.key === " ") {
+    // 不拦的话,回车会合成一次 click(按钮的默认行为),等于开完立刻又点一下。
+    event.preventDefault()
+    if (isSelectOpen(row, column)) pickOption(selectPanel.value?.active ?? "")
+    else openSelect(row, column, anchor)
+    return
+  }
+
+  if (event.key === "Escape") {
+    if (!isSelectOpen(row, column)) return
+    // 只收面板,不 blur:焦点留在这一格是这套交互的前提。
+    event.preventDefault()
+    closeSelect()
+    return
+  }
+
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault()
+    if (!isSelectOpen(row, column)) {
+      openSelect(row, column, anchor)
+      return
+    }
+    moveSelect(event.key === "ArrowDown" ? 1 : -1)
+  }
+}
+
+/**
+ * 鼠标点击。`mousedown.prevent` 挡住了「点一下就聚焦」,所以这里补上聚焦 ——
+ * `focus` 事件是展开面板的一条入口(Tab 走的是同一条),补完焦点面板自己会开。
+ * 已经展开时再点一次才是「收起」。
+ */
+function onSelectClick(row: DataRow, column: DataColumn, event: MouseEvent): void {
+  const anchor = event.currentTarget
+  if (!(anchor instanceof HTMLElement)) return
+  if (isSelectOpen(row, column)) {
+    closeSelect()
+    return
+  }
+  if (anchor.ownerDocument.activeElement !== anchor) anchor.focus()
+  if (!isSelectOpen(row, column)) openSelect(row, column, anchor)
+}
+
+/** Tab 走掉 / 点到别处:焦点一离开就收面板。面板自己的 mousedown 已 prevent,不会走到这里。 */
+function blurSelect(): void {
+  closeSelect()
+}
+
+/** 窗口一改大小,面板就跟输入框对不上了 —— 与其漂着,不如收起来,再点一下就回来。 */
+function closeCalendarOnResize(): void {
+  closeCalendar()
+  closeSelect()
+}
+
+onMounted(() => {
+  window.addEventListener("resize", closeCalendarOnResize)
+})
+
+onBeforeUnmount(() => {
+  window.clearTimeout(flashTimer)
+  unwatchScrollHosts()
+  window.removeEventListener("resize", closeCalendarOnResize)
+})
 
 /**
  * 表底记一笔:追加到末尾 —— 流水账的末位就是最新一笔,落点没有歧义 —— 然后把光标
@@ -367,7 +763,12 @@ function openTable() {
                 </span>
               </th>
             </tr>
-            <tr v-for="row in section.rows" :key="row.id" class="group/lrow border-b border-line last:border-b-0">
+            <tr
+              v-for="row in section.rows"
+              :key="row.id"
+              class="group/lrow border-b border-line transition-colors last:border-b-0"
+              :class="flashRow === row.id && 'bg-selection'"
+            >
               <!-- 行号 / 删除同占一格(与数据表编辑页同一手法):悬停换成 ✕,列宽不变、行不跳。 -->
               <th class="relative w-7 px-2 py-1 text-right align-top font-mono text-[10.5px] font-normal text-muted-foreground/60">
                 <span class="group-hover/lrow:invisible">{{ rowNumbers.get(row.id) }}</span>
@@ -397,15 +798,27 @@ function openTable() {
                   @change="(event: Event) => toggleCheck(row, column, event)"
                 >
 
-                <select
+                <!--
+                  选择格:自绘下拉,不用原生 <select> —— 键盘模型不一样(见 `openSelect`)。
+                  按钮本身就是一个格子大小的可聚焦块,Tab 一落上去 `focus` 即展开面板;
+                  面板永不接管焦点,所以 Esc 之后焦点还在这里,回车能再叫回来。
+                -->
+                <button
                   v-else-if="column.type === 'select'"
-                  class="w-full cursor-pointer rounded bg-transparent text-[12px] outline-none"
-                  :value="String(dt.cellValue(row, column) ?? '')"
-                  @change="(event: Event) => commitSelect(row, column, event)"
+                  type="button"
+                  class="flex w-full min-w-0 items-center gap-1 rounded px-0.5 text-left hover:bg-muted/60"
+                  :class="cellText(row, column) === '' && 'text-muted-foreground'"
+                  aria-haspopup="listbox"
+                  :aria-expanded="isSelectOpen(row, column)"
+                  @mousedown.prevent
+                  @focus="openSelect(row, column, $event.target as HTMLElement)"
+                  @click="onSelectClick(row, column, $event)"
+                  @keydown="onSelectKeydown(row, column, $event)"
+                  @blur="blurSelect"
                 >
-                  <option value="">未选择</option>
-                  <option v-for="option in column.options" :key="option.id" :value="option.id">{{ option.name }}</option>
-                </select>
+                  <span class="truncate">{{ cellText(row, column) || "未选择" }}</span>
+                  <ChevronDownIcon class="ml-auto size-3 shrink-0 opacity-50" />
+                </button>
 
                 <!--
                   格值按钮**始终留在文档流里**(进编辑态只是隐形),输入框绝对定位浮在它上面。
@@ -416,18 +829,30 @@ function openTable() {
                   是 UA 的 start(不继承 td 的 right),不显式声明的话数字一进编辑态就跳到左边。
                 -->
                 <span v-else class="relative block min-h-[18px] w-full min-w-0">
-                  <!-- 平时是格值,点进去才编辑;空格按钮撑满格子,保证点哪都能进编辑态。 -->
+                  <!--
+                    平时是格值,点进去才编辑;空格按钮撑满格子,保证点哪都能进编辑态。
+                    `mousedown.prevent` 让鼠标点击不把焦点给按钮(点击照旧走 click 进编辑),
+                    于是 `focus` 只剩键盘 Tab 这一条来路 —— **Tab 到哪一格,哪一格就进输入态**,
+                    不必再按一下回车;Shift+Tab 反向同理。勾选 / 下拉是原生控件,Tab 进去即可操作。
+                  -->
                   <button
                     type="button"
                     class="block min-h-[18px] w-full min-w-0 rounded px-0.5 hover:bg-muted/60"
                     :class="[isNumberish(column) ? 'text-right' : 'cursor-text text-left', editing === cellKey(row, column) && 'invisible']"
+                    @mousedown.prevent
                     @click="editing = cellKey(row, column)"
+                    @focus="editing = cellKey(row, column)"
                   >
                     <template v-if="column === incomeColumn"><span :style="{ color: LEDGER_INCOME_COLOR }">{{ incomeText(row) }}</span></template>
                     <template v-else-if="column === expenseColumn"><span :style="{ color: LEDGER_EXPENSE_COLOR }">{{ expenseText(row) }}</span></template>
                     <template v-else>{{ cellText(row, column) }}</template>
                   </button>
 
+                  <!--
+                    日期格:输入框一聚焦就展开月历(浮层在模板末尾的 Teleport 里)。
+                    面板上所有 mousedown 都 prevent,点日期不会让输入框失焦 —— 失焦即提交、
+                    一提交就退出编辑态,面板跟着消失,那一天根本点不到。
+                  -->
                   <input
                     v-if="editing === cellKey(row, column)"
                     :ref="focusOnMount"
@@ -435,8 +860,11 @@ function openTable() {
                     :class="isNumberish(column) ? 'text-right tabular-nums' : 'text-left'"
                     :value="editText(row, column)"
                     :placeholder="column.type === 'date' ? 'YYYY-MM-DD' : ''"
+                    @focus="column.type === 'date' && openCalendar(row, column, $event)"
+                    @click="column.type === 'date' && openCalendar(row, column, $event)"
                     @keydown.enter.prevent="commitOnEnter(row, column, $event)"
-                    @blur="commitOnBlur(row, column, $event)"
+                    @keydown.esc.prevent="column.type === 'date' && closeCalendar()"
+                    @blur="column.type === 'date' ? blurCell(row, column, $event) : commitOnBlur(row, column, $event)"
                   >
                 </span>
               </td>
@@ -484,4 +912,55 @@ function openTable() {
       </table>
     </div>
   </div>
+
+  <!-- 日期浮层:挂到 body 上、fixed 定位 —— 账目表外面是横向滚动容器,格内浮层会被裁掉。
+       `mousedown.prevent` 是这套面板的命门:点日期时输入框不失焦,编辑态与面板都还活着。 -->
+  <Teleport to="body">
+    <div
+      v-if="calendarPanel !== null"
+      class="fixed z-50 rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10"
+      :style="{ top: `${calendarPanel.top}px`, left: `${calendarPanel.left}px` }"
+      @mousedown.prevent
+    >
+      <DateCalendar :value="calendarPanel.value" @pick="pickDate($event)" @clear="pickDate('')" />
+    </div>
+
+    <!-- 选择浮层:与日期同一套(挂 body、fixed、mousedown 全 prevent)。
+         焦点始终在格子的按钮上,所以这里一个 focusable 元素都不放 —— 选项是 `div`
+         而非 `button`,Tab 序列里就没有它们,「再按 Tab 才走」是默认行为。 -->
+    <div
+      v-if="selectPanel !== null"
+      class="fixed z-50 overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10"
+      :style="{
+        top: `${selectPanel.top}px`,
+        left: `${selectPanel.left}px`,
+        minWidth: `${selectPanel.width}px`,
+        maxWidth: '260px',
+      }"
+      @mousedown.prevent
+    >
+      <div ref="selectList" role="listbox" class="m-0 max-h-[232px] overflow-y-auto p-1">
+        <div
+          v-for="option in selectPanel.options"
+          :key="option.id"
+          role="option"
+          :aria-selected="option.id === selectPanel.active"
+          :data-active="option.id === selectPanel.active"
+          class="flex cursor-pointer items-center gap-1.5 rounded-[6px] px-1.5 py-[5px] text-[12px]"
+          :class="[
+            option.id === selectPanel.active ? 'bg-selection' : 'hover:bg-muted/60',
+            option.id === '' && 'text-muted-foreground',
+          ]"
+          @mouseenter="hoverOption(option.id)"
+          @click="pickOption(option.id)"
+        >
+          <span class="truncate">{{ option.label }}</span>
+          <CheckIcon v-if="option.id === selectPanel.active" class="ml-auto size-3 shrink-0 opacity-70" />
+        </div>
+        <div v-if="selectPanel.options.length === 1" class="px-1.5 py-1 text-[11px] text-muted-foreground">
+          这一列还没有选项 —— 去数据表里加。
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>

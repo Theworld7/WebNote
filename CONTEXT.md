@@ -277,10 +277,21 @@ points at the same `.tbl` a Data table block would, but adds **financial setting
 money columns, the balance toggle, the grouping, the sort column and direction) that belong to
 the block. Rows are ordered by that sort column before they are sectioned (blank cells last,
 newest first by default — ADR-0016). The balance is computed over the table's own row order
-every render — never stored, and never re-derived from the sorted order. On disk it travels as a
-snapshot **with**
-a pointer (`data-ledger` + settings on a `<div>` wrapping a totals table), on the same terms
-as the Gallery block. Amounts are plain numbers in the `.tbl`; formatting is the view's job.
+every render — never stored, and never re-derived from the sorted order. Cells edit in place; a
+date cell opens a month grid on focus rather than being a bare text field, and a select cell
+opens its own option list on focus — **Tab into the cell expands it, so skipping it takes a
+second Tab**. The option list is drawn by the Block rather than by a native `<select>`, because
+the native keyboard model makes you press Enter before anything opens and then hands the arrow
+keys, Esc and Tab to the OS control. Here ↑/↓ move the highlight, Enter picks, Esc closes while
+**leaving focus on the cell** (Enter reopens it), and the list holds no focusable element so Tab
+walks straight to the next cell. While **any** cell is
+being edited the order **and** the section structure are pinned: writing a date would otherwise
+resort the row (and move it to another month's section) the moment the field loses focus, before
+the amount is typed — and moving a focused element also steals focus from the input mid-edit. The
+pin lifts when editing ends; a row that then changes position is briefly tinted so the eye can
+follow it. On disk it travels as a snapshot **with** a pointer (`data-ledger` + settings on a
+`<div>` wrapping a totals table), on the same terms as the Gallery block. Amounts are plain
+numbers in the `.tbl`; formatting is the view's job.
 _Avoid_: Account block, bookkeeping view, money column (there is no money column type),
 balance column in the table (it is view-derived, not a Data column)
 

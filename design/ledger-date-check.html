@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>账目块 · 日期面板与编辑期冻结自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { height: 520px; display: flex; flex-direction: column; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>账目块：Tab 进输入态、日期下拉面板、选择格键盘操作、编辑期间钉住排序（挂真实编辑器 + OPFS）</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { provideTables } from "../src/composables/useTables.ts"
+import { createLedgerBlock } from "../src/lib/blocks.ts"
+import { blocksToHtml } from "../src/lib/html/serialize.ts"
+import { tableFromJson } from "../src/lib/data-table.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function report(kind, detail) {
+  document.getElementById("out").textContent = [kind, "", detail, "", ...lines].join("\n")
+}
+window.addEventListener("unhandledrejection", (e) => report("REJECT", e.reason?.stack ?? String(e.reason)))
+window.addEventListener("error", (e) => report("ERROR", e.message))
+function step(name) {
+  document.getElementById("out").textContent = `running: ${name}\n${lines.join("\n")}`
+}
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+
+// ---- 夹具：按月分组 + 按日期倒序的流水账（正是「输完日期行就跳」的那种设置） ----
+const TABLE = {
+  version: 1,
+  columns: [
+    { id: "c1", name: "日期", type: "date", options: [] },
+    { id: "c2", name: "项目", type: "text", options: [] },
+    { id: "c3", name: "金额", type: "number", options: [] },
+    { id: "c4", name: "分类", type: "select", options: [
+      { id: "o1", name: "生活" },
+      { id: "o2", name: "工作" },
+      { id: "o3", name: "人情" },
+    ] },
+  ],
+  rows: [
+    { id: "r1", values: { c1: "2026-09-03", c2: "房租", c3: 3000, c4: "o1" } },
+    { id: "r2", values: { c1: "2026-09-18", c2: "吃饭", c3: 200 } },
+    { id: "r3", values: { c1: "2026-10-02", c2: "打车", c3: 40 } },
+  ],
+}
+const TABLE_JSON = JSON.stringify(TABLE, null, 2) + "\n"
+const NOTE_HTML = blocksToHtml(
+  [createLedgerBlock("月度.tbl", "c3", "", false, "month", "c1", "c1", "desc")],
+  (path) => (path === "月度.tbl" ? tableFromJson(TABLE_JSON) : null),
+)
+
+step("opfs")
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("ledger-date-probe", { create: true })
+for (const [name, text] of [["月度.tbl", TABLE_JSON], ["账.html", NOTE_HTML]]) {
+  const handle = await dir.getFileHandle(name, { create: true })
+  const writable = await handle.createWritable()
+  await writable.write(text)
+  await writable.close()
+}
+window.showDirectoryPicker = async () => dir
+
+async function readFile(name) {
+  const handle = await dir.getFileHandle(name)
+  return (await handle.getFile()).text()
+}
+/** 等真实 I/O 与 Vue 重渲染落地：microtask 轮询等不到读盘。 */
+async function settle() {
+  for (let i = 0; i < 4; i += 1) {
+    await nextTick()
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
+
+step("mount")
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    provideTheme(provideSettings())
+    const tables = provideTables(workspace.fs, workspace.root)
+    workspace.attachTableRegistry({
+      preload: (paths) => tables.preload(paths),
+      peek: (path) => tables.peek(path),
+      flush: (path) => tables.flush(path),
+      reload: (path) => tables.reload(path),
+      create: () => Promise.reject(new Error("本页不新建数据表")),
+    })
+    return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+
+step("bootstrap")
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+const note = (function find(nodes) {
+  for (const node of nodes) {
+    if (node.kind === "note") return node
+    const hit = node.children ? find(node.children) : null
+    if (hit) return hit
+  }
+  return null
+})(workspace.tree.value)
+check("扫到了预置笔记", note !== null, JSON.stringify(workspace.tree.value.map((n) => n.name)))
+
+step("openFile")
+if (note !== null) {
+  workspace.openFile(note.id)
+  for (let i = 0; i < 60 && workspace.activeDocument.value.length < 1; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  await settle()
+}
+
+// ---- DOM 取景 ----
+function ledgerRoot() {
+  return [...document.querySelectorAll("[data-block-id]")].find((el) => el.querySelector("table") !== null) ?? null
+}
+/** 数据行 = 带删除钮的行；节标题行没有钮。 */
+function bodyRows() {
+  const root = ledgerRoot()
+  if (root === null) return []
+  return [...root.querySelectorAll("tbody tr")].filter((tr) => tr.querySelector('[aria-label="删除本行"]') !== null)
+}
+function cells(row) { return [...row.querySelectorAll("td")] }
+function cellText(row, index) { return (cells(row)[index]?.textContent ?? "").trim() }
+function cellButton(row, index) {
+  const button = cells(row)[index]?.querySelector("button")
+  return button instanceof HTMLButtonElement ? button : null
+}
+function cellInput(row, index) {
+  const input = cells(row)[index]?.querySelector("input")
+  return input instanceof HTMLInputElement ? input : null
+}
+/** 月历挂在 body 上（Popover 的 portal），不在这张表里。 */
+function calendar() {
+  return document.querySelector("[data-date-calendar]")
+}
+function order() {
+  return bodyRows().map((row) => cellText(row, 0)).join(",")
+}
+function type(input, value) {
+  if (input === null) return
+  input.value = value
+  input.dispatchEvent(new Event("input", { bubbles: true }))
+}
+
+// ---------- 一、Tab 聚焦即进输入态 ----------
+step("tab")
+const rows0 = bodyRows()
+check("渲染出三行", rows0.length === 3, `实际 ${rows0.length}`)
+check("按日期倒序 + 按月分节", order() === "2026-10-02,2026-09-18,2026-09-03", order())
+
+const projectButton = cellButton(rows0[0], 1)
+check("格值是按钮，Tab 能到达（tabIndex 不为 -1）",
+  projectButton !== null && projectButton.tabIndex >= 0,
+  String(projectButton?.tabIndex))
+// 键盘 Tab 到一格的等效动作：焦点落在按钮上。
+projectButton?.focus()
+await settle()
+
+const projectInput = cellInput(bodyRows()[0], 1)
+check("聚焦后立刻是输入框，不用再按回车", projectInput !== null)
+check("焦点已经在输入框里（可以直接打字）", document.activeElement === projectInput,
+  document.activeElement?.tagName ?? "null")
+check("同一行的日期格没有被牵连", cellInput(bodyRows()[0], 0) === null)
+projectInput?.blur()
+await settle()
+check("失焦后回到格值按钮", cellInput(bodyRows()[0], 1) === null)
+
+// ---------- 二、日期格聚焦弹出月历 ----------
+step("date-panel")
+cellButton(bodyRows()[0], 0)?.click()
+await settle()
+check("日期格进入编辑态", cellInput(bodyRows()[0], 0) !== null)
+check("输入框一聚焦就弹出月历", calendar() !== null)
+check("月历翻到当前值所在月", (calendar()?.textContent ?? "").includes("2026 年 10 月"),
+  calendar()?.textContent?.slice(0, 60))
+check("当前值那一天被选中",
+  calendar()?.querySelector('[data-day="2026-10-02"]')?.className.includes("bg-brand") === true,
+  calendar()?.querySelector('[data-day="2026-10-02"]')?.className)
+check("今天单独有一圈描边，不与选中态混",
+  calendar()?.querySelectorAll(".ring-brand\\/45").length <= 1)
+
+// 翻月
+calendar()?.querySelector('[aria-label="上个月"]')?.click()
+await settle()
+check("点「上个月」翻到 2026 年 9 月", (calendar()?.textContent ?? "").includes("2026 年 9 月"),
+  calendar()?.textContent?.slice(0, 60))
+
+// Esc 收面板，编辑态留着
+const dateInput = cellInput(bodyRows()[0], 0)
+dateInput?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+await settle()
+check("Esc 收起月历", calendar() === null)
+check("Esc 不退出编辑态（还能接着手打日期）", cellInput(bodyRows()[0], 0) !== null)
+
+// 点输入框把面板叫回来（重开时回到当前值所在月，翻月要再来一次）
+cellInput(bodyRows()[0], 0)?.click()
+await settle()
+check("再点一下输入框，月历重新弹出", calendar() !== null)
+check("重开时回到当前值所在月", (calendar()?.textContent ?? "").includes("2026 年 10 月"),
+  calendar()?.textContent?.slice(0, 40))
+calendar()?.querySelector('[aria-label="上个月"]')?.click()
+await settle()
+
+// 点某一天：写值、收面板、留在编辑态
+const dayButton = calendar()?.querySelector('[data-day="2026-09-15"]')
+const dayHooks = []
+dayButton?.addEventListener("click", () => dayHooks.push("click"))
+dayButton?.click()
+await settle()
+check("点中的那一天确实收到了 click", dayHooks.length === 1, String(dayHooks.length))
+check("点面板不夺走输入框的焦点（夺走就提交并退出编辑了）",
+  document.activeElement instanceof HTMLInputElement, document.activeElement?.tagName ?? "null")
+check("点选后值写进格", cellText(bodyRows()[0], 0) === "2026-09-15", cellText(bodyRows()[0], 0))
+check("点选后面板收起", calendar() === null)
+check("点选后仍在编辑态（接着填金额）", cellInput(bodyRows()[0], 0) !== null)
+check("编辑期间行没挪位置（这就是冻结）", order() === "2026-09-15,2026-09-18,2026-09-03", order())
+
+// ---------- 三、焦点换到金额格，顺序继续钉住 ----------
+step("freeze")
+cellButton(bodyRows()[0], 2)?.focus()
+await settle()
+check("焦点换到金额格并进入输入态", cellInput(bodyRows()[0], 2) !== null)
+check("换格不算「编辑结束」——顺序还是没变", order() === "2026-09-15,2026-09-18,2026-09-03", order())
+
+// ---------- 四、填完金额失焦：这才重排 ----------
+step("reorder")
+type(cellInput(bodyRows()[0], 2), "88")
+cellInput(bodyRows()[0], 2)?.blur()
+await settle()
+check("退出编辑后按新日期排到中间（09-18 > 09-15 > 09-03）", order() === "2026-09-18,2026-09-15,2026-09-03", order())
+check("金额也一起提交了", cellText(bodyRows()[1], 2) === "+88.00", cellText(bodyRows()[1], 2))
+check("被挪动的那行短暂高亮，眼睛能跟上",
+  bodyRows()[1].className.includes("bg-selection"), bodyRows()[1].className)
+
+// ---------- 四·五、回车跳格时面板跟着换位，不悬在旧格 ----------
+step("enter")
+cellButton(bodyRows()[1], 0)?.click()
+await settle()
+const panelTopBefore = calendar()?.parentElement?.getBoundingClientRect().top
+cellInput(bodyRows()[1], 0)?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+await settle()
+check("回车跳到下一行的日期格并进入输入态", cellInput(bodyRows()[2], 0) !== null)
+const panelTopAfter = calendar()?.parentElement?.getBoundingClientRect().top
+check("面板跟着挪到新格下面", panelTopBefore !== undefined && panelTopAfter !== undefined && panelTopAfter > panelTopBefore,
+  `${panelTopBefore} → ${panelTopAfter}`)
+cellInput(bodyRows()[2], 0)?.blur()
+await settle()
+check("失焦后面板收起", calendar() === null)
+
+// ---------- 四·六、选择格：Tab 展开、方向键移、回车选、Esc 收而焦点不丢 ----------
+step("select-panel")
+/** 选择浮层也挂 body。数据表里没有别的 listbox，这一个就够。 */
+function selectList() {
+  return document.querySelector('[role="listbox"]')
+}
+function activeOption() {
+  return selectList()?.querySelector('[data-active="true"]')?.textContent?.trim() ?? ""
+}
+function optionNames() {
+  return [...(selectList()?.querySelectorAll('[role="option"]') ?? [])].map((el) => (el.textContent ?? "").trim()).join(",")
+}
+function press(el, key) {
+  el?.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }))
+}
+
+// 最后一行就是「房租」，分类已经选了「生活」
+const selectButton = cellButton(bodyRows()[2], 3)
+check("选择格是一个可聚焦的按钮（Tab 能停在它上面）",
+  selectButton !== null && selectButton.tabIndex >= 0, String(selectButton?.tabIndex))
+check("选择格显示的是选项名，不是选项 id", cellText(bodyRows()[2], 3) === "生活", cellText(bodyRows()[2], 3))
+check("没聚焦时没有浮层", selectList() === null)
+
+// Tab 落到这一格 = focus
+selectButton?.focus()
+await settle()
+check("Tab 到选择格就直接展开下拉（不用再按一次键）", selectList() !== null)
+check("下拉里有「未选择」+ 三个选项", optionNames() === "未选择,生活,工作,人情", optionNames())
+check("打开时高亮的是当前值", activeOption() === "生活", activeOption())
+check("焦点仍在格子上，没有被面板抢走",
+  document.activeElement === selectButton, document.activeElement?.tagName ?? "null")
+
+// 方向键移高亮：只动高亮，不动值
+press(selectButton, "ArrowDown")
+await settle()
+check("↓ 把高亮移到「工作」", activeOption() === "工作", activeOption())
+check("移高亮不写值", cellText(bodyRows()[2], 3) === "生活", cellText(bodyRows()[2], 3))
+press(selectButton, "ArrowDown")
+await settle()
+press(selectButton, "ArrowUp")
+await settle()
+check("↑ 把高亮移回「工作」", activeOption() === "工作", activeOption())
+press(selectButton, "ArrowDown")
+await settle()
+press(selectButton, "ArrowDown")
+await settle()
+check("到底就停住，不绕回第一项", activeOption() === "人情", activeOption())
+for (let i = 0; i < 5; i += 1) press(selectButton, "ArrowUp")
+await settle()
+check("到顶也停住（连按 ↑ 停在第一项「未选择」，不绕到末尾）", activeOption() === "未选择", activeOption())
+
+// Esc：收面板，焦点与值都留着
+press(selectButton, "Escape")
+await settle()
+check("Esc 收起下拉", selectList() === null)
+check("Esc 之后焦点还在这一个选择框上", document.activeElement === selectButton,
+  document.activeElement?.tagName ?? "null")
+check("Esc 不改值", cellText(bodyRows()[2], 3) === "生活", cellText(bodyRows()[2], 3))
+
+// 关着的时候回车 = 再打开
+press(selectButton, "Enter")
+await settle()
+check("关着时按回车重新展开", selectList() !== null)
+
+// 回车选中高亮项
+press(selectButton, "ArrowDown")
+await settle()
+press(selectButton, "Enter")
+await settle()
+check("回车选中高亮项", cellText(bodyRows()[2], 3) === "工作", cellText(bodyRows()[2], 3))
+check("选中后面板收起", selectList() === null)
+check("选中后焦点仍在格子上（还能接着按方向键）", document.activeElement === selectButton,
+  document.activeElement?.tagName ?? "null")
+
+// 面板不参与 Tab 序列：里面一个可聚焦元素都没有
+press(selectButton, "Enter")
+await settle()
+check("浮层里没有可聚焦元素（Tab 不会掉进选项里）",
+  (selectList()?.querySelectorAll("button, input, select, textarea, a[href], [tabindex]:not([tabindex='-1'])").length ?? -1) === 0,
+  String(selectList()?.querySelectorAll("button, input, select, textarea, a[href], [tabindex]:not([tabindex='-1'])").length))
+
+// Tab 走掉：焦点交给下一格，面板跟着收
+const nextCellButton = cellButton(bodyRows()[2], 0)
+nextCellButton?.focus()
+await settle()
+check("Tab 到下一格时下拉收起", selectList() === null)
+check("焦点确实交给了下一格（日期格直接进输入态）",
+  document.activeElement === cellInput(bodyRows()[2], 0), document.activeElement?.tagName ?? "null")
+cellInput(bodyRows()[2], 0)?.blur()
+await settle()
+
+// 点选（鼠标路径）：面板上的 mousedown 被拦，不会夺焦
+selectButton?.focus()
+await settle()
+const fateOption = [...(selectList()?.querySelectorAll('[role="option"]') ?? [])].find((el) => (el.textContent ?? "").trim() === "人情")
+const optionMousedown = new MouseEvent("mousedown", { bubbles: true, cancelable: true })
+fateOption?.dispatchEvent(optionMousedown)
+check("面板上的 mousedown 被拦下（点选项不会让格子失焦）", optionMousedown.defaultPrevented)
+fateOption?.click()
+await settle()
+check("鼠标点选项也能选中", cellText(bodyRows()[2], 3) === "人情", cellText(bodyRows()[2], 3))
+check("点完面板收起、焦点还在格子上",
+  selectList() === null && document.activeElement === selectButton, document.activeElement?.tagName ?? "null")
+selectButton?.blur()
+await settle()
+
+// ---------- 五、落盘：日期与金额都写进 .tbl ----------
+step("save")
+await workspace.save()
+await settle()
+const saved = JSON.parse(await readFile("月度.tbl"))
+const moved = saved.rows.find((row) => row.id === "r3")
+check("日期落到盘上是 2026-09-15", moved?.values.c1 === "2026-09-15", JSON.stringify(moved?.values))
+check("金额落到盘上是 88", moved?.values.c3 === 88, JSON.stringify(moved?.values))
+const rented = saved.rows.find((row) => row.id === "r1")
+check("选择格的值落到盘上是选项 id", rented?.values.c4 === "o3", JSON.stringify(rented?.values))
+
+lines.push(failed === 0 ? `自检 ${passed}/${passed}` : `自检 ${passed} 过 / ${failed} 败`)
+
+document.getElementById("out").textContent = lines.join("\n")
+</script>
+</body>
+</html>
