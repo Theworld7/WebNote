@@ -17,6 +17,7 @@ import { useSettings, CONTENT_WIDTH_PX } from "@/composables/useSettings"
 import { useTheme } from "@/composables/useTheme"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { isTextualBlock, orderedIndexes as orderedIndexesOf } from "@/lib/blocks"
+import { headingEntries } from "@/lib/headings"
 import { DOM_ATTR, DRAG_HANDLE_SELECTOR, LAYOUT_CELL_SELECTOR, TOP_BLOCK_ROW_SELECTOR, closestBlockId, findEditable, focusBlockById } from "@/lib/dom"
 import { dragOverCell, draggingBlockId } from "@/lib/block-drag"
 import { isFileDrag, pickImageFiles, readImageFile } from "@/lib/image"
@@ -33,6 +34,7 @@ import {
 import type { BlockSelectionPoint } from "@/lib/crossselect"
 import BlockItem from "./BlockItem.vue"
 import GalleryInsertDialog from "./GalleryInsertDialog.vue"
+import HeadingNav from "./HeadingNav.vue"
 
 const {
   activePath,
@@ -95,10 +97,23 @@ const orderedIndexes = computed(() => orderedIndexesOf(activeDocument.value))
 
 // 内容宽度（正文列最大宽度）来自用户偏好。走内联 style 而不是 `max-w-[Npx]` 类名：
 // 档位是运行时值，Tailwind 扫不到拼出来的候选（与 typography.ts 里「类名必须是字面量」同一条立场）。
-const { contentWidth } = useSettings()
+const { contentWidth, headingNav, headingNavMin } = useSettings()
 // 页面样式里的「浅色 / 深色两套」按应用外观解析，不按系统 —— 见 `lib/note-style.ts`。
 const { theme } = useTheme()
 const docStyle = computed(() => ({ maxWidth: `${CONTENT_WIDTH_PX[contentWidth.value]}px` }))
+
+/**
+ * 右侧标题导航（Preference）的数据与开关。
+ *
+ * 目录从块模型投影（`lib/headings`），不缓存 DOM 里的标题 —— 块是唯一真源，
+ * 删块 / 改标题 / 转类型都会自然反映到菜单上。
+ * 门槛是「标题数够不够多」：短笔记一眼看得完，一列刻度只是噪音。
+ */
+const headings = computed(() => headingEntries(activeDocument.value))
+const showHeadingNav = computed(() => headingNav.value && headings.value.length >= headingNavMin.value)
+
+/** 导航量「读到哪一节」要拿到滚动容器；它在挂载后才存在，见下方的滚动位置记忆。 */
+const navViewport = ref<HTMLElement | null>(null)
 
 /**
  * 页面级 CSS 在编辑器内的预览（ADR-0011）。
@@ -789,7 +804,10 @@ watch(activePath, (next, prev) => {
   clearCrossSelection()
   restoreScroll(next)
 })
-onMounted(() => restoreScroll(activePath.value))
+onMounted(() => {
+  restoreScroll(activePath.value)
+  navViewport.value = scrollViewport()
+})
 onBeforeUnmount(() => {
   rememberScroll(activePath.value)
   clearCrossSelection()
@@ -816,50 +834,57 @@ function edgeOf(index: number, to: number): BlockDropEdge {
 </script>
 
 <template>
-  <ScrollArea class="min-h-0 flex-1">
-    <!-- `data-doc` 给自检页当探针钩子：量正文列宽度（内容宽度偏好）时靠它定位这层容器。 -->
-    <div
-      ref="docRef"
-      data-doc
-      class="relative mx-auto w-full pt-16 pb-30 pr-10 pl-24"
-      :style="docStyle"
-      @dragstart="onDragStart"
-      @dragover="onDragOver"
-      @dragleave="onDragLeave"
-      @drop="onDrop"
-      @dragend="resetDrag"
-      @pointerdown="onHandlePointerDown"
-      @click.capture="onDocClickCapture"
-      @paste="onPaste"
-      @mousedown="onDocMouseDown"
-    >
-      <BlockItem
-        v-for="(block, index) in activeDocument"
-        :key="`${restoreTick}:${block.id}`"
-        :block="block"
-        :ordered-index="orderedIndexes.get(block.id) ?? 0"
-        :dragging="draggingBlockId === block.id"
-        :drop-edge="dropEdgeAt(index)"
-        @insert-after="(id: string, type: BlockType) => handleInsert(id, type, 1)"
-        @insert-before="(id: string, type: BlockType) => handleInsert(id, type, 0)"
-        @split-after="handleSplitAfter"
-        @retype="handleRetype"
-        @duplicate="duplicateBlock"
-        @remove="handleRemove"
-      />
+  <!-- 包一层 relative：标题导航要贴在编辑区右缘（不是正文列右缘），只能相对这层定位；
+       滚动容器仍是里面那层 ScrollArea，导航不随内容滚。 -->
+  <div class="relative flex min-h-0 flex-1 flex-col">
+    <ScrollArea class="min-h-0 flex-1">
+      <!-- `data-doc` 给自检页当探针钩子：量正文列宽度（内容宽度偏好）时靠它定位这层容器。 -->
+      <div
+        ref="docRef"
+        data-doc
+        class="relative mx-auto w-full pt-16 pb-30 pr-10 pl-24"
+        :style="docStyle"
+        @dragstart="onDragStart"
+        @dragover="onDragOver"
+        @dragleave="onDragLeave"
+        @drop="onDrop"
+        @dragend="resetDrag"
+        @pointerdown="onHandlePointerDown"
+        @click.capture="onDocClickCapture"
+        @paste="onPaste"
+        @mousedown="onDocMouseDown"
+      >
+        <BlockItem
+          v-for="(block, index) in activeDocument"
+          :key="`${restoreTick}:${block.id}`"
+          :block="block"
+          :ordered-index="orderedIndexes.get(block.id) ?? 0"
+          :dragging="draggingBlockId === block.id"
+          :drop-edge="dropEdgeAt(index)"
+          @insert-after="(id: string, type: BlockType) => handleInsert(id, type, 1)"
+          @insert-before="(id: string, type: BlockType) => handleInsert(id, type, 0)"
+          @split-after="handleSplitAfter"
+          @retype="handleRetype"
+          @duplicate="duplicateBlock"
+          @remove="handleRemove"
+        />
 
-      <!-- 拖选高亮覆盖层:块内与跨块统一走这里,样式(.cross-selection-rect)在 style.css。
-           直接铺在文档容器里(文档坐标),随内容滚动 —— 不挂在 body 上,滚动不错位。
-           不包容器层:mix-blend 要跟页面内容同处一个层叠上下文,包一层会被隔离成不透明色块。 -->
-      <span
-        v-for="(rect, i) in crossRects"
-        :key="i"
-        aria-hidden="true"
-        class="cross-selection-rect pointer-events-none absolute"
-        :style="{ top: `${rect.top}px`, left: `${rect.left}px`, width: `${rect.width}px`, height: `${rect.height}px` }"
-      />
-    </div>
-  </ScrollArea>
+        <!-- 拖选高亮覆盖层:块内与跨块统一走这里,样式(.cross-selection-rect)在 style.css。
+             直接铺在文档容器里(文档坐标),随内容滚动 —— 不挂在 body 上,滚动不错位。
+             不包容器层:mix-blend 要跟页面内容同处一个层叠上下文,包一层会被隔离成不透明色块。 -->
+        <span
+          v-for="(rect, i) in crossRects"
+          :key="i"
+          aria-hidden="true"
+          class="cross-selection-rect pointer-events-none absolute"
+          :style="{ top: `${rect.top}px`, left: `${rect.left}px`, width: `${rect.width}px`, height: `${rect.height}px` }"
+        />
+      </div>
+    </ScrollArea>
+
+    <!-- 标题导航贴在编辑区右缘，不随正文滚动。门槛没到（或设置里关掉）时整个不挂。 -->
+    <HeadingNav v-if="showHeadingNav" :items="headings" :viewport="navViewport" />
+  </div>
 
   <GalleryInsertDialog :kind="dialogKind" :index="fileInsertIndex" :retype-id="fileRetypeId" @close="closeFileInsert" />
 </template>

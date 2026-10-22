@@ -105,6 +105,35 @@ function readIntegrateTables(): boolean {
 }
 
 /**
+ * 标题导航 —— 笔记页右端那列标题刻度。开关默认**开**（这项功能就是默认在的，
+ * 关掉才是选择），所以读取时认的是「存过 false」，没存过一律算开。
+ */
+const HEADING_NAV_KEY = "webnote:heading-nav"
+
+function readHeadingNav(): boolean {
+  return window.localStorage.getItem(HEADING_NAV_KEY) !== "false"
+}
+
+/**
+ * 标题导航的出现门槛：笔记里的标题数**达到**这个数才显示。
+ *
+ * 一两节的短笔记不需要目录 —— 屏幕上一眼看得完，多一列刻度只是噪音。所以它不是
+ * 「最多显示几条」而是一个开关的临界值：够长才值得一张地图。
+ * 下限 1（1 = 只要有标题就显示），默认 5。
+ */
+const HEADING_NAV_MIN_KEY = "webnote:heading-nav-min"
+export const DEFAULT_HEADING_NAV_MIN = 5
+export const HEADING_NAV_MIN_FLOOR = 1
+
+/** 门槛的合法形状：整数且不低于下限。坏值（0、负数、小数、NaN）一律退回默认。 */
+function readHeadingNavMin(): number {
+  const raw = window.localStorage.getItem(HEADING_NAV_MIN_KEY)
+  if (raw === null) return DEFAULT_HEADING_NAV_MIN
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isInteger(parsed) && parsed >= HEADING_NAV_MIN_FLOOR ? parsed : DEFAULT_HEADING_NAV_MIN
+}
+
+/**
  * 字体 —— 内容字体与代码字体各一项，值是一个 family 名，空串表示「系统默认」。
  *
  * 存 family 名而不是整条 CSS 栈：栈由 `lib/fonts.ts` 现拼（用户字体 + 系统栈兜底），
@@ -209,6 +238,8 @@ interface PreferenceFile {
   contentWidth?: ContentWidth
   menuGroupLayout?: MenuGroupLayout
   integrateTables?: boolean
+  headingNav?: boolean
+  headingNavMin?: number
   contentFont?: string
   codeFont?: string
   theme?: ThemeSettings
@@ -229,12 +260,17 @@ function parsePreferenceFile(text: string): PreferenceFile {
   // 字体名不做候选表收窄（本机字体集因人而异），只卡类型和长度；空串是合法值（系统默认）。
   const pickFont = (value: unknown): string | undefined =>
     typeof value === "string" && value.length <= FONT_NAME_MAX ? value : undefined
+  // 门槛是整数下限，不是候选表：任何 ≥ 下限的整数都合法，坏值整项丢弃（保持内存现状）。
+  const pickCount = (value: unknown): number | undefined =>
+    typeof value === "number" && Number.isInteger(value) && value >= HEADING_NAV_MIN_FLOOR ? value : undefined
   return {
     tableEffect: pick(TABLE_EFFECTS, source["tableEffect"]),
     contentWidth: pick(CONTENT_WIDTHS, source["contentWidth"]),
     menuGroupLayout: pick(MENU_GROUP_LAYOUTS, source["menuGroupLayout"]),
     // 布尔偏好没有候选表可收窄，类型对得上才认。
     integrateTables: typeof source["integrateTables"] === "boolean" ? source["integrateTables"] : undefined,
+    headingNav: typeof source["headingNav"] === "boolean" ? source["headingNav"] : undefined,
+    headingNavMin: pickCount(source["headingNavMin"]),
     contentFont: pickFont(source["contentFont"]),
     codeFont: pickFont(source["codeFont"]),
     // 主题是一整个对象：整个字段缺失（旧版写的文件）就保持内存里的现状，
@@ -262,6 +298,12 @@ interface Settings {
   /** 文件树是否把被引用的数据表收进笔记名下（整合数据表视图）。同上，只经 setter 写。 */
   integrateTables: Ref<boolean>
   setIntegrateTables: (value: boolean) => void
+  /** 笔记页右端的标题导航是否显示。同上，只经 setter 写。 */
+  headingNav: Ref<boolean>
+  setHeadingNav: (value: boolean) => void
+  /** 标题导航的出现门槛：标题数达到它才显示（最小 1）。 */
+  headingNavMin: Ref<number>
+  setHeadingNavMin: (value: number) => void
   /** 内容字体（正文与界面）。空串 = 系统默认栈。 */
   contentFont: Ref<string>
   setContentFont: (value: string) => void
@@ -311,6 +353,24 @@ function createSettings(): Settings {
   function setIntegrateTables(value: boolean) {
     integrateTables.value = value
     window.localStorage.setItem(INTEGRATE_TABLES_KEY, String(value))
+    void persistToStore()
+  }
+
+  const headingNav = ref(readHeadingNav())
+
+  function setHeadingNav(value: boolean) {
+    headingNav.value = value
+    window.localStorage.setItem(HEADING_NAV_KEY, String(value))
+    void persistToStore()
+  }
+
+  const headingNavMin = ref(readHeadingNavMin())
+
+  function setHeadingNavMin(value: number) {
+    // 门槛只有一个写入口，就地兜住下限 —— 面板上输了 0 或空也得落成一个能工作的值。
+    const next = Number.isInteger(value) && value >= HEADING_NAV_MIN_FLOOR ? value : HEADING_NAV_MIN_FLOOR
+    headingNavMin.value = next
+    window.localStorage.setItem(HEADING_NAV_MIN_KEY, String(next))
     void persistToStore()
   }
 
@@ -370,6 +430,8 @@ function createSettings(): Settings {
       contentWidth: contentWidth.value,
       menuGroupLayout: menuGroupLayout.value,
       integrateTables: integrateTables.value,
+      headingNav: headingNav.value,
+      headingNavMin: headingNavMin.value,
       contentFont: contentFont.value,
       codeFont: codeFont.value,
       theme: theme.value,
@@ -412,6 +474,16 @@ function createSettings(): Settings {
     if (prefs.integrateTables !== undefined && prefs.integrateTables !== integrateTables.value) {
       integrateTables.value = prefs.integrateTables
       window.localStorage.setItem(INTEGRATE_TABLES_KEY, String(prefs.integrateTables))
+      changed = true
+    }
+    if (prefs.headingNav !== undefined && prefs.headingNav !== headingNav.value) {
+      headingNav.value = prefs.headingNav
+      window.localStorage.setItem(HEADING_NAV_KEY, String(prefs.headingNav))
+      changed = true
+    }
+    if (prefs.headingNavMin !== undefined && prefs.headingNavMin !== headingNavMin.value) {
+      headingNavMin.value = prefs.headingNavMin
+      window.localStorage.setItem(HEADING_NAV_MIN_KEY, String(prefs.headingNavMin))
       changed = true
     }
     if (prefs.contentFont !== undefined && prefs.contentFont !== contentFont.value) {
@@ -475,6 +547,10 @@ function createSettings(): Settings {
     setMenuGroupLayout,
     integrateTables,
     setIntegrateTables,
+    headingNav,
+    setHeadingNav,
+    headingNavMin,
+    setHeadingNavMin,
     contentFont,
     setContentFont,
     codeFont,

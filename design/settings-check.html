@@ -431,6 +431,49 @@ if (shadow instanceof HTMLElement && getComputedStyle(shadow).display !== "none"
   )
 }
 
+// ---------- 四点四、标题导航 ----------
+//
+// 只验面板这一侧：开关与门槛有没有真的写进偏好、门槛的下限有没有兜住。
+// 「菜单什么时候出现、点击跳不跳」在 heading-nav-check，那页才挂得动真编辑器。
+
+note("标题导航")
+const NAV_KEY = "webnote:heading-nav"
+const MIN_KEY = "webnote:heading-nav-min"
+window.localStorage.removeItem(NAV_KEY)
+window.localStorage.removeItem(MIN_KEY)
+
+const switches = panelRoot() === null ? [] : [...panelRoot().querySelectorAll('[role="switch"]')]
+const navSwitch = switches.find((node) => node.textContent.includes("悬浮标题菜单"))
+/** 显示分区里唯一的数字输入就是门槛（外观分区的经纬度只在「日出日落」档才渲染）。 */
+const minInput = panelRoot() === null ? null : panelRoot().querySelector('input[type="number"]')
+
+check("面板里有「标题导航」分区", panelRoot()?.textContent.includes("标题导航") === true)
+check("开关默认是开的", navSwitch !== undefined && navSwitch.getAttribute("aria-checked") === "true")
+check("门槛默认 5，下限写着 1", minInput !== null && minInput.value === "5" && minInput.getAttribute("min") === "1",
+  minInput === null ? "（没有输入框）" : `value=${minInput.value} min=${minInput.getAttribute("min")}`)
+
+navSwitch?.click()
+await nextTick()
+check("点开关关掉并落盘 false", window.localStorage.getItem(NAV_KEY) === "false",
+  String(window.localStorage.getItem(NAV_KEY)))
+check("关掉后门槛输入框禁用", minInput !== null && minInput.disabled === true)
+navSwitch?.click()
+await nextTick()
+check("再点打开并落盘 true", window.localStorage.getItem(NAV_KEY) === "true",
+  String(window.localStorage.getItem(NAV_KEY)))
+
+if (minInput !== null) {
+  minInput.value = "0"
+  minInput.dispatchEvent(new Event("change", { bubbles: true }))
+  await nextTick()
+}
+check("门槛写 0 被夹到 1 并落盘", window.localStorage.getItem(MIN_KEY) === "1",
+  String(window.localStorage.getItem(MIN_KEY)))
+check("夹过之后输入框里也是 1（不留下用户敲的 0）", minInput !== null && minInput.value === "1",
+  minInput === null ? "（没有输入框）" : minInput.value)
+window.localStorage.removeItem(NAV_KEY)
+window.localStorage.removeItem(MIN_KEY)
+
 // ---------- 四点五、字体 ----------
 //
 // 两层分开验：偏好落盘（localStorage）与它真的长到渲染上（<html> 内联的

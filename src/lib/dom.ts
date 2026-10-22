@@ -75,9 +75,17 @@ export function closestBlockId(el: Element): string | null {
  *
  * 表单元素单走一条：`textarea` / `input` 的光标由浏览器按 `selectionStart` 管，
  * 对它调 Range API 是另一套机制，会打断它自己的光标位置。
+ *
+ * `preventScroll`：默认 `focus()` 会把元素滚进视野。调用方自己已经在做滚动
+ * （例如标题导航：平滑滚到目标、顶端还留一段余量）时，这一次自动滚动会把
+ * 落点顶到视口边上，动画也被它打断 —— 那类调用方要把这一项关掉。
  */
-export function focusEditable(el: HTMLElement, at: "start" | "end" = "end") {
-  el.focus()
+export function focusEditable(
+  el: HTMLElement,
+  at: "start" | "end" = "end",
+  options: { preventScroll?: boolean } = {},
+) {
+  el.focus({ preventScroll: options.preventScroll === true })
   if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
     const position = at === "start" ? 0 : el.value.length
     el.setSelectionRange(position, position)

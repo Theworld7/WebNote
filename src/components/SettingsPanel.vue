@@ -9,6 +9,7 @@ import {
   Columns2Icon,
   FolderTreeIcon,
   ListIcon,
+  ListTreeIcon,
   MonitorIcon,
   MoonIcon,
   MoveHorizontalIcon,
@@ -28,7 +29,7 @@ import {
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { CONTENT_WIDTH_PX, useSettings } from "@/composables/useSettings"
+import { CONTENT_WIDTH_PX, HEADING_NAV_MIN_FLOOR, useSettings } from "@/composables/useSettings"
 import { listSystemFonts } from "@/lib/fonts"
 import { resolvePlace } from "@/lib/place"
 import { dayOf, sunTimes } from "@/lib/sun"
@@ -46,7 +47,7 @@ import FontPicker from "./FontPicker.vue"
  */
 const open = defineModel<boolean>("open", { required: true })
 
-const { tableEffect, setTableEffect, contentWidth, setContentWidth, menuGroupLayout, setMenuGroupLayout, integrateTables, setIntegrateTables, contentFont, setContentFont, codeFont, setCodeFont, theme, setTheme } = useSettings()
+const { tableEffect, setTableEffect, contentWidth, setContentWidth, menuGroupLayout, setMenuGroupLayout, integrateTables, setIntegrateTables, headingNav, setHeadingNav, headingNavMin, setHeadingNavMin, contentFont, setContentFont, codeFont, setCodeFont, theme, setTheme } = useSettings()
 
 /**
  * 本机字体列表。打开面板时才去取（桌面端要扫一遍系统字体），拿到之前选择框里
@@ -220,6 +221,20 @@ function commitCoordinate(field: "latitude" | "longitude", event: Event) {
 /** 「按系统时区」：两个轴一起清空，回到 `systemPlace()` 的推测值。 */
 function resetPlace() {
   setTheme({ latitude: null, longitude: null })
+}
+
+/**
+ * 标题导航的出现门槛。
+ *
+ * 空值 / 非数字 / 低于下限一律落到下限（1）—— 这一项没有「不设」这个状态，最小值就是
+ * 「只要有标题就显示」。夹过之后把结果写回输入框：用户敲 0 被夹成 1 时，框里不能还留着 0。
+ */
+function commitHeadingNavMin(event: Event) {
+  const target = event.target
+  if (!(target instanceof HTMLInputElement)) return
+  const parsed = Number.parseInt(target.value, 10)
+  setHeadingNavMin(Number.isNaN(parsed) ? HEADING_NAV_MIN_FLOOR : parsed)
+  target.value = String(headingNavMin.value)
 }
 
 /** 抽屉标题栏的关闭按钮，与工具栏那批小按钮同一体量。 */
@@ -398,6 +413,54 @@ function optionClass(isActive: boolean): string {
                 </span>
                 <CheckIcon v-if="integrateTables" class="ml-auto mt-0.5 size-3.5 flex-none text-foreground" />
               </button>
+            </section>
+
+            <section class="flex flex-col gap-2">
+              <h3 class="text-[13px] font-medium text-foreground">标题导航</h3>
+              <SheetDescription>笔记右端的标题刻度，hover 展开目录，点击跳到那一节。</SheetDescription>
+
+              <!-- 开关默认是开的：这项功能本来就是默认在的，关掉才是选择。 -->
+              <button
+                type="button"
+                role="switch"
+                :aria-checked="headingNav"
+                :class="[
+                  'mt-0.5 flex items-start gap-2.5 rounded-[9px] border p-2.5 text-left transition-colors',
+                  optionClass(headingNav),
+                ]"
+                @click="setHeadingNav(!headingNav)"
+              >
+                <ListTreeIcon class="mt-0.5 size-4 flex-none text-muted-foreground" />
+                <span class="flex min-w-0 flex-col gap-0.5">
+                  <span class="text-[13px] leading-[1.4] text-foreground">悬浮标题菜单</span>
+                  <span class="text-[11.5px] leading-[1.45] text-muted-foreground">
+                    静止时只有刻度，不占正文位置；鼠标移上去才展开标题
+                  </span>
+                </span>
+                <CheckIcon v-if="headingNav" class="ml-auto mt-0.5 size-3.5 flex-none text-foreground" />
+              </button>
+
+              <!-- 门槛跟着开关走：关掉时它没有意义，压暗并禁用，而不是藏起来（藏了会让人以为丢了设置项）。 -->
+              <label
+                class="mt-0.5 flex items-center justify-between gap-3 px-0.5"
+                :class="headingNav ? '' : 'opacity-40'"
+              >
+                <span class="flex min-w-0 flex-col gap-0.5">
+                  <span class="text-[12px] leading-[1.4] text-foreground">出现门槛</span>
+                  <span class="text-[11.5px] leading-[1.45] text-muted-foreground">
+                    标题数达到这个数才显示，最少 {{ HEADING_NAV_MIN_FLOOR }} 条
+                  </span>
+                </span>
+                <Input
+                  type="number"
+                  min="1"
+                  step="1"
+                  class="w-16 flex-none text-center"
+                  :model-value="headingNavMin"
+                  :disabled="!headingNav"
+                  @change="commitHeadingNavMin"
+                />
+              </label>
             </section>
 
             <section class="flex flex-col gap-2">

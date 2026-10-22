@@ -470,6 +470,19 @@ It is a Preference, not a Table property: it applies to every Table at once and 
 of Block data.
 _Avoid_: Table layout, table mode, overflow behaviour
 
+**Heading nav**:
+The strip of heading ticks pinned to the right edge of the page. At rest it shows only the
+ticks — the one for the section being read is longer and darker, the rest are short and grey;
+hovering it expands into a label list (each label right-aligned beside its tick), and clicking
+one scrolls that heading to the top of the page. It is read off the Note's **top-level** h1–h6
+blocks and nothing else: a heading inside a Cell sits in a column, not in the reading flow. It
+is a Preference in two parts — a switch (on by default) and a **threshold**: a Note holding
+fewer headings than that number shows no nav at all, because a short Note is already readable
+at a glance and a strip of ticks beside it is only noise. It never enters the Note and never
+makes a Tab dirty.
+_Avoid_: Outline or TOC (both name a panel over the whole structure, not this strip), minimap,
+anchor list, heading list
+
 ### Bounds
 
 **Table bound**:

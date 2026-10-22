@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>标题导航自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  /* 编辑区要有确定的高度，滚动才真的会发生；标题导航的落位也才有几何可量。 */
+  #app { height: 620px; display: flex; flex-direction: column; border: 1px solid #e5e5e5; }
+  pre { margin: 12px 0 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; }
+  .fail { color: #b42318; }
+</style>
+</head>
+<body>
+<h1>标题导航（右侧刻度 / 门槛 / 开关 / 跳转 / 投影）自检</h1>
+<!-- 脚本里有顶层 await（要等真实读盘），--dump-dom 抓不到结果：
+     node design/cdp-dump.mjs http://localhost:1420/design/heading-nav-check.html -->
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { createBlock, createTextualBlock } from "../src/lib/blocks.ts"
+import { headingEntries } from "../src/lib/headings.ts"
+import { textToRuns } from "../src/lib/inline.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function report(kind, detail) {
+  document.getElementById("out").textContent = [kind, "", detail, "", ...lines].join("\n")
+}
+window.addEventListener("unhandledrejection", (e) => report("REJECT", e.reason?.stack ?? String(e.reason)))
+window.addEventListener("error", (e) => report("ERROR", e.message))
+
+function step(name) {
+  document.getElementById("out").textContent = `running: ${name}`
+}
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * 预置笔记：八条标题，h1~h6 各出现一次，中间垫足正文 ——
+ * 一是让标题数过默认门槛（5），二是让正文真的能滚（跳转与激活都靠滚动才验得出来）。
+ */
+const PARA = "这一段是垫在标题之间的正文，用来把页面撑长，好让滚动与跳转有东西可量。"
+function section(tag, text) {
+  return `<${tag}>${text}</${tag}>` + `<p>${PARA}</p>`.repeat(3)
+}
+const NOTE_HTML =
+  section("h1", "第一章 总览") +
+  section("h2", "1.1 目标") +
+  section("h3", "1.1.1 范围") +
+  section("h4", "1.1.1.1 边界") +
+  section("h5", "更细的一层") +
+  section("h6", "最细的一层") +
+  section("h2", "1.2 结论") +
+  section("h1", "第二章 附录")
+const HEADING_COUNT = 8
+
+/** 清掉两个偏好键：默认值本身是这条自检的第一批断言。 */
+const NAV_KEY = "webnote:heading-nav"
+const MIN_KEY = "webnote:heading-nav-min"
+window.localStorage.removeItem(NAV_KEY)
+window.localStorage.removeItem(MIN_KEY)
+
+step("opfs")
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("heading-nav-probe", { create: true })
+const file = await dir.getFileHandle("a.html", { create: true })
+const writable = await file.createWritable()
+await writable.write(NOTE_HTML)
+await writable.close()
+window.showDirectoryPicker = async () => dir
+
+step("mount")
+let workspace = null
+let settings = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    settings = provideSettings()
+    provideTheme(settings)
+    return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+
+step("bootstrap")
+await workspace.bootstrap()
+step("openRoot")
+await workspace.openRoot()
+await nextTick()
+
+const firstFile = (function find(nodes) {
+  for (const node of nodes) {
+    if (node.kind === "note") return node
+    const hit = node.children ? find(node.children) : null
+    if (hit) return hit
+  }
+  return null
+})(workspace.tree.value)
+
+if (firstFile === null) {
+  report("ERROR", "OPFS 里没扫到预置笔记")
+} else {
+  workspace.openFile(firstFile.id)
+  for (let i = 0; i < 80 && workspace.activeDocument.value.length < HEADING_COUNT; i += 1) await wait(50)
+  await nextTick()
+}
+
+const docRowCount = workspace.activeDocument.value.length
+check("预置笔记读出来了", docRowCount > HEADING_COUNT, `块数=${docRowCount}`)
+
+/** 文档里真实存在的标题块数 —— 菜单条数要跟它对上，不是跟写死的 8 对上。 */
+const docHeadings = workspace.activeDocument.value.filter((block) => /^h[1-6]$/.test(block.type)).length
+
+function nav() { return document.querySelector("[data-heading-nav]") }
+function ticks() { return nav() === null ? [] : [...nav().querySelectorAll("[data-heading-id]")] }
+function activeTick() { return nav() === null ? null : nav().querySelector("[data-active='true']") }
+function viewportEl() { return document.querySelector("[data-doc]")?.closest('[data-slot="scroll-area-viewport"]') ?? null }
+function rowOf(id) { return document.querySelector(`[data-block-id="${id}"]`) }
+
+// ---------- 一、默认值与出现条件 ----------
+
+step("默认")
+check("默认没存过开关（未写 webnote:heading-nav）", window.localStorage.getItem(NAV_KEY) === null)
+check("默认没存过门槛（未写 webnote:heading-nav-min）", window.localStorage.getItem(MIN_KEY) === null)
+check("默认门槛是 5", settings.headingNavMin.value === 5, String(settings.headingNavMin.value))
+check("默认开关是开", settings.headingNav.value === true)
+check("标题数够门槛，菜单出现了", nav() !== null, `标题块数=${docHeadings}`)
+
+const tickCount = ticks().length
+check("刻度条数 == 文档标题块数（h1~h6 全收）", tickCount === docHeadings, `刻度=${tickCount}，标题块=${docHeadings}`)
+
+// 收起态：标题文字在 DOM 里但在宽度上被压掉，opacity 也归零 —— hover 只是把它放出来。
+const firstLabel = ticks()[0]?.querySelector("span") ?? null
+check(
+  "收起态标题文字宽度为 0（只剩刻度）",
+  firstLabel !== null && firstLabel.getBoundingClientRect().width < 1,
+  firstLabel === null ? "（没刻度）" : String(firstLabel.getBoundingClientRect().width),
+)
+check(
+  "收起态标题文字透明",
+  firstLabel !== null && getComputedStyle(firstLabel).opacity === "0",
+  firstLabel === null ? "（没刻度）" : getComputedStyle(firstLabel).opacity,
+)
+
+// 贴右端：导航右缘离滚动容器右缘不超过 24px（正文列有 40px 右内边距，正文不会贴边）。
+const viewportRect = viewportEl()?.getBoundingClientRect() ?? null
+const navRect = nav()?.getBoundingClientRect() ?? null
+check(
+  "导航贴在编辑区右端",
+  viewportRect !== null && navRect !== null && viewportRect.right - navRect.right <= 24 && viewportRect.right - navRect.right >= 0,
+  viewportRect === null || navRect === null ? "（没渲染）" : `${(viewportRect.right - navRect.right).toFixed(1)}px`,
+)
+
+// ---------- 二、门槛 ----------
+
+step("门槛")
+settings.setHeadingNavMin(docHeadings + 1)
+await nextTick()
+check("门槛高过标题数时菜单消失", nav() === null)
+
+settings.setHeadingNavMin(1)
+await nextTick()
+check("门槛 1 时菜单出现（下限就是 1）", nav() !== null)
+
+settings.setHeadingNavMin(0)
+await nextTick()
+check("门槛写 0 被夹到 1（不在内存里留下非法值）", settings.headingNavMin.value === 1, String(settings.headingNavMin.value))
+check("门槛写 0 落盘也是 1", window.localStorage.getItem(MIN_KEY) === "1", String(window.localStorage.getItem(MIN_KEY)))
+
+// ---------- 三、开关 ----------
+
+step("开关")
+settings.setHeadingNav(false)
+await nextTick()
+check("关掉后菜单消失", nav() === null)
+check("关掉落盘为 false", window.localStorage.getItem(NAV_KEY) === "false", String(window.localStorage.getItem(NAV_KEY)))
+
+settings.setHeadingNav(true)
+await nextTick()
+check("再打开菜单回来", nav() !== null)
+
+// ---------- 四、跳转与当前位置 ----------
+
+step("跳转")
+/** 激活项的重量有 16ms 节流，等它跑完再读数。 */
+await wait(120)
+check("初始激活的是第一条", activeTick()?.dataset.headingId === ticks()[0]?.dataset.headingId,
+  activeTick()?.dataset.headingId ?? "（没有激活项）")
+
+const target = ticks()[ticks().length - 1]
+const targetId = target?.dataset.headingId ?? ""
+const viewport = viewportEl()
+const targetRow = rowOf(targetId)
+/** 点击前先算好终点：平滑滚动的落点 = 标题相对视口的偏移 + 当前 scrollTop - 24px 余量。 */
+const expectedTop =
+  targetRow === null || viewport === null
+    ? -1
+    : targetRow.getBoundingClientRect().top - viewport.getBoundingClientRect().top + viewport.scrollTop - 24
+
+// 末节标题到不了视口顶端（后面没有内容可滚），实际落点会被夹到最大可滚位置。
+const maxTop = viewport === null ? 0 : viewport.scrollHeight - viewport.clientHeight
+
+/**
+ * 离屏环境不推进动画帧，`behavior: "smooth"` 的滚动永远不会落定（scrollTop 一直是 0）。
+ * 这里把 `scrollTo` 换成「分帧推进」的替身：每 20ms 挪一段、派发一次 scroll —— 跟真机
+ * 一样，滚动途中的每一帧都会被 measure 看到。真机上平滑滚动也只是把同一段位移分摊到几帧里。
+ *
+ * 顺便把每一帧的激活项记下来：点完的那条如果在滚动途中被改掉、到位后又改回来，
+ * 菜单文字的颜色就会闪一下 —— 这份序列就是那个「闪」的证据。
+ */
+const scrollCalls = []
+const activeDuringScroll = []
+let scrollTimer = 0
+if (viewport !== null) {
+  viewport.scrollTo = (options) => {
+    scrollCalls.push(options)
+    window.clearInterval(scrollTimer)
+    const from = viewport.scrollTop
+    const across = options.top - from
+    const total = 8
+    let frame = 0
+    scrollTimer = window.setInterval(() => {
+      frame += 1
+      viewport.scrollTop = from + (across * frame) / total
+      viewport.dispatchEvent(new Event("scroll"))
+      activeDuringScroll.push(activeTick()?.dataset.headingId ?? null)
+      if (frame >= total) window.clearInterval(scrollTimer)
+    }, 20)
+  }
+}
+
+// 真鼠标按在按钮上会先给它焦点（合成的 click 不模拟这一步），手动补上再点。
+target?.focus()
+check("点击前焦点在菜单项上（模拟真实鼠标点击）", document.activeElement === target,
+  document.activeElement?.tagName ?? "（无）")
+target?.click()
+await wait(60)
+
+// ---------- 四点五、点击后的焦点 ----------
+
+step("焦点")
+const targetEditable = document.querySelector(`[data-editable="${targetId}"]`)
+check("点击后焦点离开菜单项（不再靠 focus-within 卡住展开态）", document.activeElement !== target,
+  document.activeElement?.tagName ?? "（无）")
+check("点击后焦点落在目标标题块上", targetEditable !== null && document.activeElement === targetEditable,
+  document.activeElement?.getAttribute("data-editable") ?? "（焦点不在可编辑体上）")
+const caret = window.getSelection()
+check(
+  "光标落在标题开头（跳过去就能接着写）",
+  caret !== null && caret.isCollapsed && caret.anchorOffset === 0 &&
+    targetEditable !== null && caret.anchorNode !== null && targetEditable.contains(caret.anchorNode),
+  caret === null ? "（没有选区）" : `anchorOffset=${caret.anchorOffset}`,
+)
+
+// 滚动替身 8 帧 × 20ms，再留出跳转锁收尾的余量。
+await wait(500)
+await nextTick()
+
+check("点击后请求滚动到目标标题（顶端留 24px 余量）", scrollCalls.length === 1 && Math.abs(scrollCalls[0].top - expectedTop) < 2,
+  `请求=${scrollCalls[0]?.top ?? "（没滚）"}，应为=${expectedTop.toFixed(1)}`)
+check(
+  "滚动途中激活项没有被改回别的节（菜单文字不会闪）",
+  activeDuringScroll.length === 8 && activeDuringScroll.every((id) => id === targetId),
+  `采样=${activeDuringScroll.map((id) => (id === targetId ? "目标" : id ?? "∅")).join(" → ")}`,
+)
+check("滚动确实落到目标位置（够不着时夹到底）", viewport !== null && Math.abs(viewport.scrollTop - Math.min(expectedTop, maxTop)) < 2,
+  viewport === null ? "（没有滚动容器）" : `scrollTop=${viewport.scrollTop}，应为=${Math.min(expectedTop, maxTop).toFixed(1)}`)
+check("点击的那条成为激活项（最后一节：滚到底就算它）", activeTick()?.dataset.headingId === targetId, activeTick()?.dataset.headingId ?? "（没有激活项）")
+
+// 滚回顶部：激活项应当回落第一条。反过来验「激活跟着滚动走」，而不是只跟着点击走。
+// 离屏环境不保证派发 scroll 事件，这里手动补一次 —— 应用侧监听的就是它。
+if (viewport !== null) {
+  viewport.scrollTop = 0
+  viewport.dispatchEvent(new Event("scroll"))
+}
+await wait(150)
+await nextTick()
+check("滚回顶部后激活回落第一条", activeTick()?.dataset.headingId === ticks()[0]?.dataset.headingId,
+  activeTick()?.dataset.headingId ?? "（没有激活项）")
+
+// 中间的一条：它没有「滚到底」那条特判兜着 —— 锁一放，measure 会按真实位置重算，
+// 算出来必须还是同一条，否则「点完高亮跳到邻节」只是比闪烁晚一点发生。
+const middle = ticks()[3]
+const middleId = middle?.dataset.headingId ?? ""
+middle?.click()
+await wait(500)
+await nextTick()
+check("点中间标题：落定后激活仍是它（锁释放不把高亮带走）", activeTick()?.dataset.headingId === middleId,
+  activeTick()?.dataset.headingId ?? "（没有激活项）")
+
+// ---------- 五、投影规则（纯函数） ----------
+
+step("投影")
+const withBold = createTextualBlock("h2", [
+  { text: "粗体", marks: ["bold"] },
+  { text: "标题", marks: [] },
+])
+const emptyHeading = createTextualBlock("h3", [])
+const plain = createTextualBlock("text", textToRuns("正文不是标题"))
+const layout = createBlock("layout", "")
+const projected = headingEntries([withBold, emptyHeading, plain, layout])
+check("只收标题块（正文 / 布局块不进目录）", projected.length === 1, `收到 ${projected.length} 条`)
+check("标题文字取纯文本投影（行内标记压平）", projected[0]?.text === "粗体标题", String(projected[0]?.text))
+check("级别与块类型一致", projected[0]?.level === 2, String(projected[0]?.level))
+check("空标题不进目录", headingEntries([emptyHeading]).length === 0)
+const sixLevels = headingEntries([createBlock("h1", "一"), createBlock("h4", "四"), createBlock("h6", "六")])
+check("h1~h6 都收（含 h4 / h6）", sixLevels.length === 3, `收到 ${sixLevels.length} 条`)
+
+report(`${passed} passed, ${failed} failed`, lines.join("\n"))
+</script>
+</body>
+</html>
