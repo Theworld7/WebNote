@@ -3,6 +3,7 @@ import type { TableAlign, TableCell } from "@/types/workspace"
 import { computed, onMounted, ref } from "vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useInlineToolbar } from "@/composables/useInlineToolbar"
+import { linkHrefOf } from "@/lib/dom"
 import { runsFromNode } from "@/lib/html"
 import { runsText, runsToHtml } from "@/lib/inline"
 import { shortcutMark } from "@/lib/marks"
@@ -30,7 +31,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ (event: "focus"): void }>()
 
-const { setTableCellRuns } = useWorkspace()
+const { setTableCellRuns, followLink } = useWorkspace()
 
 /** 本格子的根元素。浮条的目标，也是挂载时写入初始 HTML 的地方。 */
 const cellRef = ref<HTMLElement | null>(null)
@@ -97,6 +98,17 @@ function onInput(event: Event) {
 }
 
 /**
+ * 格子里也可能有链接（解析别人的 HTML 解析出来的），手势与正文块一致：单击就跳。
+ * 判定与跳转都走同一份（`linkHrefOf` / `followLink`），不在这里另立一套。
+ */
+function onClick(event: MouseEvent) {
+  const href = linkHrefOf(event)
+  if (href === null) return
+  event.preventDefault()
+  void followLink(href)
+}
+
+/**
  * 行内格式快捷键。与浮条按钮共用同一条切换路（composable 的 `applyMark`）：
  * 接管而不是放给浏览器的原生 execCommand，理由与正文块相同（见 BlockItem）。
  */
@@ -123,6 +135,7 @@ const tag = computed(() => (props.cell.header ? "th" : "td"))
     :class="cellClass"
     @input="onInput"
     @keydown="onKeydown"
+    @click="onClick"
     @focus="emit('focus')"
   />
 

@@ -6,7 +6,7 @@ import { useWorkspace } from "@/composables/useWorkspace"
 import { useInlineToolbar } from "@/composables/useInlineToolbar"
 import { blockText, hasLeadingMarker, isListType, isTextualBlock, tableToTsv } from "@/lib/blocks"
 import { tableHtml } from "@/lib/html/serialize"
-import { requestEditableFocus } from "@/lib/dom"
+import { linkHrefOf, requestEditableFocus } from "@/lib/dom"
 import { runsFromNode } from "@/lib/html"
 import { runsText, runsToHtml } from "@/lib/inline"
 import { caretOffsetIn, shortcutMark, splitRunsAt } from "@/lib/marks"
@@ -61,7 +61,7 @@ const emit = defineEmits<{
   (event: "remove", id: string): void
 }>()
 
-const { setBlockRuns, toggleBlockChecked } = useWorkspace()
+const { setBlockRuns, toggleBlockChecked, followLink } = useWorkspace()
 
 const bodyRef = ref<HTMLElement | null>(null)
 const openMenu = ref<BlockMenuKind>("")
@@ -71,7 +71,7 @@ const typeMenuMode = ref<"insert" | "convert">("insert")
 const textual = computed(() => (isTextualBlock(props.block) ? props.block : null))
 
 // 浮条与链接浮层的编排收在 composable 里，与表格单元格共用同一套（见 useInlineToolbar）。
-const { toolbar, linkEdit, applyMark, applyColor, openLink, applyLink } = useInlineToolbar({
+const { toolbar, linkEdit, applyMark, applyColor, openLink, applyLink, cancelLink } = useInlineToolbar({
   target: () => bodyRef.value,
   getRuns: () => textual.value?.runs ?? [],
   commit: (runs) => setBlockRuns(props.block.id, runs),
@@ -225,6 +225,20 @@ function onKeydown(event: KeyboardEvent) {
     yieldFocus = true
     emit("remove", props.block.id)
   }
+}
+
+/**
+ * 正文里的行内链接：单击就跳（见 ADR-0021）。
+ *
+ * 这条手势与「单击落光标」是一对天生的冲突 —— 想改链接文字，得用方向键把光标移进去。
+ * 选「点链接就是去那个地方」，是因为链接在正文里是少数、而点击它的人几乎总想跳。
+ * 拖选文字结束在链接上不算单击（判定在 `linkHrefOf`），选区不会被这次跳转吃掉。
+ */
+function onBodyClick(event: MouseEvent) {
+  const href = linkHrefOf(event)
+  if (href === null) return
+  event.preventDefault()
+  void followLink(href)
 }
 
 function onMenuChange(value: BlockMenuKind) {
@@ -489,6 +503,7 @@ const bodyClass = computed(() => {
         :class="bodyClass"
         @input="onInput"
         @keydown="onKeydown"
+        @click="onBodyClick"
       />
     </div>
 
@@ -506,11 +521,12 @@ const bodyClass = computed(() => {
       />
       <LinkPopover
         v-if="linkEdit !== null"
+        :text="linkEdit.text"
         :href="linkEdit.href"
         :shape="linkEdit.shape"
         :anchor="{ top: linkEdit.top, left: linkEdit.left }"
         @apply="applyLink"
-        @close="linkEdit = null"
+        @close="cancelLink"
       />
     </Teleport>
   </div>

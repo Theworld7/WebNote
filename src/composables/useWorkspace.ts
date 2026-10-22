@@ -10,6 +10,8 @@ import { describeError } from "@/lib/errors"
 import { parseNote, serializeHtml } from "@/lib/html"
 import type { DataTableLookup } from "@/lib/html"
 import { createWorkspaceFs } from "@/lib/fs"
+import { linkTargetOf } from "@/lib/link"
+import { openExternalUrl } from "@/lib/open-external"
 import { NOTE_EXTENSION, TABLE_EXTENSION, checkName, defaultExpanded, fileStem, isNoteFile, isTableFile } from "@/lib/fs/policy"
 import * as table from "@/lib/table"
 import { fileName, fromSegments, isUnder, joinPath, migratePath, titleOf, toCrumbs, toSegments } from "@/lib/paths"
@@ -552,6 +554,45 @@ function createWorkspace() {
   function openFile(path: string) {
     if (!tabs.value.some((tab) => tab.path === path)) tabs.value.push({ path, dirty: false, dirtyTables: [] })
     activateTab(path)
+  }
+
+  /**
+   * 行内链接的跳转。判定收在 `linkTargetOf`（正文块与表格格子共用那份结论）：
+   * 工作区里的笔记 / 数据表在应用内开标签，带 scheme 的地址交给系统浏览器。
+   *
+   * 打不开的原因一律写进 `fsError`：点一下链接毫无反应，是这堆状态里最难自查的一种
+   * 失败 —— 用户分不清是链接坏了、还是自己点歪了。目标存在与否必须问盘（`exists`），
+   * 不能拿树去猜：树是启动时扫的，别的编辑器新存的文件不在里面。
+   */
+  async function followLink(href: string) {
+    const target = linkTargetOf(href)
+    if (target.kind === "none") return
+    if (target.kind === "external") {
+      await openExternalUrl(target.url)
+      return
+    }
+    if (target.kind === "unsupported") {
+      fsError.value = `链接指向的不是笔记或数据表：${target.href}`
+      return
+    }
+    const driver = fs.value
+    const current = root.value
+    if (driver === null || current === null) {
+      fsError.value = "还没有打开工作区，打不开链接指向的文档"
+      return
+    }
+    let exists = false
+    try {
+      exists = await driver.exists(current, target.path)
+    } catch (error) {
+      fsError.value = `检查「${target.path}」失败：${describeError(error)}`
+      return
+    }
+    if (!exists) {
+      fsError.value = `工作区里没有「${target.path}」`
+      return
+    }
+    openFile(target.path)
   }
 
   function closeTab(path: string) {
@@ -1838,6 +1879,7 @@ function createWorkspace() {
     attachIntegrateTables,
     // file actions
     openFile,
+    followLink,
     activateTab,
     closeTab,
     requestCloseTab,

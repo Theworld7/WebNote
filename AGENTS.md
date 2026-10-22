@@ -22,7 +22,7 @@
   缺省最新在前(0016)、代码块静态态单层高亮、按需挂**全应用唯一**一个 Monaco 编辑(0017)、
 代码块的格式化只在按按钮时跑、结果留在缓冲等提交(0018)、代码块的语法配色是我们自己的 token
 而非引主题文件、深色另取一套(0019)、原生 select 的弹层靠元素底色与 option 显式色上色、
-静止态不填底(0020)。
+静止态不填底(0020)、行内链接单击即跳、工作区文档在应用内开标签(0021)。
   改对应行为前先读那篇。
 
 ## 验证
@@ -33,7 +33,7 @@
    用类型收窄和类型守卫表达。
 2. **自检页**:`design/*.html` 是能直接跑的回归页,每个用例输出 `OK` / `FAIL` 行。
    `pnpm dev` 后访问 `/design/<名字>.html`;其中 `drag-check`、`typography-check`、
-   `data-table-check`、`ledger-edit-check`、`menu-nav-check` 含顶层 `await`,要抓结果用
+   `data-table-check`、`ledger-edit-check`、`menu-nav-check`、`link-check` 含顶层 `await`,要抓结果用
    `node design/cdp-dump.mjs http://localhost:1420/design/<名字>.html`。
 
 改哪层跑哪页:动 `lib/html` → `parse-check`;动块拖拽 / 标签栏 → `drag-check` / `tab-check`;
@@ -46,7 +46,8 @@
 `style.css` 里的 `--color-code-*`)→ `code-edit-check`(挂真实编辑器,走 CDP 驱动);
 动对比度 / 配色 token → `theme-check`、`code-edit-check` 的第十节;
 动落块 / 转换之后的焦点(菜单插入、`/` 转换、`转为…` 子菜单、Esc 关菜单)→ `focus-check`;
-动格子的增删行为 → `cell-check`(挂真实编辑器,走 CDP);
+动格子的增删行为 → `cell-check`(挂真实编辑器,走 CDP);动行内链接的样式 / 单击跳转
+(`lib/link.ts`、`lib/open-external.ts`、`linkHrefOf`)→ `link-check`(挂真实编辑器,走 CDP);
 动账目块的财务口径 → `ledger-check`,动它的就地增删改 → `ledger-edit-check`(挂真实编辑器,
 走 CDP 驱动);动主题色 / 品牌色 → `theme-check`(对齐图标 tokens,守对比度);动外观 / 主题模式 / 定时与
 日出日落 → `theme-mode-check`(挂真实标签栏,含太阳位置与时区);动页面级样式

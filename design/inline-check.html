@@ -16,6 +16,7 @@
 <pre id="out">running…</pre>
 <script type="module">
 import { runsToHtml } from "../src/lib/inline.ts"
+import { linkTargetOf } from "../src/lib/link.ts"
 import { runsFromNode } from "../src/lib/html/index.ts"
 import { applyColorAt, colorAt, marksAt, offsetRangeIn, paintRuns, rangeForOffsets, shortcutMark, toggleMarkAt } from "../src/lib/marks.ts"
 
@@ -129,6 +130,38 @@ check(
     { text: "ef", marks: [], href: "/x" },
   ]),
   JSON.stringify(linkedCut),
+)
+
+// ---- 链接目标：网址 / 工作区文档 / 都不是（ADR-0021）----
+check("链接：https 走外链，地址原样带走", same(linkTargetOf("https://example.com/a?b=1#c"), { kind: "external", url: "https://example.com/a?b=1#c" }))
+check("链接：mailto 也算外链", same(linkTargetOf("mailto:a@b.c"), { kind: "external", url: "mailto:a@b.c" }))
+check("链接：空地址与页内片段都没有目标", same(linkTargetOf(""), { kind: "none" }) && same(linkTargetOf("#段落"), { kind: "none" }))
+check(
+  "链接：工作区路径原样成立（笔记）",
+  same(linkTargetOf("日记 / 2026-10-08.html"), { kind: "workspace", path: "日记 / 2026-10-08.html" }),
+  JSON.stringify(linkTargetOf("日记 / 2026-10-08.html")),
+)
+check(
+  "链接：正斜杠写法折成工作区路径",
+  same(linkTargetOf("日记/2026-10-08.html"), { kind: "workspace", path: "日记 / 2026-10-08.html" }),
+  JSON.stringify(linkTargetOf("日记/2026-10-08.html")),
+)
+check(
+  "链接：反斜杠与 ./ 前缀同样认",
+  same(linkTargetOf("./日记\\2026-10-08.html"), { kind: "workspace", path: "日记 / 2026-10-08.html" }),
+  JSON.stringify(linkTargetOf("./日记\\2026-10-08.html")),
+)
+check("链接：.htm 与 .tbl 都是能在应用里开的文档", linkTargetOf("旧/a.htm").kind === "workspace" && linkTargetOf("账/2026.tbl").kind === "workspace")
+check(
+  "链接：百分号编码的中文路径先解码",
+  same(linkTargetOf("%E6%97%A5%E8%AE%B0/a.html"), { kind: "workspace", path: "日记 / a.html" }),
+  JSON.stringify(linkTargetOf("%E6%97%A5%E8%AE%B0/a.html")),
+)
+check("链接：目标后缀带片段也算同一篇笔记", linkTargetOf("日记/a.html#顶部").kind === "workspace")
+check(
+  "链接：相对地址但不是笔记 / 数据表 → 应用里打不开",
+  same(linkTargetOf("img/a.png"), { kind: "unsupported", href: "img/a.png" }),
+  JSON.stringify(linkTargetOf("img/a.png")),
 )
 
 // ---- 换行：`<br>` 占一个字符，偏移与 runs 对齐 ----

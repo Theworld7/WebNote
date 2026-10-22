@@ -371,9 +371,9 @@ export function docStyle(): string {
   const h = BLOCK_SPACING.h1
   const hTail = BLOCK_SPACING.h4
 
-  return `    :root { color-scheme: light dark; --fg: #1c1c1e; --muted: #6b7280; --line: #e4e4e7; --bg-soft: #f4f4f5; --accent-bg: #eef2ff; --accent-fg: #313d6b; --mark-bg: #fdf3b0; --radius-table: ${TABLE_RADIUS}px; }
+  return `    :root { color-scheme: light dark; --fg: #1c1c1e; --muted: #6b7280; --line: #e4e4e7; --bg-soft: #f4f4f5; --accent-bg: #eef2ff; --accent-fg: #313d6b; --mark-bg: #fdf3b0; --link: #1d4fd8; --radius-table: ${TABLE_RADIUS}px; }
     @media (prefers-color-scheme: dark) {
-      :root { --fg: #e6e6e8; --muted: #9ca3af; --line: #33333a; --bg-soft: #1e1e22; --accent-bg: #232a45; --accent-fg: #c3ccff; --mark-bg: #4a4120; }
+      :root { --fg: #e6e6e8; --muted: #9ca3af; --line: #33333a; --bg-soft: #1e1e22; --accent-bg: #232a45; --accent-fg: #c3ccff; --mark-bg: #4a4120; --link: #5e93ff; }
     }
     body { max-width: 46rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; background: Canvas; color: var(--fg);
       font: ${BODY_FONT_SIZE}px/${LINE_HEIGHT} -apple-system, "PingFang SC", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
@@ -520,6 +520,12 @@ ${headingRules}
     .note-bm-name { font-size: 13px; line-height: 17px; font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .note-bm-domain { font-size: 11px; line-height: 14px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     mark { background-color: var(--mark-bg); color: inherit; }
+    /* 行内链接。与编辑器 style.css 的同名规则同一副样子:品牌蓝 + 细下划线,悬停收满。
+       下面那条卡片形态的规则把颜色和装饰都改回本体,两条不冲突(带属性的选择器高于裸
+       元素,不比书写顺序)。 */
+    a { color: var(--link); text-decoration: underline; text-decoration-thickness: 1px;
+      text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 2px; }
+    a:hover { text-decoration-color: currentColor; }
     a[data-link-shape="card"] { display: inline-flex; flex-direction: column; align-items: center; gap: 6px;
       width: 96px; margin: 2px 6px; padding: 12px 8px 10px; vertical-align: middle;
       border: 1px solid var(--line); border-radius: 8px; background: var(--bg-soft);

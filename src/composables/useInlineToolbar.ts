@@ -2,7 +2,7 @@ import type { InlineMark, InlineRun, LinkShape } from "@/types/workspace"
 import type { OffsetRange } from "@/lib/marks"
 import { onBeforeUnmount, onMounted, ref } from "vue"
 import { isCrossSelecting } from "@/lib/crossselect"
-import { applyColorAt, applyLinkAt, colorAt, linkAt, marksAt, offsetRangeIn, paintRuns, toggleMarkAt } from "@/lib/marks"
+import { applyColorAt, applyLinkAt, colorAt, linkAt, linkSpanAt, marksAt, offsetRangeIn, paintRuns, rangeForOffsets, textIn, toggleMarkAt } from "@/lib/marks"
 
 /** 浮条显示状态。坐标是视口坐标，浮条以此为底部中心点。 */
 export interface ToolbarState {
@@ -17,10 +17,14 @@ export interface ToolbarState {
 /**
  * 链接浮层的编辑状态。range 是打开那一刻的选区快照 —— 浮层里的输入框会拿走
  * 焦点，真正的选区早没了，确认时按这份快照改 runs。
+ *
+ * 落在已有链接上时 range 已被扩到整条链接（见 `linkSpanAt`），`text` 是它的
+ * 显示内容；新建链接时两者都只覆盖选中的那一段。
  */
 export interface LinkEditState {
   range: OffsetRange
   href: string
+  text: string
   shape: LinkShape
   top: number
   left: number
@@ -131,46 +135,90 @@ export function useInlineToolbar(options: {
     paint(runs, range)
   }
 
-  /** 打开链接浮层：记下选区快照与回显值。 */
+  /** 打开链接浮层：记下选区快照与回显值。已有链接按整条链接取，不只是选中那半截。 */
   function openLink() {
     const element = options.target()
     const current = toolbar.value
     if (element === null || current === null) return
 
-    const range = offsetRangeIn(element)
-    if (range === null) return
+    const selection = offsetRangeIn(element)
+    if (selection === null) return
 
-    const link = linkAt(options.getRuns(), range.start)
+    const runs = options.getRuns()
+    const range = linkSpanAt(runs, selection)
+    const link = linkAt(runs, range.start)
     linkEdit.value = {
       range,
       href: link?.href ?? "",
+      text: textIn(runs, range),
       shape: link?.shape ?? "text",
       top: current.top,
       left: current.left,
     }
   }
 
-  /** 浮层确认。空地址表示移除链接；改完把焦点与选区还给正文。 */
-  function applyLink(href: string, shape: LinkShape) {
+  /**
+   * 浮层确认：改显示内容、地址与形态。空地址表示移除链接（文字留着）。
+   * 改完按新长度把选区还给正文 —— 文字可能变长变短，旧区间不再指同一段。
+   */
+  function applyLink(text: string, href: string, shape: LinkShape) {
     const edit = linkEdit.value
-    if (edit === null) return
+    if (edit === null || text.trim() === "") return
 
-    const runs = applyLinkAt(options.getRuns(), edit.range, href === "" ? null : href, shape)
+    const runs = applyLinkAt(options.getRuns(), edit.range, href === "" ? null : href, shape, text)
     options.commit(runs)
     linkEdit.value = null
-    paint(runs, edit.range)
+    paint(runs, { start: edit.range.start, end: edit.range.start + text.length })
+  }
+
+  /**
+   * 取消编辑：一个字都不改。
+   *
+   * `restoreFocus` 为真（Esc、取消按钮）时把焦点与选区还给正文，用户能接着打字；
+   * 点到别处（浮层被外部点击收起）则为假 —— 那时焦点已经由那次点击决定了，再抢
+   * 回来只会把光标从用户刚点的地方挪走。
+   */
+  function cancelLink(restoreFocus = true) {
+    const edit = linkEdit.value
+    linkEdit.value = null
+    if (edit === null || !restoreFocus) return
+
+    const element = options.target()
+    if (element === null) return
+
+    element.focus()
+    const restored = rangeForOffsets(element, edit.range)
+    const selection = window.getSelection()
+    if (restored !== null && selection !== null) {
+      selection.removeAllRanges()
+      selection.addRange(restored)
+    }
+    refreshToolbar()
+  }
+
+  /**
+   * 页面滚动时收起浮条与浮层。
+   *
+   * 捕获阶段的 scroll 能收到**任何**元素上的滚动，包括浮层里输入框自己的横向滚动：
+   * 粘一个长地址进去，浏览器会把插入符滚进视野，输入框一滚就把浮层收掉 —— 正打着字
+   * 面板突然没了。那是面板内部的位移，跟正文在视口里的位置无关，放它过去。
+   */
+  function onScroll(event: Event) {
+    const target = event.target
+    if (target instanceof Element && target.closest("[data-link-popover]") !== null) return
+    hideToolbar()
   }
 
   onMounted(() => {
     document.addEventListener("selectionchange", refreshToolbar)
     // 捕获阶段：滚动发生在内层滚动容器里，不冒泡到 document。
-    document.addEventListener("scroll", hideToolbar, true)
+    document.addEventListener("scroll", onScroll, true)
   })
 
   onBeforeUnmount(() => {
     document.removeEventListener("selectionchange", refreshToolbar)
-    document.removeEventListener("scroll", hideToolbar, true)
+    document.removeEventListener("scroll", onScroll, true)
   })
 
-  return { toolbar, linkEdit, refreshToolbar, hideToolbar, applyMark, applyColor, openLink, applyLink }
+  return { toolbar, linkEdit, refreshToolbar, hideToolbar, applyMark, applyColor, openLink, applyLink, cancelLink }
 }

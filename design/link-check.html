@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>行内链接自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; display: flex; height: 420px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; }
+  .fail { color: #b42318; }
+</style>
+</head>
+<body>
+<h1>行内链接：品牌色 + 下划线、单击跳转、工作区文档在应用内开标签</h1>
+<!-- 脚本里有顶层 await（要等真实读盘），抓结果用 CDP 驱动跑：
+     node design/cdp-dump.mjs http://localhost:1420/design/link-check.html -->
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+
+const out = document.querySelector("#out")
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  out.textContent = lines.join("\n")
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** 一条链接的四种落点各占一行，href 各不相同 —— 按 href 取元素就不会互相误命中。 */
+const NOTE_A = [
+  '<p>去 <a href="b.html">第二篇</a></p>',
+  '<p><a href="missing.html">断链</a></p>',
+  '<p><a href="https://example.com/x">外链</a></p>',
+  '<p><a href="#段落">片段</a></p>',
+  '<p><a href="https://example.com/card" data-link-shape="card" data-icon="E">卡片</a></p>',
+  "<table><tbody><tr><td><a href=\"c.html\">格内</a></td></tr></tbody></table>",
+].join("")
+
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("link-check", { create: true })
+
+async function writeNote(name, html) {
+  const handle = await dir.getFileHandle(name, { create: true })
+  const writable = await handle.createWritable()
+  await writable.write(html)
+  await writable.close()
+}
+
+await writeNote("a.html", NOTE_A)
+await writeNote("b.html", "<p>第二篇正文</p>")
+await writeNote("c.html", "<p>第三篇正文</p>")
+window.showDirectoryPicker = async () => dir
+
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    provideTheme(provideSettings())
+    return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+/** 打开一篇笔记并等它读盘落地。 */
+async function open(path) {
+  workspace.openFile(path)
+  for (let i = 0; i < 60 && workspace.activePath.value !== path; i += 1) await sleep(50)
+  for (let i = 0; i < 60 && workspace.isLoadingDocument.value; i += 1) await sleep(50)
+  await nextTick()
+}
+
+/** 真点一下（只有 click，没有 mousedown —— 块级拖选那条路不参与）。 */
+function clickLink(href) {
+  const anchor = document.querySelector(`[data-doc] a[href="${href}"]`)
+  if (anchor === null) return false
+  anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }))
+  return true
+}
+
+/** 等到跳转落地（工作区文档是异步问盘 + 读盘）。返回是否在超时前换了路径。 */
+async function waitPath(path) {
+  for (let i = 0; i < 60; i += 1) {
+    if (workspace.activePath.value === path) return true
+    await sleep(50)
+  }
+  return false
+}
+
+await open("a.html")
+
+// ---------- 一、样式：链接不该长得跟正文一样 ----------
+
+const anchor = document.querySelector('[data-doc] a[href="b.html"]')
+const style = getComputedStyle(anchor)
+check("链接有下划线", style.textDecorationLine === "underline", style.textDecorationLine)
+check("下划线不贴字（offset 2px）", style.textUnderlineOffset === "2px", style.textUnderlineOffset)
+
+/** 品牌色的计算值：拿一个临时元素按 var() 上色，再读回来 —— 深浅外观都跟着走。 */
+const brand = (() => {
+  const probe = document.createElement("span")
+  probe.style.color = "var(--color-brand)"
+  document.body.append(probe)
+  const value = getComputedStyle(probe).color
+  probe.remove()
+  return value
+})()
+check("链接字色 = 品牌色", style.color === brand, `${style.color} vs ${brand}`)
+check("链接是手型光标", style.cursor === "pointer", style.cursor)
+
+// 卡片形态不吃这套：它自带盒子，字色随正文、不要下划线。
+const card = getComputedStyle(document.querySelector('[data-doc] a[data-link-shape="card"]'))
+check("卡片形态不套文本链接样式", card.textDecorationLine === "none" && card.color !== brand, `${card.textDecorationLine} / ${card.color}`)
+
+// ---------- 二、工作区文档：应用内开标签 ----------
+
+check("点工作区笔记的链接", clickLink("b.html"))
+check("在应用内打开了 b.html（不是新窗口）", await waitPath("b.html"), workspace.activePath.value)
+
+await open("a.html")
+
+// 同一张表里的格子也认这条手势（同一个 linkHrefOf / followLink）。
+check("点表格格子里的链接", clickLink("c.html"))
+check("格子里的链接同样在应用内打开", await waitPath("c.html"), workspace.activePath.value)
+
+await open("a.html")
+
+// ---------- 三、外链：交给系统浏览器 ----------
+
+const opened = []
+const originalOpen = window.open
+window.open = (url) => { opened.push(String(url)); return null }
+check("点外链", clickLink("https://example.com/x"))
+await sleep(200)
+check("外链交给 window.open（桌面端是系统浏览器）", opened.length === 1 && opened[0] === "https://example.com/x", JSON.stringify(opened))
+check("外链不改当前标签", workspace.activePath.value === "a.html", workspace.activePath.value)
+
+// ---------- 四、没有落点的链接：说清楚，而不是静默 ----------
+
+workspace.dismissError()
+check("点断链", clickLink("missing.html"))
+for (let i = 0; i < 40 && workspace.fsError.value === ""; i += 1) await sleep(50)
+check("断链给出「工作区里没有」的提示", workspace.fsError.value.includes("工作区里没有"), workspace.fsError.value)
+check("断链不换标签", workspace.activePath.value === "a.html", workspace.activePath.value)
+
+workspace.dismissError()
+check("点页内片段", clickLink("#段落"))
+await sleep(200)
+check("片段链接既不跳转也不报错", workspace.fsError.value === "" && workspace.activePath.value === "a.html")
+
+// ---------- 五、拖选结束在链接上不算单击 ----------
+
+const body = document.querySelector('[data-doc] a[href="b.html"]').closest("[data-editable]")
+body.focus()
+const range = document.createRange()
+range.selectNodeContents(body)
+const selection = window.getSelection()
+selection.removeAllRanges()
+selection.addRange(range)
+check("拖选着一段文字时点链接", clickLink("b.html"))
+await sleep(200)
+check("有选区时不跳转（那段选区的意图不是走链接）", workspace.activePath.value === "a.html", workspace.activePath.value)
+selection.removeAllRanges()
+
+window.open = originalOpen
+
+// ---------- 六、链接浮层：显示内容、地址、取消 ----------
+
+/** 原生 setter 写值再发 input —— Vue 的 v-model 只认这条，直接改 `.value` 不触发。 */
+function setInput(input, value) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set
+  setter.call(input, value)
+  input.dispatchEvent(new Event("input", { bubbles: true }))
+}
+
+/** 选中一段文字并把选区交给正文块（浮条靠 selectionchange 露面）。 */
+async function selectText(node, start = null, end = null) {
+  // 传进来的可能是文本节点（第一段的文字直接挂在块上，没有包一层元素）。
+  const element = node.nodeType === Node.TEXT_NODE ? node.parentElement : node
+  const body = element.closest("[data-editable]")
+  body.focus()
+  const range = document.createRange()
+  range.selectNodeContents(node)
+  if (start !== null) {
+    range.setStart(node.firstChild, start)
+    range.setEnd(node.firstChild, end)
+  }
+  const selection = window.getSelection()
+  selection.removeAllRanges()
+  selection.addRange(range)
+  document.dispatchEvent(new Event("selectionchange"))
+  await nextTick()
+  await sleep(30)
+}
+
+/** 选中文字 → 点浮条上的「链接」→ 等浮层落地。 */
+async function openLinkEditor(node, start = null, end = null) {
+  await selectText(node, start, end)
+  const button = document.querySelector('[data-inline-toolbar] button[aria-label="链接"]')
+  if (button === null) return null
+  button.click()
+  await nextTick()
+  return document.querySelector("[data-link-popover]")
+}
+
+/** 关掉浮层（工具栏里的按钮都只在浮层开着时点得动）。 */
+async function dismissPopover(popover) {
+  popover?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+  await nextTick()
+  await sleep(30)
+}
+
+const fieldsOf = (popover) => ({
+  text: popover.querySelector("[data-text-input]"),
+  url: popover.querySelector("[data-url-input]"),
+})
+
+const buttonByText = (root, label) => [...root.querySelectorAll("button")].find((item) => item.textContent.trim() === label)
+
+/** 数据层（落盘的那一份）的 JSON —— DOM 只是投影。 */
+const documentJson = () => JSON.stringify(workspace.activeDocument.value)
+
+let popover = await openLinkEditor(document.querySelector('[data-doc] a[href="b.html"]'))
+check("选中链接能打开链接浮层", popover !== null)
+let fields = popover === null ? null : fieldsOf(popover)
+check("浮层回显显示内容", fields?.text.value === "第二篇", fields?.text.value)
+check("浮层回显链接地址", fields?.url.value === "b.html", fields?.url.value)
+check("浮层打开时格式条让位", document.querySelector("[data-inline-toolbar]") === null)
+
+// 三行共用同一列标签：形态按钮的左缘要与两个输入框的左缘落在同一条线上。
+const lefts = [fields?.text, fields?.url, buttonByText(popover, "文本链接")].map((element) => element?.getBoundingClientRect().left ?? NaN)
+check("形态按钮与两个输入框左端对齐", lefts.every((left) => Math.abs(left - lefts[0]) < 0.5), lefts.join(" / "))
+await dismissPopover(popover)
+
+// 只选中链接里两个字：编辑对象应是整条链接，不是这半截。
+popover = await openLinkEditor(document.querySelector('[data-doc] a[href="b.html"]'), 0, 2)
+fields = popover === null ? null : fieldsOf(popover)
+check("部分选中时回显整条链接的显示内容", fields?.text.value === "第二篇", fields?.text.value)
+
+// 改显示内容 + 地址，一起落地。
+if (fields !== null) {
+  setInput(fields.text, "第二章")
+  setInput(fields.url, "d.html")
+}
+await nextTick()
+buttonByText(popover, "应用")?.click()
+await nextTick()
+await sleep(50)
+const relabeled = document.querySelector('[data-doc] a[href="d.html"]')
+check("改了显示内容与地址后 DOM 跟着变", relabeled !== null && relabeled.textContent === "第二章", relabeled?.outerHTML)
+check("旧地址从正文消失", document.querySelector('[data-doc] a[href="b.html"]') === null)
+check("数据层也落了新地址与新文字", documentJson().includes("d.html") && documentJson().includes("第二章") && !documentJson().includes("b.html"))
+
+// 取消：一个字都不该改，焦点与选区还给正文。
+popover = await openLinkEditor(document.querySelector('[data-doc] a[href="d.html"]'))
+fields = popover === null ? null : fieldsOf(popover)
+if (fields !== null) {
+  setInput(fields.text, "不该生效")
+  setInput(fields.url, "e.html")
+}
+await nextTick()
+popover?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+await nextTick()
+await sleep(50)
+const untouched = document.querySelector('[data-doc] a[href="d.html"]')
+check("Esc 收起浮层", document.querySelector("[data-link-popover]") === null)
+check("取消不改显示内容", untouched !== null && untouched.textContent === "第二章", untouched?.textContent)
+check("取消不改地址", documentJson().includes("d.html") && !documentJson().includes("e.html"))
+check("取消后焦点回到正文", document.activeElement?.hasAttribute("data-editable") === true, document.activeElement?.tagName)
+check("取消后格式条回来", document.querySelector("[data-inline-toolbar]") !== null)
+
+// 取消按钮与 Esc 同一条路。
+popover = await openLinkEditor(document.querySelector('[data-doc] a[href="d.html"]'))
+fields = popover === null ? null : fieldsOf(popover)
+if (fields !== null) setInput(fields.text, "也不该生效")
+await nextTick()
+buttonByText(popover, "取消")?.click()
+await nextTick()
+await sleep(50)
+check("点取消不改显示内容", document.querySelector('[data-doc] a[href="d.html"]')?.textContent === "第二章")
+
+// 点浮层外收起，同样不改数据。
+popover = await openLinkEditor(document.querySelector('[data-doc] a[href="d.html"]'))
+if (popover !== null) setInput(fieldsOf(popover).text, "外面点了")
+await nextTick()
+document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
+await nextTick()
+await sleep(50)
+check("点浮层外收起且不改内容", document.querySelector("[data-link-popover]") === null && document.querySelector('[data-doc] a[href="d.html"]')?.textContent === "第二章")
+
+// 新建：普通文字选中后填地址。第一段没有 <p> 包着（编辑器不渲染块级标签），文字直接挂在块上。
+popover = await openLinkEditor(document.querySelectorAll("[data-editable]")[0].firstChild)
+check("普通文字也能开浮层", popover !== null)
+fields = popover === null ? null : fieldsOf(popover)
+check("新建时显示内容 = 选中的文字", fields?.text.value === "去 ", fields?.text.value)
+check("新建时地址为空、应用不可点", fields?.url.value === "" && buttonByText(popover, "应用")?.disabled === true)
+if (fields !== null) setInput(fields.url, "https://example.com/new")
+await nextTick()
+buttonByText(popover, "应用")?.click()
+await nextTick()
+await sleep(50)
+const created = document.querySelector('[data-doc] a[href="https://example.com/new"]')
+check("填了地址就能新建链接", created !== null && created.textContent.trim() === "去", created?.outerHTML)
+
+// 移除链接：断开跳转，文字留着。
+popover = await openLinkEditor(document.querySelector('[data-doc] a[href="d.html"]'))
+buttonByText(popover, "移除链接")?.click()
+await nextTick()
+await sleep(50)
+check("移除链接后文字还在、不再是锚点", document.querySelector('[data-doc] a[href="d.html"]') === null && document.querySelector("[data-doc]").textContent.includes("第二章"))
+check("移除后数据层没有 d.html", !documentJson().includes("d.html"))
+
+// ---------- 七、粘贴长地址：输入框自己的滚动不该收掉浮层 ----------
+
+/**
+ * 真实粘贴后浏览器会把插入符滚进视野，输入框内部滚一下就是一次 scroll 事件。
+ * 收浮层的监听挂在 document 捕获阶段，会收到它 —— 曾在这里把面板收掉，正打着字
+ * 突然没了。判据要排除浮层内部的滚动。
+ */
+const LONG_URL = "http://124.221.227.65/86PMTF/#id=0cepbl&p=%E6%A6%82%E8%A6%81"
+popover = await openLinkEditor(document.querySelector('[data-doc] a[href="https://example.com/new"]'))
+fields = popover === null ? null : fieldsOf(popover)
+if (fields !== null) {
+  fields.url.focus()
+  fields.url.setSelectionRange(fields.url.value.length, fields.url.value.length)
+  document.execCommand("insertText", false, LONG_URL)
+  await nextTick()
+  fields.url.scrollLeft = fields.url.scrollWidth
+  await sleep(80)
+}
+check("粘长地址时输入框内部滚动不收浮层", document.querySelector("[data-link-popover]") !== null)
+check("长地址完整进了输入框", fields?.url.value === `https://example.com/new${LONG_URL}`, fields?.url.value.length)
+await dismissPopover(document.querySelector("[data-link-popover]"))
+check("取消后正文的链接不受影响", document.querySelector('[data-doc] a[href="https://example.com/new"]') !== null)
+
+// ---------- 汇总 ----------
+
+lines.push("")
+lines.push(`自检 ${passed}/${passed + failed}`)
+out.textContent = lines.join("\n")
+out.className = failed === 0 ? "ok" : "fail"
+</script>
+</body>
+</html>

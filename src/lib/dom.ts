@@ -126,6 +126,27 @@ function editableSelector(key: string): string {
 }
 
 /**
+ * 这次点击是不是落在一条行内链接上，是则给出它的地址。
+ *
+ * 两条判定写在弹层与组件里会各写一遍，所以收在这里：
+ * - 只认左键**单击**。拖选一段文字时指针也常常停在链接上，那一刻用户要的是那段选区，
+ *   不是跳转；
+ * - 取 `getAttribute("href")` 而不是 `anchor.href` —— 后者会把相对地址按应用自己的
+ *   URL 解析成绝对地址，工作区路径（`日记 / a.html`）当场就没了。
+ */
+export function linkHrefOf(event: MouseEvent): string | null {
+  if (event.button !== 0) return null
+  const target = event.target
+  if (!(target instanceof Element)) return null
+  const anchor = target.closest("a[href]")
+  if (anchor === null) return null
+  const selection = window.getSelection()
+  if (selection !== null && !selection.isCollapsed) return null
+  const href = anchor.getAttribute("href")
+  return href === null || href.trim() === "" ? null : href
+}
+
+/**
  * 等新块/转换后的块落进 DOM，再把焦点交给它。
  *
  * `BlockEditor`（顶层）与 `LayoutBlockView`（格子内）都要做这同一件事 ——

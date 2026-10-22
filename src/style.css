@@ -272,6 +272,24 @@
     font-size: 0.9em;
     line-height: 1.4;
     }
+  /* 行内链接（文本形态）：品牌色 + 下划线，与导出侧 docStyle 的 `a` 规则是同一副样子。
+     没有这条规则的话，Tailwind 的 preflight 把 `a` 重置成「继承字色、无下划线」，
+     正文里的链接看起来与普通文字一模一样 —— 而它现在单击就会跳走。
+     下划线压到 40% 的浓度：一条贯穿到底的重线在正文里比字本身还吵；悬停再收满，
+     顺手给出「这里可以点」的信号。
+     卡片形态（a[data-link-shape="card"]）有自己的盒子，显式排除掉 —— 两条规则的
+     特异度相同，靠书写顺序分胜负太脆。 */
+  [data-doc] a[href]:not([data-link-shape="card"]) {
+    color: var(--color-brand);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+    text-underline-offset: 2px;
+    cursor: pointer;
+    }
+  [data-doc] a[href]:not([data-link-shape="card"]):hover {
+    text-decoration-color: currentColor;
+    }
   /* 书签卡片形态的链接（上图标下名称）。与导出侧 docStyle 的同一条规则同一套几何，
      两边各用本侧的变量 —— 「编辑器里看着什么样，双击打开就是什么样」。
      图标是 data-icon 的伪元素内容：不占 DOM 节点，textContent 干净，
@@ -294,6 +312,7 @@
     word-break: break-all;
     font-size: 12px;
     line-height: 1.4;
+    cursor: pointer;
     }
   a[data-link-shape="card"]::before {
     content: attr(data-icon);

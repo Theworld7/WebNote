@@ -106,7 +106,13 @@ _Avoid_: Format, style, decoration
 
 **Link**:
 A run's `href`. It is a property of the run, not one of its marks — so "a run marked as a
-link but holding no address" cannot be represented.
+link but holding no address" cannot be represented. It is also a live reference: a single
+left click follows it. An address carrying a scheme goes to the system browser; anything
+else is read as a workspace path, and a Note or Data table file found there opens as a Tab
+in the app (ADR-0021). Its display content is the run's own `text` — there is no separate
+label field, so relabelling is rewriting text; the editor popover edits the whole link (a
+selection starting inside one widens to its full span) and can be cancelled without writing
+anything.
 _Avoid_: Anchor, hyperlink mark
 
 **Link shape**:

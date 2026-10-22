@@ -261,6 +261,47 @@ export function marksAt(runs: readonly InlineRun[], offset: number): InlineMark[
   return last === undefined ? [] : [...last.marks]
 }
 
+/** 区间内的纯文字，与 `runsText` 同一投影。链接浮层回显「显示内容」用它。 */
+export function textIn(runs: readonly InlineRun[], range: OffsetRange): string {
+  return sliceRuns(runs, range)
+    .map((run) => run.text)
+    .join("")
+}
+
+/**
+ * 把区间扩到所在链接的整段（相邻且同 href 的 run 跨度）。
+ *
+ * 链接编辑的对象是「这一整条链接」，不是选区里那半截：浮层要回显完整的显示内容，
+ * 改完也不该把没选中的半截留在原处。**起点**决定编辑哪条链接 —— 起点在链接里就
+ * 用整段，哪怕终点拖到了链接外；起点不在链接上（新建）时原样返回。
+ */
+export function linkSpanAt(runs: readonly InlineRun[], range: OffsetRange): OffsetRange {
+  const starts: number[] = []
+  let cursor = 0
+  for (const run of runs) {
+    starts.push(cursor)
+    cursor += run.text.length
+  }
+
+  let index = runs.length - 1
+  for (let i = 0; i < runs.length; i += 1) {
+    if (range.start < starts[i] + runs[i].text.length) {
+      index = i
+      break
+    }
+  }
+
+  const run = runs[index]
+  if (run === undefined || run.href === undefined || run.href === "") return range
+
+  let from = index
+  while (from > 0 && runs[from - 1].href === run.href) from -= 1
+  let to = index
+  while (to + 1 < runs.length && runs[to + 1].href === run.href) to += 1
+
+  return { start: starts[from], end: to + 1 < runs.length ? starts[to + 1] : cursor }
+}
+
 /** 偏移处生效的链接：地址与形态。不在链接上时返回 null —— 浮层的回显与按钮激活态都靠它。 */
 export function linkAt(runs: readonly InlineRun[], offset: number): { href: string; shape: LinkShape } | null {
   let cursor = 0
@@ -281,16 +322,28 @@ export function linkAt(runs: readonly InlineRun[], offset: number): { href: stri
  * `href` 为 null 即移除：地址与形态一起清 —— 没有 href 的形态是非法态（与
  * 「link 标记却没地址」同一条立场）。设置时形态总是显式给定，选区跨多段也统一
  * 成同一个链接 —— 「我圈了一段，想把它们指向同一个地址」。
+ *
+ * `text` 非空时顺手把区间里的文字换掉（链接的「显示内容」）。区间里的文字整段
+ * 替换成这一个串，marks 与颜色取首段 —— 链接里原本前半粗后半不粗时，重写后按
+ * 起点那个格式算，比凭空合并出一个谁都没用过的组合更可预期。字符长度会变，调用方
+ * 按新长度算区间再 paint。
  */
 export function applyLinkAt(
   runs: readonly InlineRun[],
   range: OffsetRange,
   href: string | null,
   shape: LinkShape = "text",
+  text?: string,
 ): InlineRun[] {
   const pieces = slice(runs, range)
   const touched = pieces.filter((piece) => piece.inside)
   if (touched.length === 0) return runs.map((run) => copyRun(run))
+
+  const head = touched[0]
+  if (text !== undefined && text !== "" && text !== textIn(runs, range)) {
+    head.run.text = text
+    for (const piece of touched.slice(1)) piece.run.text = ""
+  }
 
   for (const piece of touched) {
     if (href === null || href.trim() === "") {
