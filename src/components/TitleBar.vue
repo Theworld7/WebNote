@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Window as TauriWindow } from "@tauri-apps/api/window"
 import { computed, onBeforeUnmount, onMounted, ref } from "vue"
-import { CopyIcon, MinusIcon, MoonIcon, PanelLeftIcon, SettingsIcon, SquareIcon, SunIcon, XIcon } from "@lucide/vue"
+import { CopyIcon, MinusIcon, MoonIcon, PanelLeftIcon, Redo2Icon, SettingsIcon, SquareIcon, SunIcon, Undo2Icon, XIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useTheme } from "@/composables/useTheme"
@@ -29,7 +29,8 @@ defineProps<{ sidebarCollapsed: boolean }>()
 const emit = defineEmits<{ (event: "toggle-sidebar"): void }>()
 
 /** 与标签栏那批小按钮同一个体量，两个位置的按钮不该长得不一样。 */
-const ACTION = "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foreground"
+const ACTION =
+  "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foreground disabled:opacity-35 disabled:hover:text-muted-foreground"
 
 /**
  * 主题开关。图标画的是**点下去会变成什么**（深色时给太阳），不是当前状态 ——
@@ -43,7 +44,7 @@ const themeActionLabel = computed(() => (theme.value === "dark" ? "切换到浅�
  * 而 HIG 的 macOS 条款明确反对把「控制与关键信息」放窗口底部：用户常把窗口移到底部，
  * 底边会被屏幕边缘裁掉。搬上来之后底部那一条整体撤掉，字数不再需要单独一条 32px。
  */
-const { tabs, activeTab, crumbs, charCount } = useWorkspace()
+const { tabs, activeTab, crumbs, charCount, undo, redo, canUndo, canRedo } = useWorkspace()
 const hasDocument = computed(() => activeTab.value !== null)
 
 /** 设置抽屉的开合。它是 chrome 上的一个动作，不是工作区状态。 */
@@ -180,6 +181,30 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
           </Button>
         </TooltipTrigger>
         <TooltipContent>设置</TooltipContent>
+      </Tooltip>
+
+      <!-- 撤销 / 重做。与上面那三颗之间隔一道线：那组改的是**应用**（侧栏、外观、设置），
+           这两颗改的是**当前这篇文档**。以前只有快捷键，界面上没有任何入口 ——
+           删错一个块的用户不该需要先知道 Ctrl+Z 才能救回来。
+           禁用态来自文档级历史（`canUndo` / `canRedo`），与浏览器自带的那套无关。 -->
+      <span class="mx-0.5 h-4 w-px flex-none bg-line" aria-hidden="true" />
+
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button variant="ghost" :class="ACTION" aria-label="撤销" :disabled="!canUndo" @mousedown.prevent @click="undo">
+            <Undo2Icon class="size-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>撤销 · Ctrl+Z</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button variant="ghost" :class="ACTION" aria-label="重做" :disabled="!canRedo" @mousedown.prevent @click="redo">
+            <Redo2Icon class="size-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>重做 · Ctrl+Shift+Z</TooltipContent>
       </Tooltip>
     </div>
 

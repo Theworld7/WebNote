@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed } from "vue"
-import { TriangleAlertIcon, XIcon } from "@lucide/vue"
+import { LoaderCircleIcon, TriangleAlertIcon, XIcon } from "@lucide/vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import BlockEditor from "./BlockEditor.vue"
 import DataTableEditor from "./DataTableEditor.vue"
 import EditorHome from "./EditorHome.vue"
 
-const { activeTab, activePath, isLoadingDocument, isActiveTable, fsError, dismissError } = useWorkspace()
+const { activeTab, activePath, isLoadingDocument, isActiveTable, fsError, dismissError, busyLabel } = useWorkspace()
 
 /**
  * 只有真拿到正文才挂 BlockEditor。
@@ -32,9 +32,12 @@ const hasDocument = computed(() => activeTab.value !== null && !isLoadingDocumen
     data-editor-surface
   >
     <!-- 读写错误条。常驻在编辑区顶部而不是只在空态里 —— 保存失败时正开着文档，
-         那条错误若不显示出来，用户会以为已经存好了。 -->
+         那条错误若不显示出来，用户会以为已经存好了。
+         `role="alert"`：这一条几乎总是「刚才那个动作没成」的结果，屏幕阅读器必须
+         当场播报；视觉用户看到的是红条，非视觉用户拿到的应当是同一句话。 -->
     <div
       v-if="fsError !== ''"
+      role="alert"
       class="flex flex-none items-center gap-2 bg-destructive/8 px-[22px] py-1.5 text-[12px] text-destructive"
     >
       <TriangleAlertIcon class="size-3.5 shrink-0" />
@@ -47,6 +50,18 @@ const hasDocument = computed(() => activeTab.value !== null && !isLoadingDocumen
       >
         <XIcon class="size-3.5" />
       </button>
+    </div>
+
+    <!-- 进行中的盘上操作（删除 / 移动 / 重命名）。确认框一关界面就静止的话，
+         用户分不清它在干活还是卡住了，于是再点一次 —— 那才是真出事的地方。
+         `role="status"`：播报但不打断，与上面那条错误的优先级不同。 -->
+    <div
+      v-if="busyLabel !== ''"
+      role="status"
+      class="flex flex-none items-center gap-2 bg-muted/60 px-[22px] py-1.5 text-[12px] text-muted-foreground"
+    >
+      <LoaderCircleIcon class="size-3.5 shrink-0 animate-spin" />
+      <span class="min-w-0 flex-1 truncate">{{ busyLabel }}</span>
     </div>
 
     <EditorHome v-if="!hasDocument" />

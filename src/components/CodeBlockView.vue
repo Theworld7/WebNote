@@ -2,6 +2,7 @@
 import type { TextualBlock } from "@/types/workspace"
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { CheckIcon, CopyIcon, PencilIcon } from "@lucide/vue"
+import { useCopied } from "@/composables/useCopied"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTheme } from "@/composables/useTheme"
 import { currentFontStack } from "@/lib/fonts"
@@ -171,15 +172,12 @@ async function runFormat(): Promise<void> {
   if (!ok) failedTimer = window.setTimeout(() => (formatFailed.value = false), 1500)
 }
 
-const copied = ref(false)
-let copiedTimer: number | undefined
+const { copied, flash } = useCopied()
 
 /** 复制按钮的反馈态：点完短暂变 ✓。 */
 async function copyCode(): Promise<void> {
   await navigator.clipboard.writeText(text.value)
-  copied.value = true
-  window.clearTimeout(copiedTimer)
-  copiedTimer = window.setTimeout(() => (copied.value = false), 1500)
+  flash()
 }
 
 // 换语言时立刻换 Monaco 的高亮，不必等重新进出编辑态。
@@ -201,7 +199,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   disposeEditor()
-  window.clearTimeout(copiedTimer)
   window.clearTimeout(failedTimer)
 })
 </script>

@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { emptyValueOf, parseCellInput } from "@/lib/data-table"
+import { markImageBroken, usableImage } from "@/lib/broken-images"
 import { isImageFile, readImageFile } from "@/lib/image"
 
 /**
@@ -61,6 +62,11 @@ function valueOf(column: DataColumn): DataCellValue {
 function textOf(column: DataColumn): string {
   const value = valueOf(column)
   return typeof value === "string" ? value : ""
+}
+
+/** 预览能不能画。失败过的按空处理，回落到下面那个图标占位。 */
+function imagePreviewOf(column: DataColumn): string {
+  return usableImage(textOf(column))
 }
 
 function boolOf(column: DataColumn): boolean {
@@ -173,7 +179,13 @@ function submit(): void {
           <div v-else class="space-y-1.5">
             <div class="flex items-center gap-2">
               <div class="size-10 shrink-0 overflow-hidden rounded-md border border-line bg-muted/40">
-                <img v-if="textOf(column)" :src="textOf(column)" alt="" class="size-full object-cover">
+                <img
+                  v-if="imagePreviewOf(column)"
+                  :src="imagePreviewOf(column)"
+                  alt=""
+                  class="size-full object-cover"
+                  @error="markImageBroken(textOf(column))"
+                />
                 <div v-else class="flex size-full items-center justify-center text-muted-foreground">
                   <ImageIcon class="size-4" />
                 </div>

@@ -13,9 +13,10 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_fs::FsExt;
 
 /// 工作区记录文件名，位于 app config 目录（macOS 上是
@@ -115,6 +116,47 @@ fn restore_workspace_root(app: AppHandle) -> Option<String> {
 #[tauri::command]
 fn set_workspace_root(app: AppHandle, path: String) -> Result<String, String> {
     adopt(&app, &path)
+}
+
+/// 关窗守卫。
+///
+/// 窗口没有系统装饰，右上角那颗关闭键走的是 `window.close()`，而 WebView 里的
+/// `beforeunload` 并不能可靠阻断它 —— 脏文档会随着进程退出静默消失。
+/// 所以拦在原生这一层：前端报告「有没有未保存的东西」，这里在 `CloseRequested`
+/// 上把窗口留下并通知前端去问。
+///
+/// 判断放在前端是因为「哪篇脏了」只有工作区知道；这一层不理解笔记，只认一个开关。
+#[derive(Default)]
+struct CloseGuard {
+    dirty: bool,
+    /// 一次性放行票。用户在前端确认过「保存 / 不保存」之后置位，下一次
+    /// `CloseRequested` 直接过 —— 否则确认完又会被自己拦一次。
+    allow: bool,
+}
+
+/// 前端在有未保存改动时把它置脏（`hasDirty` 变化时调用）。
+#[tauri::command]
+fn set_close_guard(state: tauri::State<Mutex<CloseGuard>>, dirty: bool) {
+    if let Ok(mut guard) = state.lock() {
+        guard.dirty = dirty;
+    }
+}
+
+/// 前端确认过之后调用：放行并关窗。
+///
+/// 不在这里直接摘掉守卫：`window.close()` 仍会再走一遍 `CloseRequested`，
+/// 靠那张一次性放行票过闸，两条路径（用户点关闭 / 用户确认后关闭）才只有一套判定。
+#[tauri::command]
+fn confirm_close(
+    window: tauri::Window,
+    state: tauri::State<Mutex<CloseGuard>>,
+) -> Result<(), String> {
+    if let Ok(mut guard) = state.lock() {
+        guard.allow = true;
+    }
+    window
+        .close()
+        .map_err(|error| format!("关闭窗口失败：{error}"))
 }
 
 /// 本机已安装字体的 family 名（去重、按字母序）。
@@ -241,11 +283,38 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
+        .manage(Mutex::new(CloseGuard::default()))
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let state = match window.try_state::<Mutex<CloseGuard>>() {
+                    Some(state) => state,
+                    None => return,
+                };
+                let mut guard = match state.lock() {
+                    Ok(guard) => guard,
+                    Err(_) => return,
+                };
+                if guard.allow {
+                    guard.allow = false;
+                    return;
+                }
+                if !guard.dirty {
+                    return;
+                }
+                // 有未保存的改动：留下窗口，交给前端问「保存 / 不保存」。
+                // 前端没在听（或已经崩了）时窗口就停在原处 —— 关不掉远好过悄悄丢数据。
+                api.prevent_close();
+                drop(guard);
+                let _ = window.emit("webnote-close-blocked", ());
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             restore_workspace_root,
             set_workspace_root,
             list_system_fonts,
-            set_window_theme
+            set_window_theme,
+            set_close_guard,
+            confirm_close
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

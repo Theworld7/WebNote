@@ -2,7 +2,7 @@
 import type { DataCellValue, DataRow } from "@/types/data-table"
 import type { PlaylistBlock, PlaylistSource } from "@/types/workspace"
 import type { PlaylistRole } from "@/lib/playlist"
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue"
+import { computed, nextTick, ref, watch } from "vue"
 import { CheckIcon, CopyIcon, DatabaseIcon, MusicIcon, PlusIcon, SearchIcon, Settings2Icon, XIcon } from "@lucide/vue"
 import {
   AlertDialog,
@@ -24,6 +24,7 @@ import {
 import { Input } from "@/components/ui/input"
 import PlaylistAddDialog from "@/components/PlaylistAddDialog.vue"
 import TableRefNotice from "@/components/TableRefNotice.vue"
+import { useCopied } from "@/composables/useCopied"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
 import * as dt from "@/lib/data-table"
@@ -144,8 +145,7 @@ watch(
 
 // ---- 复制成纯文本 ----
 
-const copied = ref(false)
-let copiedTimer: number | undefined
+const { copied, flash } = useCopied()
 
 /**
  * 复制成「歌名 - 歌手」的纯文本,用于导入听歌软件。
@@ -158,12 +158,8 @@ async function copyPlainText(): Promise<void> {
   const text = playlistPlainText(shown.value, roles.value)
   if (text === "") return
   await navigator.clipboard.writeText(text)
-  copied.value = true
-  window.clearTimeout(copiedTimer)
-  copiedTimer = window.setTimeout(() => (copied.value = false), 1500)
+  flash()
 }
-
-onBeforeUnmount(() => window.clearTimeout(copiedTimer))
 
 /**
  * 加载失败的封面地址。

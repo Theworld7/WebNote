@@ -7,11 +7,15 @@ import { provideSettings } from "@/composables/useSettings"
 import { provideTheme } from "@/composables/useTheme"
 import { useResizableWidth } from "@/composables/useResizableWidth"
 import AppSidebar from "@/components/AppSidebar.vue"
+import CloseWindowDialog from "@/components/CloseWindowDialog.vue"
 import EditorSurface from "@/components/EditorSurface.vue"
 import PaneResizer from "@/components/PaneResizer.vue"
 import TitleBar from "@/components/TitleBar.vue"
+import ToastStack from "@/components/ToastStack.vue"
+import { isTauriRuntime } from "@/lib/fs"
 
-const { hasDirty, bootstrap, fs, root, attachTableRegistry, attachIntegrateTables } = provideWorkspace()
+const { hasDirty, bootstrap, fs, root, attachTableRegistry, attachIntegrateTables, save, attachCloseGuard, requestWindowClose } =
+  provideWorkspace()
 // 数据表注册表与工作区**共用同一对 driver / root**：切目录时两者必须一起换语境，
 // 各持一份引用迟早对不齐（见 useTables 的注释）。
 const tables = provideTables(fs, root)
@@ -40,6 +44,8 @@ attachIntegrateTables(settings.integrateTables)
 // 配色推导读上面那份偏好，所以在它之后 provide；它顺手把 `.dark` 挂到 <html> 上，
 // 之后标签栏那颗按钮与设置面板都从这里取同一份状态。
 provideTheme(settings)
+// 关窗守卫：桌面端 Rust 层要凭这个开关决定拦不拦关窗，所以脏态一变就同步过去。
+attachCloseGuard(hasDirty)
 
 const { width: sidebarWidth, dragging, startDrag } = useResizableWidth()
 
@@ -80,28 +86,61 @@ function toggleSidebar() {
 }
 
 /**
- * 关窗兜底：只要还有脏标签，就交给浏览器弹系统确认框。
+ * 关窗兜底，分两条路：
  *
- * 注意这不覆盖 Tauri 的原生关窗 —— WebView 的 beforeunload 不保证能阻断原生窗口关闭，
- * 那边得在 Rust 侧监听 CloseRequested 再 prevent_default。留到下一轮做。
+ * - 浏览器（`pnpm dev`）：交给系统的 beforeunload 确认框，那是唯一的出口；
+ * - 桌面端：原生关窗由 Rust 侧拦（`CloseGuard`），它发 `webnote-close-blocked`
+ *   过来，这里转成应用内的确认框 —— 系统那一套在无装饰窗口里不可靠，也没法做
+ *   「全部保存并关闭」。
  */
+let unlistenCloseBlocked: (() => void) | null = null
+let disposed = false
+
 function onBeforeUnload(event: BeforeUnloadEvent) {
   if (!hasDirty.value) return
   event.preventDefault()
   event.returnValue = ""
 }
 
+/**
+ * Ctrl/Cmd+S 保存当前标签。
+ *
+ * 之前保存只有「点标签上那颗图标」一个入口，而那颗图标只在有脏改动时才现身 ——
+ * 用户改完一篇笔记，没有任何常规动作可做。这个快捷键是桌面编辑器的肌肉记忆，
+ * 所以在根组件挂一次，连输入框里也接管：那时想存的仍是当前笔记，不是浏览器
+ * 那张「保存网页」。
+ */
+function onKeyDown(event: KeyboardEvent) {
+  if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey) return
+  if (event.key.toLowerCase() !== "s") return
+  event.preventDefault()
+  void save()
+}
+
 onMounted(() => {
   window.addEventListener("beforeunload", onBeforeUnload)
+  window.addEventListener("keydown", onKeyDown)
   window.addEventListener("resize", syncAutoCollapse)
   // 挂载时就量一次：上次关窗时窗口可能是窄的，恢复出来的宽度不一定会派发 resize。
   syncAutoCollapse()
   // 工作区要在挂载后再进 —— 它要异步挑运行时驱动（Tauri / 浏览器），还可能去恢复上次的目录。
   void bootstrap()
+
+  if (!isTauriRuntime()) return
+  void (async () => {
+    const { listen } = await import("@tauri-apps/api/event")
+    const unlisten = await listen("webnote-close-blocked", () => requestWindowClose())
+    // 监听还没装上组件就卸载了（热更新时常见）：立刻退订，否则会往一个死掉的实例里发。
+    if (disposed) unlisten()
+    else unlistenCloseBlocked = unlisten
+  })()
 })
 
 onBeforeUnmount(() => {
+  disposed = true
+  unlistenCloseBlocked?.()
   window.removeEventListener("beforeunload", onBeforeUnload)
+  window.removeEventListener("keydown", onKeyDown)
   window.removeEventListener("resize", syncAutoCollapse)
 })
 </script>
@@ -122,5 +161,8 @@ onBeforeUnmount(() => {
         <EditorSurface />
       </div>
     </div>
+
+    <CloseWindowDialog />
+    <ToastStack />
   </TooltipProvider>
 </template>

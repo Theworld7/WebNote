@@ -3,6 +3,8 @@ import { onMounted, ref } from "vue"
 import { FolderOpenIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { useToast } from "@/composables/useToast"
+import { describeError } from "@/lib/errors"
 import { readImageFile } from "@/lib/image"
 
 /**
@@ -20,6 +22,7 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{ (event: "pick", src: string): void }>()
+const { notify } = useToast()
 
 const rootRef = ref<HTMLElement | null>(null)
 const fileRef = ref<HTMLInputElement | null>(null)
@@ -54,6 +57,9 @@ async function onFileChange(event: Event) {
   busy.value = true
   try {
     emit("pick", await readImageFile(file))
+  } catch (error) {
+    // 与粘贴 / 拖入同一条口径：读不出来得说，否则面板没有任何反应。
+    notify(`插入图片失败：${describeError(error)}`, "error")
   } finally {
     busy.value = false
   }

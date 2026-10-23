@@ -8,7 +8,7 @@ import type { DataTable } from "@/types/data-table"
 import { describeError } from "@/lib/errors"
 import { parseNote, serializeHtml } from "@/lib/html"
 import type { DataTableLookup } from "@/lib/html"
-import { createWorkspaceFs } from "@/lib/fs"
+import { createWorkspaceFs, isTauriRuntime } from "@/lib/fs"
 import { linkTargetOf } from "@/lib/link"
 import { openExternalUrl } from "@/lib/open-external"
 import { createPlaylistPreset, createPlaylistSource } from "@/lib/playlist"
@@ -120,6 +120,29 @@ function createWorkspace() {
   const scanning = ref(false)
   const fsError = ref("")
 
+  /**
+   * 正在进行的盘上操作（空串 = 空闲）。
+   *
+   * 删除一个文件夹、移动一棵子树都是**一次调用、长时间无回音**：确认框一关，界面就
+   * 静止了，用户不知道它到底在干活还是已经卡死，于是再点一次。扫描有 `scanning`，
+   * 保存有 `savingPaths`，这一类动作原先什么都没有。
+   *
+   * 用计数而不是布尔：几处同时收尾时，最先结束的那个不该把还在跑的那句说明抹掉。
+   */
+  const busyLabel = ref("")
+  let busyDepth = 0
+
+  async function withBusy<T>(label: string, run: () => Promise<T>): Promise<T> {
+    busyDepth += 1
+    busyLabel.value = label
+    try {
+      return await run()
+    } finally {
+      busyDepth -= 1
+      if (busyDepth === 0) busyLabel.value = ""
+    }
+  }
+
   const query = ref("")
   const expandedIds = ref(new Set<string>())
   const tabs = ref<OpenTab[]>([])
@@ -136,6 +159,14 @@ function createWorkspace() {
   /** 已经读过盘的路径。与 `documents` 分开，见文件头第 1 条。 */
   const loadedPaths = ref(new Set<string>())
   const loadingPaths = ref(new Set<string>())
+
+  /**
+   * 正在写盘的标签路径。
+   *
+   * 写盘是异步的：点了保存到 `writeNote` 落地之间，界面上不能还是那颗「可点」的
+   * 保存图标 —— 慢盘上用户会再点一次，然后怀疑它到底有没有生效。
+   */
+  const savingPaths = ref(new Set<string>())
 
   /** 待确认关闭的脏标签路径。null 表示没有挂起的关闭动作（确认框关闭）。 */
   const pendingClosePath = ref<string | null>(null)
@@ -621,6 +652,94 @@ function createWorkspace() {
     pendingClosePath.value = null
   }
 
+  // ---- 关窗 ----
+
+  /**
+   * 关窗待确认。
+   *
+   * 桌面端那颗关闭键（以及 Alt+F4、任务栏关闭）被原生层拦下来了 —— 见
+   * `src-tauri/src/lib.rs` 的 `CloseGuard`：WebView 的 `beforeunload` 挡不住原生
+   * 关窗，脏内容会随进程退出静默消失。前端收到 `webnote-close-blocked` 就把它置真，
+   * 由 `App.vue` 弹确认框。浏览器端没有这条路，仍靠 `beforeunload`。
+   */
+  const windowClosePending = ref(false)
+
+  /** 有未保存改动的标签。确认框按它数数，也按它逐个保存。 */
+  const dirtyTabs = computed(() => tabs.value.filter((tab) => tab.dirty))
+
+  /**
+   * 收到原生层的「有人想关窗」：有脏的就问，没有就直接放行。
+   *
+   * 后一个分支不是多余的：原生那边的脏标志是异步同步过去的，用户刚存完就点关闭，
+   * 事件仍可能到 —— 这时不该弹一个「0 个文件未保存」的框。
+   */
+  function requestWindowClose() {
+    if (!hasDirty.value) {
+      void confirmWindowClose()
+      return
+    }
+    windowClosePending.value = true
+  }
+
+  /** 取消关窗（按钮、Esc、点遮罩）。窗口留在原处，脏标签原样保留。 */
+  function cancelWindowClose() {
+    windowClosePending.value = false
+  }
+
+  /**
+   * 确认框的结果。
+   *
+   * 「保存并关闭」逐个存，任何一篇写失败就**不关**：`saveTab` 已把原因写进
+   * `fsError`，编辑区顶部那条会留着，用户看得见是哪一篇没成。丢数据比多问一次糟得多。
+   */
+  async function resolveWindowClose(strategy: "save" | "discard") {
+    if (strategy === "save") {
+      for (const tab of [...dirtyTabs.value]) await saveTab(tab.path)
+      if (hasDirty.value) {
+        windowClosePending.value = false
+        return
+      }
+    }
+    windowClosePending.value = false
+    await confirmWindowClose()
+  }
+
+  /** 真正交给原生关窗。放行票由 Rust 侧那张 `allow` 管，这里只发一次调用。 */
+  async function confirmWindowClose() {
+    if (!isTauriRuntime()) return
+    try {
+      const { invoke } = await import("@tauri-apps/api/core")
+      await invoke("confirm_close")
+    } catch (error) {
+      fsError.value = `关闭窗口失败：${describeError(error)}`
+    }
+  }
+
+  /**
+   * 把「有没有未保存的东西」同步给原生层。
+   *
+   * 与 `attachIntegrateTables` 同一个模式：工作区先于 App 创建，副作用由根组件递进来。
+   * 失败静默 —— 这只是给原生层的一个提示位，同步不上等价于没装守卫（退回旧行为），
+   * 不该为一条辅助通道再报一次错。
+   */
+  function attachCloseGuard(dirty: Ref<boolean>) {
+    if (!isTauriRuntime()) return
+    watch(
+      dirty,
+      (value) => {
+        void (async () => {
+          try {
+            const { invoke } = await import("@tauri-apps/api/core")
+            await invoke("set_close_guard", { dirty: value })
+          } catch {
+            // 静默，理由同上。
+          }
+        })()
+      },
+      { immediate: true },
+    )
+  }
+
   /** 折叠 / 展开一个节点。文件夹与「整合视图里挂了引用的笔记」共用这一个集合。 */
   function toggleExpanded(id: string) {
     const next = new Set(expandedIds.value)
@@ -646,47 +765,61 @@ function createWorkspace() {
     if (driver === null || current === null) return
     const tab = tabs.value.find((item) => item.path === path)
     if (tab === undefined) return
+    // 在途的重复保存并到同一次：连按 Ctrl+S、或点图标时上一次还没写完，
+    // 再跑一遍不但是白写，还可能让后到的旧快照盖掉先到的新快照。
+    if (savingPaths.value.has(path)) return
 
-    for (const tablePath of tab.dirtyTables) {
-      const error = (await registry.value?.flush(tablePath)) ?? null
-      if (error !== null) {
-        fsError.value = `保存数据表「${fileName(tablePath)}」失败：${error}`
+    savingPaths.value = withFlag(savingPaths.value, path, true)
+    try {
+      for (const tablePath of tab.dirtyTables) {
+        const error = (await registry.value?.flush(tablePath)) ?? null
+        if (error !== null) {
+          fsError.value = `保存数据表「${fileName(tablePath)}」失败：${error}`
+          return
+        }
+      }
+
+      const blocks = documents.value[path]
+      if (blocks === undefined) {
+        tab.dirtyTables = []
+        tab.dirty = false
         return
       }
-    }
 
-    const blocks = documents.value[path]
-    if (blocks === undefined) {
-      tab.dirtyTables = []
+      // 引用块要写成快照，所以它引用的表必须已经在内存里。`preload` 由 App.vue 接上
+      // （注册表的 `acquire`），它负责把还没读过的表读进来。读不回来（文件没了）不算
+      // 错误 —— 那种情况快照本来就要写成提示态。
+      await registry.value?.preload(refPathsOf(blocks))
+
+      // 引用块在这里被写成**快照**（当前的表格内容），不是指针 —— 导出的文件要能在
+      // 没有那个 `.tbl` 的地方双击打开（ADR-0005）。这一步是同步的纯查询：表已经由
+      // 数据表注册表读进内存了，这里只是把内容拼进去。
+      const html = serializeHtml(blocks, { title: titleOf(path), style: styles.value[path] ?? "" }, lookupTable)
+      try {
+        await driver.writeNote(current, path, html)
+      } catch (error) {
+        fsError.value = `保存「${fileName(path)}」失败：${describeError(error)}`
+        return
+      }
+      // 写成功了才清脏态。
       tab.dirty = false
-      return
+      tab.dirtyTables = []
+      // 引用关系可能刚被改过：整合视图立刻跟上，不必等下一次树变化。
+      refCache.delete(path)
+      void refreshNoteTableRefs()
+    } finally {
+      savingPaths.value = withFlag(savingPaths.value, path, false)
     }
-
-    // 引用块要写成快照，所以它引用的表必须已经在内存里。`preload` 由 App.vue 接上
-    // （注册表的 `acquire`），它负责把还没读过的表读进来。读不回来（文件没了）不算
-    // 错误 —— 那种情况快照本来就要写成提示态。
-    await registry.value?.preload(refPathsOf(blocks))
-
-    // 引用块在这里被写成**快照**（当前的表格内容），不是指针 —— 导出的文件要能在
-    // 没有那个 `.tbl` 的地方双击打开（ADR-0005）。这一步是同步的纯查询：表已经由
-    // 数据表注册表读进内存了，这里只是把内容拼进去。
-    const html = serializeHtml(blocks, { title: titleOf(path), style: styles.value[path] ?? "" }, lookupTable)
-    try {
-      await driver.writeNote(current, path, html)
-    } catch (error) {
-      fsError.value = `保存「${fileName(path)}」失败：${describeError(error)}`
-      return
-    }
-    // 写成功了才清脏态。
-    tab.dirty = false
-    tab.dirtyTables = []
-    // 引用关系可能刚被改过：整合视图立刻跟上，不必等下一次树变化。
-    refCache.delete(path)
-    void refreshNoteTableRefs()
   }
 
-  /** 保存按钮：保存当前激活标签。 */
+  /**
+   * 保存当前激活标签。
+   *
+   * 没有未落盘的改动就直接返回：Ctrl+S 会被当成习惯动作连按，每按一次都重写一遍
+   * 同一个文件既没必要，也让「刚才那下到底存了什么」变得难以回答。
+   */
   async function save() {
+    if (!isDirty.value) return
     await saveTab(activePath.value)
   }
 
@@ -847,7 +980,7 @@ function createWorkspace() {
         fsError.value = `移动失败：目标位置已有「${name}」`
         return false
       }
-      await driver.move(current, from, to)
+      await withBusy(`正在移动「${name}」…`, () => driver.move(current, from, to))
     } catch (error) {
       fsError.value = `移动「${name}」失败：${describeError(error)}`
       return false
@@ -933,7 +1066,7 @@ function createWorkspace() {
         fsError.value = `重命名失败：已存在「${finalName}」`
         return false
       }
-      await driver.rename(current, path, to)
+      await withBusy(`正在重命名为「${finalName}」…`, () => driver.rename(current, path, to))
     } catch (error) {
       fsError.value = `重命名「${fileName(path)}」失败：${describeError(error)}`
       return false
@@ -966,7 +1099,7 @@ function createWorkspace() {
     }
 
     try {
-      await driver.remove(current, path)
+      await withBusy(`正在删除「${fileName(path)}」…`, () => driver.remove(current, path))
     } catch (error) {
       fsError.value = `删除「${fileName(path)}」失败：${describeError(error)}`
       return false
@@ -1030,6 +1163,14 @@ function createWorkspace() {
 
   const history = new Map<string, DocHistory>()
   const restoreTick = ref(0)
+  /**
+   * 历史的版本号。
+   *
+   * `history` 是普通 Map，撤销栈长度变了不会通知任何人；而 chrome 上的撤销 / 重做
+   * 按钮要跟着亮灭。所有会改动栈的地方（记录、撤销、重做）都碰一下它，
+   * `canUndo` / `canRedo` 就有了依赖。
+   */
+  const historyTick = ref(0)
   const HISTORY_LIMIT = 100
   let historyTimer: number | undefined
 
@@ -1116,6 +1257,7 @@ function createWorkspace() {
     if (entry.past.length > HISTORY_LIMIT) entry.past.shift()
     entry.baseline = current
     entry.future = []
+    historyTick.value += 1
   }
 
   watch(
@@ -1123,6 +1265,9 @@ function createWorkspace() {
     () => {
       // 带上触发那一刻的路径：定时器到点时用户可能已切走标签，记错文档就乱套了。
       const path = activePath.value
+      // 定格的计时器还没到，「当前与基线不同」这件事已经成立：撤销按钮要立刻亮，
+      // 不能等 500ms 后那一步记下来才变 —— 那时用户已经按过 Ctrl+Z 了。
+      historyTick.value += 1
       if (path === "") return
       window.clearTimeout(historyTimer)
       historyTimer = window.setTimeout(() => recordHistory(path), 500)
@@ -1148,6 +1293,7 @@ function createWorkspace() {
     documents.value[path] = previous
     markDirty()
     restoreTick.value += 1
+    historyTick.value += 1
   }
 
   function redo() {
@@ -1166,7 +1312,31 @@ function createWorkspace() {
     documents.value[path] = next
     markDirty()
     restoreTick.value += 1
+    historyTick.value += 1
   }
+
+  /**
+   * 撤销 / 重做按钮的可用性。
+   *
+   * 两处来源合起来才算「能撤销」：栈里已经有定格过的步，或当前内容与基线不同
+   * （刚敲的字还没到 500ms 的定格点）。只看栈会让按钮在键入后的一瞬是灭的，
+   * 而那时按 Ctrl+Z 其实能撤。
+   */
+  const canUndo = computed(() => {
+    void historyTick.value
+    const path = activePath.value
+    if (path === "") return false
+    const entry = history.get(path)
+    if (entry === undefined) return false
+    if (entry.past.length > 0) return true
+    return historySignature(snapshotOf(path)) !== historySignature(entry.baseline)
+  })
+
+  const canRedo = computed(() => {
+    void historyTick.value
+    const entry = history.get(activePath.value)
+    return entry !== undefined && entry.future.length > 0
+  })
 
   // ---- 块级操作。全部收敛在这里，组件只负责触发与聚焦 ----
 
@@ -1786,6 +1956,7 @@ function createWorkspace() {
     charCount,
     isDirty,
     hasDirty,
+    savingPaths,
     isClosePending,
     pendingCloseLabel,
     isLoadingDocument,
@@ -1795,12 +1966,15 @@ function createWorkspace() {
     scanning,
     fsHint,
     fsError,
+    busyLabel,
     // workspace actions
     bootstrap,
     openRoot,
     refreshTree,
     dismissError,
     attachForTest,
+    // 关窗守卫：把「有没有未保存的东西」同步给原生层，由根组件接上。
+    attachCloseGuard,
     // 读写通道与根目录：数据表注册表（`useTables`）要用同一对，否则两个 composable
     // 会各自持有一份驱动引用，切目录时对不齐。
     fs,
@@ -1816,6 +1990,12 @@ function createWorkspace() {
     requestCloseTab,
     resolveClose,
     cancelPendingClose,
+    // 关窗确认
+    windowClosePending,
+    dirtyTabs,
+    requestWindowClose,
+    resolveWindowClose,
+    cancelWindowClose,
     toggleExpanded,
     save,
     saveTab,
@@ -1881,6 +2061,8 @@ function createWorkspace() {
     // undo / redo
     undo,
     redo,
+    canUndo,
+    canRedo,
     restoreTick,
   }
 }

@@ -4,7 +4,9 @@ import { computed } from "vue"
 import { ChevronRightIcon, CopyIcon, DatabaseIcon, EllipsisIcon, FilePlusIcon, FileTextIcon, FolderIcon, FolderOpenIcon, FolderPlusIcon, GlobeIcon, PencilIcon, PlusIcon, TrashIcon } from "@lucide/vue"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { useToast } from "@/composables/useToast"
 import { useWorkspace } from "@/composables/useWorkspace"
+import { describeError } from "@/lib/errors"
 import { fileStem } from "@/lib/fs/policy"
 import { cn } from "@/lib/utils"
 
@@ -23,6 +25,7 @@ const emit = defineEmits<{
 
 const { expandedIds, activePath, isSearching, toggleExpanded, openFile, draggingPath, dropTargetPath, fs, root } =
   useWorkspace()
+const { notify } = useToast()
 
 // 节点的 id 就是完整工作区路径（见 `lib/fs/policy` 的 `folderNode` / `fileNode`）。
 // 整合视图把数据表挂到笔记名下，这时「父目录 + 名字」拼不出表的真实路径，只能读 id。
@@ -70,13 +73,27 @@ const isDesktop = computed(() => root.value?.kind === "path")
 /** 只有 HTML 文件给「用浏览器打开」—— 其它扩展名的默认应用不一定是浏览器，菜单不撒谎。 */
 const isHtmlFile = computed(() => !isFolder.value && /\.html?$/i.test(props.node.name))
 
-/** 把这个节点的磁盘绝对路径放进剪贴板。浏览器端没有路径，入口本身已隐藏。 */
+/**
+ * 把这个节点的磁盘绝对路径放进剪贴板。
+ *
+ * 反馈走瞬态提示：菜单点完就关，行内无处显示 ✓，而剪贴板本身在系统里 ——
+ * 不给一句「已复制」，用户只能靠再粘贴一次来确认。
+ */
 async function copyPath() {
   const driver = fs.value
   const current = root.value
   if (driver === null || current === null) return
   const absolute = driver.absolutePath(current, fullPath.value)
-  if (absolute !== null) await navigator.clipboard.writeText(absolute)
+  if (absolute === null) return
+  try {
+    await navigator.clipboard.writeText(absolute)
+  } catch (error) {
+    // 剪贴板被拒（窗口无焦点、权限策略）时什么都没发生，菜单也已经关了 ——
+    // 不说一声，用户会以为路径在剪贴板里。
+    notify(`复制路径失败：${describeError(error)}`, "error")
+    return
+  }
+  notify("路径已复制")
 }
 
 /** 在系统文件管理器里定位这个节点（选中呈现，不打开内容）。 */

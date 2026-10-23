@@ -18,6 +18,7 @@ const {
   activateTab,
   requestCloseTab,
   saveTab,
+  savingPaths,
   isClosePending,
   pendingCloseLabel,
   resolveClose,
@@ -80,6 +81,7 @@ watch(() => tabs.value.length, () => nextTick(updateOverflow))
         :key="tab.path"
         :tab="tab"
         :active="tab.path === activePath"
+        :saving="savingPaths.has(tab.path)"
         @activate="activateTab"
         @close="requestCloseTab"
         @save="saveTab"

@@ -15,7 +15,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useSettings, CONTENT_WIDTH_PX } from "@/composables/useSettings"
 import { useTheme } from "@/composables/useTheme"
+import { useToast } from "@/composables/useToast"
 import { useWorkspace } from "@/composables/useWorkspace"
+import { describeError } from "@/lib/errors"
 import { isTextualBlock, orderedIndexes as orderedIndexesOf } from "@/lib/blocks"
 import { headingEntries } from "@/lib/headings"
 import { DOM_ATTR, DRAG_HANDLE_SELECTOR, LAYOUT_CELL_SELECTOR, TOP_BLOCK_ROW_SELECTOR, closestBlockId, findEditable, focusBlockById } from "@/lib/dom"
@@ -58,6 +60,7 @@ const {
   redo,
   restoreTick,
 } = useWorkspace()
+const { notify } = useToast()
 
 /**
  * 画册 / 书签块的插入对话框状态:待插入的位置 + 落哪种块,null 表示关着。
@@ -616,7 +619,15 @@ function onDrop(event: DragEvent) {
 async function insertImageFiles(files: readonly File[], from: number | null) {
   let index = from
   for (const file of files) {
-    const src = await readImageFile(file)
+    let src: string
+    try {
+      src = await readImageFile(file)
+    } catch (error) {
+      // 读不出来（超出内存、权限、编码不支持）时块根本不会出现。不说一声，
+      // 用户看到的就是「粘贴了但什么都没发生」，然后开始怀疑剪贴板。
+      notify(`插入图片失败：${describeError(error)}`, "error")
+      continue
+    }
     const id = index === null ? appendBlock("image") : insertBlockAt(index, "image")
     setImageSource(id, src)
     index = index === null ? null : index + 1
@@ -779,7 +790,13 @@ async function copyCrossSelection() {
       // WebView 不支持多 flavor 写入时落到纯文本兜底。
     }
   }
-  await navigator.clipboard.writeText(payload.text)
+  try {
+    await navigator.clipboard.writeText(payload.text)
+  } catch (error) {
+    // 成功不提示：Ctrl+C 是习惯动作，每按一次弹一下比不提示更烦。
+    // 失败必须说 —— 那一刻剪贴板里是上一次的旧内容，用户不会知道。
+    notify(`复制失败：${describeError(error)}`, "error")
+  }
 }
 
 /**

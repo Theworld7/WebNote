@@ -18,6 +18,7 @@ import OptionCell from "@/components/OptionCell.vue"
 import { useSettings } from "@/composables/useSettings"
 import { useTableEntry } from "@/composables/useTableEntry"
 import { useWorkspace } from "@/composables/useWorkspace"
+import { markImageBroken, usableImage } from "@/lib/broken-images"
 import * as dt from "@/lib/data-table"
 import { tableEffectClasses } from "@/lib/typography"
 
@@ -48,6 +49,21 @@ const { state, table, columns, rows, change } = useTableEntry(() => props.block.
 
 function cellOf(row: DataRow, column: DataColumn): string {
   return dt.valueText(dt.cellValue(row, column), column)
+}
+
+/**
+ * 图片格实际画出来的地址：空值、以及加载失败过的，都给空串 ——
+ * 这个格子在引用块里是只读的，画不出来就安静地留白，不摆一张裂图。
+ */
+function imageSrcOf(row: DataRow, column: DataColumn): string {
+  const value = dt.cellValue(row, column)
+  return typeof value === "string" ? usableImage(value) : ""
+}
+
+/** `@error` 记账用：拿格子里存的原始地址，而不是解析后的 `img.src`。 */
+function imageSourceOf(row: DataRow, column: DataColumn): string {
+  const value = dt.cellValue(row, column)
+  return typeof value === "string" ? value : ""
 }
 
 /** 打开数据表本身：切到它的标签页。引用块的「深潜」入口。 */
@@ -226,13 +242,14 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
                 <!-- 懒加载与编辑器同一口径：引用块挂载即整表渲染，图片不延迟解码
                      会把笔记打开拖住。 -->
                 <img
-                  v-if="dt.cellValue(row, column) !== null"
-                  :src="String(dt.cellValue(row, column))"
+                  v-if="imageSrcOf(row, column) !== ''"
+                  :src="imageSrcOf(row, column)"
                   alt=""
                   loading="lazy"
                   decoding="async"
                   class="max-h-24 rounded-lg"
-                >
+                  @error="markImageBroken(imageSourceOf(row, column))"
+                />
               </div>
               <!-- 单选格：下拉选已有选项，空项给「—」。选项的增删改名在数据表编辑页，
                    这里只负责选值 —— 引用块是「一扇窗」，不是第二个编辑入口。

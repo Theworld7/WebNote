@@ -15,6 +15,7 @@ import {
 import TableRefNotice from "@/components/TableRefNotice.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
+import { markImageBroken, usableImage } from "@/lib/broken-images"
 import * as dt from "@/lib/data-table"
 import {
   SUBSCRIPTION_ROLE_FIELDS,
@@ -74,6 +75,11 @@ function nameOf(row: DataRow): string {
 }
 
 function iconOf(row: DataRow): string {
+  return usableImage(subscriptionIcon(row, roles.value))
+}
+
+/** 图标列的原始地址（不过滤失败过的）。`@error` 拿它记账，图一坏就退回首字母。 */
+function iconSourceOf(row: DataRow): string {
   return subscriptionIcon(row, roles.value)
 }
 
@@ -343,7 +349,8 @@ function openTable() {
               loading="lazy"
               decoding="async"
               class="size-full object-cover"
-            >
+              @error="markImageBroken(iconSourceOf(row))"
+            />
             <span v-else>{{ initialOf(row) }}</span>
           </div>
 

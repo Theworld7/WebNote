@@ -26,6 +26,7 @@ import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
 import { useCellEditing } from "@/composables/useCellEditing"
 import * as dt from "@/lib/data-table"
+import { markImageBroken, usableImage } from "@/lib/broken-images"
 
 /**
  * 画册块:把一张数据表渲染成海报卡片宫格。
@@ -62,6 +63,15 @@ function posterOf(row: DataRow): string {
     if (typeof value === "string") return value
   }
   return ""
+}
+
+/**
+ * 实际画出来的地址。加载失败过的当作空,回落到下面那个占位图标 ——
+ * 在线图片挂别人的服务器,断网 / 防盗链 / 对方删图都会裂,而 `<img>` 失败时
+ * 页面上什么都不会说。
+ */
+function shownPoster(row: DataRow): string {
+  return usableImage(posterOf(row))
 }
 
 /** 宫格布局:响应式交给浏览器数列数,自定义则固定 N 列(写入时已夹到 1..12)。 */
@@ -221,6 +231,11 @@ function posterOfRows(rowsOfGroup: readonly DataRow[]): string {
     if (poster !== "") return poster
   }
   return ""
+}
+
+/** 聚合卡实际画出来的地址。口径与 `shownPoster` 一致。 */
+function shownPosterOfGroup(rowsOfGroup: readonly DataRow[]): string {
+  return usableImage(posterOfRows(rowsOfGroup))
 }
 
 // ---- 卡片上的内联编辑 ----
@@ -552,12 +567,13 @@ function openTable() {
 
           <div class="relative z-10 overflow-hidden rounded-lg border border-line bg-popover">
             <img
-              v-if="posterOfRows(unit.rows) !== ''"
-              :src="posterOfRows(unit.rows)"
+              v-if="shownPosterOfGroup(unit.rows) !== ''"
+              :src="shownPosterOfGroup(unit.rows)"
               alt=""
               class="w-full dark:brightness-[0.94]"
               :class="props.block.fit === 'cover' ? 'object-cover' : 'object-contain'"
               :style="posterStyle"
+              @error="markImageBroken(posterOfRows(unit.rows))"
             >
             <div v-else class="flex w-full items-center justify-center bg-muted/40" :style="posterStyle">
               <LayoutGridIcon class="size-4 text-muted-foreground/40" />
@@ -586,12 +602,13 @@ function openTable() {
           <div v-for="row in unit.rows" :key="row.id" class="group/gcard relative">
             <div class="overflow-hidden rounded-lg border border-line bg-popover">
               <img
-                v-if="posterOf(row) !== ''"
-                :src="posterOf(row)"
+                v-if="shownPoster(row) !== ''"
+                :src="shownPoster(row)"
                 alt=""
                 class="w-full dark:brightness-[0.94]"
                 :class="props.block.fit === 'cover' ? 'object-cover' : 'object-contain'"
                 :style="posterStyle"
+                @error="markImageBroken(posterOf(row))"
               >
               <div v-else class="flex w-full items-center justify-center bg-muted/40" :style="posterStyle">
                 <LayoutGridIcon class="size-4 text-muted-foreground/40" />

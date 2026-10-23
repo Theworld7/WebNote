@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
+import { markImageBroken, usableImage } from "@/lib/broken-images"
 import * as dt from "@/lib/data-table"
 import { MAX_DATA_TABLE_COLUMNS } from "@/types/data-table"
 
@@ -53,6 +54,18 @@ const summary = computed(() => {
 
 function displayOf(row: DataRow, column: DataColumn): string {
   return dt.valueText(dt.cellValue(row, column), column)
+}
+
+/** 图片缩略图实际画出来的地址：加载失败过的不再重试，改成一句提示。 */
+function imageSrcOf(row: DataRow, column: DataColumn): string {
+  const value = dt.cellValue(row, column)
+  return typeof value === "string" ? usableImage(value) : ""
+}
+
+/** `@error` 记账用：拿格子里存的原始地址，而不是解析后的 `img.src`。 */
+function imageSourceOf(row: DataRow, column: DataColumn): string {
+  const value = dt.cellValue(row, column)
+  return typeof value === "string" ? value : ""
 }
 
 function commitCell(row: DataRow, column: DataColumn, event: Event): void {
@@ -399,12 +412,22 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
                        视口外的先不解，滚到附近再解。高度给到 h-16：太小的缩略图会把
                        右上角的清除钮挤成主要命中区，容易误触。 -->
                   <img
-                    :src="String(dt.cellValue(row, column))"
+                    v-if="imageSrcOf(row, column) !== ''"
+                    :src="imageSrcOf(row, column)"
                     alt=""
                     loading="lazy"
                     decoding="async"
                     class="h-16 w-full rounded-lg object-cover"
+                    @error="markImageBroken(imageSourceOf(row, column))"
+                  />
+                  <!-- 画不出来就在原位说一句，而不是留一个空格子 —— 编辑页里那看起来
+                       像是「这里本来就没图」，用户不会想到去查链接。 -->
+                  <div
+                    v-else
+                    class="grid h-16 w-full place-items-center rounded-lg border border-dashed border-line bg-muted/40 text-[11px] text-muted-foreground"
                   >
+                    图片打不开
+                  </div>
                   <button
                     type="button"
                     class="absolute right-0.5 top-0.5 hidden rounded bg-background/80 p-1 text-muted-foreground hover:text-destructive reduce-transparency:bg-background group-hover/img:block"
