@@ -14,7 +14,7 @@ import { openExternalUrl } from "@/lib/open-external"
 import { createPlaylistPreset, createPlaylistSource } from "@/lib/playlist"
 import { NOTE_EXTENSION, TABLE_EXTENSION, checkName, defaultExpanded, fileStem, isNoteFile, isTableFile } from "@/lib/fs/policy"
 import * as table from "@/lib/table"
-import { fileName, fromSegments, isUnder, joinPath, migratePath, titleOf, toCrumbs, toSegments } from "@/lib/paths"
+import { fileName, fromSegments, isUnder, joinPath, migratePath, titleOf, toSegments } from "@/lib/paths"
 
 /**
  * 工作区状态。
@@ -350,8 +350,6 @@ function createWorkspace() {
    * 一个到处是 `if` 的组件。
    */
   const isActiveTable = computed(() => activePath.value !== "" && isTableFile(fileName(activePath.value)))
-
-  const crumbs = computed(() => toCrumbs(activePath.value))
 
   const charCount = computed(() => countChars(activeDocument.value))
 
@@ -1952,7 +1950,6 @@ function createWorkspace() {
     activeDocument,
     activeStyle,
     isActiveTable,
-    crumbs,
     charCount,
     isDirty,
     hasDirty,

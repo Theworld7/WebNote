@@ -58,10 +58,6 @@ const scroller = () => chrome()?.querySelector('[class*="overflow-x-auto"]') ?? 
 const styleEntry = () => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === "页面样式")
 /** 字数那一格：靠 `tabular-nums` 认，不靠位置 —— 文案会变。 */
 const charCell = () => chrome()?.querySelector('[class*="tabular-nums"]') ?? null
-const crumbs = () => {
-  const cell = charCell()
-  return cell ? cell.previousElementSibling : null
-}
 const box = (el) => (el ? el.getBoundingClientRect() : null)
 /** 动作区与标签区之间那道竖线：`aria-hidden` 的裸 span，品牌名那个 span 没有这个属性。 */
 const divider = () => chrome()?.querySelector(':scope > span[aria-hidden="true"]') ?? null
@@ -117,14 +113,6 @@ check(
 
 check("有激活标签时出现字数", charCell() !== null)
 check("有激活标签时出现页面样式入口", styleEntry() !== undefined)
-const crumbCell = crumbs()
-check("有激活标签时出现面包屑", crumbCell !== null && crumbCell !== undefined,
-  crumbCell === null ? "面包屑缺失" : "")
-check(
-  "面包屑读的是完整路径（末段是文件名）",
-  crumbCell?.textContent?.includes("2026-10-23.html") === true,
-  crumbCell?.textContent?.trim() ?? "缺失",
-)
 
 // 字数每敲一字都变：定宽 + 等宽数字，变化不许推着右边的页面样式按钮走。
 // 量计算样式而不是 rect：窄视口下这一格整格隐藏（`max-[820px]:hidden`），rect 会是 0，

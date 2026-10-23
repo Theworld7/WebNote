@@ -520,12 +520,6 @@ export interface OpenTab {
   dirtyTables: string[]
 }
 
-/** 面包屑的一段。最后一段是文件名。 */
-export interface Crumb {
-  name: string
-  isFile: boolean
-}
-
 /** 块左侧手柄的菜单打开状态。空串表示两个菜单都关着。 */
 export type BlockMenuKind = "" | "type" | "action"
 

@@ -44,7 +44,7 @@ const themeActionLabel = computed(() => (theme.value === "dark" ? "切换到浅�
  * 而 HIG 的 macOS 条款明确反对把「控制与关键信息」放窗口底部：用户常把窗口移到底部，
  * 底边会被屏幕边缘裁掉。搬上来之后底部那一条整体撤掉，字数不再需要单独一条 32px。
  */
-const { tabs, activeTab, crumbs, charCount, undo, redo, canUndo, canRedo } = useWorkspace()
+const { tabs, activeTab, charCount, undo, redo, canUndo, canRedo } = useWorkspace()
 const hasDocument = computed(() => activeTab.value !== null)
 
 /** 设置抽屉的开合。它是 chrome 上的一个动作，不是工作区状态。 */
@@ -219,21 +219,11 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
       <div class="h-full min-w-4 flex-1" data-tauri-drag-region />
     </div>
 
-    <!-- 右端文档信息：窄窗口先让面包屑，再让字数，页面样式与窗口按钮永远留位 ——
-         前者是整篇笔记排版的唯一入口，后者是平台约定。 -->
+    <!-- 右端文档信息：窄窗口先让字数，页面样式与窗口按钮永远留位 ——
+         前者是整篇笔记排版的唯一入口，后者是平台约定。
+         这里曾经有一段面包屑（`文件夹 / 文件名`），删了：文件名在标签上已经有了，
+         文件夹层级在文件树里高亮着，占着右端最值钱的位置只是重复。 -->
     <div class="flex min-w-0 flex-none items-center gap-3" :class="DOC_INFO">
-      <span
-        v-if="hasDocument"
-        class="flex min-w-0 max-w-[200px] flex-none items-center gap-1 overflow-hidden text-[11px] text-muted-foreground max-[1000px]:hidden"
-      >
-        <template v-for="(crumb, index) in crumbs" :key="`${crumb.name}-${index}`">
-          <span class="truncate" :class="crumb.isFile ? 'flex-none text-foreground' : 'min-w-0'">
-            {{ crumb.name }}
-          </span>
-          <span v-if="!crumb.isFile" class="flex-none text-muted-foreground/45">/</span>
-        </template>
-      </span>
-
       <!-- 字数每敲一字都变：定宽 + 等宽数字，变化只发生在自己这一格里，
            不会推着右边的页面样式按钮和窗口按钮来回动。 -->
       <span
