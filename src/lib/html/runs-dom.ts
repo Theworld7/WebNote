@@ -1,5 +1,5 @@
 import type { InlineMark, InlineRun, LinkShape } from "@/types/workspace"
-import { TAG_MARKS, isTextColor, normalizeRuns } from "@/lib/inline"
+import { TAG_MARKS, isTextColor, normalizeRuns, normalizeTextColor } from "@/lib/inline"
 import { BLOCK_TAGS, IMAGE_TAG, SKIPPED_TAGS } from "./tags"
 
 /**
@@ -57,8 +57,8 @@ function breakBefore(out: InlineRun[], context: RunContext): void {
 
 /**
  * 从 style 属性里取 `color` 声明的值。整条声明按 `;` 拆、按第一个 `:` 拆属性名——
- * `background-color:` 里的 "color" 不是属性名，不会被误认。值不在色盘内返回 undefined
- * （见 TEXT_COLORS：归一化要稳，只收命名色）。
+ * `background-color:` 里的 "color" 不是属性名，不会被误认。旧色盘值先按别名折算成
+ * 现值（见 normalizeTextColor），值不在色盘内返回 undefined（归一化要稳，只收命名色）。
  */
 function styleColor(node: Element): string | undefined {
   const style = node.getAttribute("style")
@@ -67,7 +67,7 @@ function styleColor(node: Element): string | undefined {
     const separator = declaration.indexOf(":")
     if (separator === -1) continue
     if (declaration.slice(0, separator).trim().toLowerCase() !== "color") continue
-    const value = declaration.slice(separator + 1).trim().toLowerCase()
+    const value = normalizeTextColor(declaration.slice(separator + 1).trim().toLowerCase())
     return isTextColor(value) && value !== "" ? value : undefined
   }
   return undefined

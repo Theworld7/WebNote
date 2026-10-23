@@ -72,6 +72,13 @@ import { createApp, defineComponent, h, nextTick } from "vue"
 import tokens from "./icon/icon.tokens.json"
 import { Button } from "../src/components/ui/button/index.ts"
 import { Checkbox } from "../src/components/ui/checkbox/index.ts"
+import { TEXT_COLORS } from "../src/lib/inline.ts"
+import {
+  LEDGER_EXPENSE_COLOR,
+  LEDGER_EXPENSE_COLOR_DARK,
+  LEDGER_INCOME_COLOR,
+  LEDGER_INCOME_COLOR_DARK,
+} from "../src/lib/ledger.ts"
 
 const out = document.getElementById("out")
 const lines = []
@@ -182,6 +189,72 @@ check(`深色选中字对比度 ≥ 4.5（实测 ${darkSelection.toFixed(2)}）`
 check("深色选中底比卡片亮（选中在深色下靠更亮表达，不是压暗）",
   luminance(rgbOf("--color-selection", darkScope)) > luminance(rgbOf("--card", darkScope)))
 
+// ---- 内容色矩阵 ----
+// 品牌色、选中色守了对比度，但「用户能写进正文的颜色」一直是另一套账：行内文本色、
+// 账目红绿、订阅徽章、标注底色。它们的失守方式不是「不好看」，是深色下读不出来
+// （账目金额在 oklch(0.145) 的底上只有 2.8:1）。这一段把两件事一起钉住：
+// 值只有一份真源，且每一种在两种外观下都过 4.5。
+const CARD_DARK = rgbOf("--card", darkScope)
+const slate = TEXT_COLORS.slice(1)
+
+check("行内文本色的 CSS 镜像 = 色盘真源（浅色九支）",
+  TEXT_COLORS.every((item, index) => index === 0 || same(rgbOf(`--run-color-${index}`), toRgb(item.value))),
+  slate.map((item) => item.value).join(" "))
+check("行内文本色的 CSS 镜像 = 色盘真源（深色九支）",
+  TEXT_COLORS.every((item, index) => index === 0 || same(rgbOf(`--run-color-${index}`, darkScope), toRgb(item.dark))),
+  slate.map((item) => item.dark).join(" "))
+
+const runLightMin = Math.min(...slate.map((item) => contrast(toRgb(item.value), WHITE)))
+const runDarkMin = Math.min(...slate.map((item) => contrast(toRgb(item.dark), CARD_DARK)))
+check(`行内色九支在白底上全部 ≥ 4.5（最低 ${runLightMin.toFixed(2)}）`, runLightMin >= 4.5)
+check(`行内色九支在深色卡片底上全部 ≥ 4.5（最低 ${runDarkMin.toFixed(2)}）`, runDarkMin >= 4.5)
+
+check("账目红绿 = ledger.ts 常量（浅色）",
+  same(rgbOf("--color-ledger-income"), toRgb(LEDGER_INCOME_COLOR))
+  && same(rgbOf("--color-ledger-expense"), toRgb(LEDGER_EXPENSE_COLOR)))
+check("账目红绿 = ledger.ts 常量（深色）",
+  same(rgbOf("--color-ledger-income", darkScope), toRgb(LEDGER_INCOME_COLOR_DARK))
+  && same(rgbOf("--color-ledger-expense", darkScope), toRgb(LEDGER_EXPENSE_COLOR_DARK)))
+
+const ledgerLightMin = Math.min(
+  contrast(rgbOf("--color-ledger-income"), WHITE),
+  contrast(rgbOf("--color-ledger-expense"), WHITE),
+)
+const ledgerDarkMin = Math.min(
+  contrast(rgbOf("--color-ledger-income", darkScope), CARD_DARK),
+  contrast(rgbOf("--color-ledger-expense", darkScope), CARD_DARK),
+)
+check(`账目金额 浅色 ≥ 4.5（最低 ${ledgerLightMin.toFixed(2)}）· 深色 ≥ 4.5（最低 ${ledgerDarkMin.toFixed(2)}）`,
+  ledgerLightMin >= 4.5 && ledgerDarkMin >= 4.5)
+
+// 有色的面：字色必须配自己的底，而不是配画布。
+const SURFACES = [
+  ["标注块（tint）", "--color-tint-foreground", "--color-tint"],
+  ["订阅生效（status-ok）", "--color-status-ok-foreground", "--color-status-ok"],
+  ["订阅将到期（status-warn）", "--color-status-warn-foreground", "--color-status-warn"],
+]
+for (const [label, fg, bg] of SURFACES) {
+  const l = contrast(rgbOf(fg), rgbOf(bg))
+  const d = contrast(rgbOf(fg, darkScope), rgbOf(bg, darkScope))
+  check(`${label} 字/底 浅 ${l.toFixed(2)} · 深 ${d.toFixed(2)}（都要 ≥ 4.5）`, l >= 4.5 && d >= 4.5)
+}
+
+check("标注块不再复用选中色（tint ≠ selection）",
+  !same(rgbOf("--color-tint"), rgbOf("--color-selection")),
+  `${show(rgbOf("--color-tint"))} vs ${show(rgbOf("--color-selection"))}`)
+
+// 高对比度档：值在 :root / .dark 的 --hc-*，媒体查询只做搬运 —— 于是普通条件下
+// 也读得到、也算得了。这里守的是「这一档必须比普通档更狠」，不是具体色号。
+for (const [label, scope] of [["浅色", light], ["深色", darkScope]]) {
+  const bg = rgbOf("--background", scope)
+  const body = contrast(rgbOf("--hc-foreground", scope), bg)
+  const mutedHc = contrast(rgbOf("--hc-muted-foreground", scope), bg)
+  const mutedPlain = contrast(rgbOf("--muted-foreground", scope), bg)
+  check(`${label}高对比度档 正文/底 ≥ 7（实测 ${body.toFixed(2)}）`, body >= 7)
+  check(`${label}高对比度档 次级文字/底 ≥ 4.5 且强于普通档（${mutedHc.toFixed(2)} > ${mutedPlain.toFixed(2)}）`,
+    mutedHc >= 4.5 && mutedHc > mutedPlain)
+}
+
 // ---- 三支中性档的深浅对应（ADR-0014 给深色补的） ----
 // 它们在 @theme 里是浅色常量，深色重取时最容易犯的错是「照抄浅色」—— 那会让画布、描边、
 // 加重底一起变成近白，浮岛与卡片的边界全糊掉。这里只守相对关系，不守具体色号。
@@ -200,6 +273,44 @@ check("深色：画布比卡片暗（浮岛仍能从底上浮起来）",
 check("深色：描边比卡片亮（边界不会糊成一片）",
   luminance(darkLine) > luminance(darkCard) + 0.01,
   `${show(darkLine)} vs ${show(darkCard)}`)
+
+// ---- 深色的「基本色 / 提升色」阶梯（HIG 深色模式） ----
+// 深色不是浅色的反转：面要一层比一层亮，前景界面才「向前」。浅色侧不套这条 ——
+// 白纸之间本来就是平的，靠阴影分层（见 :root 的 --elev-*）。
+const darkLadder = [
+  ["画布", rgbOf("--color-canvas", darkScope)],
+  ["页面底", rgbOf("--background", darkScope)],
+  ["卡片", rgbOf("--card", darkScope)],
+  ["浮层", rgbOf("--popover", darkScope)],
+]
+check("深色层级单调递增：画布 < 页面底 < 卡片 < 浮层",
+  darkLadder.every(([, rgb], i) => i === 0 || luminance(rgb) > luminance(darkLadder[i - 1][1])),
+  darkLadder.map(([label, rgb]) => `${label} ${show(rgb)}`).join(" → "))
+check("深色浮层与卡片不同色（同色时菜单只剩阴影可依，而深色阴影会把浮层压成凹的）",
+  !same(darkLadder[3][1], darkLadder[2][1]),
+  `${show(darkLadder[3][1])} vs ${show(darkLadder[2][1])}`)
+// 浮层抬高一档之后，菜单项的悬停底（focus:bg-accent）不能还停在原来的值上 ——
+// 那会让「悬停」在菜单里几乎不可见。这里守的是它仍比浮层底亮一档。
+const hoverOnPopover = contrast(rgbOf("--accent", darkScope), darkLadder[3][1])
+check(`深色浮层内的悬停档仍看得出（accent / popover ≥ 1.15，实测 ${hoverOnPopover.toFixed(2)}）`,
+  hoverOnPopover >= 1.15, `${show(rgbOf("--accent", darkScope))}`)
+// 阴影得走一层间接：@theme 的值会被**内联**进工具类（产物里是
+// `.shadow-pop{--tw-shadow:0 1px 2px …}`），所以在 @theme 里直接写死取值的话，
+// `.dark` 改写 `--shadow-*` 完全不起作用。这里不查实现，直接把一个真元素挂进
+// 两种作用域，比对它算出来的 box-shadow —— 传没传到，一测便知。
+const shadowProbe = document.createElement("div")
+shadowProbe.className = "shadow-pop"
+document.body.append(shadowProbe)
+const shadowLight = getComputedStyle(shadowProbe).boxShadow
+darkScope.append(shadowProbe)
+const shadowDark = getComputedStyle(shadowProbe).boxShadow
+shadowProbe.remove()
+check("阴影随外观变化（深色那套真的传到了 box-shadow）",
+  shadowLight !== shadowDark && shadowDark !== "" && shadowDark !== "none",
+  `${shadowLight} → ${shadowDark}`)
+check("深色阴影比浅色重（两套同值等于深色没有阴影）",
+  varOf("--elev-pop") !== varOf("--elev-pop", darkScope),
+  `${varOf("--elev-pop")} vs ${varOf("--elev-pop", darkScope)}`)
 
 // ---- 语义色不许被品牌化 ----
 const highlight = rgbOf("--color-highlight")

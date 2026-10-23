@@ -143,17 +143,19 @@ function progressTone(row: DataRow): string {
 }
 
 const STATUS_TONES: Record<SubscriptionState, string> = {
-  active: "bg-[#e8f5ec] text-[#1c7a3e] dark:bg-[#163a26] dark:text-[#7ed3a0]",
-  trial: "bg-selection text-selection-foreground",
-  soon: "bg-[#fdf2d0] text-[#8a5a00] dark:bg-[#3a2d12] dark:text-[#e8b45a]",
+  active: "bg-status-ok text-status-ok-foreground",
+  trial: "bg-tint text-tint-foreground",
+  soon: "bg-status-warn text-status-warn-foreground",
   expired: "bg-destructive/10 text-destructive",
   cancelled: "bg-muted text-muted-foreground",
 }
 
+/** 进度条只画色块不写字，直接用同一支状态前景色（图形级只需 3:1，实测远超）。
+    原来另取了两支更亮的 hex —— 同一件事两套值，深色下还得各调一次。 */
 const PROGRESS_TONES: Record<SubscriptionState, string> = {
-  active: "bg-[#3aa55d] dark:bg-[#65c98a]",
+  active: "bg-status-ok-foreground",
   trial: "bg-brand",
-  soon: "bg-[#d99a22] dark:bg-[#e8b45a]",
+  soon: "bg-status-warn-foreground",
   expired: "bg-destructive",
   cancelled: "bg-muted-foreground",
 }
@@ -163,7 +165,7 @@ function cardTone(row: DataRow): string {
   const status = statusOf(row)
   if (status.kind === "cancelled") return "opacity-65"
   const urgent = status.kind === "soon" || (status.kind === "trial" && status.days !== null && status.days <= 7)
-  return urgent ? "ring-1 ring-[#d99a22]/30" : ""
+  return urgent ? "ring-1 ring-status-warn-foreground/30" : ""
 }
 
 function progressWidth(row: DataRow): string {
@@ -228,7 +230,7 @@ function setRole(role: SubscriptionRole, event: Event): void {
   }
 }
 
-const MENU = "w-[224px] rounded-island p-1.5 shadow-pop ring-0"
+const MENU = "w-[224px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
 
 function openTable() {
@@ -258,14 +260,14 @@ function openTable() {
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full bg-background px-2 text-[12px] text-muted-foreground hover:text-foreground"
+        class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground"
         @click="openTable"
       >
         <DatabaseIcon class="size-3" />打开数据表
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-background px-2 text-[12px] text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground">
             <Settings2Icon class="size-3" />设置
           </Button>
         </DropdownMenuTrigger>

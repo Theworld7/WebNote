@@ -184,8 +184,8 @@ function alignColumn(align: TableAlign) {
 }
 
 /** 菜单外框与菜单项，与块手柄的两套菜单同一套参数。 */
-const MENU = "w-[244px] rounded-island p-1.5 shadow-pop ring-0"
-const SUB_MENU = "w-[148px] rounded-island p-1.5 shadow-pop ring-0"
+const MENU = "w-[244px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
+const SUB_MENU = "w-[148px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
 const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-foreground"
 </script>
@@ -234,7 +234,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
     />
 
     <div
-      class="absolute -bottom-3.5 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-full bg-background p-0.5 opacity-0 shadow-island transition-opacity group-hover/tbl:opacity-100 focus-within:opacity-100"
+      class="absolute -bottom-3.5 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-full bg-popover p-0.5 opacity-0 shadow-island transition-opacity group-hover/tbl:opacity-100 focus-within:opacity-100"
     >
       <Button
         variant="ghost"

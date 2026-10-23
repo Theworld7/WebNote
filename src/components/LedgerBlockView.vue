@@ -19,7 +19,7 @@ import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
 import { useCellEditing } from "@/composables/useCellEditing"
 import * as dt from "@/lib/data-table"
-import { LEDGER_EXPENSE_COLOR, LEDGER_INCOME_COLOR, balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, ledgerSort, sortRows, sumRows } from "@/lib/ledger"
+import { balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, ledgerSort, sortRows, sumRows } from "@/lib/ledger"
 import { placeBelow, watchScrollHosts } from "@/lib/floating"
 
 /**
@@ -448,7 +448,7 @@ const dateColumns = computed(() => columns.value.filter((column) => column.type 
 /** 可排序列:图片列除外(data URI 排序没有意义,投影也是空串)。 */
 const sortableColumns = computed(() => columns.value.filter((column) => column.type !== "image"))
 
-const MENU = "w-[210px] rounded-island p-1.5 shadow-pop ring-0"
+const MENU = "w-[210px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
 const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
 
@@ -479,14 +479,14 @@ function openTable() {
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full bg-background px-2 text-[12px] text-muted-foreground hover:text-foreground"
+        class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground"
         @click="openTable"
       >
         <DatabaseIcon class="size-3" />打开数据表
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-background px-2 text-[12px] text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground">
             <Settings2Icon class="size-3" />设置
           </Button>
         </DropdownMenuTrigger>
@@ -577,8 +577,8 @@ function openTable() {
               <th :colspan="cellCount" class="px-2.5 py-1 text-left text-[11px] font-medium text-muted-foreground">
                 {{ section.title }}
                 <span v-if="section.totals.income !== 0 || section.totals.expense !== 0" class="ml-2.5 font-normal">
-                  收入 <span :style="{ color: LEDGER_INCOME_COLOR }">{{ formatYuan(section.totals.income) }}</span>
-                  · 支出 <span :style="{ color: LEDGER_EXPENSE_COLOR }">{{ formatYuan(section.totals.expense) }}</span>
+                  收入 <span class="text-ledger-income">{{ formatYuan(section.totals.income) }}</span>
+                  · 支出 <span class="text-ledger-expense">{{ formatYuan(section.totals.expense) }}</span>
                 </span>
               </th>
             </tr>
@@ -586,7 +586,7 @@ function openTable() {
               v-for="row in section.rows"
               :key="row.id"
               class="group/lrow border-b border-line transition-colors last:border-b-0"
-              :class="flashRow === row.id && 'bg-selection'"
+              :class="flashRow === row.id && 'bg-tint'"
             >
               <!-- 行号 / 删除同占一格(与数据表编辑页同一手法):悬停换成 ✕,列宽不变、行不跳。 -->
               <th class="relative w-7 px-2 py-1 text-right align-top font-mono text-[10.5px] font-normal text-muted-foreground/60">
@@ -654,8 +654,8 @@ function openTable() {
                     @click="editing = cellKey(row, column)"
                     @focus="editing = cellKey(row, column)"
                   >
-                    <template v-if="column === incomeColumn"><span :style="{ color: LEDGER_INCOME_COLOR }">{{ incomeText(row) }}</span></template>
-                    <template v-else-if="column === expenseColumn"><span :style="{ color: LEDGER_EXPENSE_COLOR }">{{ expenseText(row) }}</span></template>
+                    <template v-if="column === incomeColumn"><span class="text-ledger-income">{{ incomeText(row) }}</span></template>
+                    <template v-else-if="column === expenseColumn"><span class="text-ledger-expense">{{ expenseText(row) }}</span></template>
                     <template v-else>{{ cellText(row, column) }}</template>
                   </button>
 
@@ -701,8 +701,8 @@ function openTable() {
               class="px-2.5 py-1.5"
               :class="isNumberish(column) && 'text-right tabular-nums'"
             >
-              <template v-if="column === incomeColumn"><span :style="{ color: LEDGER_INCOME_COLOR }">{{ formatIncome(totals.income) }}</span></template>
-              <template v-else-if="column === expenseColumn"><span :style="{ color: LEDGER_EXPENSE_COLOR }">{{ formatExpense(totals.expense) }}</span></template>
+              <template v-if="column === incomeColumn"><span class="text-ledger-income">{{ formatIncome(totals.income) }}</span></template>
+              <template v-else-if="column === expenseColumn"><span class="text-ledger-expense">{{ formatExpense(totals.expense) }}</span></template>
               <template v-else-if="index === labelIndex">合计</template>
             </td>
             <td class="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums">结余 {{ formatYuan(totals.net) }}</td>

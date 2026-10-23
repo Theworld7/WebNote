@@ -194,7 +194,7 @@ onBeforeUnmount(() => {
       <div
         v-show="open"
         data-html-source-drawer
-        class="absolute inset-y-0 right-0 z-20 flex w-1/2 flex-col border-l border-line bg-background shadow-pop"
+        class="absolute inset-y-0 right-0 z-20 flex w-1/2 flex-col border-l border-line bg-popover shadow-pop"
       >
         <div class="flex flex-none items-center gap-3 border-b border-line px-4 py-2">
           <span class="flex-none whitespace-nowrap text-[12.5px] font-medium">{{ title }}</span>

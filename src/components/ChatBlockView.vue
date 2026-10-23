@@ -86,7 +86,7 @@ function onBlur(index: number, event: FocusEvent) {
           class="min-h-[1.6rem] whitespace-pre-wrap break-words rounded-2xl px-3 py-1.5 text-[13px] leading-[1.6] outline-none"
           :class="
             message.role === 'you'
-              ? 'rounded-br-md bg-selection text-selection-foreground'
+              ? 'rounded-br-md bg-tint text-tint-foreground'
               : 'rounded-bl-md bg-card text-foreground shadow-sm'
           "
           @blur="onBlur(index, $event)"

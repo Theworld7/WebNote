@@ -12,6 +12,7 @@ import { runsText, runsToHtml } from "@/lib/inline"
 import { caretOffsetIn, shortcutMark, splitRunsAt } from "@/lib/marks"
 import {
   BODY_TEXT_CLASS,
+  BODY_TYPE_CLASS,
   CHECKBOX_TOP,
   HANDLE_SIZE,
   MARKER_TOP,
@@ -378,12 +379,15 @@ const bodyClass = computed(() => {
     // 引用：左侧 4px 竖线 + 12px 左内边距，无底色无圆角（naive blockquote 的形态）。
     case "quote":
       return cn(BODY_BASE, PLACEHOLDER, "border-l-4 border-line pl-3", BODY_TEXT_CLASS)
+    // 标注：一块有色的面（--color-tint，与导出侧的 --accent-bg 同值）。字色单取一支，
+    // 不沿用正文的 text-foreground/90 —— 那个类与这里同特异性，谁赢只看产物里的书写顺序。
     case "callout":
       return cn(
         BODY_BASE,
         PLACEHOLDER,
-        "rounded-lg bg-selection px-3.5 py-2.5 text-[oklch(0.33_0.05_255)]",
-        BODY_TEXT_CLASS,
+        "rounded-lg bg-tint px-3.5 py-2.5",
+        BODY_TYPE_CLASS,
+        "text-tint-foreground",
       )
     case "todo":
       return cn(BODY_BASE, PLACEHOLDER, BODY_TEXT_CLASS, indent, block.checked === true && "text-muted-foreground line-through")

@@ -91,7 +91,7 @@ function openTable() {
   openFile(props.block.path)
 }
 
-const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-0"
+const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 </script>
 
 <template>
@@ -109,14 +109,14 @@ const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-0"
         v-if="props.block.path !== ''"
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full bg-background px-2 text-[12px] text-muted-foreground hover:text-foreground"
+        class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground"
         @click="openTable"
       >
         <DatabaseIcon class="size-3" />打开数据表
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-background px-2 text-[12px] text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground">
             <Settings2Icon class="size-3" />设置
           </Button>
         </DropdownMenuTrigger>

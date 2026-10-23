@@ -59,12 +59,15 @@ async function onDrop(event: DragEvent) {
     @dragleave="onDragLeave"
     @drop="onDrop"
   >
+    <!-- 深色下压暗 6%：HIG 要求「显示的内容图像包含白色背景时略微调暗，防止背景在深色
+         环境里发光」。截图的纯白底铺在 #171717 卡片上是 17.9:1，不压就是一块亮斑；
+         6% 对普通照片看不出来，对白底截图足够收一收。 -->
     <img
       v-if="hasSource"
       :src="block.src"
       :alt="block.alt"
       :title="block.title"
-      class="my-1 block max-w-full rounded-lg"
+      class="my-1 block max-w-full rounded-lg dark:brightness-[0.94]"
     />
 
     <div v-else class="my-1 rounded-lg bg-muted p-3">
@@ -87,7 +90,7 @@ async function onDrop(event: DragEvent) {
       </PopoverTrigger>
       <PopoverContent
         align="end"
-        class="w-auto rounded-island p-3 shadow-pop ring-0"
+        class="w-auto rounded-island p-3 shadow-pop ring-1 ring-line/70"
         @open-auto-focus.prevent
       >
         <ImageSourcePanel autofocus @pick="apply" />

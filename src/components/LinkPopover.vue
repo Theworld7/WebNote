@@ -115,7 +115,7 @@ const FORM_ACTIVE = "bg-accent text-foreground"
   <div
     ref="root"
     data-link-popover
-    class="fixed z-50 w-80 rounded-island border border-line bg-background p-2 shadow-pop"
+    class="fixed z-50 w-80 rounded-island border border-line bg-popover p-2 shadow-pop"
     :style="{ top: `${anchor.top}px`, left: `${anchor.left}px`, transform: 'translate(-50%, -100%)' }"
     @keydown="onKeydown"
   >

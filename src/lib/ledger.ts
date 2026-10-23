@@ -14,9 +14,22 @@ import { cellValue, emptyColumn, emptyRow, groupRows, valueText } from "@/lib/da
  * 与「指向的列被删后退化为未设置」同一立场,渲染时自愈。
  */
 
-/** 金额配色(收入红 / 支出绿,涨红跌绿口径)。导出 CSS(`typography.ts`)从这里插值,两处不漂移。 */
+/**
+ * 金额配色(收入红 / 支出绿,涨红跌绿口径)。
+ *
+ * 浅色值有三处消费者:编辑器 token(`style.css` 的 `--color-ledger-*`)、导出 CSS
+ * (`typography.ts` 插值)、以及本条常量本身。三处必须一致,由 `design/theme-check.html`
+ * 逐通道核对 —— 和品牌色镜像图标 tokens 是同一手法。
+ */
 export const LEDGER_INCOME_COLOR = "#a32d2d"
 export const LEDGER_EXPENSE_COLOR = "#3b6d11"
+
+/**
+ * 深色外观下的同一对颜色:保色相、提明度,在卡片底 #171717 上 ≥4.5。
+ * 浅色那两支落在 oklch(0.145) 的底上只有 2.8 / 3.2 —— 深色界面里金额等于被抹掉。
+ */
+export const LEDGER_INCOME_COLOR_DARK = "#d45b55"
+export const LEDGER_EXPENSE_COLOR_DARK = "#5b8f39"
 
 /** 一组求和结果:`net = income − expense`。 */
 export interface LedgerTotals {

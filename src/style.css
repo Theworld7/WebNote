@@ -7,6 +7,11 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* HIG 的「降低透明度」：用户开了这个开关时，半透明面与背景模糊要退成实色。
+   做成变体而不是写死媒体查询，是因为只有少数几处真的用了 blur/半透明底，
+   逐个自己声明比全局兜底更准。 */
+@custom-variant reduce-transparency (@media (prefers-reduced-transparency: reduce));
+
 /* WebNote 自有 token。与 shadcn 基础变量并存：
    只补原型用到、而 shadcn neutral 主题里没有的那几个（画布底、选中蓝、脏标记、浮块圆角与阴影）。
    这里用普通 @theme 而非 @theme inline —— 这些是直接定义的常量，不需要引用 :root 变量。 */
@@ -26,6 +31,24 @@
     --color-selection: oklch(0.955 0.030 264);
     --color-selection-foreground: var(--color-brand);
     --color-selection-strong: oklch(0.93 0.045 264);
+    /* 「有色的面」—— 标注块、书签图标、聊天气泡、订阅试用徽章、账目闪烁行。
+       与 selection 分开：selection 只表示**当前选中**（标签、树行、选项格），tint 只表示
+       「一块有色的底」。合成一支的话，标注块的蓝底会被读成「这个块被选中了」，
+       而 HIG 的第一条最佳实践正是反对同一颜色指代不同的东西。
+       取值刻意对齐导出侧 docStyle 的 --accent-bg / --accent-fg：编辑器里看到的标注块
+       与双击打开的文件是同一副颜色，而不是两支相近的蓝。 */
+    --color-tint: #eef2ff;
+    --color-tint-foreground: #313d6b;
+    /* 账目的收入红 / 支出绿（涨红跌绿口径）。真源在 lib/ledger.ts 的同名常量，
+       theme-check 逐通道核对两边一致；导出侧（typography.ts）也取那两支值。
+       深色另取一档 —— 浅色那支在 oklch(0.145) 的底上只有 2.8:1，等于把金额抹掉。 */
+    --color-ledger-income: #a32d2d;
+    --color-ledger-expense: #3b6d11;
+    /* 订阅状态色。原来散在组件里的裸 hex 收进 token：进了 token 才进得了对比度门禁。 */
+    --color-status-ok: #e8f5ec;
+    --color-status-ok-foreground: #1c7a3e;
+    --color-status-warn: #fdf2d0;
+    --color-status-warn-foreground: #8a5a00;
     /* 行内高亮的底色。取淡黄而不是复用 selection 蓝：选中态是瞬时、高亮是持久，
        两者在界面上会同时出现，同色系会分不清哪段是高亮、哪段正被选中。 */
     --color-highlight: oklch(0.96 0.085 100);
@@ -61,9 +84,14 @@
     --radius-block: 18px;
     --radius-island: 14px;
 
-    --shadow-block: 0 1px 2px oklch(0 0 0 / 4%), 0 6px 18px oklch(0 0 0 / 6%);
-    --shadow-island: 0 1px 2px oklch(0 0 0 / 5%), 0 3px 10px oklch(0 0 0 / 7%);
-    --shadow-pop: 0 1px 2px oklch(0 0 0 / 5%), 0 3px 10px oklch(0 0 0 / 7%), 0 12px 32px oklch(0 0 0 / 10%);
+    /* 阴影走一层间接（`--elev-*`），因为 @theme 的值会被**内联进工具类**
+       （产物里是 `.shadow-pop{--tw-shadow:0 1px 2px …}`），直接在 `.dark` 里改写
+       `--shadow-pop` 不会生效。指向一个真正的 CSS 变量后，两套外观各给一次值即可。
+       取值本身见 `:root` 与 `.dark` 的 `--elev-*`：浅色是浅黑（纸上有层次），
+       深色要重得多 —— 黑阴影压在 #171717 上合出来只暗一点，太轻就等于没有。 */
+    --shadow-block: var(--elev-block);
+    --shadow-island: var(--elev-island);
+    --shadow-pop: var(--elev-pop);
 
     /* 系统字体栈。不引远程字体：Tauri 离线可用，且不依赖 Google Fonts 可达性。 */
     --font-sans: -apple-system, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
@@ -155,6 +183,30 @@
     --sidebar-accent-foreground: oklch(0.205 0 0);
     --sidebar-border: oklch(0.922 0 0);
     --sidebar-ring: var(--color-brand);
+    /* 行内文本色的浅色一套，下标与 lib/inline.ts 的 TEXT_COLORS 一一对应（1..9，
+       跳过默认色）。色块、正文、导出文件三处都引用它，值只在这里出现一次。 */
+    --run-color-1: #767572;
+    --run-color-2: #9c6951;
+    --run-color-3: #b45d02;
+    --run-color-4: #9e6b02;
+    --run-color-5: #42815f;
+    --run-color-6: #307ca6;
+    --run-color-7: #8e63ae;
+    --run-color-8: #bf4a88;
+    --run-color-9: #cd4541;
+    /* 高对比度档的取值。单独一组而不是直接改写上面的 token：媒体查询里只做「搬运」，
+       值本身留在这里可被 design/theme-check.html 读到并算对比度 —— 写在
+       `@media (prefers-contrast: more)` 里的话，自检页在普通条件下读不到。
+       HIG 要求每种自定义颜色都提供「显著提高视觉区分度」的变体，这一组就是。 */
+    --hc-foreground: oklch(0.09 0 0);
+    --hc-muted-foreground: oklch(0.42 0 0);
+    --hc-border: oklch(0.72 0 0);
+    --hc-line: oklch(0.68 0 0);
+    /* 阴影的三套取值。浅色下白纸之间靠阴影分层（色阶是平的：背景、卡片、浮层都是白），
+       所以阴影必须看得见，但也不能重 —— 重了就成了描边。 */
+    --elev-block: 0 1px 2px oklch(0 0 0 / 4%), 0 6px 18px oklch(0 0 0 / 6%);
+    --elev-island: 0 1px 2px oklch(0 0 0 / 5%), 0 3px 10px oklch(0 0 0 / 7%);
+    --elev-pop: 0 1px 2px oklch(0 0 0 / 5%), 0 3px 10px oklch(0 0 0 / 7%), 0 12px 32px oklch(0 0 0 / 10%);
 }
 
 .dark {
@@ -196,19 +248,47 @@
     --color-selection: oklch(0.31 0.065 263);
     --color-selection-foreground: rgb(187 212 255);
     --color-selection-strong: oklch(0.37 0.08 263);
+    /* 深色的 tint 与字色同样取自导出侧（--accent-bg / --accent-fg 的深色一套），
+       实测 9.0:1。 */
+    --color-tint: #232a45;
+    --color-tint-foreground: #c3ccff;
+    /* 收入红 / 支出绿在深色下要提亮：取同一色相、提到卡片底（#171717）上 ≥4.5 的档位
+       （实测 4.63 / 4.64）。涨红跌绿的语义不变，变的只是明度。 */
+    --color-ledger-income: #d45b55;
+    --color-ledger-expense: #5b8f39;
+    --color-status-ok: #163a26;
+    --color-status-ok-foreground: #7ed3a0;
+    --color-status-warn: #3a2d12;
+    --color-status-warn-foreground: #e8b45a;
+    /* 深色的阴影：比浅色重一倍以上。同样的 5% 黑压在 #171717 上几乎不产生变化，
+       浮层看着像贴上去的；提到 30~46% 才读得出「这件事浮在上面」。
+       注意阴影在这套外观里只是**辅助** —— 主线索是上面的色阶（画布 0.105 →
+       页面 0.145 → 卡片 0.205 → 浮层 0.245）。只有色阶分不出来时才轮到阴影说话。 */
+    --elev-block: 0 1px 2px oklch(0 0 0 / 26%), 0 6px 18px oklch(0 0 0 / 34%);
+    --elev-island: 0 1px 2px oklch(0 0 0 / 30%), 0 3px 10px oklch(0 0 0 / 38%);
+    --elev-pop: 0 1px 2px oklch(0 0 0 / 30%), 0 3px 10px oklch(0 0 0 / 40%), 0 12px 32px oklch(0 0 0 / 46%);
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);
     --card: oklch(0.205 0 0);
     --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
+    /* 浮层比卡片再亮一档。HIG 深色模式要求用「基本色 / 提升色」两组背景表达层次：
+       基本色更暗让背景后退、提升色更亮让前景前进。原来这里与 --card 同为 0.205，
+       于是开在编辑器（就是 bg-card）上的菜单、气泡、确认框与底**完全同色**，
+       只剩阴影可依 —— 而深色里的黑阴影只会把浮层压得比底更暗，读起来是凹进去的。
+       0.245 (#202020) 对卡片 1.10:1；再往上会撞到 --muted 0.269（悬停档）。
+       浅色侧不需要这一步：浅色靠阴影分层，白纸之间是平的（见 :root 的 --elev-*）。 */
+    --popover: oklch(0.245 0 0);
     --popover-foreground: oklch(0.985 0 0);
     --primary: var(--color-brand);
     --primary-foreground: oklch(0.205 0 0);
     --secondary: oklch(0.269 0 0);
     --secondary-foreground: oklch(0.985 0 0);
     --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.72 0 0);
+    /* 悬停/激活档跟着浮层一起抬：浮层从 0.205 提到 0.245 后，沿用 0.269 的
+       `focus:bg-accent` 在菜单里只剩 1.07:1（原来压在卡片上是 1.19），等于悬停没反应。
+       提到 0.30 回到 1.19。`--muted`（自带底的静面）不跟着动，它多数压在卡片上。 */
+    --accent: oklch(0.30 0 0);
     --accent-foreground: oklch(0.985 0 0);
     --destructive: oklch(0.704 0.191 22.216);
     --border: oklch(1 0 0 / 10%);
@@ -229,6 +309,23 @@
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: var(--color-brand);
+    /* 行内文本色的深色一套：保 Notion 原色相，只把明度提到在卡片底 #171717 上 ≥4.5。
+       浅色那九支同样重定过（原值里黄 2.75:1、橙 3.28:1 铺在白底上读不出）。 */
+    --run-color-1: #82817e;
+    --run-color-2: #aa755d;
+    --run-color-3: #d9730d;
+    --run-color-4: #cb912f;
+    --run-color-5: #4f8e6b;
+    --run-color-6: #3f89b4;
+    --run-color-7: #9b70bc;
+    --run-color-8: #cd5795;
+    --run-color-9: #dc544e;
+    /* 深色下的高对比度档：正文提到纯白、次级文字到 0.86（普通档是 0.708）、
+       描边从 10% 白提到 34% —— 深色里「区分度」要靠加亮，不是加暗。 */
+    --hc-foreground: oklch(1 0 0);
+    --hc-muted-foreground: oklch(0.86 0 0);
+    --hc-border: oklch(1 0 0 / 34%);
+    --hc-line: oklch(0.55 0 0);
 }
 
 @layer base {
@@ -338,8 +435,8 @@
     height: 28px;
     border-radius: 6px;
     flex: none;
-    background-color: var(--color-selection);
-    color: var(--color-selection-foreground);
+    background-color: var(--color-tint);
+    color: var(--color-tint-foreground);
     font-weight: 600;
     font-size: 14px;
     }
@@ -378,8 +475,8 @@
     height: 32px;
     border-radius: 8px;
     flex: none;
-    background-color: var(--color-selection);
-    color: var(--color-selection-foreground);
+    background-color: var(--color-tint);
+    color: var(--color-tint-foreground);
     font-weight: 600;
     font-size: 14px;
     }
@@ -629,4 +726,73 @@ select optgroup {
 select option:checked {
     background-color: var(--color-selection);
     color: var(--color-selection-foreground);
+}
+
+/*
+ * 行内文本色的深色一套。
+ *
+ * 盘上的 span 是 `<span style="color: #787774">` —— 色值写在 inline style 里，这是
+ * 「盘上 HTML 即规范形态」的代价：脱离样式表也带颜色，但深色下换不了。所以渲染时
+ * 同时落一个 `data-run-color`（色盘下标，见 lib/inline.ts 的 TEXT_COLORS），这里按
+ * 下标换色。inline style 只有 `!important` 压得过 —— 这是必需的，不是偷懒。
+ *
+ * 浅色那九支也重新定过：Notion 原值里黄 2.75:1、橙 3.28:1，铺在白底上读不出；
+ * 深色这九支保色相、只提明度，在卡片底 #171717 上全部 ≥4.5。
+ *
+ * 取值真源是 lib/inline.ts 的 `TEXT_COLORS[].dark`。CSS 读不到 TS，两边由
+ * design/theme-check.html 逐条核对 —— 与品牌色镜像图标 tokens 同一手法。
+ */
+.dark [data-run-color="1"] { color: var(--run-color-1) !important; }
+.dark [data-run-color="2"] { color: var(--run-color-2) !important; }
+.dark [data-run-color="3"] { color: var(--run-color-3) !important; }
+.dark [data-run-color="4"] { color: var(--run-color-4) !important; }
+.dark [data-run-color="5"] { color: var(--run-color-5) !important; }
+.dark [data-run-color="6"] { color: var(--run-color-6) !important; }
+.dark [data-run-color="7"] { color: var(--run-color-7) !important; }
+.dark [data-run-color="8"] { color: var(--run-color-8) !important; }
+.dark [data-run-color="9"] { color: var(--run-color-9) !important; }
+
+/*
+ * 「增强对比度」环境（Windows 对比度主题、macOS 提高对比度）。
+ * 只做搬运：值在 :root / .dark 的 --hc-* 里，这里把它们接到实际消费的 token 上。
+ * 这么拆是为了让 design/theme-check.html 能在普通条件下读到值并算对比度 ——
+ * 写成媒体查询里的字面量就读不到了。
+ */
+@media (prefers-contrast: more) {
+    :root {
+        --foreground: var(--hc-foreground);
+        --muted-foreground: var(--hc-muted-foreground);
+        --border: var(--hc-border);
+        --color-line: var(--hc-line);
+    }
+}
+
+/*
+ * 强制颜色模式（Windows「高对比度」开关）。系统接管全部颜色，上面那套 token 一并失效。
+ * 此时不能再用颜色传信息，只能补结构线索 —— HIG「避免仅依靠颜色来区分对象、表达
+ * 交互性或传达基本信息」在强制色下的唯一出路。
+ */
+@media (forced-colors: active) {
+    /* 行内高亮：底色被接管后与正文同色，改画系统高亮色。 */
+    mark {
+        background-color: Highlight;
+        color: HighlightText;
+    }
+    /* 拖选覆盖层靠 mix-blend-mode 模拟「画在字后面」；强制色下混合失效，还会把字盖住。
+       原生 ::selection 在强制色下有自己的高亮色，不缺显示。 */
+    .cross-selection-rect {
+        display: none;
+    }
+    /* 选中态（标签、树行、选项格、设置项）原本只靠底色区分，强制色下与未选中同色，
+       补一圈内描边。这里依赖 Tailwind 生成的 `bg-selection` 类名 —— 若哪天把它换成
+       别的类，这条会静默失效，改的时候记得同步。 */
+    .bg-selection {
+        outline: 1px solid;
+        outline-offset: -1px;
+    }
+    /* 标注块的底色同样被抹平，靠描边保住「这是一个块」。 */
+    [data-block-type="callout"] {
+        outline: 1px solid;
+        outline-offset: -1px;
+    }
 }

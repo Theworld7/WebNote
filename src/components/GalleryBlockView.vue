@@ -319,7 +319,7 @@ function commitColumnCount(event: Event): void {
 }
 
 /** 菜单外框与菜单项,与块手柄的两套菜单同一套参数。 */
-const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-0"
+const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
 
 const FIT_ITEMS = [
@@ -377,14 +377,14 @@ function openTable() {
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full bg-background px-2 text-[12px] text-muted-foreground hover:text-foreground"
+        class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground"
         @click="openTable"
       >
         <DatabaseIcon class="size-3" />打开数据表
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-background px-2 text-[12px] text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground">
             <Settings2Icon class="size-3" />设置
           </Button>
         </DropdownMenuTrigger>
@@ -550,12 +550,12 @@ function openTable() {
           <div class="absolute inset-x-4 bottom-0 h-1 rounded-b-lg bg-[#8080801f]" />
           <div class="absolute inset-x-2 bottom-1 h-2 rounded-b-lg bg-[#80808033]" />
 
-          <div class="relative z-10 overflow-hidden rounded-lg border border-line bg-background">
+          <div class="relative z-10 overflow-hidden rounded-lg border border-line bg-popover">
             <img
               v-if="posterOfRows(unit.rows) !== ''"
               :src="posterOfRows(unit.rows)"
               alt=""
-              class="w-full"
+              class="w-full dark:brightness-[0.94]"
               :class="props.block.fit === 'cover' ? 'object-cover' : 'object-contain'"
               :style="posterStyle"
             >
@@ -573,7 +573,7 @@ function openTable() {
 
           <button
             type="button"
-            class="absolute -bottom-3 left-1/2 z-20 flex h-6 -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-background px-2 text-[12px] text-muted-foreground opacity-0 shadow-island transition-opacity pointer-events-none hover:text-foreground group-hover/gstack:pointer-events-auto group-hover/gstack:opacity-100"
+            class="absolute -bottom-3 left-1/2 z-20 flex h-6 -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-popover px-2 text-[12px] text-muted-foreground opacity-0 shadow-island transition-opacity pointer-events-none hover:text-foreground group-hover/gstack:pointer-events-auto group-hover/gstack:opacity-100"
             @click="toggleGroup(unit.key)"
           >
             <UnfoldVerticalIcon class="size-3" />展开
@@ -584,12 +584,12 @@ function openTable() {
              只有「展开的聚合组」才挂聚合按钮 —— 单行卡没有可聚合的同伴。 -->
         <template v-else>
           <div v-for="row in unit.rows" :key="row.id" class="group/gcard relative">
-            <div class="overflow-hidden rounded-lg border border-line bg-background">
+            <div class="overflow-hidden rounded-lg border border-line bg-popover">
               <img
                 v-if="posterOf(row) !== ''"
                 :src="posterOf(row)"
                 alt=""
-                class="w-full"
+                class="w-full dark:brightness-[0.94]"
                 :class="props.block.fit === 'cover' ? 'object-cover' : 'object-contain'"
                 :style="posterStyle"
               >
@@ -634,7 +634,7 @@ function openTable() {
             <button
               v-if="unit.rows.length > 1"
               type="button"
-              class="absolute -bottom-3 left-1/2 z-20 flex h-6 -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-background px-2 text-[12px] text-muted-foreground opacity-0 shadow-island transition-opacity pointer-events-none hover:text-foreground group-hover/gcard:pointer-events-auto group-hover/gcard:opacity-100"
+              class="absolute -bottom-3 left-1/2 z-20 flex h-6 -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-popover px-2 text-[12px] text-muted-foreground opacity-0 shadow-island transition-opacity pointer-events-none hover:text-foreground group-hover/gcard:pointer-events-auto group-hover/gcard:opacity-100"
               @click="toggleGroup(unit.key)"
             >
               <FoldVerticalIcon class="size-3" />聚合

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import type { Component } from "vue"
-import { onBeforeUnmount, ref, watch } from "vue"
+import { computed, onBeforeUnmount, ref, watch } from "vue"
 import type { InlineMark } from "@/types/workspace"
 import { BoldIcon, CodeIcon, HighlighterIcon, LinkIcon, PaletteIcon, StrikethroughIcon, UnderlineIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { MARK_REGISTRY, TEXT_COLORS } from "@/lib/inline"
+import { MARK_REGISTRY, TEXT_COLORS, textColorSlot } from "@/lib/inline"
 import { cn } from "@/lib/utils"
 
 /**
@@ -63,6 +63,9 @@ const emit = defineEmits<{
 
 // ---- 颜色色板 ----
 
+/** 当前色的色盘位次（0 = 默认色）。色块与按钮下划线都引用 CSS 变量，深色下自动换一套。 */
+const colorSlot = computed(() => textColorSlot(props.color ?? ""))
+
 /** 色板开合。点色应用后即收；点浮条外（正文等）由 document 监听收起，选区还在。 */
 const colorOpen = ref(false)
 const toolbarRoot = ref<HTMLElement | null>(null)
@@ -102,7 +105,7 @@ function keepSelection(event: MouseEvent) {
   <div
     ref="toolbarRoot"
     data-inline-toolbar
-    class="fixed z-50 flex items-center gap-0.5 rounded-island border border-line bg-background p-1 shadow-pop"
+    class="fixed z-50 flex items-center gap-0.5 rounded-island border border-line bg-popover p-1 shadow-pop"
     :style="{ top: `${anchor.top}px`, left: `${anchor.left}px`, transform: 'translate(-50%, -100%)' }"
     @mousedown="keepSelection"
   >
@@ -138,7 +141,7 @@ function keepSelection(event: MouseEvent) {
               <PaletteIcon class="size-[14px]" />
               <span
                 class="absolute -bottom-0.5 h-0.5 w-3.5 rounded-full"
-                :style="{ background: props.color ?? 'transparent' }"
+                :style="{ background: colorSlot === 0 ? 'transparent' : `var(--run-color-${colorSlot})` }"
                 aria-hidden="true"
               />
             </span>
@@ -149,10 +152,10 @@ function keepSelection(event: MouseEvent) {
 
       <div
         v-if="colorOpen"
-        class="absolute top-full left-1/2 z-50 mt-1.5 flex -translate-x-1/2 items-center gap-0.5 rounded-island border border-line bg-background p-1 shadow-pop"
+        class="absolute top-full left-1/2 z-50 mt-1.5 flex -translate-x-1/2 items-center gap-0.5 rounded-island border border-line bg-popover p-1 shadow-pop"
       >
         <button
-          v-for="item in TEXT_COLORS"
+          v-for="(item, index) in TEXT_COLORS"
           :key="item.name"
           type="button"
           :aria-label="item.name"
@@ -165,10 +168,11 @@ function keepSelection(event: MouseEvent) {
           "
           @click="pickColor(item.value)"
         >
-          <!-- 圆角色块：默认色没有色可填，画个描边空块表示「回到这个」。 -->
+          <!-- 圆角色块：默认色没有色可填，画个描边空块表示「回到这个」。
+               色块引 CSS 变量而不是内联 hex —— 深色下要跟正文实际渲染出来的那支一致。 -->
           <span
             class="block size-3.5 rounded-[4px] border border-line"
-            :style="{ background: item.value === '' ? undefined : item.value }"
+            :style="{ background: index === 0 ? undefined : `var(--run-color-${index})` }"
             aria-hidden="true"
           />
         </button>

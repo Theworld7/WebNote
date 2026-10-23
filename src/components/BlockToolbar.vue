@@ -87,14 +87,17 @@ const TOOL = "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foregrou
 const GRIP = `${TOOL} cursor-grab active:cursor-grabbing`
 
 /**
- * 菜单外框：浮岛圆角、去掉 shadcn 默认的 1px ring，换成原型那套双层阴影。
+ * 菜单外框：浮岛圆角、双层阴影。原来这里还有一条 `ring-0`，把 shadcn 默认的 1px ring
+ * 一起关掉 —— 浅色下没问题（白纸靠阴影就能分层），但深色下菜单底与编辑器卡片同色
+ * （见 style.css 的 .dark --popover 段），阴影是黑的、也压不出边界，菜单等于没有边框。
+ * 现在留着这圈 hairline：颜色走 `--color-line`，两套外观都成立。
  * 宽度随「块菜单」设置走 —— 纵向 244px 定宽；横向组要并排，改 `w-max`
  * 让内容撑开（定宽会把横排的组挤换行，「横向」就不成立了）。
  */
 const MENU = computed(() =>
   menuGroupLayout.value === "horizontal"
-    ? "w-max rounded-island p-1.5 shadow-pop ring-0"
-    : "w-[244px] rounded-island p-1.5 shadow-pop ring-0",
+    ? "w-max rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
+    : "w-[244px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70",
 )
 
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
@@ -278,7 +281,7 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
       @update:open="(open: boolean) => emit('update:openMenu', open ? 'type' : '')"
     >
       <DropdownMenuTrigger as-child>
-        <Button variant="ghost" :class="[TOOL, inside && 'bg-background']" aria-label="添加块">
+        <Button variant="ghost" :class="[TOOL, inside && 'bg-muted']" aria-label="添加块">
           <PlusIcon class="size-[15px]" />
         </Button>
       </DropdownMenuTrigger>
@@ -346,7 +349,7 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
       <DropdownMenuTrigger as-child>
         <Button
           variant="ghost"
-          :class="[GRIP, inside && 'bg-background']"
+          :class="[GRIP, inside && 'bg-muted']"
           data-drag-handle="true"
           :aria-label="`${meta.label}块操作菜单，拖动可重排`"
         >

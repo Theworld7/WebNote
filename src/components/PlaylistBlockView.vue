@@ -328,8 +328,8 @@ function setRole(role: PlaylistRole, event: Event): void {
   setPlaylistSources(props.block.id, next, activePath.value)
 }
 
-const MENU = "w-[224px] rounded-island p-1.5 shadow-pop ring-0"
-const BIND_MENU = "max-h-[280px] w-[240px] overflow-y-auto rounded-island p-1.5 shadow-pop ring-0"
+const MENU = "w-[224px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
+const BIND_MENU = "max-h-[280px] w-[240px] overflow-y-auto rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
 
 function openTable() {
@@ -338,7 +338,7 @@ function openTable() {
 }
 
 /** 工具条上的小胶囊按钮:与订阅 / 账目块同一套体量。 */
-const TOOL = "h-6 gap-1 rounded-full bg-background px-2 text-[12px] text-muted-foreground hover:text-foreground"
+const TOOL = "h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground"
 
 /** 标签胶囊:未选中是灰字,选中是浅底 + 深字 —— 换主题时靠 token 自动跟着走。 */
 const TAB = "flex h-[26px] max-w-[11rem] items-center gap-1 rounded-full px-2.5 text-[12px] transition-colors"

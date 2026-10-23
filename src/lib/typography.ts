@@ -1,5 +1,6 @@
 import type { BlockType, TableEffect } from "@/types/workspace"
-import { LEDGER_EXPENSE_COLOR, LEDGER_INCOME_COLOR } from "@/lib/ledger"
+import { LEDGER_EXPENSE_COLOR, LEDGER_EXPENSE_COLOR_DARK, LEDGER_INCOME_COLOR, LEDGER_INCOME_COLOR_DARK } from "@/lib/ledger"
+import { TEXT_COLORS } from "@/lib/inline"
 
 /**
  * 排版规格 —— 视觉常量的唯一真源。
@@ -339,8 +340,12 @@ export const MARKER_TOP = `${(BODY_LINE_BOX / 2 - (13 * LINE_HEIGHT) / 2).toFixe
 /** 复选框 14px 见方，同样居中于正文首行。 */
 export const CHECKBOX_TOP = `${(BODY_LINE_BOX / 2 - BODY_FONT_SIZE / 2).toFixed(1)}px`
 
-/** 正文的字号行高与字色（naive pFontSize / pLineHeight / pTextColor）。字面量理由同上。 */
-export const BODY_TEXT_CLASS = "text-sm leading-[1.6] text-foreground/90"
+/** 正文的字号与行高（naive pFontSize / pLineHeight）。字面量理由同上。 */
+export const BODY_TYPE_CLASS = "text-sm leading-[1.6]"
+
+/** 正文的字色（naive pTextColor）。标注块不用它 —— 它有自己的面（--color-tint），
+    字色得配那面，沿用正文色会白底黑字压蓝底，也让「一块有色的面」失去边界。 */
+export const BODY_TEXT_CLASS = `${BODY_TYPE_CLASS} text-foreground/90`
 
 /** 缩进用 margin-left 而不是 padding-left：手柄是绝对定位，padding 推不动它。 */
 export function indentStyle(depth: number): string {
@@ -364,6 +369,20 @@ export function indentStyle(depth: number): string {
  * `border-radius`，所以外框由 `<table>` 自己画、格子只留右/下内线，四角格子再各设
  * 一档内弧（外弧减 1px 边框）。
  */
+/**
+ * 行内文本色的深色规则。
+ *
+ * 导出的 HTML 自己带一套样式（双击打开也要好看），而 span 上的 `style="color: #767572"`
+ * 是落盘形态、优先级最高 —— 换深色只能靠 `!important` 的 `[data-run-color]` 选择器。
+ * 值全部取自 `TEXT_COLORS[].dark`，与编辑器侧镜像的那套同源（ADR：颜色只有一份真源）。
+ */
+const RUN_COLOR_DARK_RULES = TEXT_COLORS.map((item, index) => {
+  if (index === 0) return ""
+  return `      [data-run-color="${index}"] { color: ${item.dark} !important; }`
+})
+  .filter((line) => line !== "")
+  .join("\n")
+
 export function docStyle(): string {
   const headingRules = HEADING_FONT_SIZES.map(
     (size, index) => `    h${index + 1} { font-size: ${size}px; }`,
@@ -372,9 +391,10 @@ export function docStyle(): string {
   const h = BLOCK_SPACING.h1
   const hTail = BLOCK_SPACING.h4
 
-  return `    :root { color-scheme: light dark; --fg: #1c1c1e; --muted: #6b7280; --line: #e4e4e7; --bg-soft: #f4f4f5; --accent-bg: #eef2ff; --accent-fg: #313d6b; --mark-bg: #fdf3b0; --link: #1d4fd8; --radius-table: ${TABLE_RADIUS}px; }
+  return `    :root { color-scheme: light dark; --fg: #1c1c1e; --muted: #6b7280; --line: #e4e4e7; --bg-soft: #f4f4f5; --accent-bg: #eef2ff; --accent-fg: #313d6b; --mark-bg: #fdf3b0; --link: #1d4fd8; --ledger-in: ${LEDGER_INCOME_COLOR}; --ledger-ex: ${LEDGER_EXPENSE_COLOR}; --radius-table: ${TABLE_RADIUS}px; }
     @media (prefers-color-scheme: dark) {
-      :root { --fg: #e6e6e8; --muted: #9ca3af; --line: #33333a; --bg-soft: #1e1e22; --accent-bg: #232a45; --accent-fg: #c3ccff; --mark-bg: #4a4120; --link: #5e93ff; }
+      :root { --fg: #e6e6e8; --muted: #9ca3af; --line: #33333a; --bg-soft: #1e1e22; --accent-bg: #232a45; --accent-fg: #c3ccff; --mark-bg: #4a4120; --link: #5e93ff; --ledger-in: ${LEDGER_INCOME_COLOR_DARK}; --ledger-ex: ${LEDGER_EXPENSE_COLOR_DARK}; }
+${RUN_COLOR_DARK_RULES}
     }
     body { max-width: 46rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; background: Canvas; color: var(--fg);
       font: ${BODY_FONT_SIZE}px/${LINE_HEIGHT} -apple-system, "PingFang SC", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
@@ -477,8 +497,8 @@ ${headingRules}
     .note-ledger table { margin: 0; }
     .note-ledger th, .note-ledger td { padding: 0.35em 0.7em; }
     .note-ledger .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .note-ledger .in { color: ${LEDGER_INCOME_COLOR}; }
-    .note-ledger .ex { color: ${LEDGER_EXPENSE_COLOR}; }
+    .note-ledger .in { color: var(--ledger-in); }
+    .note-ledger .ex { color: var(--ledger-ex); }
     .note-ledger tr.note-ledger-group th { font-size: 12px; font-weight: 500; color: var(--muted); }
     .note-ledger tr.note-ledger-group th .s { margin-left: 10px; font-weight: 400; }
     .note-ledger tfoot td { font-weight: 500; background: var(--bg-soft); }

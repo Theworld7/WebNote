@@ -354,7 +354,7 @@ watch(
 )
 
 /** 菜单外框与下拉框,与画册设置菜单同一套参数。 */
-const MENU = "w-48 rounded-island p-1.5 shadow-pop ring-0"
+const MENU = "w-48 rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 /** 下拉框观感照搬画册设置里的 select,两处菜单放一起看不出差别。 */
 const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
 /** 编辑模态框的输入框(与 SELECT 同一套观感)与底部按钮(与关标签确认框同一体量)。 */
@@ -425,7 +425,7 @@ const columnsSelection = computed({
         v-if="nameColumn !== null && urlColumn !== null"
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full bg-background px-2 text-[12px] text-muted-foreground shadow-sm hover:text-foreground"
+        class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground shadow-sm hover:text-foreground"
         @click="addBookmark"
       >
         <PlusIcon class="size-3" />添加书签
@@ -433,14 +433,14 @@ const columnsSelection = computed({
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full bg-background px-2 text-[12px] text-muted-foreground shadow-sm hover:text-foreground"
+        class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground shadow-sm hover:text-foreground"
         @click="openFile(props.block.path)"
       >
         <DatabaseIcon class="size-3" />打开数据表
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-background px-2 text-[12px] text-muted-foreground shadow-sm hover:text-foreground">
+          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground shadow-sm hover:text-foreground">
             <Settings2Icon class="size-3" />设置
           </Button>
         </DropdownMenuTrigger>
@@ -532,7 +532,7 @@ const columnsSelection = computed({
             <li v-for="row in sec.rows" :key="row.id" class="group/card relative min-w-0">
               <!-- 悬停操作:编辑 / 删除。锚在卡片右下角、向下半露 —— 不占卡片右侧宽度,
                    名称与域名可以用满整行。 -->
-              <span class="absolute right-1 bottom-0 z-10 hidden translate-y-1/2 items-center gap-1.5 rounded-full border border-line bg-background p-0.5 shadow-sm group-hover/card:flex">
+              <span class="absolute right-1 bottom-0 z-10 hidden translate-y-1/2 items-center gap-1.5 rounded-full border border-line bg-popover p-0.5 shadow-sm group-hover/card:flex">
                 <button
                   type="button"
                   aria-label="编辑书签"
@@ -591,7 +591,7 @@ const columnsSelection = computed({
          回调会先清状态,保存逻辑需要自己掌控关框时机(与关标签确认框同一手法)。
          Esc 走 onOpenChange(false)。 -->
     <AlertDialog :open="editingId !== ''" @update:open="(open: boolean) => !open && closeEdit()">
-      <AlertDialogContent class="w-[360px] max-w-[calc(100vw-2rem)] rounded-[18px] p-5 shadow-pop ring-0">
+      <AlertDialogContent class="w-[360px] max-w-[calc(100vw-2rem)] rounded-[18px] p-5 shadow-pop ring-1 ring-line/70">
         <AlertDialogHeader>
           <AlertDialogTitle>{{ isAdding ? "添加书签" : "编辑书签" }}</AlertDialogTitle>
         </AlertDialogHeader>
@@ -613,7 +613,7 @@ const columnsSelection = computed({
                 <button
                   type="button"
                   aria-label="清除图片"
-                  class="absolute top-0.5 right-0.5 hidden rounded bg-background/80 p-1 text-muted-foreground hover:text-destructive group-hover/img:block"
+                  class="absolute top-0.5 right-0.5 hidden rounded bg-background/80 p-1 text-muted-foreground hover:text-destructive reduce-transparency:bg-background group-hover/img:block"
                   @click="clearDraftImage(column)"
                 >
                   <XIcon class="size-3" />
@@ -663,7 +663,7 @@ const columnsSelection = computed({
     <!-- 删除确认:删的是盘上数据表里的一行,没有撤销;表被多篇笔记共用时,
          别处也会跟着少一行,得先说清楚。 -->
     <AlertDialog :open="deletingId !== ''" @update:open="(open: boolean) => !open && closeDelete()">
-      <AlertDialogContent class="w-[300px] rounded-[18px] p-5 shadow-pop ring-0">
+      <AlertDialogContent class="w-[300px] rounded-[18px] p-5 shadow-pop ring-1 ring-line/70">
         <AlertDialogHeader>
           <AlertDialogTitle>删除书签</AlertDialogTitle>
           <AlertDialogDescription class="text-[12px]">

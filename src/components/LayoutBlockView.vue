@@ -38,7 +38,7 @@ const gridStyle = computed(() =>
 )
 
 /** 菜单外框，与块手柄菜单同一套参数。 */
-const MENU = "w-[148px] rounded-island p-1.5 shadow-pop ring-0"
+const MENU = "w-[148px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const TOOL_BUTTON =
   "h-6 gap-1 rounded-full px-2 text-[12px] text-muted-foreground hover:text-foreground"
 
@@ -156,7 +156,7 @@ function isDropTarget(cellIndex: number): boolean {
       没有互相遮挡，不必再互斥让路；菜单开着（focus-within）时也不收。
     -->
     <div
-      class="absolute -bottom-3.5 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-full bg-background p-0.5 opacity-0 shadow-island transition-opacity group-hover/layout:opacity-100 focus-within:opacity-100"
+      class="absolute -bottom-3.5 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-full bg-popover p-0.5 opacity-0 shadow-island transition-opacity group-hover/layout:opacity-100 focus-within:opacity-100"
     >
       <slot name="toolbar" />
 
