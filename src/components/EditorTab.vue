@@ -39,7 +39,7 @@ const label = computed(() => fileName(props.tab.path))
       aria-label="保存"
       @click.stop="emit('save', tab.path)"
     >
-      <SaveIcon class="size-[13px]" />
+      <SaveIcon class="size-3" />
     </span>
     <span
       v-if="tab.dirty"
@@ -50,7 +50,7 @@ const label = computed(() => fileName(props.tab.path))
       class="flex size-4 shrink-0 items-center justify-center rounded-[4px] text-muted-foreground opacity-0 group-hover/tab:opacity-100 hover:text-foreground"
       @click.stop="emit('close', tab.path)"
     >
-      <XIcon class="size-[13px]" />
+      <XIcon class="size-3" />
     </span>
   </button>
 </template>

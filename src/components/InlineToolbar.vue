@@ -119,7 +119,7 @@ function keepSelection(event: MouseEvent) {
           :aria-pressed="props.marks.includes(item.mark)"
           @click="emit('toggle', item.mark)"
         >
-          <component :is="item.icon" class="size-[14px]" />
+          <component :is="item.icon" class="size-3.5" />
         </Button>
       </TooltipTrigger>
       <TooltipContent side="bottom">{{ item.label }}</TooltipContent>
@@ -137,8 +137,8 @@ function keepSelection(event: MouseEvent) {
             :aria-pressed="colorOpen"
             @click="colorOpen = !colorOpen"
           >
-            <span class="relative inline-flex size-[14px] items-center justify-center">
-              <PaletteIcon class="size-[14px]" />
+            <span class="relative inline-flex size-3.5 items-center justify-center">
+              <PaletteIcon class="size-3.5" />
               <span
                 class="absolute -bottom-0.5 h-0.5 w-3.5 rounded-full"
                 :style="{ background: colorSlot === 0 ? 'transparent' : `var(--run-color-${colorSlot})` }"
@@ -191,7 +191,7 @@ function keepSelection(event: MouseEvent) {
             :aria-pressed="props.link"
             @click="emit('link')"
           >
-            <LinkIcon class="size-[14px]" />
+            <LinkIcon class="size-3.5" />
           </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom">链接</TooltipContent>

@@ -266,7 +266,7 @@ function optionClass(isActive: boolean): string {
         <SheetTitle>设置</SheetTitle>
         <SheetClose as-child>
           <Button variant="ghost" :class="CLOSE" aria-label="关闭设置">
-            <XIcon class="size-[15px]" />
+            <XIcon class="size-3.5" />
           </Button>
         </SheetClose>
       </header>

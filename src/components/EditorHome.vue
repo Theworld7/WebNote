@@ -15,12 +15,12 @@ const { hasRoot, scanning, isLoadingDocument, tabs, fsHint, openRoot } = useWork
 <template>
   <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-10 text-center">
     <template v-if="scanning">
-      <LoaderCircleIcon class="size-[18px] animate-spin text-muted-foreground" />
+      <LoaderCircleIcon class="size-4 animate-spin text-muted-foreground" />
       <p class="text-[13px] text-muted-foreground">正在读取目录…</p>
     </template>
 
     <template v-else-if="isLoadingDocument">
-      <LoaderCircleIcon class="size-[18px] animate-spin text-muted-foreground" />
+      <LoaderCircleIcon class="size-4 animate-spin text-muted-foreground" />
       <p class="text-[13px] text-muted-foreground">正在打开笔记…</p>
     </template>
 

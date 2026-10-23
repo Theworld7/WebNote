@@ -282,7 +282,7 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
     >
       <DropdownMenuTrigger as-child>
         <Button variant="ghost" :class="[TOOL, inside && 'bg-muted']" aria-label="添加块">
-          <PlusIcon class="size-[15px]" />
+          <PlusIcon class="size-3.5" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent

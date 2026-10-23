@@ -144,7 +144,7 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
             @mousedown.prevent
             @click="emit('toggle-sidebar')"
           >
-            <PanelLeftIcon class="size-[15px]" />
+            <PanelLeftIcon class="size-3.5" />
           </Button>
         </TooltipTrigger>
         <TooltipContent>{{ sidebarCollapsed ? "展开侧栏" : "折叠侧栏" }}</TooltipContent>
@@ -160,8 +160,8 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
             @mousedown.prevent
             @click="toggleTheme"
           >
-            <SunIcon v-if="theme === 'dark'" class="size-[15px]" />
-            <MoonIcon v-else class="size-[15px]" />
+            <SunIcon v-if="theme === 'dark'" class="size-3.5" />
+            <MoonIcon v-else class="size-3.5" />
           </Button>
         </TooltipTrigger>
         <TooltipContent>{{ themeActionLabel }}</TooltipContent>
@@ -176,7 +176,7 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
             @mousedown.prevent
             @click="settingsOpen = true"
           >
-            <SettingsIcon class="size-[15px]" />
+            <SettingsIcon class="size-3.5" />
           </Button>
         </TooltipTrigger>
         <TooltipContent>设置</TooltipContent>
@@ -224,7 +224,7 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
 
     <div v-if="inTauri" class="-mr-3 flex h-full flex-none items-center">
       <button type="button" :class="WINDOW_BTN" aria-label="最小化" @click="minimize">
-        <MinusIcon class="size-[15px]" />
+        <MinusIcon class="size-3.5" />
       </button>
       <button
         type="button"
@@ -232,11 +232,11 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
         :aria-label="maximized ? '还原' : '最大化'"
         @click="toggleMaximize"
       >
-        <CopyIcon v-if="maximized" class="size-[13px]" />
-        <SquareIcon v-else class="size-[13px]" />
+        <CopyIcon v-if="maximized" class="size-3" />
+        <SquareIcon v-else class="size-3" />
       </button>
       <button type="button" :class="CLOSE_BTN" aria-label="关闭" @click="closeWindow">
-        <XIcon class="size-[15px]" />
+        <XIcon class="size-3.5" />
       </button>
     </div>
   </header>

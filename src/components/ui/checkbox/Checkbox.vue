@@ -27,7 +27,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
       class="[&>svg]:size-3.5 grid place-content-center text-current transition-none"
     >
       <slot v-bind="slotProps">
-        <CheckIcon />
+        <CheckIcon class="size-3.5" />
       </slot>
     </CheckboxIndicator>
   </CheckboxRoot>

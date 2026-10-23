@@ -796,3 +796,23 @@ select option:checked {
         outline-offset: -1px;
     }
 }
+/*
+ * 界面图标的线宽归一。
+ *
+ * Lucide 把 stroke-width 写死成 SVG 属性 2（viewBox 24），落到屏幕上就是
+ * 2 × 尺寸 / 24 —— 同一套图标，12px 只有 1.0px 粗、18px 却有 1.5px。HIG「图标」
+ * 要求应用内所有界面图标「在大小、细节程度、线条粗细和透视上保持一致」，所以这里
+ * 按尺寸反算，把三档统一到 1.25px。
+ *
+ * 尺寸档只有三档：size-3 = 12px、size-3.5 = 14px、size-4 = 16px。
+ * 别在这三档之外给图标随手写 size-[Npx]，否则线宽又会脱管。
+ */
+svg.size-3 {
+    stroke-width: 2.5; /* 30 / 12 */
+}
+svg.size-3\.5 {
+    stroke-width: 2.143; /* 30 / 14 */
+}
+svg.size-4 {
+    stroke-width: 1.875; /* 30 / 16 */
+}
