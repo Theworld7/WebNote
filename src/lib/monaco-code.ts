@@ -41,13 +41,18 @@ export interface CodeEditorHandle {
 }
 
 /**
- * 与静态层对齐的排版常量：字号 12.5px、行高 21px、内边距左右 14px / 上下 10px。
+ * 与静态层对齐的排版常量：字号 12px、行高 21px、内边距左右 14px / 上下 10px。
  *
  * 内边距**不是 Monaco 的 `padding` 选项**（它只认上下），而是 host 的 CSS
  * （`px-3.5 py-2.5`，与静态层同一个类）。这里的数值是给 layout 算可用宽高用的，
  * 改 CSS 时两边一起改，否则文字会横向漂几像素。
+ *
+ * 字号跟着静态层的 `text-[12px]` 走：ADR-0027 把界面字号收成九档且不留半像素，
+ * 代码块也在这条线上。这三处（静态层 class、这里的常量、`firstLineCenter` 的行盒
+ * 估算）没有共享常量，改一处必须同时改另外两处，`code-edit-check` 的
+ * 「文字宽度一致」「字体栈同源」就是钉这个的。
  */
-const FONT_SIZE = 12.5
+const FONT_SIZE = 12
 const LINE_HEIGHT = 21
 const PADDING_X = 14
 const PADDING_Y = 10

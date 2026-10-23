@@ -371,7 +371,9 @@ export function firstLineCenter(type: BlockType): number {
     case "h6":
       return (HEADING_FONT_SIZES[3] * LINE_HEIGHT) / 2
     case "code":
-      return 10 + (12.5 * 1.7) / 2
+      // 代码块是卡片：上内边距 10px + 半个行盒。行高在 CSS 里钉死 21px
+      // （`leading-[21px]`），所以倍数取 21 / 12 而不是正文的 1.6。
+      return 10 + (12 * 1.75) / 2
     case "callout":
       return 10 + (BODY_FONT_SIZE * LINE_HEIGHT) / 2
     // 分割线只有 1px 高，手柄中心压在线上。
