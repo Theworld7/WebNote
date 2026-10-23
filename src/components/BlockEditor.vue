@@ -170,6 +170,8 @@ watchEffect(() => {
 onBeforeUnmount(() => {
   previewStyle?.remove()
   previewStyle = null
+  window.clearTimeout(settleTimer)
+  hideGhost()
 })
 
 /**
@@ -193,6 +195,7 @@ function handleInsert(id: string, type: BlockType, offset: 0 | 1) {
     return
   }
   const newId = offset === 0 ? insertBlockBefore(id, type) : insertBlockAfter(id, type)
+  flashSettle(newId)
   void focusBlockById(newId)
 }
 
@@ -222,7 +225,10 @@ function handleRetype(id: string, type: BlockType) {
     return
   }
   const nextId = changeBlockType(id, type)
-  void focusBlockById(nextId ?? id)
+  const target = nextId ?? id
+  // 转换换了块（ADR-0015），闪的是新块 —— 闪旧 id 等于什么也没闪。
+  flashSettle(target)
+  void focusBlockById(target)
 }
 
 function handleRemove(id: string) {
@@ -249,11 +255,84 @@ const dropIndex = ref<number | null>(null)
 /** 拖入的是**文件**时的落点。与块排序是两条独立的路，谁在拖由文件拖拽自己的状态区分。 */
 const fileDropIndex = ref<number | null>(null)
 
+/**
+ * 拖动时跟着指针走的那张小纸片：只有这一块的开头文字。
+ *
+ * 块原位只是降了透明度，光靠它看不出「手里拿着的是哪一块」—— 尤其在一屏相似的段落里。
+ *
+ * **直接建 DOM，不走 Vue 渲染**。拖拽一开始只要发生一次重渲染，落点重算就会断掉
+ * （`drag-check` 那两条滚动用例就是这么红的）；坐标还会每帧都在变。这两件事都不该
+ * 交给调度器，所以这里自己 createElement、自己写 `style.transform`。
+ */
+const GHOST_CLASS =
+  "pointer-events-none fixed top-0 left-0 z-50 max-w-[260px] truncate rounded-[7px] border border-line bg-popover px-2 py-1 text-[12.5px] leading-[1.4] text-foreground opacity-90 shadow-island"
+
+let ghostEl: HTMLElement | null = null
+
+/** 影子上的字：拖的那一行压平空白后取开头。空块（只剩占位）不给影子 —— 一张空纸片没意义。 */
+function ghostLabel(row: HTMLElement | null): string {
+  if (row === null) return ""
+  return (row.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 80)
+}
+
+function placeGhost(x: number, y: number): void {
+  if (ghostEl === null) return
+  // 位移走 transform：每帧都在改，只有合成层扛得住。
+  ghostEl.style.transform = `translate3d(${x + 14}px, ${y + 10}px, 0)`
+}
+
+function showGhost(row: HTMLElement | null, x: number, y: number): void {
+  const text = ghostLabel(row)
+  if (text === "") return
+  if (ghostEl === null) {
+    ghostEl = document.createElement("div")
+    ghostEl.className = GHOST_CLASS
+    // 内容与屏幕上的块重复，读屏不该念两遍。
+    ghostEl.setAttribute("aria-hidden", "true")
+    docRef.value?.parentElement?.append(ghostEl)
+  }
+  ghostEl.textContent = text
+  placeGhost(x, y)
+}
+
+function hideGhost(): void {
+  ghostEl?.remove()
+  ghostEl = null
+}
+
+/**
+ * 刚落地的那一块：闪一下底色（`.block-settle`）。
+ *
+ * 只在「从菜单插入」和「转换类型」时给 —— 这两件事发生时版面上多出来一个东西，
+ * 眼睛未必跟得上。回车拆块不给：它是最频繁的建块方式，每换一行闪一次是纯噪音。
+ *
+ * 走 DOM 而不是 `:class` 绑定：这一笔状态变化会和紧随其后的 `focusBlockById` 抢同一个
+ * `nextTick`，菜单还没卸载、焦点就被判成「在块外」—— `focus-check` 会连片红。
+ * 一个纯装饰的底色不值得挤进渲染队列，这里只等 DOM 落定后补一个类。
+ */
+let settleTimer: number | undefined
+
+function flashSettle(id: string): void {
+  if (id === "") return
+  void nextTick(() => {
+    const row = document.querySelector(`[${DOM_ATTR.blockId}="${id}"]`)
+    if (!(row instanceof HTMLElement)) return
+    row.classList.remove("block-settle")
+    // 读一次宽度逼一次回流：同名类重加才会重放动画，否则连点两次插入只闪第一次。
+    void row.offsetWidth
+    row.classList.add("block-settle")
+    window.clearTimeout(settleTimer)
+    settleTimer = window.setTimeout(() => row.classList.remove("block-settle"), 950)
+  })
+}
+
 /** 位移超过这个距离才算在拖 —— 拖块与拖选正文共用一把尺子，手感一致；单击（含点完微抖）都不算。 */
 const DRAG_THRESHOLD = 4
 
 /** 按住手柄、还没过阈值：可能是在点菜单，也可能是拖拽起点。 */
 let pressedId: string | null = null
+/** 按住的那一行 DOM：影子的文字从它身上取（格子里的块不在顶层数组里，取不到模型）。 */
+let pressedRow: HTMLElement | null = null
 let pressedX = 0
 let pressedY = 0
 /** 拖拽中指针的最后位置：滚动之后要按它重算落点（滚轮动的是内容，指针没动）。 */
@@ -326,7 +405,9 @@ function onHandlePointerDown(event: PointerEvent) {
   if (!(target instanceof HTMLElement) || target.closest(DRAG_HANDLE_SELECTOR) === null) return
   const id = closestBlockId(target)
   if (id === null) return
+  const row = target.closest(`[${DOM_ATTR.blockId}]`)
   pressedId = id
+  pressedRow = row instanceof HTMLElement ? row : null
   pressedX = event.clientX
   pressedY = event.clientY
   pointerX = event.clientX
@@ -346,12 +427,14 @@ function onHandlePointerMove(event: PointerEvent) {
   }
   updateDropTarget(pointerX, pointerY)
   trackDragScroll(pointerX, pointerY)
+  placeGhost(pointerX, pointerY)
 }
 
 function startBlockDrag(id: string) {
   draggingBlockId.value = id
   dropIndex.value = null
   dragOverCell.value = null
+  showGhost(pressedRow, pointerX, pointerY)
   // 拖拽期间不让人在正文里划出选区、也不让浏览器把这段文字当成可拖的东西。
   docRef.value?.classList.add("select-none", "doc-dragging")
   window.getSelection()?.removeAllRanges()
@@ -377,6 +460,7 @@ function onHandlePointerUp(event: PointerEvent) {
   window.removeEventListener("pointercancel", onHandlePointerUp)
   const pressed = pressedId
   pressedId = null
+  pressedRow = null
   // 没过阈值：这是点击，交给菜单。
   if (draggingBlockId.value === null || pressed === null) return
 
@@ -399,6 +483,7 @@ function endBlockDrag() {
   draggingBlockId.value = null
   dropIndex.value = null
   dragOverCell.value = null
+  hideGhost()
   docRef.value?.classList.remove("select-none", "doc-dragging")
   scrollViewport()?.removeEventListener("scroll", onViewportScroll)
   window.removeEventListener("blur", endBlockDrag)
@@ -903,6 +988,8 @@ function edgeOf(index: number, to: number): BlockDropEdge {
       </div>
     </ScrollArea>
 
+    <!-- 拖块时跟着指针的那张小纸片不在这里：它由 `showGhost` 直接建 DOM 挂到本层，
+         理由见那段注释（拖拽开始时的重渲染会打断落点重算）。 -->
     <!-- 标题导航贴在编辑区右缘，不随正文滚动。门槛没到（或设置里关掉）时整个不挂。 -->
     <HeadingNav v-if="showHeadingNav" :items="headings" :viewport="navViewport" />
   </div>

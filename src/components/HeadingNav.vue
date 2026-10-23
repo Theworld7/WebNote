@@ -38,6 +38,16 @@ const JUMP_SETTLE_MS = 120
 /** 兜底上限：环境不派发 scroll 事件（离屏渲染）时，锁也不能一直挂着。 */
 const JUMP_MAX_MS = 1000
 
+/**
+ * 跳转用哪种滚动。
+ *
+ * 「减弱动态效果」开着时退回瞬时 —— style.css 那条全局兜底压的是 CSS 的
+ * `scroll-behavior`，管不到 JS 显式传进来的 `behavior`，只能在这儿自己认一次。
+ */
+function scrollBehavior(): ScrollBehavior {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+}
+
 const activeId = ref<string | null>(null)
 
 /** 按块 id 找标题行的 DOM。块 id 只含字母数字，属性选择器不需要转义。 */
@@ -138,7 +148,7 @@ function jumpTo(id: string, event: MouseEvent) {
   // 先点亮目标再滚：点击的手感立刻有着落；锁住是为了让滚动途中的每一帧都别再改它。
   jumping = true
   activeId.value = id
-  viewport.scrollTo({ top: Math.max(offset - SCROLL_MARGIN, 0), behavior: "smooth" })
+  viewport.scrollTo({ top: Math.max(offset - SCROLL_MARGIN, 0), behavior: scrollBehavior() })
   window.clearTimeout(jumpTimer)
   jumpTimer = window.setTimeout(releaseJump, JUMP_MAX_MS)
   /**
@@ -206,7 +216,9 @@ onBeforeUnmount(() => {
  */
 function tickClass(active: boolean): string {
   return cn(
-    "h-[3px] shrink-0 rounded-full transition-all duration-150",
+    // 只列真正要过渡的两个属性。`transition-all` 会把 `width` 之外的一切（颜色、
+    // 阴影、将来加的任意属性）都拖进过渡，改动一处手感就跟着漂。
+    "h-[3px] shrink-0 rounded-full transition-[width,background-color] duration-150",
     active ? "w-5 bg-foreground" : "w-3.5 bg-line group-hover/nav:bg-muted-foreground group-hover/row:w-4",
   )
 }
@@ -214,9 +226,13 @@ function tickClass(active: boolean): string {
 /**
  * 标题文字。收起态靠 `max-w-0` 压掉宽度而不是 `hidden`：宽度是连续量，
  * 展开时才谈得上过渡；`hidden` 会直接切一刀。
+ *
+ * **但宽度这一跳不过渡**。悬停展开时整列十几行的 `max-width` 会在同一个 200ms 里
+ * 一起变，每一帧都要重排这条悬浮卡；而工具栏那种高频交互正是不该放动效的地方。
+ * 宽度一次性跳到位、只有 `opacity` 淡入，观感几乎没差，重排只剩末尾那一帧。
  */
 const LABEL =
-  "max-w-0 overflow-hidden truncate text-[12.5px] leading-[1.35] whitespace-nowrap opacity-0 transition-[max-width,opacity] duration-200 group-hover/nav:max-w-[220px] group-hover/nav:opacity-100 group-focus-within/nav:max-w-[220px] group-focus-within/nav:opacity-100"
+  "max-w-0 overflow-hidden truncate text-[12.5px] leading-[1.35] whitespace-nowrap opacity-0 transition-opacity duration-150 group-hover/nav:max-w-[220px] group-hover/nav:opacity-100 group-focus-within/nav:max-w-[220px] group-focus-within/nav:opacity-100"
 </script>
 
 <template>

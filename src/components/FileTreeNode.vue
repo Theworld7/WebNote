@@ -190,7 +190,7 @@ function startDrag(event: DragEvent) {
         </DropdownMenu>
       </div>
     </CollapsibleTrigger>
-    <CollapsibleContent>
+    <CollapsibleContent class="tree-children">
       <FileTreeNode
         v-for="child in node.children"
         :key="child.id"
