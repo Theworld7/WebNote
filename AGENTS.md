@@ -23,7 +23,8 @@
 代码块的格式化只在按按钮时跑、结果留在缓冲等提交(0018)、代码块的语法配色是我们自己的 token
 而非引主题文件、深色另取一套(0019)、原生 select 的弹层靠元素底色与 option 显式色上色、
 静止态不填底(0020)、行内链接单击即跳、工作区文档在应用内开标签(0021)、块类型的行为分派
-保持显式穷举而不用查表(0022)、引用块的设置两侧各手写读写而不合成 schema(0023)。
+保持显式穷举而不用查表(0022)、引用块的设置两侧各手写读写而不合成 schema(0023)、窗口 chrome
+只有一条且标签条不自带浮岛外壳(0024)。
   改对应行为前先读那篇。
 
 ## 验证
@@ -38,6 +39,7 @@
    `node design/cdp-dump.mjs http://localhost:1420/design/<名字>.html`。
 
 改哪层跑哪页:动 `lib/html` → `parse-check`;动块拖拽 / 标签栏 → `drag-check` / `tab-check`;
+动窗口 chrome(品牌名 / 全局动作 / 标签条落位 / 面包屑与字数 / 页面样式入口)→ `chrome-check`;
 动文件树的整合数据表视图（笔记隐后缀、引用表收进笔记名下、展开箭头）→ `tree-integration-check`;
 动块菜单的方向键寻路(`lib/menu-nav.ts`、横向布局的列间移动)→ `menu-nav-check`(挂真实菜单,
 走 CDP);动右侧标题导航(收录范围 / 出现门槛 / 点击跳转 / 激活跟随滚动,`lib/headings.ts`、
@@ -55,7 +57,7 @@
 `ledger-edit-check`,动日期面板 / 编辑期钉住排序 → `ledger-date-check`(都挂真实编辑器,走 CDP 驱动);动歌单块的字段识别 / 在线封面 / 多表绑定的落盘形态(`lib/playlist.ts`)→
 `playlist-check`,动它的标签切换 / 加歌 / 删歌 / 解除绑定 / 搜索 / 复制纯文本 → `playlist-edit-check`(挂真实编辑器,走 CDP 驱动);动主题色 / 品牌色 → `theme-check`(对齐图标 tokens,守对比度);动外观 / 主题模式 / 定时与
 日出日落 → `theme-mode-check`(挂真实标签栏,含太阳位置与时区);动页面级样式
-(读写、预览改写、状态栏入口、编辑期格式化与落盘紧凑、页面样式对 HTML 块生效)→ `page-style-check`
+(读写、预览改写、chrome 入口、编辑期格式化与落盘紧凑、页面样式对 HTML 块生效)→ `page-style-check`
 (挂真实编辑器,走 CDP 驱动),改写规则与紧凑化本身在 `parse-check`;动 HTML 块的沙箱文档 /
 高度探针 / 块里那张纸(画布底色与 `pinScheme`)→ `html-check`;动源码抽屉(打开 / 提交 / 取消)或抽屉里 Monaco 的配色
 (`lib/monaco-theme.ts`)→ `html-drawer-check`。

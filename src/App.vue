@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref } from "vue"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { provideWorkspace } from "@/composables/useWorkspace"
 import { provideTables } from "@/composables/useTables"
@@ -8,7 +8,6 @@ import { provideTheme } from "@/composables/useTheme"
 import { useResizableWidth } from "@/composables/useResizableWidth"
 import AppSidebar from "@/components/AppSidebar.vue"
 import EditorSurface from "@/components/EditorSurface.vue"
-import EditorTabBar from "@/components/EditorTabBar.vue"
 import PaneResizer from "@/components/PaneResizer.vue"
 import TitleBar from "@/components/TitleBar.vue"
 
@@ -43,7 +42,42 @@ attachIntegrateTables(settings.integrateTables)
 provideTheme(settings)
 
 const { width: sidebarWidth, dragging, startDrag } = useResizableWidth()
-const sidebarCollapsed = ref(false)
+
+/**
+ * 侧栏折叠，两个来源分开存：
+ *
+ * - `userCollapsed` 是用户的选择，落 localStorage，跨会话记住；
+ * - `autoCollapsed` 只是「窗口现在太窄」的镜像，不落盘 —— 宽回来它自己就解除了，
+ *   用户的偏好不该被一次窄窗口改写。
+ *
+ * 手点按钮时先看 `autoCollapsed`：窄窗口下按它是「临时展开」，只解除自动折叠；
+ * 正常宽度下按它才真的写偏好。否则窄窗口里点一下就会被下一次 resize 折回去。
+ */
+const SIDEBAR_COLLAPSED_KEY = "webnote:sidebar-collapsed"
+/** 窄于这个宽度就自动收起侧栏 —— 侧栏加上拖拽条要吃掉 244px，再窄编辑区就只剩一行。 */
+const AUTO_COLLAPSE_AT = 900
+
+const userCollapsed = ref(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1")
+const autoCollapsed = ref(false)
+const collapsed = computed(() => userCollapsed.value || autoCollapsed.value)
+
+/** 只在**跨过**阈值时改状态：每次 resize 都写会把用户刚展开的侧栏又折回去。 */
+let wasNarrow = false
+function syncAutoCollapse() {
+  const narrow = window.innerWidth < AUTO_COLLAPSE_AT
+  if (narrow === wasNarrow) return
+  wasNarrow = narrow
+  autoCollapsed.value = narrow
+}
+
+function toggleSidebar() {
+  if (autoCollapsed.value) {
+    autoCollapsed.value = false
+    return
+  }
+  userCollapsed.value = !userCollapsed.value
+  window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, userCollapsed.value ? "1" : "0")
+}
 
 /**
  * 关窗兜底：只要还有脏标签，就交给浏览器弹系统确认框。
@@ -59,30 +93,33 @@ function onBeforeUnload(event: BeforeUnloadEvent) {
 
 onMounted(() => {
   window.addEventListener("beforeunload", onBeforeUnload)
+  window.addEventListener("resize", syncAutoCollapse)
+  // 挂载时就量一次：上次关窗时窗口可能是窄的，恢复出来的宽度不一定会派发 resize。
+  syncAutoCollapse()
   // 工作区要在挂载后再进 —— 它要异步挑运行时驱动（Tauri / 浏览器），还可能去恢复上次的目录。
   void bootstrap()
 })
 
-onBeforeUnmount(() => window.removeEventListener("beforeunload", onBeforeUnload))
+onBeforeUnmount(() => {
+  window.removeEventListener("beforeunload", onBeforeUnload)
+  window.removeEventListener("resize", syncAutoCollapse)
+})
 </script>
 
 <template>
   <TooltipProvider>
-    <!-- 窗口无系统装饰，标题栏是自绘的第一行：它贴着窗口上沿，下面的浮岛区才留内边距。
-         侧栏折叠状态要跨这两块用（标题栏里的按钮改它，下面的侧栏读它），所以留在根组件。 -->
+    <!-- 窗口无系统装饰，chrome 是自绘的第一行（品牌 + 全局动作 + 标签 + 文档信息 + 窗口按钮，
+         见 ADR-0024）：它贴着窗口上沿，下面的卡片区才留内边距。
+         侧栏折叠状态要跨这两块用（chrome 里的按钮改它，下面的侧栏读它），所以留在根组件。 -->
     <div class="flex h-screen flex-col overflow-hidden bg-canvas">
-      <TitleBar :sidebar-collapsed="sidebarCollapsed" @toggle-sidebar="sidebarCollapsed = !sidebarCollapsed" />
+      <TitleBar :sidebar-collapsed="collapsed" @toggle-sidebar="toggleSidebar" />
 
       <!-- 不给 gap：左右两区之间的间隔只由 PaneResizer 的 w-3 一处承担，
            再叠 gap 会让它变成 12 + 10 + 10 = 32px。折叠侧栏时两者都不渲染，编辑区直接占满。 -->
       <div class="flex min-h-0 flex-1 px-2.5 pb-2.5 pt-1">
-        <AppSidebar v-if="!sidebarCollapsed" :width="sidebarWidth" />
-        <PaneResizer v-if="!sidebarCollapsed" :dragging="dragging" @drag-start="startDrag" />
-
-        <section class="flex min-w-0 flex-1 flex-col gap-2.5">
-          <EditorTabBar />
-          <EditorSurface />
-        </section>
+        <AppSidebar v-if="!collapsed" :width="sidebarWidth" />
+        <PaneResizer v-if="!collapsed" :dragging="dragging" @drag-start="startDrag" />
+        <EditorSurface />
       </div>
     </div>
   </TooltipProvider>

@@ -5,7 +5,6 @@ import { useWorkspace } from "@/composables/useWorkspace"
 import BlockEditor from "./BlockEditor.vue"
 import DataTableEditor from "./DataTableEditor.vue"
 import EditorHome from "./EditorHome.vue"
-import EditorStatusBar from "./EditorStatusBar.vue"
 
 const { activeTab, activePath, isLoadingDocument, isActiveTable, fsError, dismissError } = useWorkspace()
 
@@ -23,9 +22,13 @@ const hasDocument = computed(() => activeTab.value !== null && !isLoadingDocumen
 
 <template>
   <!-- `data-editor-surface`：块级抽屉（HTML 源码编辑）的 Teleport 锚点 ——
-       抽屉宽度按笔记编辑区一半算，只能挂这里，挂 body 就成了按视口算。 -->
+       抽屉宽度按笔记编辑区一半算，只能挂这里，挂 body 就成了按视口算。
+       它同时是正文 gutter 的容器查询基准（见 style.css）：侧栏展开与折叠差 244px，
+       用 vw 量出来的 gutter 会跟着窗口走、不跟着编辑区，正好是错的那一半。
+       min-w-0 不能省：作为 flex row 的子项，没它时长内容（宽表格、长链接）会撑破容器
+       而不是滚动。 -->
   <div
-    class="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-block bg-card shadow-block"
+    class="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-block bg-card shadow-block"
     data-editor-surface
   >
     <!-- 读写错误条。常驻在编辑区顶部而不是只在空态里 —— 保存失败时正开着文档，
@@ -52,8 +55,5 @@ const hasDocument = computed(() => activeTab.value !== null && !isLoadingDocumen
          key 让每个路径一个实例:换表 = 重挂 = 重读。 -->
     <DataTableEditor v-else-if="isActiveTable" :key="activePath" />
     <BlockEditor v-else />
-
-    <!-- 数据表的统计由它自己的工具条显示，状态栏是笔记的（字数）。 -->
-    <EditorStatusBar v-if="hasDocument && !isActiveTable" />
   </div>
 </template>

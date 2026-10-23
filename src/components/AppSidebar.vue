@@ -48,45 +48,20 @@ function setQuery(value: string | number) {
 </script>
 
 <template>
+  <!-- `maxWidth` 兜住窄窗口：记下来的宽度可以到 420px，而窗口最小只有 720 ——
+       不放这条的话，用户在宽窗口里把侧栏拖到最宽，之后把窗口缩小，编辑区就只剩一条。
+       480px 是编辑区还读得下去的下限（正文 gutter 收缩之后的行宽）。 -->
   <aside
     class="flex flex-none flex-col overflow-hidden rounded-block bg-card shadow-block"
-    :style="{ width: `${width}px` }"
+    :style="{ width: `${width}px`, maxWidth: 'calc(100vw - 480px)' }"
   >
-    <div class="flex h-[42px] flex-none items-center gap-1 pr-2 pl-4">
-      <span class="text-[13px] font-medium tracking-[0.01em]">玉简</span>
-      <span class="flex-1" />
-      <!-- 全局新建：落在工作区根目录。每个文件夹行另有自己的 `+`，这一处是根层入口，
-           也是空库时唯一的入口（此时树里一行都没有）。没选目录时不给点 ——
-           按下去不知道往哪儿建，禁用比报错好。 -->
-      <DropdownMenu v-if="hasRoot">
-        <DropdownMenuTrigger as-child>
-          <button
-            type="button"
-            class="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            aria-label="新建"
-          >
-            <PlusIcon class="size-4" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem class="gap-2 text-[13px]" @select="requestCreate('note')">
-            <span>新建笔记</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem class="gap-2 text-[13px]" @select="requestCreate('table')">
-            <span>新建数据表</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem class="gap-2 text-[13px]" @select="requestCreate('folder')">
-            <span>新建文件夹</span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-
-    <!-- 工作区行：当前根目录 + 换目录 + 重扫。未选目录时这一行就是入口本身，
-         不再额外塞一个「新建文件夹」之类的空按钮 —— 点了没反应的按钮比没有更糟。
-         换目录与刷新是两个动作，不能并进一个按钮：只想重读盘上内容的人不该被弹出的
-         选目录对话框打断；刷新按钮也不能嵌进行按钮里，嵌套 button 非法且会误触换目录。 -->
-    <div class="flex-none px-2.5 pb-2">
+    <!-- 工作区行：当前根目录 + 新建 + 换目录 + 重扫。品牌名已经搬到窗口 chrome（ADR-0024），
+         这一行就是侧栏的顶 —— 树是主角，不为了「有个头部」再占掉 42px。
+         未选目录时这一行就是入口本身，不再额外塞一个「新建文件夹」之类的空按钮 ——
+         点了没反应的按钮比没有更糟。换目录与刷新是两个动作，不能并进一个按钮：只想重读盘上
+         内容的人不该被弹出的选目录对话框打断；刷新按钮也不能嵌进行按钮里，嵌套 button 非法
+         且会误触换目录。 -->
+    <div class="flex-none px-2.5 pt-2 pb-2">
       <div class="flex h-7 items-center gap-0.5">
         <Tooltip>
           <TooltipTrigger as-child>
@@ -105,6 +80,31 @@ function setQuery(value: string | number) {
           </TooltipTrigger>
           <TooltipContent>{{ workspaceTip }}</TooltipContent>
         </Tooltip>
+        <!-- 全局新建：落在工作区根目录。每个文件夹行另有自己的 `+`，这一处是根层入口，
+             也是空库时唯一的入口（此时树里一行都没有）。没选目录时不给点 ——
+             按下去不知道往哪儿建，禁用比报错好。 -->
+        <DropdownMenu v-if="hasRoot">
+          <DropdownMenuTrigger as-child>
+            <button
+              type="button"
+              class="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label="新建"
+            >
+              <PlusIcon class="size-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem class="gap-2 text-[13px]" @select="requestCreate('note')">
+              <span>新建笔记</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem class="gap-2 text-[13px]" @select="requestCreate('table')">
+              <span>新建数据表</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem class="gap-2 text-[13px]" @select="requestCreate('folder')">
+              <span>新建文件夹</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Tooltip v-if="hasRoot">
           <TooltipTrigger as-child>
             <button

@@ -13,7 +13,7 @@
 </style>
 </head>
 <body>
-<h1>页面级样式：状态栏入口、抽屉提交、正文列预览、落盘与回读</h1>
+<h1>页面级样式：chrome 入口、抽屉提交、正文列预览、落盘与回读</h1>
 <!-- 要等 Monaco 动态加载与真实读盘，抓结果用 CDP 驱动跑：
      node design/cdp-dump.mjs http://localhost:1420/design/page-style-check.html -->
 <div id="app"></div>
@@ -23,7 +23,7 @@ import "../src/style.css"
 import { createApp, defineComponent, h, nextTick } from "vue"
 import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
 import BlockEditor from "../src/components/BlockEditor.vue"
-import EditorStatusBar from "../src/components/EditorStatusBar.vue"
+import PageStyleButton from "../src/components/PageStyleButton.vue"
 import { provideSettings } from "../src/composables/useSettings.ts"
 import { provideTheme } from "../src/composables/useTheme.ts"
 import { provideWorkspace } from "../src/composables/useWorkspace.ts"
@@ -68,13 +68,20 @@ const Root = defineComponent({
     workspace = provideWorkspace()
     settings = provideSettings()
     provideTheme(settings)
-    // 真应用里编辑区与状态栏同在 EditorSurface（`data-editor-surface`）之内 —— 抽屉的
-    // Teleport 锚点。检查页直接挂这两个组件，得自己补一个同款容器。
+    // 真应用里入口住在窗口 chrome 里、编辑区在它下面，两者同在 `data-editor-surface` 的
+    // 兄弟层级；抽屉的 Teleport 锚点就是那个容器。检查页直接挂入口组件与 BlockEditor，
+    // 得自己补一个同款容器和一条等高的假 chrome。
     return () =>
       h(
         "div",
         { "data-editor-surface": "", class: "relative flex min-h-0 flex-1 flex-col overflow-hidden" },
-        [h(TooltipProvider, null, { default: () => h(BlockEditor) }), h(EditorStatusBar)],
+        [
+          h(TooltipProvider, null, {
+            default: () =>
+              h("div", { class: "flex h-11 flex-none items-center justify-end gap-3 px-3" }, [h(PageStyleButton)]),
+          }),
+          h(TooltipProvider, null, { default: () => h(BlockEditor) }),
+        ],
       )
   },
 })
@@ -94,7 +101,7 @@ await nextTick()
 // ---------- 一、入口与抽屉 ----------
 
 const entry = [...document.querySelectorAll("button")].find((button) => button.textContent?.trim() === "页面样式")
-check("状态栏有「页面样式」入口", entry !== undefined, "")
+check("chrome 里有「页面样式」入口", entry !== undefined, "")
 check("未写样式时编辑器里没有预览标签", document.head.querySelector("style[data-note-style-preview]") === null, "")
 
 check(

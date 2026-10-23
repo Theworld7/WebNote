@@ -239,6 +239,13 @@
     @apply bg-background text-foreground;
     @apply font-sans;
     }
+  /* 编辑区是正文 gutter 的容器查询基准（BlockEditor 的 `cqw`）：gutter 要按**编辑区**宽
+     收缩，不是按窗口 —— 侧栏展开与折叠差 244px，用 vw 量出来的正好是错的那一半。
+     inline-size 只管宽度方向，高度照旧由 flex 分配；它本来就已经是 relative（抽屉与
+     标题导航都相对它定位），所以加了也不会改变谁的包含块。 */
+  [data-editor-surface] {
+    container-type: inline-size;
+    }
   /* 行内高亮。浏览器对 mark 的默认样式是「黄底 + 黑字」，写死黑字会让它在
      引用块 / 代码块这类自带字色的正文里跳出来。底色跟随主题，字色继承所处块。 */
   mark {

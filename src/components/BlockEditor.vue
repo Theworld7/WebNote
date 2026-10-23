@@ -100,7 +100,28 @@ const orderedIndexes = computed(() => orderedIndexesOf(activeDocument.value))
 const { contentWidth, headingNav, headingNavMin } = useSettings()
 // 页面样式里的「浅色 / 深色两套」按应用外观解析，不按系统 —— 见 `lib/note-style.ts`。
 const { theme } = useTheme()
-const docStyle = computed(() => ({ maxWidth: `${CONTENT_WIDTH_PX[contentWidth.value]}px` }))
+
+/**
+ * 正文列的左右留白。左边那 96px 是块手柄与层级缩进的让位，右边 40px 只是呼吸 ——
+ * 两者原先写死（`pl-24 pr-10`），窗口一窄就把正文挤成一行两三个词。
+ *
+ * 现在按**编辑区**宽度收缩（`cqw`，容器查询基准挂在 `data-editor-surface` 上）：
+ * 侧栏展开与折叠差 244px，用 `vw` 量出来的是窗口、不是编辑区，正好会算错那一半。
+ * 上界仍是原来的 96 / 40，所以宽窗口下观感一像素不变。
+ */
+const GUTTER_LEFT = "clamp(16px, 10.3cqw, 96px)"
+const GUTTER_RIGHT = "clamp(12px, 4.3cqw, 40px)"
+
+/**
+ * `maxWidth` 是**内容列**的宽度，gutter 不在其中 —— 原先它写在 border-box 的
+ * maxWidth 里，选「窄 640」实际拿到的是 640 − 136 = 504 个字宽，档位名对不上做法。
+ * 用 calc 把两个 clamp 一起加回去，档位才真的是「正文多宽」。
+ */
+const docStyle = computed(() => ({
+  maxWidth: `calc(${CONTENT_WIDTH_PX[contentWidth.value]}px + ${GUTTER_LEFT} + ${GUTTER_RIGHT})`,
+  paddingLeft: GUTTER_LEFT,
+  paddingRight: GUTTER_RIGHT,
+}))
 
 /**
  * 右侧标题导航（Preference）的数据与开关。
@@ -842,7 +863,7 @@ function edgeOf(index: number, to: number): BlockDropEdge {
       <div
         ref="docRef"
         data-doc
-        class="relative mx-auto w-full pt-16 pb-30 pr-10 pl-24"
+        class="relative mx-auto w-full pt-16 pb-30"
         :style="docStyle"
         @dragstart="onDragStart"
         @dragover="onDragOver"
