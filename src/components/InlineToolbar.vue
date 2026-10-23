@@ -49,7 +49,7 @@ const props = defineProps<{
   /** 视口坐标，浮条以此为底部中心点。 */
   anchor: { top: number; left: number }
   /** 是否隐藏「链接」按钮。表格单元格里关掉：链接浮层（w-72）会盖住相邻格，
-   * 且「内联样式」不含链接 —— 链接不是 mark（见 CONTEXT.md），浮层形态也不同。
+   * 且「内联样式」不含链接 —— 链接不是 mark（见 GLOSSARY.md），浮层形态也不同。
    * 用否定式而非 withLink 默认 true：可选 boolean 不传时 Vue 会 cast 成 false，
    * 「不传 = 显示」这个默认方向表达不出来（与 inCell 等既有 prop 同一惯例）。 */
   noLink?: boolean

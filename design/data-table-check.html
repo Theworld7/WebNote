@@ -331,7 +331,7 @@ check(
 // 快照的「不精确往返」是**有意选择**的：读回来就是一张普通表格块。
 const parsed = parseHtml(`<body>${snapshot}</body>`)
 const parsedTable = parsed.find((b) => b.type === "table")
-check("快照读回来是一张普通表格块（不精确往返，写进 CONTEXT.md 的那个例外）", parsedTable !== undefined)
+check("快照读回来是一张普通表格块（不精确往返，写进 GLOSSARY.md 的那个例外）", parsedTable !== undefined)
 check("引用块本身没有回到块列表里", !parsed.some((b) => b.type === "datatable"))
 check(
   "表头格的 header 标记保住了",

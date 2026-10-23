@@ -28,9 +28,9 @@ import { MAX_DATA_TABLE_COLUMNS } from "@/types/data-table"
  *
  * 与笔记里的 `TableBlockView` 刻意不同：
  * - **不受「表格效果」偏好影响**。那个偏好解决的是「表格比正文列宽宽」的问题，而这里
- *   没有正文列 —— 表就是窗口的内容，永远按窗口宽 + 横向滚动（见 CONTEXT.md）。
+ *   没有正文列 —— 表就是窗口的内容，永远按窗口宽 + 横向滚动（见 GLOSSARY.md）。
  * - **列有类型**，列头是一个下拉菜单（改类型、删列），不是纯文本。
- * - **行不设上限**，这正是数据表存在的理由（见 CONTEXT.md 的「Data table bound」）。
+ * - **行不设上限**，这正是数据表存在的理由（见 GLOSSARY.md 的「Data table bound」）。
  *
  * 单元格用朴素 `input` 而不是 `contenteditable`：格子装的是**数据**，不是正文 ——
  * 富文本、行内标记、非受控 DOM 那一整套在这里没有意义，而它会带来一堆复杂度。

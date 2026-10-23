@@ -126,7 +126,7 @@ export interface MermaidBlock {
  * 是**别人的**，因此同一张表出现在两篇笔记里时是同一张表，从哪边改都是同一次改动。
  *
  * 路径失效（文件被移走、改名或删除）是**正常状态**，不是错误：块照常渲染成提示态，
- * 不把笔记标成损坏，也不拦着打开（见 `CONTEXT.md` 的「Missing Data table」）。
+ * 不把笔记标成损坏，也不拦着打开（见 `GLOSSARY.md` 的「Missing Data table」）。
  */
 export interface DataTableBlock {
   id: string
@@ -595,7 +595,7 @@ export interface ThemeSettings {
 }
 
 /**
- * 表格效果 —— 宽表格装不下时怎么办。详见 `CONTEXT.md` 的「Preference / Table effect」。
+ * 表格效果 —— 宽表格装不下时怎么办。详见 `GLOSSARY.md` 的「Preference / Table effect」。
  *
  * - `wrap`：格子内文字换行，列被挤窄，表格永远与正文同宽（默认，也是导出文件永远采用的那份）。
  * - `scroll`：格子内文字不换行，表格按内容撑开、超出部分横向滚动。

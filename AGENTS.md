@@ -6,7 +6,7 @@
 
 ## 读代码前
 
-- **领域词汇** —— 命名、注释、UI 文案之前读 [CONTEXT.md](CONTEXT.md)。每个术语带「避免用词」
+- **领域词汇** —— 命名、注释、UI 文案之前读 [GLOSSARY.md](GLOSSARY.md)。每个术语带「避免用词」
   (Block 不叫 element,Data table 不叫 sheet,Preference 不叫 setting),照它选词。
 - **硬约定** —— [README「架构约定」](README.md) 一节:单一真源(块类型、路径格式、列类型各只有
   一处定义)、正文是 `InlineRun[]` 不是字符串、`contenteditable` 非受控、行内格式走 runs 不走

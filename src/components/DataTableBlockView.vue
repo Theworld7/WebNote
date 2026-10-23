@@ -31,7 +31,7 @@ import { tableEffectClasses } from "@/lib/typography"
  *    一处编辑立刻反映到所有窗口 —— 这是「像 SQLite 一样被多个 html 使用」这句话在运行时的落点。
  * 2. **编辑不走笔记的保存流程**。改一个格子会立刻写那个 `.tbl` 文件，笔记的脏标记**不变**：
  *    引用块的数据从来就不属于这篇笔记，把它算成笔记的改动是错的。
- * 3. **读不到是正常状态**，不是错误（见 `CONTEXT.md` 的「Missing Data table」）。
+ * 3. **读不到是正常状态**，不是错误（见 `GLOSSARY.md` 的「Missing Data table」）。
  *    文件可能被移走或改名，用户也许正准备去找回来，所以给提示 + 重指定入口,而不是报错。
  *
  * 取数与改表走 `useTableEntry` 这条共用 seam —— 认领、释放、记脏的口径收在那边。

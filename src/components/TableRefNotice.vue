@@ -6,7 +6,7 @@ import { DatabaseIcon } from "@lucide/vue"
  *
  * 四个引用块视图曾经的模板逐字重复这三段,连文案都只差块名 —— 现在观感与文案
  * 由这里一处负责,视图只声明「什么块、处于什么态」。样式与块手柄提示同一套
- * (虚线框 = 可恢复的正常态,不是错误态 —— 见 CONTEXT.md 的「Missing Data table」)。
+ * (虚线框 = 可恢复的正常态,不是错误态 —— 见 GLOSSARY.md 的「Missing Data table」)。
  */
 defineProps<{
   /** `unset` 空指针(未指定表) / `missing` 引用的表读不到 / `loading` 读取中。 */

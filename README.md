@@ -290,7 +290,7 @@ CDP 驱动：`node design/cdp-dump.mjs http://localhost:1420/design/<名字>.htm
 
 | 文件 | 内容 |
 | :-- | :-- |
-| [CONTEXT.md](CONTEXT.md) | 领域词汇与「避免用词」—— 命名、注释、界面文案之前先读它 |
+| [GLOSSARY.md](GLOSSARY.md) | 领域词汇与「避免用词」—— 命名、注释、界面文案之前先读它 |
 | [AGENTS.md](AGENTS.md) | 给智能体/新人的入口：硬约定索引、改哪层跑哪页 |
 | [docs/adr](docs/adr) | 架构决策记录 —— 每个反直觉的设计都有一篇解释 |
 

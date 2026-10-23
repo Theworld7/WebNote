@@ -6,7 +6,7 @@
  * 对任意脏 HTML，先 `parseHtml` 规范化一次，之后每一轮往返都稳定。
  *
  * **一处例外**：含数据表引用块的笔记不精确往返 —— 写出时它是当前表格内容的快照，
- * 读回来是普通表格块。见 ADR-0005 与 `CONTEXT.md` 的「Snapshot exception」。
+ * 读回来是普通表格块。见 ADR-0005 与 `GLOSSARY.md` 的「Snapshot exception」。
  *
  * 页面级 CSS 也在这条契约里：`parseNote(serializeHtml(blocks, { title, style })).style`
  * 与 `style` 相等（边界换行不计）。见 ADR-0011。

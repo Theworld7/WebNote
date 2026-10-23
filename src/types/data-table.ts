@@ -98,7 +98,7 @@ export const DATA_TABLE_VERSION = 1
  * 列数上限。
  *
  * 行数**没有**上限 —— 这正是数据表存在的理由，一个只能装六十条的记录集不是记录集
- * （见 `CONTEXT.md` 的「Data table bound」）。列数上限留着：它决定编辑 UI 要排多宽，
+ * （见 `GLOSSARY.md` 的「Data table bound」）。列数上限留着：它决定编辑 UI 要排多宽，
  * 与滚动长度无关。
  */
 export const MAX_DATA_TABLE_COLUMNS = 20
