@@ -138,6 +138,8 @@
       macOS 26（Tahoe）风格：1024 画布全出血超椭圆（n=5）、玻璃分层、上缘镜面高光。
       下面是同一份 SVG 的缩小效果与真实场景预览 —— 图标设计在小尺寸上崩掉是最常见的翻车点，
       所以 32 / 64 / 128 这几档和 1024 一样重要。
+      <strong>≤48px 换成小尺寸母版</strong>（去掉正文行与折缝、尖括号放大加粗），
+      否则 32px 上只剩 0.81px 的线宽和一片灰色的正文行。
       页面只用 <code>&lt;img&gt;</code>，直接双击用浏览器打开即可（走 <code>file://</code> 也能跑）。
     </p>
 
@@ -174,7 +176,18 @@
       // 走 file:// 也能跑：只用 <img>，不 fetch。
       const FULL = '../src-tauri/icons/webnote-icon.svg'
       const DARK = '../src-tauri/icons/webnote-icon-dark.svg'
-      const LADDER = [512, 256, 128, 64, 32, 16]
+      const SMALL = '../src-tauri/icons/webnote-icon-small.svg'
+      const SMALL_DARK = '../src-tauri/icons/webnote-icon-small-dark.svg'
+      // 与 design/icon/icon.tokens.json 的 small.maxSize、rasterize.py 的 Masters.at 保持一致
+      const SMALL_MAX = 48
+      const LADDER = [512, 256, 128, 64, 48, 32, 16]
+
+      /** 按目标尺寸选母版 —— 位图那侧 rasterize.py 用的是同一条规则。 */
+      function srcFor(size, dark = false) {
+        const small = size <= SMALL_MAX
+        if (dark) return small ? SMALL_DARK : DARK
+        return small ? SMALL : FULL
+      }
 
       function img(src, size, cls = '') {
         const el = new Image()
@@ -186,11 +199,11 @@
         return el
       }
 
-      function ladder(mount, src) {
+      function ladder(mount, dark) {
         for (const size of LADDER) {
           const cell = document.createElement('div')
           cell.className = 'cell'
-          cell.append(img(src, size))
+          cell.append(img(srcFor(size, dark), size))
           const label = document.createElement('div')
           label.className = 'label'
           label.textContent = `${size}px`
@@ -199,23 +212,23 @@
         }
       }
 
-      ladder(document.getElementById('ladder'), FULL)
-      ladder(document.getElementById('ladderDark'), DARK)
+      ladder(document.getElementById('ladder'), false)
+      ladder(document.getElementById('ladderDark'), true)
 
-      for (const id of ['onLight', 'onDark', 'onChecker']) {
-        document.getElementById(id).src = FULL
-      }
+      document.getElementById('onLight').src = FULL
       document.getElementById('onDark').src = DARK
+      document.getElementById('onChecker').src = FULL
 
       const dock = document.getElementById('dock')
-      for (const size of [128, 96, 64, 48, 32]) dock.append(img(FULL, size))
+      for (const size of [128, 96, 64, 48, 32]) dock.append(img(srcFor(size), size))
 
       const finder = document.getElementById('finder')
-      for (const size of [256, 128, 64, 32]) finder.append(img(FULL, size))
+      for (const size of [256, 128, 64, 32]) finder.append(img(srcFor(size), size))
 
       document.getElementById('meta').textContent =
         'viewBox 0 0 1024 1024 · 超椭圆 |x/512|^5 + |y/512|^5 = 1 · ' +
-        '图形外接盒 1024×1024（全出血）· 拟合误差 < 0.0001px'
+        '图形外接盒 1024×1024（全出血）· 拟合误差 < 0.0001px · ' +
+        `≤${SMALL_MAX}px 用小尺寸母版`
     </script>
   </body>
 </html>

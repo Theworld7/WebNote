@@ -12,6 +12,9 @@ SVG 给人看、给 Icon Composer 用，位图由本脚本确定性地产出。
 所有图层的几何坐标都在 1024 画布空间里；只有掩膜（squircle、面板、折角、字形）
 在 3 倍超采样下绘制后再缩回来，得到干净的抗锯齿边缘。
 
+渲染两套母版：完整版（tokens 顶层）和小尺寸版（tokens.small）。≤small.maxSize 的
+目标尺寸取小尺寸版，其余取完整版 —— 见 Masters。SVG 侧对应 webnote-icon-small.svg。
+
 用法：
     python design/icon/rasterize.py              # 渲染 light → src-tauri/icons
     python design/icon/rasterize.py --theme=dark
@@ -37,6 +40,26 @@ TOKENS = json.loads((HERE / "icon.tokens.json").read_text(encoding="utf-8"))
 CANVAS = TOKENS["geometry"]["canvas"]
 N = TOKENS["geometry"]["exponent"]
 AA = 3  # 掩膜超采样倍数
+
+# 小于等于这一档用「小尺寸母版」（见 icon.tokens.json 的 small 段）：
+# 大母版在 32px 只有 0.81px 线宽，正文行更是 0.75px 的灰雾，必须换构图。
+SMALL_MAX = TOKENS["small"]["maxSize"]
+
+
+def composition(small: bool) -> dict:
+    """一套构图参数。small 版去掉正文行与折缝，字形放大加粗。"""
+    if small:
+        return {
+            "glyph": TOKENS["small"]["glyph"],
+            "bars": [],
+            "seam": False,
+        }
+    return {
+        "glyph": TOKENS["glyph"],
+        "bars": TOKENS["bars"]["rows"],
+        "seam": True,
+    }
+
 
 
 # ────────────────────────── 几何 ──────────────────────────
@@ -153,10 +176,11 @@ def scale_pts(pts, a):
 # ────────────────────────── 渲染 ──────────────────────────
 
 
-def render(theme: str) -> Image.Image:
+def render(theme: str, small: bool = False) -> Image.Image:
     t = TOKENS["themes"][theme]
     sh = TOKENS["sheet"]
-    g = TOKENS["glyph"]
+    plan = composition(small)
+    g = plan["glyph"]
 
     shx, shy = sh["x"], sh["y"]
     shs, shr, fsz = sh["size"], sh["radius"], sh["fold"]
@@ -191,15 +215,34 @@ def render(theme: str) -> Image.Image:
     )
 
     # ── L2 玻璃面板 ──
-    sheet = linear_layer(0.0, 0.0, 0.55, 1.0, t["sheet"])
-    panel = mask(
-        lambda d, a: d.rounded_rectangle(
-            [shx * a, shy * a, shx1 * a, shy1 * a], radius=shr * a, fill=255
+    # 折角把纸的右上角翻到了纸面上：折缝外侧那块三角必须挖空（露出背景）。
+    # 这里原本是完整圆角矩形，折角三角形只是盖上去 —— 圆角弧最远鼓出折缝
+    # 46.5px，于是折角外面还留着一个圆角。SVG 侧对应 sheetOutline()。
+    fx, fy, fcx = shx1, shy, shx1 - fsz
+    # 外扩 3px 但不改斜边：斜边两端沿折缝延长，所以断口仍严丝合缝地落在折缝上。
+    # 要外扩是因为 notch 是拿去做逐像素相乘的 —— 面板右沿和 notch 竖边都在 x=x1，
+    # 门限两侧各留半覆盖，会在蓝底上留下一列亮线。外扩的部分本来就在面板外。
+    pad = 3
+    notch = mask(
+        lambda d, a: d.polygon(
+            scale_pts(
+                [(fcx - pad, fy - pad), (fx + pad, fy - pad), (fx + pad, fy + fsz + pad)], a
+            ),
+            fill=255,
         )
+    )
+    sheet = linear_layer(0.0, 0.0, 0.55, 1.0, t["sheet"])
+    panel = (
+        mask(
+            lambda d, a: d.rounded_rectangle(
+                [shx * a, shy * a, shx1 * a, shy1 * a], radius=shr * a, fill=255
+            )
+        )
+        * (1 - notch)
     )
     sheet[:, :, 3:4] *= panel
 
-    # 上缘接光：整圈描边 × 只留顶部的一段渐变
+    # 上缘接光：整圈描边 × 只留顶部的一段渐变（同样避开被折走的角）
     ring = mask(
         lambda d, a: d.rounded_rectangle(
             [shx * a, shy * a, shx1 * a, shy1 * a],
@@ -208,7 +251,7 @@ def render(theme: str) -> Image.Image:
             width=max(2, round(4 * a)),
         ),
         blur=1.6,
-    )
+    ) * (1 - notch)
     top_fade = linear_layer(
         0.15,
         0.0,
@@ -221,8 +264,7 @@ def render(theme: str) -> Image.Image:
     top_layer[:, :, 3:4] = ring * top_fade * hi["alpha"] * panel
     sheet = over(sheet, top_layer)
 
-    # 折角：阴影压住「被掀开」的方块，三角形是翻起来的那片纸
-    fx, fy, fcx = shx1, shy, shx1 - fsz
+    # 折角：翻起来的那片纸压在纸上，下面那层是它的阴影
     shade = linear_layer(
         0.1,
         1.0,
@@ -243,23 +285,25 @@ def render(theme: str) -> Image.Image:
     )
     sheet = over(sheet, fold)
 
-    # 折缝：沿着翻起来那条边的一道亮线，让折角不是一块死三角形
-    seam_w = 5
-    seam = mask(
-        lambda d, a: d.line(
-            scale_pts([(fcx, fy), (fx, fy + fsz)], a),
-            fill=255,
-            width=max(2, round(seam_w * a)),
-        ),
-        blur=0.6,
-    )
-    seam_layer = solid(t["foldSeam"]["rgb"])
-    seam_layer[:, :, 3:4] = seam * t["foldSeam"]["alpha"] * panel
-    sheet = over(sheet, seam_layer)
+    # 折缝：沿着翻起来那条边的一道亮线，让折角不是一块死三角形。
+    # 小尺寸母版不画：5px 的亮线在 32px 上只有 0.16px，纯粹是脏点。
+    if plan["seam"]:
+        seam_w = 5
+        seam = mask(
+            lambda d, a: d.line(
+                scale_pts([(fcx, fy), (fx, fy + fsz)], a),
+                fill=255,
+                width=max(2, round(seam_w * a)),
+            ),
+            blur=0.6,
+        )
+        seam_layer = solid(t["foldSeam"]["rgb"])
+        seam_layer[:, :, 3:4] = seam * t["foldSeam"]["alpha"] * panel
+        sheet = over(sheet, seam_layer)
 
-    # ── L3 标记：HTML 尖括号 + 正文行 ──
+    # ── L3 标记：HTML 尖括号 +（大母版才有）正文行 ──
     stroke_w = g["stroke"]
-    off = g["spread"] + 50
+    off = g["spread"] + g["head"]
     glyph_pts = [
         [(gcx - g["spread"], gcy - g["height"] / 2), (gcx - off, gcy), (gcx - g["spread"], gcy + g["height"] / 2)],
         [(gcx + g["spread"], gcy - g["height"] / 2), (gcx + off, gcy), (gcx + g["spread"], gcy + g["height"] / 2)],
@@ -284,25 +328,26 @@ def render(theme: str) -> Image.Image:
     glyph = linear_layer(0.0, 0.0, 0.7, 1.0, t["glyph"])
     glyph[:, :, 3:4] *= mask(paint_glyph)
 
-    bar_h = TOKENS["bars"]["height"]
-    bars = solid(t["bar"]["rgb"])
-    bars[:, :, 3:4] = mask(
-        lambda d, a: [
-            d.rounded_rectangle(
-                [
-                    (CANVAS - row["width"]) / 2 * a,
-                    row["y"] * a,
-                    ((CANVAS + row["width"]) / 2) * a,
-                    (row["y"] + bar_h) * a,
-                ],
-                radius=bar_h / 2 * a,
-                fill=255,
-            )
-            for row in TOKENS["bars"]["rows"]
-        ]
-    ) * t["bar"]["alpha"]
-
-    mark = over(glyph, bars)
+    mark = glyph
+    if plan["bars"]:
+        bar_h = TOKENS["bars"]["height"]
+        bars = solid(t["bar"]["rgb"])
+        bars[:, :, 3:4] = mask(
+            lambda d, a: [
+                d.rounded_rectangle(
+                    [
+                        (CANVAS - row["width"]) / 2 * a,
+                        row["y"] * a,
+                        ((CANVAS + row["width"]) / 2) * a,
+                        (row["y"] + bar_h) * a,
+                    ],
+                    radius=bar_h / 2 * a,
+                    fill=255,
+                )
+                for row in plan["bars"]
+            ]
+        ) * t["bar"]["alpha"]
+        mark = over(glyph, bars)
 
     out = over(over(bg, sheet), mark)
     return to_image(out)
@@ -328,26 +373,41 @@ PNG_TARGETS = [
 ]
 
 
-def png_bytes(master: Image.Image, size: int) -> bytes:
+class Masters:
+    """两个母版按目标尺寸分流：≤SMALL_MAX 走小尺寸母版，其余走大母版。
+
+    不做这一步的话，32px 就是从 1024 缩下来的 —— 线宽 0.81px、正文行 0.75px，
+    HIG 说的「小尺寸失去细节和清晰度」就是这么发生的。
+    """
+
+    def __init__(self, theme: str) -> None:
+        self.big = render(theme, small=False)
+        self.small = render(theme, small=True)
+
+    def at(self, size: int) -> Image.Image:
+        return self.small if size <= SMALL_MAX else self.big
+
+
+def png_bytes(masters: Masters, size: int) -> bytes:
     buf = io.BytesIO()
-    master.resize((size, size), Image.LANCZOS).save(buf, "PNG", optimize=True)
+    masters.at(size).resize((size, size), Image.LANCZOS).save(buf, "PNG", optimize=True)
     return buf.getvalue()
 
 
-def icns(master: Image.Image) -> bytes:
+def icns(masters: Masters) -> bytes:
     """TOC + ic07/ic08/ic09/ic10，载荷是 PNG（macOS 10.7+ 认）。"""
     parts = []
     for kind, size in (("ic07", 128), ("ic08", 256), ("ic09", 512), ("ic10", 1024)):
-        data = png_bytes(master, size)
+        data = png_bytes(masters, size)
         parts.append(kind.encode("ascii") + (len(data) + 8).to_bytes(4, "big") + data)
     body = b"".join(parts)
     return b"icns" + (len(body) + 8).to_bytes(4, "big") + body
 
 
-def ico(master: Image.Image) -> bytes:
-    """每项内嵌 PNG（Vista+ 支持）。"""
+def ico(masters: Masters) -> bytes:
+    """每项内嵌 PNG（Vista+ 支持）。16/32/48 会取到小尺寸母版。"""
     sizes = [16, 32, 48, 64, 128, 256]
-    blobs = [png_bytes(master, s) for s in sizes]
+    blobs = [png_bytes(masters, s) for s in sizes]
     header = (0).to_bytes(2, "little") + (1).to_bytes(2, "little") + len(blobs).to_bytes(2, "little")
     entries = b""
     offset = 6 + 16 * len(blobs)
@@ -367,20 +427,23 @@ def main() -> None:
     ap.add_argument("--preview-size", type=int, default=1024)
     args = ap.parse_args()
 
-    master = render(args.theme)
+    masters = Masters(args.theme)
     if args.preview:
-        out = HERE / f"preview-{'dark' if args.theme == 'dark' else 'light'}.png"
-        master.resize((args.preview_size, args.preview_size), Image.LANCZOS).save(out)
-        print(f"预览：{out.relative_to(REPO)}")
+        for small, tag in ((False, ""), (True, "-small")):
+            master = masters.small if small else masters.big
+            out = HERE / f"preview-{args.theme}{tag}.png"
+            master.resize((args.preview_size, args.preview_size), Image.LANCZOS).save(out)
+            print(f"预览：{out.relative_to(REPO)}")
         return
 
     ICONS.mkdir(parents=True, exist_ok=True)
     for size, name in PNG_TARGETS:
-        master.resize((size, size), Image.LANCZOS).save(ICONS / name, "PNG", optimize=True)
-    master.save(ICONS / "source-1024.png", "PNG", optimize=True)
-    (ICONS / "icon.icns").write_bytes(icns(master))
-    (ICONS / "icon.ico").write_bytes(ico(master))
+        masters.at(size).resize((size, size), Image.LANCZOS).save(ICONS / name, "PNG", optimize=True)
+    masters.big.save(ICONS / "source-1024.png", "PNG", optimize=True)
+    (ICONS / "icon.icns").write_bytes(icns(masters))
+    (ICONS / "icon.ico").write_bytes(ico(masters))
     print(f"主题 {args.theme}：{len(PNG_TARGETS) + 1} 个 PNG + icon.icns + icon.ico")
+    print(f"小尺寸母版用于 ≤{SMALL_MAX}px 的档位")
     print(f"写入 {ICONS.relative_to(REPO)}/")
 
 

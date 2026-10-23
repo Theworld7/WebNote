@@ -6,28 +6,43 @@
     "segmentsPerQuadrant": 24
   },
   "sheet": {
-    "x": 286,
-    "y": 300,
-    "size": 452,
-    "radius": 64,
-    "fold": 84
+    "$comment": "面板就是主体。占画布宽 62.5%。HIG 没给 App 图标的占比数值，唯一的数字标尺是 macOS 文稿图标那节：中心图像占画布一半、背景图占 80% 左右。原先 452（44%）连 50% 那条下限都不到。改这组要连 glyph / bars / small 一起等比缩放（这一版是 452 × 1.4159 = 640）。",
+    "x": 192,
+    "y": 192,
+    "size": 640,
+    "radius": 90,
+    "fold": 120
   },
   "glyph": {
-    "stroke": 26,
-    "size": 176,
-    "center": [512, 460],
-    "spread": 38,
-    "height": 88,
-    "slashSpread": 12.4,
-    "slashHeight": 156
+    "$comment": "stroke 37 在 64px 上是 2.31px（HIG 可读性下限 1.5px），32px 走 small 母版。",
+    "stroke": 37,
+    "center": [512, 419],
+    "spread": 54,
+    "height": 124,
+    "head": 71,
+    "slashSpread": 17.6,
+    "slashHeight": 220
   },
   "bars": {
-    "height": 24,
+    "height": 34,
     "rows": [
-      { "y": 598, "width": 244 },
-      { "y": 646, "width": 214 },
-      { "y": 694, "width": 150 }
+      { "y": 614, "width": 346 },
+      { "y": 682, "width": 304 },
+      { "y": 750, "width": 212 }
     ]
+  },
+  "small": {
+    "$comment": "≤maxSize 的母版：去掉正文行与折缝，尖括号放大到铺满纸面。不是为了好看，是为了 32px 下还剩 1.37px 线宽、8px 字形宽 —— 大母版在那档只有 0.81px，糊成一团。阈值取 48 而不是 64：64 起大母版已有 1.63px，够清楚了。",
+    "maxSize": 48,
+    "glyph": {
+      "stroke": 62,
+      "center": [512, 512],
+      "spread": 79,
+      "height": 255,
+      "head": 79,
+      "slashSpread": 18.4,
+      "slashHeight": 311
+    }
   },
   "themes": {
     "light": {
