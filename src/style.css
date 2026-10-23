@@ -93,9 +93,13 @@
     --shadow-island: var(--elev-island);
     --shadow-pop: var(--elev-pop);
 
-    /* 系统字体栈。不引远程字体：Tauri 离线可用，且不依赖 Google Fonts 可达性。 */
-    --font-sans: -apple-system, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
-    --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+    /* 系统字体栈。不引远程字体：Tauri 离线可用，且不依赖 Google Fonts 可达性。
+       **与 `lib/typography.ts` 的 `SYSTEM_FONT_STACK` / `MONO_FONT_STACK` 必须逐字相同** ——
+       CSS 取不到 TS 常量，只能各写一份，`typography-check` 断言两边相等。Windows 上
+       `-apple-system` 与 `PingFang SC` 都不存在，补 `Microsoft YaHei` / `Segoe UI`
+       是把「浏览器默认字体」这条隐式依赖变成显式约定。 */
+    --font-sans: -apple-system, "SF Pro Text", "PingFang SC", "Microsoft YaHei", "Segoe UI", "Helvetica Neue", sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
 }
 
 @theme inline {

@@ -378,14 +378,14 @@ const SEARCH =
             字段映射 · {{ activeName }}
           </DropdownMenuLabel>
           <div v-for="item in ROLE_ITEMS" :key="item.role" class="px-2 pb-1.5">
-            <div class="mb-0.5 text-[10.5px] text-muted-foreground">{{ item.label }}</div>
+            <div class="mb-0.5 text-[11px] text-muted-foreground">{{ item.label }}</div>
             <select :class="SELECT" :value="roleValue(item.role)" @change="setRole(item.role, $event)">
               <option value="">自动识别</option>
               <option v-for="column in columns" :key="column.id" :value="column.id">{{ column.name }}</option>
             </select>
           </div>
           <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <div class="px-2 py-1 text-[10.5px] leading-relaxed text-muted-foreground">
+          <div class="px-2 py-1 text-[11px] leading-relaxed text-muted-foreground">
             每张歌单各存一份映射；留「自动识别」时按列名与列类型找，列改名或删除后也会自动退让。
           </div>
         </DropdownMenuContent>
@@ -433,7 +433,7 @@ const SEARCH =
               <DropdownMenuItem
                 v-for="path in unboundTables"
                 :key="path"
-                class="gap-2 text-[12.5px]"
+                class="gap-2 text-[12px]"
                 @select="bind(path)"
               >
                 <MusicIcon class="size-3.5 shrink-0 text-muted-foreground" />
@@ -442,7 +442,7 @@ const SEARCH =
             </template>
             <div v-else class="px-2 py-1.5 text-[11px] text-muted-foreground">工作区里的表都已绑定</div>
             <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-            <DropdownMenuItem class="gap-2 text-[12.5px]" @select="openCreate">
+            <DropdownMenuItem class="gap-2 text-[12px]" @select="openCreate">
               <PlusIcon class="size-3.5 shrink-0 text-muted-foreground" />
               新建歌单表…
             </DropdownMenuItem>
@@ -468,9 +468,9 @@ const SEARCH =
       <!-- 头部(曲目数 / 总时长 / 搜索 / 复制)只在表里有歌时出现:空表上摆一个
            「0 首」和一颗禁用的复制键,只是噪音。 -->
       <div v-if="tracks.length > 0" class="mb-1.5 flex items-center gap-3.5 px-1">
-        <span class="text-[12.5px] font-medium">{{ shown.length }} 首</span>
-        <span v-if="totalText !== ''" class="text-[11.5px] text-muted-foreground">总时长 {{ totalText }}</span>
-        <span v-if="filtering" class="text-[11.5px] text-muted-foreground">筛选自 {{ tracks.length }} 首</span>
+        <span class="text-[12px] font-medium">{{ shown.length }} 首</span>
+        <span v-if="totalText !== ''" class="text-[12px] text-muted-foreground">总时长 {{ totalText }}</span>
+        <span v-if="filtering" class="text-[12px] text-muted-foreground">筛选自 {{ tracks.length }} 首</span>
 
         <!-- 复制反馈:短暂出现,不占位很久,也不弹 toast。 -->
         <span v-if="copied" class="ml-auto shrink-0 text-[11px] text-muted-foreground">已复制</span>
@@ -567,10 +567,10 @@ const SEARCH =
 
           <span class="flex min-w-0 flex-1 flex-col">
             <span class="truncate text-[13px] leading-snug">{{ playlistTitle(row, roles) }}</span>
-            <span v-if="subtitleOf(row)" class="truncate text-[11.5px] text-muted-foreground">{{ subtitleOf(row) }}</span>
+            <span v-if="subtitleOf(row)" class="truncate text-[12px] text-muted-foreground">{{ subtitleOf(row) }}</span>
           </span>
 
-          <span v-if="durationOf(row)" class="shrink-0 text-[11.5px] tabular-nums text-muted-foreground">{{ durationOf(row) }}</span>
+          <span v-if="durationOf(row)" class="shrink-0 text-[12px] tabular-nums text-muted-foreground">{{ durationOf(row) }}</span>
 
           <!-- 删除:悬停该行才出现,挪走就消失 —— 曲目列表里不该常驻一排叉。 -->
           <Button

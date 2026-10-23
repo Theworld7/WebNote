@@ -12,7 +12,8 @@
   pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
   .ok { color: #1c7a3e; }
   .fail { color: #b42318; }
-  /* 固定内容宽度，几何断言才有确定的分母 —— 与内容宽度偏好的 standard 档（800px）同口径。 */
+  /* 固定容器宽度，几何断言才有确定的分母。与内容宽度偏好的档位无关 —— 版心自己
+     会跟着偏好变，这里的 800 只是给表格一个确定的可用宽。 */
   #app .doc { width: 800px; }
 </style>
 </head>
@@ -34,7 +35,7 @@ import { provideWorkspace } from "../src/composables/useWorkspace.ts"
 import { createTableBlock } from "../src/lib/blocks.ts"
 import { textToRuns } from "../src/lib/inline.ts"
 import * as table from "../src/lib/table.ts"
-import { TABLE_SCROLL_GUTTER } from "../src/lib/typography.ts"
+import { DOC_MEASURE_PX, MONO_FONT_STACK, SYSTEM_FONT_STACK, TABLE_SCROLL_GUTTER } from "../src/lib/typography.ts"
 
 const lines = []
 let passed = 0
@@ -498,6 +499,18 @@ check(
   JSON.stringify(fontTriggers().map((node) => node.textContent.trim())),
 )
 check("默认下 --font-sans 是系统栈", fontVar("--font-sans").includes("sans-serif"), fontVar("--font-sans"))
+// 字体栈在 CSS 与 TS 各存一份（CSS 取不到 TS 常量），这里是唯一把它们钉在一起的地方：
+// 改了 typography.ts 的常量却忘了 style.css，或反过来，这两条会先红。
+check(
+  "--font-sans 与 SYSTEM_FONT_STACK 逐字相同",
+  fontVar("--font-sans") === SYSTEM_FONT_STACK,
+  fontVar("--font-sans"),
+)
+check(
+  "--font-mono 与 MONO_FONT_STACK 逐字相同",
+  fontVar("--font-mono") === MONO_FONT_STACK,
+  fontVar("--font-mono"),
+)
 
 /** 点开第 index 个选择框并选一项。列表项文本就是字体名（对勾没有文字），trim 后精确匹配。 */
 async function pickFont(index, name) {
@@ -555,7 +568,7 @@ check(
 monoProbe.remove()
 
 check("能清回系统默认", await pickFont(0, "系统默认"))
-check("清回后变量里没有用户字体", !fontVar("--font-sans").includes("Microsoft YaHei"), fontVar("--font-sans"))
+check("清回后变量回到系统栈基线上", fontVar("--font-sans") === SYSTEM_FONT_STACK, fontVar("--font-sans"))
 check("清回后存的是空串（表示跟随系统）", window.localStorage.getItem(FONT_KEY) === "",
   String(window.localStorage.getItem(FONT_KEY)))
 
@@ -592,10 +605,13 @@ check(
   badTable === null ? "（没渲染）" : String(badTable.getBoundingClientRect().width),
 )
 const badDoc = badMount.querySelector("[data-doc]")
+// maxWidth 是 `calc(版心 + 左右 gutter)`，gutter 由容器宽度决定（clamp 上限合计 136px），
+// 所以只能断言「落在版心之上、且不超过版心 + gutter 上限」，不能钉死总宽。
+const badMaxWidth = badDoc === null ? 0 : parseFloat(getComputedStyle(badDoc).maxWidth)
 check(
-  "宽度存了非法值时退回默认 800px",
-  badDoc !== null && getComputedStyle(badDoc).maxWidth === "800px",
-  badDoc === null ? "（没渲染）" : getComputedStyle(badDoc).maxWidth,
+  "宽度存了非法值时退回默认版心",
+  badDoc !== null && badMaxWidth >= DOC_MEASURE_PX && badMaxWidth <= DOC_MEASURE_PX + 136,
+  badDoc === null ? "（没渲染）" : String(getComputedStyle(badDoc).maxWidth),
 )
 
 // ---------- 输出 ----------

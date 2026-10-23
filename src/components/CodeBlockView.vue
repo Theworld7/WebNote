@@ -258,7 +258,7 @@ onBeforeUnmount(() => {
            用户写的 `pre { … }` 经 lib/note-style 改写成 `[data-block-type="code"]`。别删。 -->
       <div
         data-block-type="code"
-        class="rounded-lg bg-muted-strong px-3.5 py-2.5 font-mono text-[12.5px] leading-[21px] whitespace-pre-wrap break-words text-code-foreground"
+        class="rounded-lg bg-muted-strong px-3.5 py-2.5 font-mono text-[12px] leading-[21px] whitespace-pre-wrap break-words text-code-foreground"
       >
         <template v-if="text === ''">
           <span class="text-muted-foreground/60">空代码块 · 点右上角「编辑」开始写</span>

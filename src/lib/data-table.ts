@@ -50,6 +50,19 @@ export function columnTypeLabel(type: DataColumnType): string {
   }
 }
 
+/**
+ * 该列是否按数字口径排版（右对齐 + 等宽数字）。
+ *
+ * 只看列类型 `number`。日期刻意不算 —— 账目块的 `isNumberish` 同样把日期排在数字之外，
+ * 同一个 `.tbl` 在读它的两个视图里得长一个样。文本列更不按内容猜：输入过程中列会
+ * 随内容左右横跳，比左对齐更难用。
+ *
+ * 引用块与编辑页共用这一条判据，别在模板里各写一份 `column.type === 'number'`。
+ */
+export function isNumberColumn(column: DataColumn): boolean {
+  return column.type === "number"
+}
+
 let seq = 0
 
 /**

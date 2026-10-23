@@ -59,7 +59,7 @@ const empty = computed(() => groups.value.length === 0)
         data-type-option="true"
         @select="emit('pick', meta.type)"
       >
-        <span class="w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-foreground">
+        <span class="w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-foreground">
           {{ meta.marker }}
         </span>
         <span class="min-w-0 flex-1 truncate">{{ meta.label }}</span>
@@ -84,7 +84,7 @@ const empty = computed(() => groups.value.length === 0)
         data-type-option="true"
         @select="emit('pick', meta.type)"
       >
-        <span class="w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-foreground">
+        <span class="w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-foreground">
           {{ meta.marker }}
         </span>
         <span class="min-w-0 flex-1 truncate">{{ meta.label }}</span>

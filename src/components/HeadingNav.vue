@@ -232,7 +232,7 @@ function tickClass(active: boolean): string {
  * 宽度一次性跳到位、只有 `opacity` 淡入，观感几乎没差，重排只剩末尾那一帧。
  */
 const LABEL =
-  "max-w-0 overflow-hidden truncate text-[12.5px] leading-[1.35] whitespace-nowrap opacity-0 transition-opacity duration-150 group-hover/nav:max-w-[220px] group-hover/nav:opacity-100 group-focus-within/nav:max-w-[220px] group-focus-within/nav:opacity-100"
+  "max-w-0 overflow-hidden truncate text-[12px] leading-[1.35] whitespace-nowrap opacity-0 transition-opacity duration-150 group-hover/nav:max-w-[220px] group-hover/nav:opacity-100 group-focus-within/nav:max-w-[220px] group-focus-within/nav:opacity-100"
 </script>
 
 <template>

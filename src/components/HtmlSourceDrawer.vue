@@ -197,7 +197,7 @@ onBeforeUnmount(() => {
         class="absolute inset-y-0 right-0 z-20 flex w-1/2 flex-col border-l border-line bg-popover shadow-pop"
       >
         <div class="flex flex-none items-center gap-3 border-b border-line px-4 py-2">
-          <span class="flex-none whitespace-nowrap text-[12.5px] font-medium">{{ title }}</span>
+          <span class="flex-none whitespace-nowrap text-[12px] font-medium">{{ title }}</span>
           <!-- CSS 的排版是编辑期的临时形态，落盘会压回单行 —— 不写出来的话，下一次打开
                文件的人会以为「格式化」丢了。HTML 没有紧凑化，排版就是落盘形态，按钮的
                title 负责把这层差别说清。 -->
@@ -209,7 +209,7 @@ onBeforeUnmount(() => {
             v-if="formatMode"
             size="sm"
             variant="ghost"
-            class="h-7 flex-none px-2.5 text-[11.5px]"
+            class="h-7 flex-none px-2.5 text-[12px]"
             :title="
               cssMode
                 ? '按 prettier 重新排版（只影响编辑器里的文本，不影响落盘形态）'
@@ -219,10 +219,10 @@ onBeforeUnmount(() => {
           >
             格式化
           </Button>
-          <Button size="sm" variant="ghost" class="h-7 flex-none px-2.5 text-[11.5px]" @click="emit('close')">
+          <Button size="sm" variant="ghost" class="h-7 flex-none px-2.5 text-[12px]" @click="emit('close')">
             取消
           </Button>
-          <Button size="sm" class="h-7 flex-none px-2.5 text-[11.5px]" @click="commit">完成</Button>
+          <Button size="sm" class="h-7 flex-none px-2.5 text-[12px]" @click="commit">完成</Button>
         </div>
         <div ref="hostRef" class="min-h-0 flex-1" />
       </div>

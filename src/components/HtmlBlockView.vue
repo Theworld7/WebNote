@@ -111,7 +111,7 @@ onBeforeUnmount(() => window.removeEventListener("message", onMessage))
       v-if="block.source.trim() !== ''"
       size="sm"
       variant="ghost"
-      class="absolute right-0 top-2 z-10 h-7 gap-1.5 rounded-md border border-line bg-background/80 px-2.5 text-[11.5px] shadow-xs backdrop-blur-sm reduce-transparency:bg-background reduce-transparency:backdrop-blur-none opacity-0 transition-opacity hover:bg-muted group-hover/html:opacity-100 focus-visible:opacity-100"
+      class="absolute right-0 top-2 z-10 h-7 gap-1.5 rounded-md border border-line bg-background/80 px-2.5 text-[12px] shadow-xs backdrop-blur-sm reduce-transparency:bg-background reduce-transparency:backdrop-blur-none opacity-0 transition-opacity hover:bg-muted group-hover/html:opacity-100 focus-visible:opacity-100"
       @click="openDrawer"
     >
       <PencilIcon class="size-3.5" />

@@ -274,14 +274,14 @@ function openTable() {
         <DropdownMenuContent :class="[MENU, 'max-h-[72vh] overflow-y-auto']" align="end">
           <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">字段映射</DropdownMenuLabel>
           <div v-for="item in ROLE_ITEMS" :key="item.role" class="px-2 pb-1.5">
-            <div class="mb-0.5 text-[10.5px] text-muted-foreground">{{ item.label }}</div>
+            <div class="mb-0.5 text-[11px] text-muted-foreground">{{ item.label }}</div>
             <select :class="SELECT" :value="roleValue(item.role)" @change="setRole(item.role, $event)">
               <option value="">自动识别</option>
               <option v-for="column in columns" :key="column.id" :value="column.id">{{ column.name }}</option>
             </select>
           </div>
           <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <div class="px-2 py-1 text-[10.5px] leading-relaxed text-muted-foreground">
+          <div class="px-2 py-1 text-[11px] leading-relaxed text-muted-foreground">
             留「自动识别」时按列名与列类型找；表里的列改名或删除后也会自动退让。
           </div>
         </DropdownMenuContent>
@@ -335,7 +335,7 @@ function openTable() {
         :class="cardTone(row)"
       >
         <div class="flex items-start gap-3">
-          <div class="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-[9px] bg-muted/60 text-[15px] font-semibold text-muted-foreground">
+          <div class="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-[9px] bg-muted/60 text-[14px] font-semibold text-muted-foreground">
             <img
               v-if="iconOf(row)"
               :src="iconOf(row)"
@@ -350,19 +350,19 @@ function openTable() {
           <div class="min-w-0 flex-1">
             <div class="flex items-start justify-between gap-2">
               <h4 class="truncate text-[13px] font-medium leading-snug">{{ nameOf(row) }}</h4>
-              <span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium" :class="STATUS_TONES[statusOf(row).kind]">
+              <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium" :class="STATUS_TONES[statusOf(row).kind]">
                 {{ statusOf(row).label }}
               </span>
             </div>
             <div v-if="amountText(row)" class="mt-1 flex items-baseline gap-1">
-              <span class="text-[20px] font-semibold leading-none tabular-nums">{{ amountText(row) }}</span>
+              <span class="text-[22px] font-semibold leading-none tabular-nums">{{ amountText(row) }}</span>
               <span v-if="cycleText(row)" class="text-[11px] text-muted-foreground">/ {{ cycleText(row) }}</span>
             </div>
             <div v-else-if="cycleText(row)" class="mt-1 text-[12px] text-muted-foreground">{{ cycleText(row) }}</div>
           </div>
         </div>
 
-        <div class="mt-3 grid gap-0.5 text-[11.5px] text-muted-foreground">
+        <div class="mt-3 grid gap-0.5 text-[12px] text-muted-foreground">
           <div v-if="startText(row)" class="flex justify-between gap-2">
             <span>开始</span>
             <span class="tabular-nums text-foreground/75">{{ startText(row) }}</span>
@@ -371,13 +371,13 @@ function openTable() {
           <div v-if="trialText(row) && trialText(row) !== endText(row)" class="flex justify-between gap-2">
             <span>试用到期</span>
             <span class="tabular-nums text-foreground/75">
-              {{ trialText(row) }}<span v-if="remainingFor(trialText(row), row)" class="ml-1 text-[10.5px]">{{ remainingFor(trialText(row), row) }}</span>
+              {{ trialText(row) }}<span v-if="remainingFor(trialText(row), row)" class="ml-1 text-[11px]">{{ remainingFor(trialText(row), row) }}</span>
             </span>
           </div>
           <div v-if="endText(row)" class="flex justify-between gap-2">
             <span>到期</span>
             <span class="tabular-nums text-foreground/75">
-              {{ endText(row) }}<span v-if="remainingFor(endText(row), row)" class="ml-1 text-[10.5px]">{{ remainingFor(endText(row), row) }}</span>
+              {{ endText(row) }}<span v-if="remainingFor(endText(row), row)" class="ml-1 text-[11px]">{{ remainingFor(endText(row), row) }}</span>
             </span>
           </div>
           <div v-if="paidText(row)" class="flex justify-between gap-2">

@@ -5,6 +5,7 @@ import type { TableEffect, ThemeSettings } from "@/types/workspace"
 import { inject, provide, ref, watch } from "vue"
 import { CODE_FONT_VAR, CONTENT_FONT_VAR, fontStack } from "@/lib/fonts"
 import { minutesOf, THEME_MODES } from "@/lib/theme-mode"
+import { DOC_MEASURE_PX } from "@/lib/typography"
 
 /**
  * 应用设置 —— 用户偏好，与工作区数据完全正交。
@@ -58,11 +59,11 @@ export type ContentWidth = "narrow" | "standard" | "wide"
 const CONTENT_WIDTH_KEY = "webnote:content-width"
 const DEFAULT_CONTENT_WIDTH: ContentWidth = "standard"
 
-/** 各档的正文列最大宽度（px）。`standard` 就是这个偏好出现之前写死的 800px。 */
+/** 各档的正文列最大宽度（px）。标准档与导出文件的版心同源（`DOC_MEASURE_PX`）。 */
 export const CONTENT_WIDTH_PX: Readonly<Record<ContentWidth, number>> = {
-  narrow: 640,
-  standard: 800,
-  wide: 1000,
+  narrow: 600,
+  standard: DOC_MEASURE_PX,
+  wide: 900,
 }
 
 const CONTENT_WIDTHS: readonly ContentWidth[] = ["narrow", "standard", "wide"]

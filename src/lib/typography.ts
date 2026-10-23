@@ -23,17 +23,65 @@ import { TEXT_COLORS } from "@/lib/inline"
  * 导出文件重跑同一批断言。改动这里的数字会让那页亮红 —— 那是有意为之。
  */
 
+/**
+ * 正文与界面共用的系统字体栈 —— 这一份是**给导出侧与 HTML 块的 iframe 用的**。
+ *
+ * 不引远程字体：Tauri 要离线可用，也不该依赖 Google Fonts 的可达性。列表按平台降级：
+ * macOS 命中 `-apple-system`（即 SF Pro Text），Windows 命中 `Microsoft YaHei`（汉字）
+ * 与 `Segoe UI`（拉丁），都没有才落到通用族。
+ *
+ * 写 Windows 这两条不是「换个更好看的字体」，而是把「浏览器默认字体」这条隐式依赖
+ * 改成显式约定 —— 用户改了浏览器的默认字体，笔记的观感不该跟着漂。
+ *
+ * `style.css` 的 `--font-sans` 是同一份内容的 CSS 副本（CSS 取不到 TS 常量），
+ * `typography-check` 断言两者的 computed 值相等：改一处漏另一处会亮红。
+ */
+export const SYSTEM_FONT_STACK = `-apple-system, "SF Pro Text", "PingFang SC", "Microsoft YaHei", "Segoe UI", "Helvetica Neue", sans-serif`
+
+/**
+ * 等宽栈，同上。
+ *
+ * `ui-monospace` 在 WebView2 / Chromium 上有效，Windows 会映射到 Consolas；显式列
+ * `Cascadia Code` 与 `Consolas` 是为了在旧内核和 Linux 上也有确定结果 —— 否则会掉到
+ * 系统默认等宽（Windows 老内核上是 Courier New，与代码块的观感差得很远）。
+ */
+export const MONO_FONT_STACK = `ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace`
+
 /** 正文字号，px。 */
 export const BODY_FONT_SIZE = 14
 
 /** 全局行高倍率。标题不单独设行高，继承它（naive 的 header.cssr 也是如此）。 */
 export const LINE_HEIGHT = 1.6
 
+/**
+ * 版心宽度，px —— 正文一行能有多宽。
+ *
+ * 720px 按 14px 正文算是约 51 个汉字，落在中文舒适区间（40~50 字）的上沿附近；
+ * 再宽（此前是 800px ≈ 57 字）视线回到行首时容易串行。
+ *
+ * 同一份数值也是「内容宽度」偏好的标准档（`CONTENT_WIDTH_PX.standard`）与导出文件
+ * `body { max-width }` 的依据 —— 三处必须是同一个数，否则「编辑器里看着什么样，
+ * 双击打开就是什么样」这条不成立。
+ */
+export const DOC_MEASURE_PX = 720
+
+/** 上者的 rem 形式，只给导出侧的 CSS 用（浏览器根字号是 16px）。 */
+const DOC_MEASURE_REM = DOC_MEASURE_PX / 16
+
 /** 六级标题的字号，索引 0 对应 h1。 */
 export const HEADING_FONT_SIZES = [30, 22, 18, 16, 16, 16] as const
 
 /** 标题字重（naive headerFontWeight）。 */
 export const HEADING_FONT_WEIGHT = 500
+
+/**
+ * h4 / h5 的字重。
+ *
+ * h4~h6 字号都是 16px（继承自 naive 的 headerFontSize4~6），三档层级只能靠字重与颜色
+ * 分。h4 抬到 semibold、h5 同字重但颜色压一档、h6 回到 500 且用次要色 —— 三支都用上，
+ * 才不至于在正文里认不出这是标题。
+ */
+export const HEADING_STRONG_WEIGHT = 600
 
 /** 正文行盒高度：列表标记与复选框都靠它竖直居中。 */
 export const BODY_LINE_BOX = BODY_FONT_SIZE * LINE_HEIGHT
@@ -269,12 +317,18 @@ export function spacingClass(type: BlockType): string {
 /**
  * 标题类名表。字面量理由同 `SPACING_CLASS`：运行时拼接的 `text-[${size}px]`
  * Tailwind 扫不到。
+ *
+ * 键是**块类型**而不是字号：h4 / h5 / h6 字号相同（16px），三者靠字重与颜色分，
+ * 按字号索引就写不出三份不同的类名。字号仍由 `headingClass()` 对着
+ * `HEADING_FONT_SIZES` 校验，改规格漏改这里会当场抛错。
  */
-const HEADING_CLASS: Readonly<Record<number, string>> = {
-  30: "text-[30px] font-medium leading-[1.6] text-foreground/90",
-  22: "text-[22px] font-medium leading-[1.6] text-foreground/90",
-  18: "text-[18px] font-medium leading-[1.6] text-foreground/90",
-  16: "text-[16px] font-medium leading-[1.6] text-foreground/90",
+const HEADING_CLASS: Readonly<Record<string, string>> = {
+  h1: "text-[30px] font-medium leading-[1.6] text-foreground/90",
+  h2: "text-[22px] font-medium leading-[1.6] text-foreground/90",
+  h3: "text-[18px] font-medium leading-[1.6] text-foreground/90",
+  h4: "text-[16px] font-semibold leading-[1.6] text-foreground/90",
+  h5: "text-[16px] font-semibold leading-[1.6] text-foreground/75",
+  h6: "text-[16px] font-medium leading-[1.6] text-muted-foreground",
 }
 
 /** 标题 / 引用这类需要按类型区分的正文类名；非标题返回 null。 */
@@ -287,9 +341,9 @@ export function headingClass(type: BlockType): string | null {
     case "h5":
     case "h6": {
       const size = HEADING_FONT_SIZES[Number(type.slice(1)) - 1]
-      const cls = HEADING_CLASS[size]
-      if (cls === undefined) {
-        throw new Error(`标题 ${type} 的字号 ${size}px 没有对应的 Tailwind 类名 —— 请同步补进 HEADING_CLASS`)
+      const cls = HEADING_CLASS[type]
+      if (cls === undefined || !cls.includes(`text-[${size}px]`)) {
+        throw new Error(`标题 ${type} 的类名与 HEADING_FONT_SIZES（${size}px）对不上 —— 请同步 HEADING_CLASS`)
       }
       return cls
     }
@@ -396,18 +450,22 @@ export function docStyle(): string {
       :root { --fg: #e6e6e8; --muted: #9ca3af; --line: #33333a; --bg-soft: #1e1e22; --accent-bg: #232a45; --accent-fg: #c3ccff; --mark-bg: #4a4120; --link: #5e93ff; --ledger-in: ${LEDGER_INCOME_COLOR_DARK}; --ledger-ex: ${LEDGER_EXPENSE_COLOR_DARK}; }
 ${RUN_COLOR_DARK_RULES}
     }
-    body { max-width: 46rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; background: Canvas; color: var(--fg);
-      font: ${BODY_FONT_SIZE}px/${LINE_HEIGHT} -apple-system, "PingFang SC", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
+    body { max-width: ${DOC_MEASURE_REM}rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; background: Canvas; color: var(--fg);
+      font: ${BODY_FONT_SIZE}px/${LINE_HEIGHT} ${SYSTEM_FONT_STACK}; -webkit-font-smoothing: antialiased; }
     h1, h2, h3, h4, h5, h6 { margin: ${h.top}px 0 ${h.bottom}px; font-weight: ${HEADING_FONT_WEIGHT}; }
 ${headingRules}
     h4, h5, h6 { margin-bottom: ${hTail.bottom}px; }
+    /* h4~h6 字号相同（16px），层级只能交给字重与颜色 —— 字号这一支已经用完了。 */
+    h4, h5 { font-weight: ${HEADING_STRONG_WEIGHT}; }
+    h5 { color: color-mix(in srgb, var(--fg) 75%, transparent); }
+    h6 { color: var(--muted); }
     p { margin: ${BLOCK_SPACING.text.top}px 0; }
     ul, ol { margin: ${BLOCK_SPACING.ul.top}px 0; padding-left: 2em; }
     li { margin: 0.25em 0 0; }
     blockquote { margin: ${BLOCK_SPACING.quote.top}px 0; padding-left: 12px; border-left: 4px solid var(--line); }
     aside { margin: ${BLOCK_SPACING.callout.top}px 0; padding: 0.8em 1.1em; background: var(--accent-bg); border-radius: 0.6em; color: var(--accent-fg); }
     pre { margin: ${BLOCK_SPACING.code.top}px 0; padding: 0.9em 1.1em; background: var(--bg-soft); border-radius: 0.6em; overflow-x: auto; }
-    code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.9em; line-height: 1.4;
+    code { font-family: ${MONO_FONT_STACK}; font-size: 0.9em; line-height: 1.4;
       display: inline-block; padding: 0.05em 0.35em 0; border-radius: 2px; background: var(--bg-soft); }
     pre code { font-size: 0.86em; display: inline; padding: 0; background: none; }
     hr { height: 1px; margin: ${BLOCK_SPACING.divider.top}px 0; border: 0; background: var(--line); }
@@ -441,32 +499,32 @@ ${headingRules}
        网格下限用 minmax(0,1fr) 的写法,窄窗口下卡片跟着收缩而不是横向溢出。 */
     .note-sub-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px;
       margin-bottom: 10px; padding: 8px 12px; border-radius: 8px; background: var(--bg-soft);
-      font-size: 11.5px; color: var(--muted); }
-    .note-sub-summary .n { font-weight: 600; font-size: 12.5px; color: var(--fg); }
+      font-size: 12px; color: var(--muted); }
+    .note-sub-summary .n { font-weight: 600; font-size: 12px; color: var(--fg); }
     .note-sub-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
     .note-sub-card { padding: 11px 13px; border: 1px solid var(--line); border-radius: 10px; background: Canvas; }
     .note-sub-cancelled { opacity: .6; }
     .note-sub-head { display: flex; align-items: flex-start; gap: 10px; }
     .note-sub-icon { flex: none; display: flex; align-items: center; justify-content: center;
       width: 36px; height: 36px; border-radius: 9px; overflow: hidden; background: var(--bg-soft);
-      font-size: 15px; font-weight: 600; color: var(--muted); }
+      font-size: 14px; font-weight: 600; color: var(--muted); }
     .note-sub-icon img { display: block; width: 100%; height: 100%; margin: 0; border-radius: 0; object-fit: cover; }
     .note-sub-title { min-width: 0; flex: 1; }
     .note-sub-name { font-size: 13px; font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    .note-sub-price { margin-top: 2px; font-size: 20px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+    .note-sub-price { margin-top: 2px; font-size: 22px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
     .note-sub-cycle { margin-left: 4px; font-size: 11px; font-weight: 400; color: var(--muted); }
     .note-sub-state { flex: none; padding: 2px 7px; border-radius: 999px; background: var(--bg-soft);
-      font-size: 10px; color: var(--muted); white-space: nowrap; }
+      font-size: 11px; color: var(--muted); white-space: nowrap; }
     .note-sub-meta { display: grid; gap: 2px; margin-top: 8px; font-size: 11px; color: var(--muted); }
     .note-sub-meta .r { display: flex; justify-content: space-between; gap: 10px; }
     .note-sub-meta .v { font-variant-numeric: tabular-nums; }
     .note-sub-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px;
-      padding-top: 6px; border-top: 1px solid var(--line); font-size: 10.5px; color: var(--muted); }
+      padding-top: 6px; border-top: 1px solid var(--line); font-size: 11px; color: var(--muted); }
     /* 歌单与 PlaylistBlockView 对齐:头部一行曲目数 / 总时长,下面是序号 + 封面 +
        歌名 / 副标题 + 时长的行。行与行之间靠 1px 分隔线,不用卡片框 —— 一屏能多放几首。 */
     .note-pl-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px;
-      padding: 0 4px; font-size: 11.5px; color: var(--muted); }
-    .note-pl-head .n { font-weight: 600; font-size: 12.5px; color: var(--fg); }
+      padding: 0 4px; font-size: 12px; color: var(--muted); }
+    .note-pl-head .n { font-weight: 600; font-size: 12px; color: var(--fg); }
     .note-pl-list { margin: 0; padding: 0; list-style: none; }
     .note-pl-track { display: flex; align-items: center; gap: 10px; padding: 5px 4px;
       border-bottom: 1px solid var(--line); }
@@ -479,9 +537,9 @@ ${headingRules}
       border-radius: 0; object-fit: cover; }
     .note-pl-track .t { display: flex; min-width: 0; flex: 1; flex-direction: column; }
     .note-pl-track .n { font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    .note-pl-track .s { font-size: 11.5px; color: var(--muted); overflow: hidden;
+    .note-pl-track .s { font-size: 12px; color: var(--muted); overflow: hidden;
       white-space: nowrap; text-overflow: ellipsis; }
-    .note-pl-track .d { flex: none; font-size: 11.5px; color: var(--muted);
+    .note-pl-track .d { flex: none; font-size: 12px; color: var(--muted);
       font-variant-numeric: tabular-nums; }
     /* 与 StatBlockView 应用内观感逐项对齐:满宽卡片、列名截断、合计下方还有
        一行参与求和的行数(.c)—— 静态页与笔记里看到的不该是两张脸。
@@ -493,7 +551,7 @@ ${headingRules}
     .note-stat .k { font-size: 11px; color: var(--muted);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .note-stat .v { font-size: 26px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
-    .note-stat .c { font-size: 10px; color: var(--muted); opacity: 0.7; }
+    .note-stat .c { font-size: 11px; color: var(--muted); opacity: 0.7; }
     .note-ledger table { margin: 0; }
     .note-ledger th, .note-ledger td { padding: 0.35em 0.7em; }
     .note-ledger .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -527,12 +585,12 @@ ${headingRules}
     .note-kcol header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding: 0 2px; }
     .note-kcol header .t { font-size: 12px; font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .note-kcol header .n { flex: none; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--bg-soft);
-      font-size: 10px; color: var(--muted); }
+      font-size: 11px; color: var(--muted); }
     .note-kcard { margin: 0; padding: 6px 8px; border: 1px solid rgba(0,0,0,.05); border-radius: 6px;
       box-shadow: 0 1px 2px rgba(0,0,0,.1); color: #1c1c1e; }
     .note-kcard + .note-kcard { margin-top: 8px; }
     .note-kfield { display: flex; flex-direction: column; min-height: 16px; padding: 2px 0; }
-    .note-kfield .k { font-size: 10px; line-height: 1.25; color: rgba(0,0,0,.5); }
+    .note-kfield .k { font-size: 11px; line-height: 1.25; color: rgba(0,0,0,.5); }
     .note-kfield .v { font-size: 12px; line-height: 1.4; overflow-wrap: break-word; }
     .note-kfield input[type="checkbox"] { width: 14px; height: 14px; margin: 0; accent-color: rgba(0,0,0,.7); }
     .note-empty { color: var(--muted); opacity: .6; }

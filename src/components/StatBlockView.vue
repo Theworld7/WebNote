@@ -238,7 +238,7 @@ const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
         {{ statColumn.name }}<template v-if="filterColumn !== null"> · {{ filterColumn.name }} = {{ props.block.filterValue }}</template>
       </span>
       <span class="text-[26px] font-semibold leading-tight tabular-nums">{{ sumText }}</span>
-      <span class="text-[10px] text-muted-foreground/70">
+      <span class="text-[11px] text-muted-foreground/70">
         {{ filteredRows.length }} 行<template v-if="filterColumn !== null"> / 共 {{ rows.length }} 行</template> · 求和
       </span>
     </div>

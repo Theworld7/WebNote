@@ -105,7 +105,7 @@ interface ContentWidthOption {
 
 /**
  * 三档内容宽度。图标位置换成一条宽度按档位递增的横条 —— 宽度这个量,
- * 画出来比任何象形图标都直白;`standard` 就是这个偏好出现之前的 800px。
+ * 画出来比任何象形图标都直白;`standard` 就是这个偏好出现之前的版心（现为 720px）。
  */
 const CONTENT_WIDTH_OPTIONS: readonly ContentWidthOption[] = [
   { value: "narrow", label: "窄" },
@@ -318,7 +318,7 @@ function optionClass(isActive: boolean): string {
                     <span class="text-[13px] leading-[1.4] text-foreground">
                       {{ option.label }}
                     </span>
-                    <span class="text-[11.5px] leading-[1.45] text-muted-foreground">
+                    <span class="text-[12px] leading-[1.45] text-muted-foreground">
                       {{ option.hint }}
                     </span>
                   </span>
@@ -357,7 +357,7 @@ function optionClass(isActive: boolean): string {
                   <span class="text-[13px] leading-[1.4] text-foreground">
                     {{ option.label }}
                   </span>
-                  <span class="text-[11.5px] leading-[1.45] text-muted-foreground">
+                  <span class="text-[12px] leading-[1.45] text-muted-foreground">
                     {{ CONTENT_WIDTH_PX[option.value] }}px
                   </span>
                 </button>
@@ -384,7 +384,7 @@ function optionClass(isActive: boolean): string {
                 >
                   <component :is="option.icon" class="size-4 text-muted-foreground" />
                   <span class="text-[13px] leading-[1.4] text-foreground">{{ option.label }}</span>
-                  <span class="text-[11.5px] leading-[1.45] text-muted-foreground">{{ option.hint }}</span>
+                  <span class="text-[12px] leading-[1.45] text-muted-foreground">{{ option.hint }}</span>
                 </button>
               </div>
             </section>
@@ -407,7 +407,7 @@ function optionClass(isActive: boolean): string {
                 <FolderTreeIcon class="mt-0.5 size-4 flex-none text-muted-foreground" />
                 <span class="flex min-w-0 flex-col gap-0.5">
                   <span class="text-[13px] leading-[1.4] text-foreground">整合数据表视图</span>
-                  <span class="text-[11.5px] leading-[1.45] text-muted-foreground">
+                  <span class="text-[12px] leading-[1.45] text-muted-foreground">
                     被引用的数据表挂在引用它的笔记下，笔记名隐去 .html 后缀
                   </span>
                 </span>
@@ -433,7 +433,7 @@ function optionClass(isActive: boolean): string {
                 <ListTreeIcon class="mt-0.5 size-4 flex-none text-muted-foreground" />
                 <span class="flex min-w-0 flex-col gap-0.5">
                   <span class="text-[13px] leading-[1.4] text-foreground">悬浮标题菜单</span>
-                  <span class="text-[11.5px] leading-[1.45] text-muted-foreground">
+                  <span class="text-[12px] leading-[1.45] text-muted-foreground">
                     静止时只有刻度，不占正文位置；鼠标移上去才展开标题
                   </span>
                 </span>
@@ -447,7 +447,7 @@ function optionClass(isActive: boolean): string {
               >
                 <span class="flex min-w-0 flex-col gap-0.5">
                   <span class="text-[12px] leading-[1.4] text-foreground">出现门槛</span>
-                  <span class="text-[11.5px] leading-[1.45] text-muted-foreground">
+                  <span class="text-[12px] leading-[1.45] text-muted-foreground">
                     标题数达到这个数才显示，最少 {{ HEADING_NAV_MIN_FLOOR }} 条
                   </span>
                 </span>
@@ -490,7 +490,7 @@ function optionClass(isActive: boolean): string {
             </section>
 
             <!-- 说明这次设置的作用范围：只影响编辑器，不进导出文件。 -->
-            <p class="text-[11.5px] leading-[1.5] text-muted-foreground">
+            <p class="text-[12px] leading-[1.5] text-muted-foreground">
               此设置只影响编辑器里的显示。导出的 HTML 始终是规范形态，换台机器打开也不会变。
             </p>
           </div>
@@ -521,7 +521,7 @@ function optionClass(isActive: boolean): string {
                     <span class="text-[13px] leading-[1.4] text-foreground">
                       {{ option.label }}
                     </span>
-                    <span class="text-[11.5px] leading-[1.45] text-muted-foreground">
+                    <span class="text-[12px] leading-[1.45] text-muted-foreground">
                       {{ option.hint }}
                     </span>
                   </span>
@@ -607,7 +607,7 @@ function optionClass(isActive: boolean): string {
             </section>
 
             <!-- 自动模式下手动切换到底是什么语义，只说一句 —— 它是这颗按钮最容易被误解的地方。 -->
-            <p class="text-[11.5px] leading-[1.5] text-muted-foreground">
+            <p class="text-[12px] leading-[1.5] text-muted-foreground">
               自动模式下，标签栏那颗按钮只改当前这一段：到下一个切换点（日出、日落、固定时刻、
               系统外观翻转）就交回自动，设置里的选择不会被改掉。
             </p>

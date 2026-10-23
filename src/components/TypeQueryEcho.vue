@@ -17,7 +17,7 @@ defineProps<{
 <template>
   <div
     data-type-query="true"
-    class="mb-1 flex select-none items-center gap-1.5 rounded-[7px] bg-muted px-2 py-1 text-[11.5px]"
+    class="mb-1 flex select-none items-center gap-1.5 rounded-[7px] bg-muted px-2 py-1 text-[12px]"
   >
     <SearchIcon class="size-3 shrink-0 text-muted-foreground" />
     <span v-if="query === ''" class="truncate text-muted-foreground">拼音首字母筛选</span>

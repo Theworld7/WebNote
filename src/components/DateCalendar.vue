@@ -73,7 +73,7 @@ function shift(delta: number): void {
 }
 
 const NAV = "flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-const FOOT = "rounded px-1.5 py-0.5 text-[11.5px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+const FOOT = "rounded px-1.5 py-0.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 </script>
 
 <template>
@@ -91,7 +91,7 @@ const FOOT = "rounded px-1.5 py-0.5 text-[11.5px] text-muted-foreground transiti
     </div>
 
     <div class="grid grid-cols-7 gap-0.5">
-      <span v-for="weekday in WEEKDAYS" :key="weekday" class="py-0.5 text-center text-[10.5px] text-muted-foreground">
+      <span v-for="weekday in WEEKDAYS" :key="weekday" class="py-0.5 text-center text-[11px] text-muted-foreground">
         {{ weekday }}
       </span>
       <button
@@ -99,7 +99,7 @@ const FOOT = "rounded px-1.5 py-0.5 text-[11.5px] text-muted-foreground transiti
         :key="cell.key"
         :data-day="cell.key"
         type="button"
-        class="h-6 rounded text-[11.5px] tabular-nums transition-colors"
+        class="h-6 rounded text-[12px] tabular-nums transition-colors"
         :class="[
           cell.key === value
             ? 'bg-brand font-medium text-background'

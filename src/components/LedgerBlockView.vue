@@ -589,7 +589,7 @@ function openTable() {
               :class="flashRow === row.id && 'bg-tint'"
             >
               <!-- 行号 / 删除同占一格(与数据表编辑页同一手法):悬停换成 ✕,列宽不变、行不跳。 -->
-              <th class="relative w-7 px-2 py-1 text-right align-top font-mono text-[10.5px] font-normal text-muted-foreground/60">
+              <th class="relative w-7 px-2 py-1 text-right align-top font-mono text-[11px] font-normal text-muted-foreground/60">
                 <span class="group-hover/lrow:invisible">{{ rowNumbers.get(row.id) }}</span>
                 <button
                   type="button"

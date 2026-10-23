@@ -216,7 +216,7 @@ const COLUMN_TYPE_ITEMS = [
 /** 菜单外框与菜单项，与块手柄的两套菜单同一套参数。 */
 const MENU = "w-[176px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
-const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-foreground"
+const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-foreground"
 </script>
 
 <template>
@@ -224,7 +224,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
   <div v-if="state !== 'loading' && table === null" class="flex flex-1 items-center justify-center p-8">
     <div class="max-w-sm text-center">
       <p class="text-[13px] text-foreground/80">这个数据表读不到</p>
-      <p class="mt-1.5 font-mono text-[11.5px] text-muted-foreground">{{ activePath }}</p>
+      <p class="mt-1.5 font-mono text-[12px] text-muted-foreground">{{ activePath }}</p>
       <p class="mt-3 text-[12px] text-muted-foreground">
         文件可能已被移动或删除，也可能不是合法的数据表文件。
       </p>
@@ -254,7 +254,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
 
       <div class="flex-1" />
 
-      <span class="pr-1 font-mono text-[11.5px] text-muted-foreground">{{ summary }}</span>
+      <span class="pr-1 font-mono text-[12px] text-muted-foreground">{{ summary }}</span>
     </div>
 
     <!-- 表格：自己横向滚动，永远铺满窗口宽度（不受「表格效果」偏好影响）。 -->
@@ -263,7 +263,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
         <thead>
           <tr>
             <!-- 行号列。固定短宽度，不参与列模型。 -->
-            <th class="sticky left-0 z-10 w-9 border-r border-b border-line bg-muted/60 px-2 py-1.5 text-right font-mono text-[10.5px] font-normal text-muted-foreground/70">
+            <th class="sticky left-0 z-10 w-9 border-r border-b border-line bg-muted/60 px-2 py-1.5 text-right font-mono text-[11px] font-normal text-muted-foreground/70">
               #
             </th>
             <th
@@ -283,7 +283,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
                   <DropdownMenuTrigger as-child>
                     <button
                       type="button"
-                      class="shrink-0 rounded-[5px] px-1 font-mono text-[10px] text-muted-foreground/70 hover:bg-muted hover:text-foreground"
+                      class="shrink-0 rounded-[5px] px-1 font-mono text-[11px] text-muted-foreground/70 hover:bg-muted hover:text-foreground"
                     >
                       {{ dt.columnTypeLabel(column.type) }}
                     </button>
@@ -357,7 +357,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
         </thead>
         <tbody>
           <tr v-for="(row, rowIndex) in rows" :key="row.id" class="group/drow">
-            <th class="sticky left-0 z-10 border-r border-b border-line bg-muted/30 px-2 py-1 text-right font-mono text-[10.5px] font-normal text-muted-foreground/60">
+            <th class="sticky left-0 z-10 border-r border-b border-line bg-muted/30 px-2 py-1 text-right font-mono text-[11px] font-normal text-muted-foreground/60">
               <!-- 悬停换成删除钮:行号改用 invisible 让位不撤宽度,钮绝对定位叠在原位 ——
                    两态占同一格,列宽不变,表格不跳动。 -->
               <span class="group-hover/drow:invisible">{{ rowIndex + 1 }}</span>
@@ -370,11 +370,16 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
                 <Trash2Icon class="size-3" />
               </button>
             </th>
+            <!-- 数字列右对齐 + 等宽数字，与引用块同一条判据（`dt.isNumberColumn`）。
+                 表头保持左对齐：那儿是可编辑的列名，右对齐会让光标贴右边缘。 -->
             <td
               v-for="column in columns"
               :key="column.id"
               class="border-r border-b border-line px-1.5 py-1 align-middle last:border-r-0"
-              :class="dropKey === cellKey(row, column) && 'ring-2 ring-inset ring-selection-strong'"
+              :class="[
+                dt.isNumberColumn(column) && 'text-right tabular-nums',
+                dropKey === cellKey(row, column) && 'ring-2 ring-inset ring-selection-strong',
+              ]"
               @dragover="onCellDragOver($event, row, column)"
               @dragleave="onCellDragLeave(column)"
               @drop="onCellDrop($event, row, column)"
@@ -383,7 +388,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
               <div v-if="column.type === 'image'" class="flex items-center justify-center">
                 <label
                   v-if="dt.cellValue(row, column) === null"
-                  class="flex cursor-pointer items-center gap-1 rounded-[5px] px-1.5 py-0.5 text-[11.5px] text-muted-foreground/50 hover:bg-muted hover:text-muted-foreground"
+                  class="flex cursor-pointer items-center gap-1 rounded-[5px] px-1.5 py-0.5 text-[12px] text-muted-foreground/50 hover:bg-muted hover:text-muted-foreground"
                 >
                   <ImagePlusIcon class="size-3" />图片
                   <input type="file" accept="image/*" class="hidden" @change="onPick($event, row, column)">
@@ -431,6 +436,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
               <input
                 v-else
                 class="w-full bg-transparent outline-none placeholder:text-muted-foreground/40"
+                :class="dt.isNumberColumn(column) && 'text-right tabular-nums'"
                 :value="displayOf(row, column)"
                 :placeholder="column.type === 'date' ? 'YYYY-MM-DD' : ''"
                 @keydown.enter.prevent="commitOnEnter"

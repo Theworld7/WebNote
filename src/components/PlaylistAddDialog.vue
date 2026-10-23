@@ -195,7 +195,7 @@ function submit(): void {
             </div>
             <Input
               type="url"
-              class="h-8 text-[12.5px]"
+              class="h-8 text-[12px]"
               placeholder="或粘贴图片链接 https://…"
               :model-value="imageUrlOf(column)"
               @input="onImageUrl(column, $event)"

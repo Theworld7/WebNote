@@ -102,7 +102,7 @@ const MENU = computed(() =>
 
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
 
-const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-foreground"
+const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-foreground"
 
 /** 位置两项的公共数据：方向、符号、文案一次定义，纵向横向两个排布共用。 */
 const POSITIONS = [
@@ -353,7 +353,7 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
           data-drag-handle="true"
           :aria-label="`${meta.label}块操作菜单，拖动可重排`"
         >
-          <span class="text-center font-mono text-[11.5px] leading-none">{{ meta.marker }}</span>
+          <span class="text-center font-mono text-[12px] leading-none">{{ meta.marker }}</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent

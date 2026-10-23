@@ -187,7 +187,7 @@ function alignColumn(align: TableAlign) {
 const MENU = "w-[244px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const SUB_MENU = "w-[148px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
-const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-foreground"
+const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-foreground"
 </script>
 
 <template>

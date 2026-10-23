@@ -125,7 +125,7 @@ function removeColumn(columnId: string) {
 /** 菜单外框与菜单项，与块手柄的两套菜单同一套参数。 */
 const MENU = "w-[176px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
-const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-foreground"
+const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-foreground"
 </script>
 
 <template>
@@ -169,7 +169,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
                     class="flex w-full items-center gap-1.5 text-left font-medium text-foreground/90 hover:text-foreground"
                   >
                     <span class="truncate">{{ column.name }}</span>
-                    <span class="shrink-0 font-mono text-[10px] font-normal text-muted-foreground/70">
+                    <span class="shrink-0 font-mono text-[11px] font-normal text-muted-foreground/70">
                       {{ dt.columnTypeLabel(column.type) }}
                     </span>
                   </button>
@@ -204,7 +204,14 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
         </thead>
         <tbody>
           <tr v-for="row in rows" :key="row.id" class="group/row">
-            <td v-for="column in columns" :key="column.id" :class="frame.cell">
+            <!-- 数字列右对齐 + 等宽数字：金额 / 数量逐位上下对齐才好扫。表头不动 ——
+                 它是可编辑的列名，右对齐会让光标贴右边缘，且主流的表格视图（Excel、
+                 Airtable）也是「表头左、数字右」。 -->
+            <td
+              v-for="column in columns"
+              :key="column.id"
+              :class="[frame.cell, dt.isNumberColumn(column) && 'text-right tabular-nums']"
+            >
               <!-- 勾选：一个真正的 checkbox，不走 contenteditable。 -->
               <input
                 v-if="column.type === 'checkbox'"
@@ -245,6 +252,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[11.5px] text-muted-fo
               <input
                 v-else
                 class="w-full bg-transparent outline-none placeholder:text-muted-foreground/50"
+                :class="dt.isNumberColumn(column) && 'text-right tabular-nums'"
                 :value="cellOf(row, column)"
                 :placeholder="column.type === 'date' ? 'YYYY-MM-DD' : ''"
                 @keydown.enter.prevent="commitOnEnter"

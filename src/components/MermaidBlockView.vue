@@ -136,7 +136,7 @@ function onKeydown(event: KeyboardEvent) {
         :placeholder="PLACEHOLDER"
         spellcheck="false"
         rows="2"
-        class="w-full resize-none bg-transparent font-mono text-[12.5px] leading-[1.7] text-code-foreground outline-none placeholder:text-muted-foreground/60"
+        class="w-full resize-none bg-transparent font-mono text-[12px] leading-[1.7] text-code-foreground outline-none placeholder:text-muted-foreground/60"
         @input="autosize"
         @keydown="onKeydown"
       />
@@ -162,8 +162,8 @@ function onKeydown(event: KeyboardEvent) {
         class="my-1 rounded-lg border border-destructive/30 bg-destructive/5 px-3.5 py-2.5"
       >
         <p class="text-[12px] font-medium text-destructive">图渲染失败</p>
-        <pre class="mt-1 whitespace-pre-wrap font-mono text-[11.5px] leading-[1.6] text-destructive/80">{{ error }}</pre>
-        <Button size="sm" variant="outline" class="mt-2 h-7 gap-1.5 text-[11.5px]" @click="startEdit">
+        <pre class="mt-1 whitespace-pre-wrap font-mono text-[12px] leading-[1.6] text-destructive/80">{{ error }}</pre>
+        <Button size="sm" variant="outline" class="mt-2 h-7 gap-1.5 text-[12px]" @click="startEdit">
           <PencilIcon class="size-3" />
           改源码
         </Button>
@@ -180,7 +180,7 @@ function onKeydown(event: KeyboardEvent) {
         v-if="svg !== ''"
         size="sm"
         variant="ghost"
-        class="absolute right-0 top-2 h-7 gap-1.5 px-2.5 text-[11.5px] opacity-0 transition-opacity group-hover/mm:opacity-100 focus-visible:opacity-100"
+        class="absolute right-0 top-2 h-7 gap-1.5 px-2.5 text-[12px] opacity-0 transition-opacity group-hover/mm:opacity-100 focus-visible:opacity-100"
         @click="startEdit"
       >
         <PencilIcon class="size-3.5" />

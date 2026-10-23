@@ -66,7 +66,7 @@ async function onFileChange(event: Event) {
       <Input
         v-model="draft"
         placeholder="粘贴图片链接"
-        class="h-7 text-[12.5px]"
+        class="h-7 text-[12px]"
         @keydown.enter.prevent="applyUrl"
       />
       <Button size="sm" class="h-7 shrink-0 px-2.5" :disabled="draft.trim() === ''" @click="applyUrl">
@@ -77,7 +77,7 @@ async function onFileChange(event: Event) {
     <Button
       variant="secondary"
       size="sm"
-      class="h-7 justify-start gap-1.5 px-2.5 text-[12.5px]"
+      class="h-7 justify-start gap-1.5 px-2.5 text-[12px]"
       :disabled="busy"
       @click="fileRef?.click()"
     >

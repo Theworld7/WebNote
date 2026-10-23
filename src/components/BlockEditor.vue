@@ -265,7 +265,7 @@ const fileDropIndex = ref<number | null>(null)
  * 交给调度器，所以这里自己 createElement、自己写 `style.transform`。
  */
 const GHOST_CLASS =
-  "pointer-events-none fixed top-0 left-0 z-50 max-w-[260px] truncate rounded-[7px] border border-line bg-popover px-2 py-1 text-[12.5px] leading-[1.4] text-foreground opacity-90 shadow-island"
+  "pointer-events-none fixed top-0 left-0 z-50 max-w-[260px] truncate rounded-[7px] border border-line bg-popover px-2 py-1 text-[12px] leading-[1.4] text-foreground opacity-90 shadow-island"
 
 let ghostEl: HTMLElement | null = null
 

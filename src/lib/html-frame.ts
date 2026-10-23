@@ -1,5 +1,6 @@
 import type { Theme } from "@/types/workspace"
 import { pinScheme } from "./note-style"
+import { BODY_FONT_SIZE, LINE_HEIGHT, SYSTEM_FONT_STACK } from "./typography"
 import { readThemeColor } from "./theme-color"
 
 /**
@@ -50,7 +51,7 @@ import { readThemeColor } from "./theme-color"
 /**
  * iframe 的 body 是**页面上的一个洞**，不是页面本身。
  *
- * 页面样式里的 `body { padding: 3rem 1.5rem }` / `max-width: 46rem` 描述的是整页版心，
+ * 页面样式里的 `body { padding: 3rem 1.5rem }` / `max-width: 45rem` 描述的是整页版心，
  * 编辑器里这层版心由正文列（`[data-doc]`）负责；iframe 里再套一遍就是双重内缩 ——
  * 块内容凭空多出一圈 padding（曾经真的这样：旧笔记的基础排版被误当成页面样式，
  * 于是每个 HTML 块都被 `body { padding: 3rem }` 缩了一圈）。
@@ -83,7 +84,7 @@ function canvasColor(theme: Theme): string {
 export function buildHtmlFrameDoc(source: string, pageStyle: string, theme: Theme): string {
   const probe =
     "<script>(function(){var send=function(){parent.postMessage({height:Math.ceil(document.body.getBoundingClientRect().height)},'*')};window.addEventListener('load',send);send();new ResizeObserver(send).observe(document.body)})()<\/script>"
-  const base = `<style>body{margin:0;display:flow-root;background:transparent;font:14px/1.6 -apple-system,"PingFang SC","Helvetica Neue",sans-serif}</style>`
+  const base = `<style>body{margin:0;display:flow-root;background:transparent;font:${BODY_FONT_SIZE}px/${LINE_HEIGHT} ${SYSTEM_FONT_STACK}}</style>`
   const appearance = `<style>html{color-scheme:${theme};background:${canvasColor(theme)}}</style>`
   const style =
     pageStyle.trim() === ""

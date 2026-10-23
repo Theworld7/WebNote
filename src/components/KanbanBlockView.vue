@@ -341,7 +341,7 @@ function openTable() {
         <div class="mb-2 flex items-center justify-between px-0.5">
           <span class="truncate text-[12px] font-medium text-foreground">{{ group.label }}</span>
           <span class="flex shrink-0 items-center gap-0.5">
-            <span class="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">{{ group.rows.length }}</span>
+            <span class="rounded-full bg-muted px-1.5 text-[11px] text-muted-foreground">{{ group.rows.length }}</span>
             <button
               type="button"
               aria-label="添加卡片"
@@ -363,7 +363,7 @@ function openTable() {
             @dragstart="onCardDragStart($event, row)"
           >
             <div v-for="column in displayColumns" :key="column.id" class="flex min-h-4 flex-col py-0.5">
-              <span class="text-[10px] leading-tight text-black/50">{{ column.name }}</span>
+              <span class="text-[11px] leading-tight text-black/50">{{ column.name }}</span>
               <!-- 图片格不就地编辑:data URI 在卡片上没处看,换图去数据表。 -->
               <span v-if="column.type === 'image'" class="break-words text-[12px] leading-snug" :class="cellOf(row, column) === '' && 'text-black/30'">{{ cellOf(row, column) || "空" }}</span>
 
