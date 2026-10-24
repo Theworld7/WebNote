@@ -157,7 +157,12 @@ function footCells() {
   const row = root?.querySelector("tfoot tr")
   return row === null || row === undefined ? [] : [...row.querySelectorAll("td")]
 }
-function addButton() { return ledgerRoot()?.querySelector("tfoot tr:last-child button") ?? null }
+/** 「记一笔」在块顶右上角的按钮组里（表底那条常驻行已撤）—— 按文案找，不靠位置：同一组里还有「打开数据表」「设置」。 */
+function addButton() {
+  const root = ledgerRoot()
+  if (root === null) return null
+  return [...root.querySelectorAll("button")].find((button) => (button.textContent ?? "").includes("记一笔")) ?? null
+}
 function headings() {
   const root = ledgerRoot()
   return [...(root?.querySelectorAll("thead th") ?? [])].map((th) => th.textContent.trim()).filter((text) => text !== "")
@@ -278,7 +283,7 @@ if (rows0.length === 3) {
     idleBox !== null && backBox !== null && JSON.stringify(rectOf(backBox)) === JSON.stringify(rectOf(idleBox)),
     `${idleBox === null ? "无按钮" : JSON.stringify(rectOf(idleBox))} vs ${backBox === null ? "无按钮" : JSON.stringify(rectOf(backBox))}`)
 
-  // ---- 增：表底记一笔，追加到末尾并聚焦新行首格 ----
+  // ---- 增：块顶「记一笔」，追加到末尾并聚焦新行首格 ----
   addButton()?.click()
   await settle()
   const rows1 = bodyRows()

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { LedgerBlock } from "@/types/workspace"
 import type { DataColumn, DataRow } from "@/types/data-table"
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { DatabaseIcon, PlusIcon, Settings2Icon, Trash2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
@@ -31,7 +31,8 @@ import { placeBelow, watchScrollHosts } from "@/lib/floating"
  *
  * 就地增删改与看板卡的逐格编辑同一套口径(解析走 `dt.parseCellInput`):点格值即编辑,
  * 文本框 / 数字 / 日期是输入框,select 换下拉,勾选直接切;回车提交并跳到**下一行同列**
- * —— 纵向把一列金额录完最快;表底「记一笔」追加到末尾并把光标放进新行首格;行号列
+ * —— 纵向把一列金额录完最快;块顶右上角的「记一笔」追加到末尾、光标落进新行首格,并把
+ * 那一行滚进视口(入口在表头、新行在表尾);行号列
  * 悬停变 ✕ 删行。金额格显示的是格式化后的带符号金额,一进编辑态就换回**原始数字**,
  * 于是「看到的是账,改的是数」,来回一趟不会把显示串解析成空。
  *
@@ -224,6 +225,9 @@ function commitOnEnter(row: DataRow, column: DataColumn, event: Event): void {
 
 // ---- 编辑期间钉住顺序 ----
 
+/** 块的根节点。「记一笔」新增的行落在表尾,要按它找 DOM 滚进视口。 */
+const rootEl = ref<HTMLElement | null>(null)
+
 const flashRow = ref("")
 let flashTimer: number | undefined
 /** 最后一次编辑的是哪一行 —— 退出编辑时拿它看有没有挪位置。 */
@@ -377,8 +381,12 @@ onBeforeUnmount(() => {
 })
 
 /**
- * 表底记一笔:追加到末尾 —— 流水账的末位就是最新一笔,落点没有歧义 —— 然后把光标
+ * 记一笔:追加到末尾 —— 流水账的末位就是最新一笔,落点没有歧义 —— 然后把光标
  * 放进新行的第一个可输入格(图片格不能就地编辑、勾选格是直接切,都不作落点)。
+ *
+ * 入口在块顶、新行落在表尾,所以要把它滚到眼前:长表里点了按钮却什么都没动,是因为
+ * 那一行在视口外。`nearest` 而不是 `center` —— 新行本来就在视野里时(短表)不动,
+ * 免得整页跟着跳一下。
  */
 async function addEntry(): Promise<void> {
   await change((current) => dt.addRow(current))
@@ -387,6 +395,8 @@ async function addEntry(): Promise<void> {
   const first = columns.value.find((column) => column.type !== "image" && column.type !== "checkbox")
   if (first === undefined) return
   editing.value = cellKey(added, first)
+  await nextTick()
+  rootEl.value?.querySelector(`[data-row-id="${added.id}"]`)?.scrollIntoView({ block: "nearest" })
 }
 
 /** 删一行。正在编辑这一行时先把编辑态收掉,免得输入框跟着一个已消失的行。 */
@@ -473,9 +483,18 @@ function openTable() {
   <!-- 还没读完。 -->
   <TableRefNotice v-else-if="table === null" kind="loading" label="账目" />
 
-  <div v-else class="group/ledger relative my-4">
-    <!-- 块操作入口:右上角,悬停浮现。 -->
+  <div ref="rootEl" v-else class="group/ledger relative my-4">
+    <!-- 块操作入口:右上角,悬停浮现。「记一笔」排在最前 —— 它是这块的主要动作;
+         表底那条常驻行撤掉之后,这是唯一入口。 -->
     <div class="absolute -top-2 right-0 z-20 flex items-center gap-1 opacity-0 transition-opacity group-hover/ledger:opacity-100 focus-within:opacity-100">
+      <Button
+        variant="ghost"
+        size="sm"
+        class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground"
+        @click="addEntry"
+      >
+        <PlusIcon class="size-3" />记一笔
+      </Button>
       <Button
         variant="ghost"
         size="sm"
@@ -585,6 +604,7 @@ function openTable() {
             <tr
               v-for="row in section.rows"
               :key="row.id"
+              :data-row-id="row.id"
               class="group/lrow border-b border-line transition-colors last:border-b-0"
               :class="flashRow === row.id && 'bg-tint'"
             >
@@ -685,10 +705,10 @@ function openTable() {
             </tr>
           </template>
 
-          <!-- 空表:一句话 + 下面那行「记一笔」即唯一入口。 -->
+          <!-- 空表:一句话引导。入口在块顶右上角(悬停浮现),表底不再常驻一行按钮。 -->
           <tr v-if="rows.length === 0">
             <td :colspan="cellCount" class="px-2.5 py-4 text-center text-muted-foreground">
-              这张表还没有账目 —— 点下面「记一笔」开始记。
+              这张表还没有账目 —— 点右上角「记一笔」开始记。
             </td>
           </tr>
         </tbody>
@@ -705,18 +725,11 @@ function openTable() {
               <template v-else-if="column === expenseColumn"><span class="text-ledger-expense">{{ formatExpense(totals.expense) }}</span></template>
               <template v-else-if="index === labelIndex">合计</template>
             </td>
-            <td class="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums">结余 {{ formatYuan(totals.net) }}</td>
-          </tr>
-          <!-- 表底记一笔:追加到末尾(流水账的末位即最新一笔),光标直接落进新行首格。 -->
-          <tr class="border-t border-dashed border-line">
-            <td :colspan="cellCount" class="p-0">
-              <button
-                type="button"
-                class="flex w-full items-center justify-center gap-1 px-2.5 py-1.5 text-[12px] text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-                @click="addEntry"
-              >
-                <PlusIcon class="size-3" />记一笔
-              </button>
+            <!-- 结余跟余额列同生共死:它占的就是余额那一列。余额列藏起来时若还留着这一格,
+                 表格会凭空多出一列(HTML 表格的列数由最宽的那一行决定),右侧空出正好一格 ——
+                 而这一列没有表头,看着就是「表格没铺满」。 -->
+            <td v-if="balances !== null" class="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums">
+              结余 {{ formatYuan(totals.net) }}
             </td>
           </tr>
         </tfoot>
