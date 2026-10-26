@@ -233,7 +233,8 @@ export async function formatCodeEditor(handle: CodeEditorHandle, language: strin
   ])
   handle.editor.pushUndoStop()
   // 光标跟回它原来所指的那个字符，而不是掉到第 0 行 —— 折行 / 补空格之后偏移必然变了。
-  handle.editor.setPosition(model.getPositionAt(formatted.cursorOffset))
+  // `-1` 是「这台引擎不给映射」（SQL），那时不设位置，光标落在这次编辑的末尾。
+  if (formatted.cursorOffset >= 0) handle.editor.setPosition(model.getPositionAt(formatted.cursorOffset))
   handle.editor.focus()
   return true
 }

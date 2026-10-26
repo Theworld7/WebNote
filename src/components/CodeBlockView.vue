@@ -233,7 +233,7 @@ onBeforeUnmount(() => {
         type="button"
         class="rounded px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
         :disabled="!formattable || formatting"
-        :title="formattable ? '格式化（prettier）' : '该语言暂无格式化器'"
+        :title="formattable ? '格式化' : '该语言暂无格式化器'"
         @mousedown.prevent
         @click="runFormat"
       >

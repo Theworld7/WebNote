@@ -20,13 +20,26 @@
  * 落盘仍走 blur / 完成那条路。
  */
 
+/** prettier 覆盖的语言。它们共用 `prettier/standalone` 那一份懒加载引擎。 */
+type PrettierLanguage = "css" | "html" | "javascript" | "typescript" | "json" | "yaml" | "markdown"
+
+/**
+ * 走自家引擎的语言。
+ *
+ * SQL 不挂在 prettier 上：社区插件 `prettier-plugin-sql` 会把 node-sql-parser（几十个
+ * 语法模块）拖进 prettier 那个**共享** chunk —— 之后排一段 CSS 也要为它付钱，与「只排
+ * CSS 的会话不为 babel 那几百 KB 付钱」是同一条立场，不能自己先破。何况它缺省也只是
+ * 把活转给 `sql-formatter`，那就直接依赖 sql-formatter，自己一个小 chunk。
+ */
+type StandaloneLanguage = "sql"
+
 /**
  * 有格式化器的语言。键是 **Monaco 的 language id**，也正是 `block.lang` 的取值 ——
  * 两边同一个名字，调用方不必再翻译一次。
  *
- * prettier 覆盖不到的（python / shell / sql / go / rust）不在这里，按钮据此置灰。
+ * prettier 覆盖不到的（python / shell / go / rust）不在这里，按钮据此置灰。
  */
-export type FormatLanguage = "css" | "html" | "javascript" | "typescript" | "json" | "yaml" | "markdown"
+export type FormatLanguage = PrettierLanguage | StandaloneLanguage
 
 /** prettier 的插件包。按**包**缓存而不是按语言：`javascript` 与 `json` 共用 babel，不各下两份。 */
 type PluginPackage = "postcss" | "html" | "babel" | "estree" | "typescript" | "yaml" | "markdown"
@@ -44,7 +57,7 @@ interface FormatSpec {
  * `Couldn't find plugin for AST format "estree"`。CSS / HTML / YAML / Markdown 的
  * parser 与 printer 在同一个包里，不需要它。
  */
-const SPECS: Record<FormatLanguage, FormatSpec> = {
+const SPECS: Record<PrettierLanguage, FormatSpec> = {
   css: { parser: "css", plugins: ["postcss"] },
   html: { parser: "html", plugins: ["html"] },
   javascript: { parser: "babel", plugins: ["babel", "estree"] },
@@ -62,7 +75,7 @@ type Engine = {
 }
 
 /** 按语言缓存 —— 一门语言加载一次，之后重排不再碰网络。 */
-const engines = new Map<FormatLanguage, Promise<Engine | null>>()
+const engines = new Map<PrettierLanguage, Promise<Engine | null>>()
 
 /**
  * 懒加载 prettier。
@@ -81,7 +94,7 @@ const LOADERS: Record<PluginPackage, () => Promise<import("prettier").Plugin>> =
   markdown: () => import("prettier/plugins/markdown"),
 }
 
-function loadEngine(language: FormatLanguage): Promise<Engine | null> {
+function loadEngine(language: PrettierLanguage): Promise<Engine | null> {
   const cached = engines.get(language)
   if (cached !== undefined) return cached
   const pending = (async (): Promise<Engine | null> => {
@@ -100,9 +113,18 @@ function loadEngine(language: FormatLanguage): Promise<Engine | null> {
   return pending
 }
 
+/** 类型守卫：把任意 `block.lang` 收窄成走 prettier 的那些。 */
+function isPrettierLanguage(language: string): language is PrettierLanguage {
+  return Object.prototype.hasOwnProperty.call(SPECS, language)
+}
+
+function isStandaloneLanguage(language: string): language is StandaloneLanguage {
+  return language === "sql"
+}
+
 /** 类型守卫：把任意 `block.lang` 收窄成有格式化器的那些。 */
 function isFormatLanguage(language: string): language is FormatLanguage {
-  return Object.prototype.hasOwnProperty.call(SPECS, language)
+  return isPrettierLanguage(language) || isStandaloneLanguage(language)
 }
 
 /** 这门语言有没有格式化器 —— 工具栏据此决定「格式化」按钮是否置灰。 */
@@ -113,8 +135,37 @@ export function supportsFormat(language: string): boolean {
 export interface FormattedSource {
   /** 排版后的全文（结尾不留空行）。 */
   text: string
-  /** 调用方给的 `cursorOffset` 在排版后文本里的对应位置。 */
+  /**
+   * 调用方给的 `cursorOffset` 在排版后文本里的对应位置。
+   * `-1` = 这门语言的引擎不提供光标映射，调用方别去设光标位置。
+   */
   cursorOffset: number
+}
+
+/** sql-formatter 的引擎；`null` = 加载过且失败（不再重试）。 */
+let sqlEngine: Promise<typeof import("sql-formatter") | null> | null = null
+
+function loadSqlEngine(): Promise<typeof import("sql-formatter") | null> {
+  if (sqlEngine === null) sqlEngine = import("sql-formatter").catch(() => null)
+  return sqlEngine
+}
+
+/**
+ * 排一段 SQL。
+ *
+ * 只认通用方言：笔记里不会为一段 SQL 再选一次方言，而 sql-formatter 对认不出的写法是
+ * 原样放行（它是按 token 重排，不做语法校验），比换一个会直接报错的解析器更耐久。
+ *
+ * 光标不给映射 —— 这个引擎只输出字符串，没有 offset 换算，返回 `-1` 让调用方跳过设位置。
+ */
+async function formatSql(source: string): Promise<FormattedSource | null> {
+  const engine = await loadSqlEngine()
+  if (engine === null) return null
+  try {
+    return { text: engine.format(source, { tabWidth: 2 }).replace(/\n+$/, ""), cursorOffset: -1 }
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -126,7 +177,9 @@ export interface FormattedSource {
  * `cursorOffset` 必须落在 `[0, source.length]` 内（prettier 会断言），越界由调用方夹紧。
  */
 export async function formatCode(language: string, source: string, cursorOffset: number): Promise<FormattedSource | null> {
-  if (!isFormatLanguage(language) || source.trim() === "") return null
+  if (source.trim() === "") return null
+  if (isStandaloneLanguage(language)) return formatSql(source)
+  if (!isPrettierLanguage(language)) return null
   const loaded = await loadEngine(language)
   if (loaded === null) return null
   try {
