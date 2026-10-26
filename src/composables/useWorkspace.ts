@@ -1622,6 +1622,48 @@ function createWorkspace() {
     return next.id
   }
 
+  /**
+   * 批量换块类型，返回新块 id —— 顺序与传入一致，没找到的给空串。
+   *
+   * 转换仍是「换一个新块」（ADR-0015），所以调用方**必须**按返回值重建选区：
+   * 拿旧 id 去查只会落空，表现是「转换完选区自己散了」。
+   *
+   * 一次遍历拍完，撤销历史里自然是相对基线的一步（与 `mergeBlockRange` 同一立场）。
+   * 只顶层的块 —— 框选本身就不进布局格子。
+   */
+  function retypeBlocks(ids: readonly string[], type: BlockType): string[] {
+    const blocks = activeDocument.value
+    const wanted = new Set(ids)
+    /** 旧 id → 新 id。转换换了块 id，调用方要按这张表把选区接回去。 */
+    const replaced = new Map<string, string>()
+    for (let i = 0; i < blocks.length; i += 1) {
+      const block = blocks[i]
+      if (block === undefined || !wanted.has(block.id)) continue
+      const next = retypeBlock(block, type)
+      blocks[i] = next
+      replaced.set(block.id, next.id)
+    }
+    if (replaced.size === 0) return ids.map(() => "")
+    markDirty()
+    return ids.map((id) => replaced.get(id) ?? "")
+  }
+
+  /**
+   * 批量删块。删光了回补一个空文本块 —— 顶层与格子的同一条规则（光标得有处落）。
+   *
+   * 不逐个调 `removeBlock`：那会在「删到只剩一块」时提前触发回补，回补的块又混进
+   * 待删名单里，一步之内的中间态反而更难讲清。一次 filter + splice 落地。
+   */
+  function removeBlocks(ids: readonly string[]) {
+    const blocks = activeDocument.value
+    const wanted = new Set(ids)
+    const keep = blocks.filter((block) => !wanted.has(block.id))
+    if (keep.length === blocks.length) return
+    blocks.splice(0, blocks.length, ...keep)
+    if (blocks.length === 0) blocks.push(createBlock("text"))
+    markDirty()
+  }
+
   function duplicateBlock(id: string) {
     const at = locateBlock(id)
     const source = at === null ? undefined : at.list[at.index]
@@ -2022,6 +2064,9 @@ function createWorkspace() {
     changeBlockType,
     duplicateBlock,
     removeBlock,
+    // 框选后的批量动作
+    retypeBlocks,
+    removeBlocks,
     moveBlock,
     moveBlockIntoCell,
     bindStatTable,

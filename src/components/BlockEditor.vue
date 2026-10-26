@@ -12,15 +12,24 @@ const scrollTops = new Map<string, number>()
 <script setup lang="ts">
 import type { BlockDropEdge, BlockType, InlineRun } from "@/types/workspace"
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue"
+import { RefreshCwIcon, Trash2Icon } from "@lucide/vue"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useSettings, CONTENT_WIDTH_PX } from "@/composables/useSettings"
 import { useTheme } from "@/composables/useTheme"
 import { useToast } from "@/composables/useToast"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { describeError } from "@/lib/errors"
-import { isTextualBlock, orderedIndexes as orderedIndexesOf } from "@/lib/blocks"
+import { BATCH_RETYPE_TYPES, isTextualBlock, orderedIndexes as orderedIndexesOf } from "@/lib/blocks"
+import { blocksInBand, bandRectsOf, rectFromPoints } from "@/lib/block-select"
+import type { SelectRect } from "@/lib/block-select"
 import { headingEntries } from "@/lib/headings"
-import { DOM_ATTR, DRAG_HANDLE_SELECTOR, LAYOUT_CELL_SELECTOR, TOP_BLOCK_ROW_SELECTOR, closestBlockId, findEditable, focusBlockById } from "@/lib/dom"
+import { BLOCK_ROW_SELECTOR, DOM_ATTR, DRAG_HANDLE_SELECTOR, LAYOUT_CELL_SELECTOR, TOP_BLOCK_ROW_SELECTOR, closestBlockId, findEditable, focusBlockById } from "@/lib/dom"
 import { dragOverCell, draggingBlockId } from "@/lib/block-drag"
 import { isFileDrag, pickImageFiles, readImageFile } from "@/lib/image"
 import { rangeForOffsets, sliceRuns } from "@/lib/marks"
@@ -35,6 +44,7 @@ import {
 } from "@/lib/crossselect"
 import type { BlockSelectionPoint } from "@/lib/crossselect"
 import BlockItem from "./BlockItem.vue"
+import BlockTypeMenuItems from "./BlockTypeMenuItems.vue"
 import GalleryInsertDialog from "./GalleryInsertDialog.vue"
 import HeadingNav from "./HeadingNav.vue"
 
@@ -56,6 +66,8 @@ const {
   moveBlock,
   setImageSource,
   setBlockRuns,
+  retypeBlocks,
+  removeBlocks,
   undo,
   redo,
   restoreTick,
@@ -452,6 +464,11 @@ function onViewportScroll() {
     updateDropTarget(pointerX, pointerY)
     return
   }
+  // 框选中自动滚动：指针没动、内容动了，带子与命中集合都要按新位置重算。
+  if (bandOn) {
+    updateBand(dragScrollX, dragScrollY)
+    return
+  }
   if (fileDropIndex.value === null) return
   const index = computeDropIndex(dragScrollY)
   if (index !== null) fileDropIndex.value = index
@@ -753,13 +770,23 @@ function onCrossEnd() {
 }
 
 function onDocMouseDown(event: MouseEvent) {
+  const target = event.target
+  // 浮条上按下：选区保持原样。这里不往下走，否则「点删除」会先被自己清掉选区 ——
+  // 浮条在点击落下去之前就没了，按钮点不着。
+  if (target instanceof Element && target.closest(BLOCK_SELECT_UI_SELECTOR) !== null) return
   clearCrossSelection()
+  clearBlockSelection()
   if (event.button !== 0) return
   const root = docRef.value
-  const target = event.target
   if (root === null || !(target instanceof Element)) return
   // 手柄上按下是在准备拖块 / 点开菜单，不是要选正文。
   if (target.closest(DRAG_HANDLE_SELECTOR) !== null) return
+  // 块行之外按下 = 框选。行内按下继续走下面的正文拖选 —— 正文行里几乎全是字，
+  // 两种手势只能靠落点分开（按在字上是选字，按在空白处是选块）。
+  if (target.closest(BLOCK_ROW_SELECTOR) === null) {
+    startBand(event)
+    return
+  }
   // 只从顶层块的可编辑体起选。resolvePoint 按落点返回顶层块端点,
   // 返回的块与 mousedown 归属的块对不上（格子内、树、工具条）就整段交给原生。
   const point = resolvePoint(root, activeDocument.value, event.clientX, event.clientY)
@@ -857,6 +884,194 @@ function deleteCrossSelection() {
   })
 }
 
+// ---- 块框选 ----
+//
+// 桌面图标那套：在**空白处**按住拖出一个矩形，圈到的块一起选中，再批量转类型或删除。
+// 与上面的跨块文本选区并列而不复用 —— 那个选正文（锚点 / 焦点 + 字符偏移），
+// 这个选整块（一组 id）。两者靠落点分开：按在块行里仍是选字，按在行外空白才是框选。
+//
+// 只收基础 / 列表两组块（`BATCH_RETYPE_TYPES`）：批量转换是逐块换类型，转成图片 /
+// 表格 / 布局等于把一批正文清空，那不是转换。矩形扫过结构块时跳过，不选中也不动它。
+
+/** 浮条与选中高亮之外的落点判定：浮条上的按下不能清掉选区（否则点「删除」先把自己关了）。 */
+const BLOCK_SELECT_UI_SELECTOR = "[data-block-select-ui]"
+
+/** 拉出来的带子（文档容器坐标）。只在拖拽过程中画。 */
+const bandRect = ref<SelectRect | null>(null)
+/** 选中的块 id，文档序。 */
+const selectedIds = ref<string[]>([])
+/** 选中块的高亮矩形（文档容器坐标）。松手后靠它继续显示选区。 */
+const selectedRects = ref<SelectRect[]>([])
+/** 浮条上沿（文档容器坐标）：选区最后一块的下沿再让 8px。 */
+const barTop = ref(0)
+
+/**
+ * 框选起点的**文档坐标**（不是视口坐标）。
+ *
+ * 拖着拖着自动滚动时内容在指针底下移动，起点若按视口记，带子的上沿会跟着内容漂走。
+ * 记成文档坐标，滚动只影响当前指针点的换算，起点原地不动。
+ */
+let bandStart: { x: number; y: number } | null = null
+/** 已经过阈值、真的在拉带子。没过阈值的那一下只是「点了下空白」。 */
+let bandOn = false
+
+/** 视口坐标 → 文档容器坐标。覆盖层与浮条都铺在容器里，随内容滚动。 */
+function toDocRect(rect: SelectRect): SelectRect {
+  const doc = docRef.value?.getBoundingClientRect()
+  if (doc === undefined) return rect
+  return { top: rect.top - doc.top, left: rect.left - doc.left, width: rect.width, height: rect.height }
+}
+
+/** 按当前选中的 id 重取高亮矩形，并把浮条挪到选区下沿。 */
+function refreshSelectedRects() {
+  const root = docRef.value
+  if (root === null) {
+    selectedRects.value = []
+    return
+  }
+  const rects = bandRectsOf(root, activeDocument.value, selectedIds.value).map(toDocRect)
+  selectedRects.value = rects
+  const last = rects[rects.length - 1]
+  barTop.value = last === undefined ? 0 : last.top + last.height + 8
+}
+
+function clearBlockSelection() {
+  selectedIds.value = []
+  selectedRects.value = []
+  bandRect.value = null
+  // 只在真的拉着带子时撤监听：这条清理每条 mousedown 都跑，无脑 `stopDragScroll`
+  // 会顺手打断正在进行的拖块（两者共用同一个滚动循环）。
+  if (bandStart !== null || bandOn) {
+    window.removeEventListener("mousemove", onBandMove)
+    window.removeEventListener("mouseup", onBandEnd)
+    scrollViewport()?.removeEventListener("scroll", onViewportScroll)
+    stopDragScroll()
+  }
+  bandStart = null
+  bandOn = false
+}
+
+/**
+ * 焦点是否仍在编辑区里（或压根没有焦点元素）。
+ *
+ * 批量动作的按键监听挂在 document 上，而选区不会因为点了侧栏就自己消失 —— 靠这一条
+ * 把「在别处打字时按退格」挡在外面：否则选中 5 块、去侧栏搜索框里删一个字，5 块就没了。
+ */
+function focusInDoc(): boolean {
+  const active = document.activeElement
+  if (active === null || active === document.body) return true
+  if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return false
+  if (active instanceof HTMLSelectElement) return false
+  return docRef.value?.contains(active) === true
+}
+
+function startBand(event: MouseEvent) {
+  const doc = docRef.value?.getBoundingClientRect()
+  if (doc === undefined) return
+  bandStart = { x: event.clientX - doc.left, y: event.clientY - doc.top }
+  bandOn = false
+  window.addEventListener("mousemove", onBandMove)
+  window.addEventListener("mouseup", onBandEnd)
+  // 贴着上下沿不动时靠 rAF 循环自己滚（与拖块共用 `trackDragScroll`）。滚完内容动了、
+  // 指针没动，命中集合得按新位置重算 —— 那条路是 viewport 的 scroll 事件。
+  scrollViewport()?.addEventListener("scroll", onViewportScroll)
+}
+
+/** 按指针当前位置重算带子与命中集合。`clientX / clientY` 是视口坐标。 */
+function updateBand(clientX: number, clientY: number) {
+  const root = docRef.value
+  const start = bandStart
+  const doc = root?.getBoundingClientRect()
+  if (root === null || start === null || doc === undefined) return
+
+  const band = rectFromPoints(start.x, start.y, clientX - doc.left, clientY - doc.top)
+  bandRect.value = band
+  // 命中判定要视口坐标（块行 rect 是视口的），把带子换算回去。
+  selectedIds.value = blocksInBand(root, activeDocument.value, {
+    top: band.top + doc.top,
+    left: band.left + doc.left,
+    width: band.width,
+    height: band.height,
+  })
+  refreshSelectedRects()
+}
+
+function onBandMove(event: MouseEvent) {
+  const start = bandStart
+  if (start === null) return
+  if (!bandOn) {
+    const doc = docRef.value?.getBoundingClientRect()
+    if (doc === undefined) return
+    const movedX = Math.abs(event.clientX - doc.left - start.x)
+    const movedY = Math.abs(event.clientY - doc.top - start.y)
+    if (movedX < DRAG_THRESHOLD && movedY < DRAG_THRESHOLD) return
+    bandOn = true
+    // 从空白处起拖，但指针拖过文字后浏览器仍可能起一个原生选区 —— 一并清掉，
+    // 否则「选中了 5 块」和「某块里还有一段蓝字」会同时出现在屏幕上。
+    window.getSelection()?.removeAllRanges()
+  }
+  updateBand(event.clientX, event.clientY)
+  trackDragScroll(event.clientX, event.clientY)
+}
+
+function onBandEnd() {
+  window.removeEventListener("mousemove", onBandMove)
+  window.removeEventListener("mouseup", onBandEnd)
+  scrollViewport()?.removeEventListener("scroll", onViewportScroll)
+  bandStart = null
+  bandRect.value = null
+  stopDragScroll()
+  // 没过阈值：这一下只是点了空白，选区已经由 mousedown 清过了。
+  if (!bandOn) return
+  bandOn = false
+  // 圈空了就什么也不留 —— 浮条写着「已选 0 块」比不留浮条更莫名其妙。
+  if (selectedIds.value.length === 0) {
+    selectedRects.value = []
+    return
+  }
+  refreshSelectedRects()
+}
+
+/** 批量换类型。转换换新块（ADR-0015），选区必须按返回的新 id 接回去，否则一转换就散选。 */
+function retypeSelected(type: BlockType) {
+  const ids = selectedIds.value
+  if (ids.length === 0) return
+  const next = retypeBlocks(ids, type).filter((id) => id !== "")
+  selectedIds.value = next
+  if (next.length === 0) {
+    clearBlockSelection()
+    return
+  }
+  // 行要按新类型重画，高亮也得按新行高重取 —— 等 DOM 落地。
+  void nextTick(() => {
+    refreshSelectedRects()
+    // 一次性换掉一批块，眼睛跟不上：给最后一块闪一下，至少知道动作落在哪儿。
+    const last = next[next.length - 1]
+    if (last !== undefined) flashSettle(last)
+  })
+}
+
+/** 批量删块。焦点交给删除位置的前一块，与单块删除同一口径。 */
+function deleteSelected() {
+  const ids = selectedIds.value
+  if (ids.length === 0) return
+  const first = activeDocument.value.findIndex((block) => ids.includes(block.id))
+  removeBlocks(ids)
+  clearBlockSelection()
+  const target = activeDocument.value[Math.max(first - 1, 0)]
+  if (target !== undefined) void focusBlockById(target.id)
+}
+
+/** 文档容器坐标 → 内联定位样式。高亮与浮条共用。 */
+function rectStyle(rect: SelectRect): Record<string, string> {
+  return {
+    top: `${rect.top}px`,
+    left: `${rect.left}px`,
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
+  }
+}
+
 // ---- 撤销 / 重做 ----
 
 /**
@@ -883,6 +1098,27 @@ function onKeyDown(event: KeyboardEvent) {
       clearCrossSelection()
     }
     return
+  }
+  // 框选在位：Delete / Backspace 删掉整批，Esc 撤选，敲字则先撤选（此时焦点不在任何块里，
+  // 字本来也没处落 —— 留着高亮只会让人以为它要接收输入）。修饰键组合放行，Ctrl+Z 照常撤。
+  //
+  // 先确认焦点还在编辑区里：这个监听挂在 document 上，选区又不会因为点了侧栏就消失 ——
+  // 不挡的话「选中 5 块 → 点侧栏搜索框 → 退格」会删掉那 5 块。
+  if (selectedIds.value.length > 0 && focusInDoc()) {
+    if (event.key === "Backspace" || event.key === "Delete") {
+      event.preventDefault()
+      deleteSelected()
+      return
+    }
+    if (event.key === "Escape") {
+      event.preventDefault()
+      clearBlockSelection()
+      return
+    }
+    if (!event.ctrlKey && !event.metaKey && !event.altKey && !event.isComposing && event.key.length === 1) {
+      clearBlockSelection()
+      return
+    }
   }
   if (!(event.ctrlKey || event.metaKey) || event.isComposing) return
   const key = event.key.toLowerCase()
@@ -925,6 +1161,8 @@ function restoreScroll(path: string) {
 watch(activePath, (next, prev) => {
   if (prev !== undefined) rememberScroll(prev)
   clearCrossSelection()
+  // 框选也一起清：选中的是旧文档的块 id，留着的话浮条会顶着上一次的选择切过来。
+  clearBlockSelection()
   restoreScroll(next)
 })
 onMounted(() => {
@@ -934,6 +1172,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   rememberScroll(activePath.value)
   clearCrossSelection()
+  clearBlockSelection()
   endBlockDrag()
 })
 
@@ -1002,6 +1241,52 @@ function edgeOf(index: number, to: number): BlockDropEdge {
           class="cross-selection-rect pointer-events-none absolute"
           :style="{ top: `${rect.top}px`, left: `${rect.left}px`, width: `${rect.width}px`, height: `${rect.height}px` }"
         />
+
+        <!-- 框选带子：只在拖拽过程中画，样式（.block-select-band）在 style.css。 -->
+        <span
+          v-if="bandRect !== null"
+          aria-hidden="true"
+          class="block-select-band pointer-events-none absolute"
+          :style="rectStyle(bandRect)"
+        />
+
+        <!-- 选中块高亮：与跨块文本选区共用一支颜色（.cross-selection-rect）——
+             「选中」在这套界面里只有一个意思，两种手势不该穿两套衣服。 -->
+        <span
+          v-for="(rect, i) in selectedRects"
+          :key="`selected-${i}`"
+          aria-hidden="true"
+          class="cross-selection-rect pointer-events-none absolute"
+          :style="rectStyle(rect)"
+        />
+
+        <!-- 批量动作浮条：贴在选区下沿居中。整层不吃指针，只有条子自己接事件。 -->
+        <div
+          v-if="selectedIds.length > 0"
+          data-block-select-ui
+          class="pointer-events-none absolute inset-x-0 z-20 flex justify-center"
+          :style="{ top: `${barTop}px` }"
+        >
+          <div class="pointer-events-auto flex items-center gap-0.5 rounded-island border border-line bg-popover p-1 shadow-pop">
+            <span class="px-1.5 text-[12px] text-muted-foreground">已选 {{ selectedIds.length }} 块</span>
+            <span class="mx-0.5 h-4 w-px bg-line" />
+            <DropdownMenu>
+              <DropdownMenuTrigger as-child>
+                <Button variant="ghost" class="h-6 gap-1 rounded-[5px] px-2 text-[12px]">
+                  <RefreshCwIcon class="size-3" />
+                  转为…
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent class="w-[244px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70" align="center" :side-offset="6">
+                <BlockTypeMenuItems :only="BATCH_RETYPE_TYPES" @pick="retypeSelected" />
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button variant="ghost" class="h-6 gap-1 rounded-[5px] px-2 text-[12px] text-destructive hover:text-destructive" @click="deleteSelected">
+              <Trash2Icon class="size-3" />
+              删除
+            </Button>
+          </div>
+        </div>
       </div>
     </ScrollArea>
 

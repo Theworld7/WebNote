@@ -374,6 +374,13 @@
   .dark .cross-selection-rect {
     mix-blend-mode: screen;
     }
+  /* 框选带子（块级框选）。桌面图标的橡皮筋：一圈 1px 边 + 极淡的填充。
+     填充压在 12% 是因为它盖在文字上 —— 再浓一点就成了「文字被涂掉」。
+     颜色取选中色自己适配明暗两套，不另立一支。 */
+  .block-select-band {
+    border: 1px solid var(--color-selection-foreground);
+    background-color: color-mix(in srgb, var(--color-selection-foreground) 12%, transparent);
+    }
   /* 拖块期间整篇正文换成「抓着」光标。子元素（contenteditable 有 text 光标）会盖住
      容器上的 cursor，所以铺到后代上，且必须 !important 才压得住。 */
   .doc-dragging,

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>块框选自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; display: flex; height: 520px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; }
+  .fail { color: #b42318; }
+</style>
+</head>
+<body>
+<h1>块框选：带子命中、跳过结构块、批量转换（选区按新 id 接回）、批量删除</h1>
+<!-- 脚本里有顶层 await（要等真实读盘），抓结果用 CDP 驱动跑：
+     node design/cdp-dump.mjs http://localhost:1420/design/block-select-check.html -->
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { BATCH_RETYPE_TYPES } from "../src/lib/blocks.ts"
+
+const out = document.querySelector("#out")
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  out.textContent = lines.join("\n")
+}
+
+check("批量目标 = 基础 7 + 列表 3", BATCH_RETYPE_TYPES.length === 10, BATCH_RETYPE_TYPES.join(","))
+check("分割线不进批量目标（它在「内容」组）", !BATCH_RETYPE_TYPES.includes("divider"), "")
+check("代码块不进批量目标", !BATCH_RETYPE_TYPES.includes("code"), "")
+
+// ---------- 挂真实编辑器 ----------
+
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("block-select-check", { create: true })
+const file = await dir.getFileHandle("a.html", { create: true })
+const writable = await file.createWritable()
+await writable.write("<p>占位</p>")
+await writable.close()
+window.showDirectoryPicker = async () => dir
+
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    provideTheme(provideSettings())
+    return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+const note = workspace.tree.value.find((node) => node.kind === "note")
+workspace.openFile(note.id)
+for (let i = 0; i < 60 && workspace.activeDocument.value.length < 1; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 50))
+}
+await nextTick()
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const types = () => workspace.activeDocument.value.map((block) => block.type).join(",")
+
+/** 文档铺成：正文 / H2 / 图片 / 正文 / 无序 / 有序 / 分割线 / 正文。
+ *  框选该收 6 块（跳过图片与分割线），分割线虽是正文块但属于「内容」组。 */
+function seed() {
+  const doc = workspace.activeDocument.value
+  doc.splice(0, doc.length)
+  const add = (type, text) => {
+    const id = workspace.appendBlock(type)
+    if (text !== undefined) workspace.setBlockRuns(id, [{ text, marks: [] }])
+    return id
+  }
+  add("text", "一")
+  add("h2", "二")
+  add("image")
+  add("text", "三")
+  add("ul", "四")
+  add("ol", "五")
+  add("divider")
+  add("text", "六")
+}
+
+seed()
+await nextTick()
+await wait(60)
+
+// ---------- 真实手势 ----------
+
+const docRoot = document.querySelector("[data-doc]")
+const rows = () => [...docRoot.querySelectorAll(":scope > [data-block-id]")]
+const firstRow = rows()[0].getBoundingClientRect()
+const lastRow = rows()[rows().length - 1].getBoundingClientRect()
+
+/** 在空白处按下、拖到 y、松手。x 取正文列左侧的留白（落在容器上，不是块行里）。 */
+function dragBand(fromY, toY) {
+  const rect = docRoot.getBoundingClientRect()
+  const x = rect.left + 6
+  docRoot.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: fromY }))
+  window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: x, clientY: toY }))
+  return x
+}
+const bar = () => document.querySelector("[data-block-select-ui]")
+const barText = () => (bar() === null ? "" : bar().textContent.replace(/\s+/g, " "))
+
+dragBand(firstRow.top - 4, lastRow.bottom + 4)
+await nextTick()
+check("拖拽中有带子", document.querySelector(".block-select-band") !== null, "没有 .block-select-band")
+window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }))
+await nextTick()
+check("松手后带子撤掉", document.querySelector(".block-select-band") === null, "带子还在")
+check("浮条按块数报数（跳过图片与分割线）", barText().includes("已选 6 块"), barText())
+check("高亮铺满 6 行", document.querySelectorAll(".cross-selection-rect").length === 6, String(document.querySelectorAll(".cross-selection-rect").length))
+
+// 浮条上按下不能把选区自己清掉。
+const trigger = bar() === null ? undefined : [...bar().querySelectorAll("button")].find((node) => node.textContent.includes("转为"))
+trigger?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }))
+check("浮条上按下保留选区", barText().includes("已选 6 块"), barText())
+
+// ---------- 批量转换 ----------
+
+/** 点开浮条的「转为…」，再点某个类型项。reka 的触发器开菜单走 click，项走指针事件。 */
+async function pickType(label) {
+  trigger.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1, button: 0 }))
+  let content = null
+  for (let i = 0; i < 40 && content === null; i += 1) {
+    content = document.querySelector('[data-slot="dropdown-menu-content"]')
+    if (content === null) await wait(50)
+  }
+  if (content === null) return false
+  const item = [...content.querySelectorAll('[role="menuitem"][data-type-option]')].find((node) => node.textContent.includes(label))
+  if (item === undefined) return false
+  item.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerType: "mouse" }))
+  item.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerType: "mouse" }))
+  item.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }))
+  return true
+}
+
+/** 等菜单散场。关闭是异步的（选中 → nextTick → 关），固定等一段容易抓在半路上。 */
+async function menuGone() {
+  for (let i = 0; i < 20; i += 1) {
+    if (document.querySelector('[data-slot="dropdown-menu-content"]') === null) return true
+    await wait(50)
+  }
+  return false
+}
+
+const picked = await pickType("无序列表")
+await nextTick()
+await wait(60)
+check("点到「无序列表」", picked, "菜单没开或项没找到")
+check("选完菜单收起", await menuGone(), "菜单还挂着")
+check("批量转成无序列表", types() === "ul,ul,image,ul,ul,ul,divider,ul", types())
+check("结构块与分割线原样不动", types().includes("image") && types().includes("divider"), types())
+check("转换后选区按新 id 接回", barText().includes("已选 6 块"), barText())
+
+// ---------- 批量删除 ----------
+
+/** `?visual` 停在「整批已转换、选区还在」这一帧：供人肉看带子与浮条的观感，不往下删。 */
+const visual = new URLSearchParams(location.search).has("visual")
+if (visual) lines.push("", "visual：停在选中态，删除与边界用例未跑")
+
+if (!visual) {
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true }))
+  await nextTick()
+  await wait(60)
+  check("Delete 删掉整批", types() === "image,divider", types())
+  check("删完浮条消失", bar() === null, barText())
+
+  // ---------- 边界 ----------
+
+  // 行内按下仍归正文拖选，不起框选。
+  const imageRow = rows().find((row) => row.dataset.blockId === workspace.activeDocument.value[0].id)
+  imageRow.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0, clientX: 400, clientY: imageRow.getBoundingClientRect().top + 4 }))
+  window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 400, clientY: imageRow.getBoundingClientRect().bottom + 40 }))
+  check("块行内按下不起框选", document.querySelector(".block-select-band") === null, "带子冒出来了")
+  window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }))
+
+  // 圈不到可选中块：不留浮条。
+  const imageRect = imageRow.getBoundingClientRect()
+  dragBand(imageRect.top - 2, imageRect.bottom + 2)
+  window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }))
+  await nextTick()
+  check("圈不到可选中块时不留浮条", bar() === null, barText())
+}
+
+// ---------- 汇总 ----------
+
+lines.push("")
+lines.push(`自检 ${passed}/${passed + failed}`)
+out.textContent = lines.join("\n")
+out.className = failed === 0 ? "ok" : "fail"
+</script>
+</body>
+</html>

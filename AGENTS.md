@@ -28,7 +28,7 @@
 用 tint 而 selection 只表示选中、行内色按 `data-run-color` 换深色(0025)、深色的面层级是一条
   单调向上的色阶（画布 < 页面底 < 卡片 < 浮层）、浮起面用 popover 而阴影走 `--elev-*` 间接(0026)、
   字号是九档阶梯且不落半像素、h4~h6 靠字重与颜色分、字体栈只存一份（CSS 那份由自检页钉住）、
-  版心 720px 与标准档同源(0027)。
+  版心 720px 与标准档同源(0027)、块框选只收基础/列表两组、逐块换类型不合并、矩形只比纵向(0028)。
   改对应行为前先读那篇。
 
 ## 验证
@@ -39,7 +39,7 @@
    用类型收窄和类型守卫表达。
 2. **自检页**:`design/*.html` 是能直接跑的回归页,每个用例输出 `OK` / `FAIL` 行。
    `pnpm dev` 后访问 `/design/<名字>.html`;其中 `drag-check`、`typography-check`、
-   `data-table-check`、`ledger-edit-check`、`ledger-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check` 含顶层 `await`,要抓结果用
+   `data-table-check`、`ledger-edit-check`、`ledger-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check` 含顶层 `await`,要抓结果用
    `node design/cdp-dump.mjs http://localhost:1420/design/<名字>.html`。
 
 改哪层跑哪页:动 `lib/html` → `parse-check`;动块拖拽 / 标签栏 → `drag-check` / `tab-check`;
@@ -54,6 +54,8 @@
 `style.css` 里的 `--color-code-*`)→ `code-edit-check`(挂真实编辑器,走 CDP 驱动);
 动对比度 / 配色 token → `theme-check`、`code-edit-check` 的第十节;
 动落块 / 转换之后的焦点(菜单插入、`/` 转换、`转为…` 子菜单、Esc 关菜单)→ `focus-check`;
+动块框选(空白处起的矩形、`lib/block-select.ts`、`retypeBlocks` / `removeBlocks`、选区浮条)→
+`block-select-check`(挂真实编辑器,走 CDP 驱动);
 动格子的增删行为 → `cell-check`(挂真实编辑器,走 CDP);动行内链接的样式 / 单击跳转
 (`lib/link.ts`、`lib/open-external.ts`、`linkHrefOf`)→ `link-check`(挂真实编辑器,走 CDP);
 动选择格的键盘模型 / 浮层落位(`components/OptionCell.vue`、`lib/floating.ts`)→

@@ -135,12 +135,39 @@ export function blockTypeMeta(type: BlockType): BlockTypeMeta {
  * 菜单渲染与 Enter 落块都走这一处：两边的可见项必须一致 —— 否则「只剩一项」时
  * Enter 落下的块可能根本不在眼前那张清单里。
  */
-export function blockTypeOptions(query: string, exclude?: readonly BlockType[]): BlockTypeMeta[] {
+export function blockTypeOptions(
+  query: string,
+  exclude?: readonly BlockType[],
+  only?: readonly BlockType[],
+): BlockTypeMeta[] {
   const wanted = query.trim().toLowerCase()
   return BLOCK_TYPES.filter(
-    (meta) => exclude?.includes(meta.type) !== true && (wanted === "" || meta.initials.startsWith(wanted)),
+    (meta) =>
+      exclude?.includes(meta.type) !== true &&
+      (only === undefined || only.includes(meta.type)) &&
+      (wanted === "" || meta.initials.startsWith(wanted)),
   )
 }
+
+/**
+ * 可批量转换的两个菜单分组：基础（文本与六级标题）与列表（待办 / 无序 / 有序）。
+ *
+ * 单独拎出来是为了让组名只写一次 —— 这批块类型要能被「框选 + 批量转换」选中，
+ * 而批量转换是**逐块换类型**，只有这两组的目标形态对每个块都成立。转成图片 /
+ * 表格 / 布局意味着把一批正文清空，那不是「批量转换」而是「批量删除」。
+ * 组名写错会当场编译报错（类型是 `MenuGroup`）。
+ */
+const BATCH_GROUPS: readonly MenuGroup[] = ["基础", "列表"]
+
+/**
+ * 可批量转换的块类型：登记表里 `BATCH_GROUPS` 两组的全部类型，按登记表顺序。
+ *
+ * 框选只收这些块，批量「转为…」菜单也只列这些 —— 两处共用这一份清单，不然
+ * 选中集合与可选目标会各说各话（选中了 10 种却只能转其中 7 种）。
+ */
+export const BATCH_RETYPE_TYPES: readonly BlockType[] = BLOCK_TYPES.filter((meta) =>
+  BATCH_GROUPS.includes(meta.group),
+).map((meta) => meta.type)
 
 /** 带序号的列表类型：这两种要在块左侧渲染 marker。 */
 export function isListType(type: BlockType): boolean {

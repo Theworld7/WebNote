@@ -12,11 +12,15 @@ import { useSettings } from "@/composables/useSettings"
  * 条目按登记表的 `group` 字段分组，组与组之间渲染小标题。排布方向由
  * 「块菜单」设置驱动：纵向是组竖叠（现状），横向是组并排成一列列。
  * `exclude` 供特定语境滤类型：布局格子内滤掉容器块与引用块（ADR-0007）。
+ * `only` 反过来只留白名单 —— 框选后的批量「转为…」只给基础 / 列表这 10 种
+ * （`BATCH_RETYPE_TYPES`），不是每种块类型都能承接一批正文。
  * `query` 是键盘敲进来的检索词（拼音首字母），筛完仍按登记表顺序分组。
  */
 const props = defineProps<{
   /** 要从菜单里隐去的块类型。缺省全显。 */
   exclude?: readonly BlockType[]
+  /** 只列这些块类型。缺省不设白名单。 */
+  only?: readonly BlockType[]
   /** 拼音首字母检索词。缺省空 = 全显。 */
   query?: string
 }>()
@@ -32,7 +36,7 @@ const { menuGroupLayout } = useSettings()
  */
 const groups = computed(() => {
   const sections: { title: string; items: BlockTypeMeta[] }[] = []
-  for (const meta of blockTypeOptions(props.query ?? "", props.exclude)) {
+  for (const meta of blockTypeOptions(props.query ?? "", props.exclude, props.only)) {
     const last = sections[sections.length - 1]
     if (last !== undefined && last.title === meta.group) last.items.push(meta)
     else sections.push({ title: meta.group, items: [meta] })

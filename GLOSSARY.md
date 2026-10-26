@@ -92,6 +92,22 @@ A textual block's nesting level, starting at 0. Nesting is expressed as a number
 list — there is no tree of blocks.
 _Avoid_: Indent, level (level belongs to the exported HTML structure, not the model)
 
+**Block selection**:
+A set of **whole blocks**, picked by dragging a rectangle across empty space (never across the
+text itself — that is a text selection), then converted to another text-shaped type or deleted
+together. It holds block ids and nothing else, so it never describes partial content; that is
+what a text selection does. Only the ten text-shaped types can be selected — 基础 (text, the six
+headings) and 列表 (todo, ul, ol). A rectangle that sweeps a structural block passes over it:
+the block is neither selected nor changed, and the rows on either side still are. Conversion is
+**per block** — N blocks in, N blocks out, each keeping its runs and its depth — never a merge.
+See ADR-0028.
+_Avoid_: Multi-select, block range, lasso
+
+**Marquee band**:
+The rectangle itself, while it is being dragged. It is drawn only during the drag; what stays
+afterwards is the highlight on the Block selection.
+_Avoid_: Rubber band, selection box
+
 ### Block body
 
 **Run**:
