@@ -1014,7 +1014,7 @@ function onBandMove(event: MouseEvent) {
   trackDragScroll(event.clientX, event.clientY)
 }
 
-function onBandEnd() {
+function onBandEnd(event: MouseEvent) {
   window.removeEventListener("mousemove", onBandMove)
   window.removeEventListener("mouseup", onBandEnd)
   scrollViewport()?.removeEventListener("scroll", onViewportScroll)
@@ -1022,7 +1022,10 @@ function onBandEnd() {
   bandRect.value = null
   stopDragScroll()
   // 没过阈值：这一下只是点了空白，选区已经由 mousedown 清过了。
-  if (!bandOn) return
+  if (!bandOn) {
+    appendTrailingBlockAt(event)
+    return
+  }
   bandOn = false
   // 圈空了就什么也不留 —— 浮条写着「已选 0 块」比不留浮条更莫名其妙。
   if (selectedIds.value.length === 0) {
@@ -1030,6 +1033,35 @@ function onBandEnd() {
     return
   }
   refreshSelectedRects()
+}
+
+/**
+ * 末尾空白处的那一下点击：文档末尾没有可往下敲的块时，补一个空文本块并聚焦。
+ *
+ * 「下方」只按纵向判 —— 指针在最后一条顶层块的下沿之下。左侧手柄让位与右侧呼吸位
+ * 只要过了这一线同样算：用户看到的就是页面底部那一片空地，不该因为横向偏了几像素就分成两种行为。
+ *
+ * 末尾已经是空白的正文块就直接聚焦它。那块空行的占位文字本来就在邀请输入，
+ * 再补一块只会凭空叠出第二个空行。`divider` 不算 —— 它没有可编辑体，聚焦无处可落。
+ */
+function appendTrailingBlockAt(event: MouseEvent) {
+  const root = docRef.value
+  if (root === null) return
+  // 松手点已经不在编辑区里（拖出容器再松手）不算点了空白。
+  if (!(event.target instanceof Node) || !root.contains(event.target)) return
+
+  const blocks = activeDocument.value
+  const rows = root.querySelectorAll(TOP_BLOCK_ROW_SELECTOR)
+  const lastRow = rows[rows.length - 1]
+  // 最后一块下沿之上是在块与块之间的空白里点，那里不补块。
+  if (lastRow !== undefined && event.clientY < lastRow.getBoundingClientRect().bottom) return
+
+  const last = blocks[blocks.length - 1]
+  if (last !== undefined && isTextualBlock(last) && last.type !== "divider" && runsText(last.runs).trim() === "") {
+    void focusBlockById(last.id)
+    return
+  }
+  void focusBlockById(appendBlock("text"))
 }
 
 /** 批量换类型。转换换新块（ADR-0015），选区必须按返回的新 id 接回去，否则一转换就散选。 */
