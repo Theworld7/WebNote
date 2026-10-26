@@ -13,6 +13,7 @@ import {
   formatPrice,
   localToday,
   sortSubscriptions,
+  subscriptionCardAccent,
   subscriptionDate,
   subscriptionFlag,
   subscriptionIcon,
@@ -652,16 +653,31 @@ function subscriptionHtml(block: SubscriptionBlock, table: DataTable | null): st
   const today = localToday()
   const summary = summarizeSubscriptions(table.rows, roles, today)
 
-  const summaryBits = [`<span class="n">${summary.live} 项订阅</span>`]
-  if (summary.monthly > 0) summaryBits.push(`<span>每月约 ${escapeHtml(formatPrice(summary.monthly))}</span>`)
-  if (summary.yearly > 0) summaryBits.push(`<span>每年约 ${escapeHtml(formatPrice(summary.yearly))}</span>`)
-  if (summary.cancelled > 0) summaryBits.push(`<span>已取消 ${summary.cancelled}</span>`)
+  // 汇总条与卡片同一套「白卡 + 分栏」结构：一格一个指标，标签在上、数字在下。
+  const summaryBits = [
+    `<div class="note-sub-stat"><span class="k">有效订阅</span><span class="n">${summary.live}<small>项</small></span></div>`,
+  ]
+  if (summary.monthly > 0) {
+    const yearly = summary.yearly > 0 ? `<small>每年 ${escapeHtml(formatPrice(summary.yearly))}</small>` : ""
+    summaryBits.push(
+      `<div class="note-sub-stat"><span class="k">月均支出</span><span class="n">${escapeHtml(formatPrice(summary.monthly))}${yearly}</span></div>`,
+    )
+  }
+  if (summary.cancelled > 0) {
+    summaryBits.push(
+      `<div class="note-sub-stat"><span class="k">已取消</span><span class="n">${summary.cancelled}<small>项</small></span></div>`,
+    )
+  }
   if (summary.nextEnd !== "") {
-    summaryBits.push(`<span>最近到期 ${escapeHtml(summary.nextEnd)} · ${escapeHtml(summary.nextName)}</span>`)
+    // 名称跟着标签走，数字行只放日期 —— 与编辑器视图同一条排版规则。
+    const nextName = summary.nextName === "" ? "" : ` · ${escapeHtml(summary.nextName)}`
+    summaryBits.push(
+      `<div class="note-sub-stat"><span class="k">最近到期${nextName}</span><span class="n">${escapeHtml(summary.nextEnd)}</span></div>`,
+    )
   }
 
   const cards = rows.map((row) => subscriptionCardHtml(row, roles, today)).join("\n")
-  return `${openTag}\n  <div class="note-sub-summary">${summaryBits.join("")}</div>\n  <div class="note-sub-grid">\n${cards}\n  </div>\n</div>`
+  return `${openTag}\n  <div class="note-sub-summary">\n${summaryBits.join("\n")}\n  </div>\n  <div class="note-sub-grid">\n${cards}\n  </div>\n</div>`
 }
 
 function subscriptionCardHtml(row: DataRow, roles: SubscriptionRoles, today: string): string {
@@ -676,6 +692,7 @@ function subscriptionCardHtml(row: DataRow, roles: SubscriptionRoles, today: str
   const autoRenew = roles.autoRenew === null ? null : subscriptionFlag(row, roles.autoRenew)
   const cancelled = subscriptionFlag(row, roles.cancelled)
   const status = subscriptionStatus(row, roles, today)
+  const accent = subscriptionCardAccent(row.id)
 
   const meta: string[] = []
   if (start !== "") meta.push(`<div class="r"><span>开始</span><span class="v">${escapeHtml(start)}</span></div>`)
@@ -698,8 +715,8 @@ function subscriptionCardHtml(row: DataRow, roles: SubscriptionRoles, today: str
   if (paid !== null) foot.push(`<span>累计支付 ${escapeHtml(formatPrice(paid))}</span>`)
   const footHtml = foot.length === 0 ? "" : `<div class="note-sub-foot">${foot.join("")}</div>`
 
-  return `    <article class="note-sub-card${cancelled ? " note-sub-cancelled" : ""}">
-      <div class="note-sub-head">${iconHtml}<div class="note-sub-title"><div class="note-sub-name">${escapeHtml(name)}</div>${price}</div><span class="note-sub-state">${escapeHtml(status.label)}</span></div>
+  return `    <article class="note-sub-card${cancelled ? " note-sub-cancelled" : ""}" data-state="${status.kind}" style="--sub-accent:${accent}">
+      <div class="note-sub-head">${iconHtml}<div class="note-sub-title"><div class="note-sub-name">${escapeHtml(name)}</div><div class="note-sub-caption">订阅</div>${price}</div><span class="note-sub-state">${escapeHtml(status.label)}</span></div>
       <div class="note-sub-meta">${meta.join("")}</div>
       ${footHtml}
     </article>`

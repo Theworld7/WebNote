@@ -26,6 +26,7 @@ import {
   formatPrice,
   localToday,
   sortSubscriptions,
+  subscriptionCardAccent,
   subscriptionDate,
   subscriptionFlag,
   subscriptionIcon,
@@ -166,12 +167,16 @@ const PROGRESS_TONES: Record<SubscriptionState, string> = {
   cancelled: "bg-muted-foreground",
 }
 
-/** 取消的卡降饱和;七天内到期的加一圈很淡的暖色,扫一眼就能捞出来。 */
+/** 七天内到期的加一圈很淡的暖色,扫一眼就能捞出来;取消态单独降饱和。 */
 function cardTone(row: DataRow): string {
   const status = statusOf(row)
-  if (status.kind === "cancelled") return "opacity-65"
   const urgent = status.kind === "soon" || (status.kind === "trial" && status.days !== null && status.days <= 7)
-  return urgent ? "ring-1 ring-status-warn-foreground/30" : ""
+  return urgent ? "is-urgent" : ""
+}
+
+/** 卡片色相由行 id 哈希得出,只作装饰;可在浅色与深色下共用。 */
+function cardStyle(row: DataRow): Record<string, string> {
+  return { "--sub-accent": subscriptionCardAccent(row.id) }
 }
 
 function progressWidth(row: DataRow): string {
@@ -302,26 +307,33 @@ function openTable() {
       没有认出名称列 —— 点右上角「设置」指定一列,卡片标题才会有名字。
     </p>
 
-    <!-- 顶部汇总:在订数量、按周期折算的月 / 年支出、最近的到期日。 -->
-    <div
-      v-if="orderedRows.length > 0"
-      class="mb-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-xl border border-line bg-muted/30 px-3.5 py-2.5"
-    >
-      <span class="text-[13px] font-medium">{{ summary.live }} 项订阅</span>
-      <span v-if="summary.monthly > 0" class="text-[12px] text-muted-foreground">
-        每月约 <span class="font-medium tabular-nums text-foreground/85">{{ formatPrice(summary.monthly) }}</span>
-      </span>
-      <span v-if="summary.yearly > 0" class="text-[12px] text-muted-foreground">
-        每年约 <span class="font-medium tabular-nums text-foreground/85">{{ formatPrice(summary.yearly) }}</span>
-      </span>
-      <span v-if="summary.cancelled > 0" class="text-[12px] text-muted-foreground">已取消 {{ summary.cancelled }}</span>
-      <span v-if="summary.nextEnd !== ''" class="ml-auto text-[12px] text-muted-foreground">
-        最近到期 <span class="tabular-nums text-foreground/85">{{ summary.nextEnd }}</span>
-        <span class="ml-1 text-foreground/70">{{ summary.nextName }}</span>
-      </span>
+    <!-- 顶部汇总:一块平面白卡,内嵌分隔线分栏,数字比标签先被看到。 -->
+    <div v-if="orderedRows.length > 0" class="subs-summary">
+      <div class="subs-stat">
+        <span class="subs-stat-label">有效订阅</span>
+        <span class="subs-stat-value">{{ summary.live }}<small>项</small></span>
+      </div>
+      <div v-if="summary.monthly > 0" class="subs-stat">
+        <span class="subs-stat-label">月均支出</span>
+        <span class="subs-stat-value">
+          {{ formatPrice(summary.monthly) }}
+          <small v-if="summary.yearly > 0">每年 {{ formatPrice(summary.yearly) }}</small>
+        </span>
+      </div>
+      <div v-if="summary.cancelled > 0" class="subs-stat">
+        <span class="subs-stat-label">已取消</span>
+        <span class="subs-stat-value">{{ summary.cancelled }}<small>项</small></span>
+      </div>
+      <div v-if="summary.nextEnd !== ''" class="subs-stat">
+        <!-- 名称跟着标签走:数字行只放日期,四栏挤在一起时不会截成「微信…」。 -->
+        <span class="subs-stat-label">
+          最近到期<span v-if="summary.nextName !== ''" class="subs-stat-note"> · {{ summary.nextName }}</span>
+        </span>
+        <span class="subs-stat-value subs-stat-date">{{ summary.nextEnd }}</span>
+      </div>
     </div>
 
-    <p v-if="summary.unknownCycle > 0" class="mb-2 text-[11px] text-muted-foreground">
+    <p v-if="summary.unknownCycle > 0" class="mb-2.5 text-[11px] text-muted-foreground">
       另有 {{ summary.unknownCycle }} 项认不出周期，未计入月 / 年支出。
     </p>
 
@@ -333,94 +345,490 @@ function openTable() {
       这张表还没有订阅 —— 点右上角「打开数据表」添加一条。
     </div>
 
-    <div v-else class="grid gap-3" style="grid-template-columns: repeat(auto-fill, minmax(216px, 1fr))">
+    <div v-else class="subs-grid">
       <article
         v-for="row in orderedRows"
         :key="row.id"
-        class="rounded-xl border border-line bg-muted/20 p-3.5 transition-colors hover:border-foreground/20"
-        :class="cardTone(row)"
+        class="subs-card"
+        :class="[cardTone(row), { 'is-cancelled': cancelledOf(row) }]"
+        :style="cardStyle(row)"
       >
-        <div class="flex items-start gap-3">
-          <div class="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-[9px] bg-muted/60 text-[14px] font-semibold text-muted-foreground">
-            <img
-              v-if="iconOf(row)"
-              :src="iconOf(row)"
-              alt=""
-              loading="lazy"
-              decoding="async"
-              class="size-full object-cover"
-              @error="markImageBroken(iconSourceOf(row))"
-            />
-            <span v-else>{{ initialOf(row) }}</span>
-          </div>
-
-          <div class="min-w-0 flex-1">
-            <div class="flex items-start justify-between gap-2">
-              <h4 class="truncate text-[13px] font-medium leading-snug">{{ nameOf(row) }}</h4>
-              <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium" :class="STATUS_TONES[statusOf(row).kind]">
-                {{ statusOf(row).label }}
-              </span>
+        <div class="subs-head">
+          <div class="subs-identity">
+            <div class="subs-logo">
+              <img
+                v-if="iconOf(row)"
+                :src="iconOf(row)"
+                alt=""
+                loading="lazy"
+                decoding="async"
+                @error="markImageBroken(iconSourceOf(row))"
+              />
+              <span v-else>{{ initialOf(row) }}</span>
             </div>
-            <div v-if="amountText(row)" class="mt-1 flex items-baseline gap-1">
-              <span class="text-[22px] font-semibold leading-none tabular-nums">{{ amountText(row) }}</span>
-              <span v-if="cycleText(row)" class="text-[11px] text-muted-foreground">/ {{ cycleText(row) }}</span>
+            <div class="subs-heading">
+              <h4 class="subs-name">{{ nameOf(row) }}</h4>
+              <span class="subs-caption">订阅</span>
             </div>
-            <div v-else-if="cycleText(row)" class="mt-1 text-[12px] text-muted-foreground">{{ cycleText(row) }}</div>
           </div>
+          <span class="subs-status shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium" :class="STATUS_TONES[statusOf(row).kind]">
+            {{ statusOf(row).label }}
+          </span>
         </div>
 
-        <div class="mt-3 grid gap-0.5 text-[12px] text-muted-foreground">
-          <div v-if="startText(row)" class="flex justify-between gap-2">
-            <span>开始</span>
-            <span class="tabular-nums text-foreground/75">{{ startText(row) }}</span>
+        <div v-if="amountText(row)" class="subs-price-row">
+          <span class="subs-price">{{ amountText(row) }}</span>
+          <span v-if="cycleText(row)" class="subs-cycle">/ {{ cycleText(row) }}</span>
+        </div>
+        <div v-else-if="cycleText(row)" class="subs-cycle-only">{{ cycleText(row) }}</div>
+
+        <div v-if="progressValue(row) !== null" class="subs-progress">
+          <div :class="progressTone(row)" :style="{ width: progressWidth(row) }"></div>
+        </div>
+
+        <div v-if="startText(row) || endText(row)" class="subs-dates">
+          <span class="subs-dates-label">有效日期</span>
+          <div class="subs-dates-row">
+            <span class="subs-range">
+              <span>{{ startText(row) || "—" }}</span>
+              <span class="subs-arrow">→</span>
+              <span>{{ endText(row) || "至今" }}</span>
+            </span>
+            <span v-if="endText(row) && remainingFor(endText(row), row)" class="subs-remaining">{{ remainingFor(endText(row), row) }}</span>
           </div>
           <!-- 试用到期与正式到期同一天时只留一行 —— 参考表的试用记录就是这样,不必重复。 -->
-          <div v-if="trialText(row) && trialText(row) !== endText(row)" class="flex justify-between gap-2">
-            <span>试用到期</span>
-            <span class="tabular-nums text-foreground/75">
-              {{ trialText(row) }}<span v-if="remainingFor(trialText(row), row)" class="ml-1 text-[11px]">{{ remainingFor(trialText(row), row) }}</span>
-            </span>
+          <div v-if="trialText(row) && trialText(row) !== endText(row)" class="subs-trial">
+            <span>试用至 {{ trialText(row) }}</span>
+            <span v-if="remainingFor(trialText(row), row)">{{ remainingFor(trialText(row), row) }}</span>
           </div>
-          <div v-if="endText(row)" class="flex justify-between gap-2">
-            <span>到期</span>
-            <span class="tabular-nums text-foreground/75">
-              {{ endText(row) }}<span v-if="remainingFor(endText(row), row)" class="ml-1 text-[11px]">{{ remainingFor(endText(row), row) }}</span>
-            </span>
-          </div>
-          <div v-if="paidText(row)" class="flex justify-between gap-2">
+        </div>
+
+        <div v-if="paidText(row) || roles.autoRenew !== null || roles.cancelled !== null" class="subs-foot">
+          <div v-if="paidText(row)" class="subs-paid">
             <span>累计支付</span>
-            <span class="tabular-nums text-foreground/75">{{ paidText(row) }}</span>
+            <strong>{{ paidText(row) }}</strong>
           </div>
-        </div>
-
-        <div v-if="progressValue(row) !== null" class="mt-2.5 h-[3px] overflow-hidden rounded-full bg-muted-strong">
-          <div class="h-full rounded-full" :class="progressTone(row)" :style="{ width: progressWidth(row) }"></div>
-        </div>
-
-        <div
-          v-if="roles.autoRenew !== null || roles.cancelled !== null"
-          class="mt-3 flex items-center gap-3 border-t border-line pt-2 text-[11px] text-muted-foreground"
-        >
-          <label v-if="roles.autoRenew !== null" class="flex cursor-pointer items-center gap-1.5">
-            <input
-              type="checkbox"
-              class="size-3 accent-brand"
-              :checked="autoRenewOf(row)"
-              @change="toggleFlag(row, 'autoRenew', $event)"
-            >
-            自动续费
-          </label>
-          <label v-if="roles.cancelled !== null" class="flex cursor-pointer items-center gap-1.5">
-            <input
-              type="checkbox"
-              class="size-3 accent-brand"
-              :checked="cancelledOf(row)"
-              @change="toggleFlag(row, 'cancelled', $event)"
-            >
-            已取消
-          </label>
+          <div v-if="roles.autoRenew !== null || roles.cancelled !== null" class="subs-controls">
+            <label v-if="roles.autoRenew !== null">
+              <input
+                type="checkbox"
+                class="size-3 accent-brand"
+                :checked="autoRenewOf(row)"
+                @change="toggleFlag(row, 'autoRenew', $event)"
+              >
+              自动续费
+            </label>
+            <label v-if="roles.cancelled !== null">
+              <input
+                type="checkbox"
+                class="size-3 accent-brand"
+                :checked="cancelledOf(row)"
+                @change="toggleFlag(row, 'cancelled', $event)"
+              >
+              已取消
+            </label>
+          </div>
         </div>
       </article>
     </div>
   </div>
 </template>
+
+<style scoped>
+.subs-summary {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  margin-bottom: 14px;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: var(--elev-block);
+}
+
+.subs-stat {
+  position: relative;
+  min-width: 0;
+  padding: 16px 20px 17px;
+}
+
+/* 分隔线上下各留 16px,不顶到卡片边缘 —— 这条留白是「白卡」不像表格的关键。 */
+.subs-stat + .subs-stat::before {
+  position: absolute;
+  top: 16px;
+  bottom: 16px;
+  left: 0;
+  width: 1px;
+  content: "";
+  background: var(--color-line);
+}
+
+.subs-stat-label {
+  display: block;
+  margin-bottom: 4px;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subs-stat-value {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 23px;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.subs-stat-value small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 日期单独一档字号(它最长),仍禁止换行 —— 连字符处断行会把日期挤成两行方块。 */
+.subs-stat-date {
+  flex-wrap: nowrap;
+  font-size: 19px;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+/* 标签尾随的补充说明(如即将到期的服务名),比标签再淡一点。 */
+.subs-stat-note {
+  opacity: 0.72;
+}
+
+.subs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(248px, 1fr));
+  gap: 14px;
+}
+
+.subs-card {
+  --sub-accent: var(--color-brand);
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  min-height: 216px;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--sub-accent) 20%, var(--color-line));
+  border-radius: 18px;
+  background:
+    radial-gradient(
+      circle at 100% 0%,
+      color-mix(in srgb, var(--sub-accent) 15%, transparent),
+      transparent 46%
+    ),
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--card) 95%, var(--sub-accent)),
+      var(--card) 68%
+    );
+  box-shadow: var(--elev-block);
+  transition:
+    border-color var(--duration-base) ease,
+    box-shadow var(--duration-base) ease,
+    transform var(--duration-base) ease,
+    opacity var(--duration-base) ease;
+}
+
+.subs-card::before {
+  position: absolute;
+  right: -58px;
+  bottom: -86px;
+  z-index: -1;
+  width: 190px;
+  height: 190px;
+  border: 1px solid color-mix(in srgb, var(--sub-accent) 14%, transparent);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 26px color-mix(in srgb, var(--sub-accent) 4%, transparent),
+    0 0 0 52px color-mix(in srgb, var(--sub-accent) 3%, transparent);
+  content: "";
+  pointer-events: none;
+}
+
+.subs-card:hover {
+  border-color: color-mix(in srgb, var(--sub-accent) 34%, var(--color-line));
+  box-shadow: var(--elev-island);
+  transform: translateY(-2px);
+}
+
+.subs-card.is-urgent {
+  border-color: color-mix(in srgb, var(--color-status-warn-foreground) 34%, var(--color-line));
+}
+
+.subs-card.is-cancelled {
+  opacity: 0.72;
+  filter: saturate(0.45);
+}
+
+.subs-card.is-cancelled:hover {
+  opacity: 0.92;
+}
+
+.subs-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.subs-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+}
+
+.subs-logo {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--sub-accent) 16%, transparent);
+  border-radius: 13px;
+  color: var(--sub-accent);
+  background: color-mix(in srgb, var(--sub-accent) 11%, var(--card));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 55%, transparent);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.subs-logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.subs-heading {
+  min-width: 0;
+}
+
+.subs-name {
+  margin: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subs-caption {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted-foreground);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+}
+
+.subs-status {
+  line-height: 1.5;
+}
+
+.subs-price-row {
+  display: flex;
+  min-height: 31px;
+  align-items: baseline;
+  gap: 5px;
+  margin-top: 21px;
+}
+
+.subs-price {
+  font-size: 31px;
+  font-weight: 600;
+  letter-spacing: -0.055em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.subs-cycle {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.subs-cycle-only {
+  margin-top: 21px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.subs-progress {
+  height: 3px;
+  margin-top: 18px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sub-accent) 10%, var(--color-muted-strong));
+}
+
+.subs-progress > div {
+  height: 100%;
+  border-radius: inherit;
+  transition: width var(--duration-panel) ease;
+}
+
+.subs-dates {
+  margin-top: 15px;
+}
+
+.subs-dates-label {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
+.subs-dates-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 8px;
+  margin-top: 2px;
+}
+
+.subs-range {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: color-mix(in srgb, var(--foreground) 78%, transparent);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.subs-arrow {
+  color: var(--muted-foreground);
+  font-size: 9px;
+}
+
+.subs-remaining {
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--sub-accent) 8%, transparent);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.subs-trial {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 8px;
+  margin-top: 5px;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.subs-foot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--color-line) 80%, transparent);
+}
+
+.subs-paid {
+  display: flex;
+  order: 2;
+  margin-left: auto;
+  flex-direction: column;
+  gap: 1px;
+  text-align: right;
+}
+
+.subs-paid span {
+  color: var(--muted-foreground);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
+.subs-paid strong {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.subs-controls {
+  display: flex;
+  order: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+
+.subs-controls label {
+  display: flex;
+  cursor: pointer;
+  align-items: center;
+  gap: 5px;
+}
+
+/* 窄到放不下一行四栏时改成 2×2:行内分隔线退场,改用格线,避免第一列左边飘一条孤线。 */
+@media (max-width: 560px) {
+  .subs-summary {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .subs-stat {
+    padding: 13px 15px 14px;
+  }
+
+  .subs-stat + .subs-stat::before {
+    display: none;
+  }
+
+  .subs-stat:nth-child(2n) {
+    border-left: 1px solid var(--color-line);
+  }
+
+  .subs-stat:nth-child(n + 3) {
+    border-top: 1px solid var(--color-line);
+  }
+}
+
+@media (max-width: 420px) {
+  .subs-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .subs-card,
+  .subs-progress > div {
+    transition: none;
+  }
+
+  .subs-card:hover {
+    transform: none;
+  }
+}
+</style>

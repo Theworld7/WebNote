@@ -263,6 +263,34 @@ export function formatPrice(value: number): string {
   return `¥${formatMoney(value)}`
 }
 
+// ---- 会员卡色 ----
+
+/**
+ * 会员卡的强调色调色板。
+ *
+ * 订阅表里没有「品牌色」这一列,卡片又不能都长成同一张灰卡:按行 id 哈希取一支固定
+ * 色相,同一项订阅每次打开都是同一张卡,颜色既不进 `.tbl` 也不进笔记。编辑器与导出
+ * 快照共用这一个真源,和看板便签色同一条立场。
+ */
+const SUBSCRIPTION_ACCENTS: readonly string[] = [
+  "#c15f86",
+  "#7464d8",
+  "#c15c50",
+  "#3564c8",
+  "#2c8a6f",
+  "#b85762",
+  "#3e82a7",
+  "#a46a1c",
+]
+
+export function subscriptionCardAccent(id: string): string {
+  let hash = 0
+  for (let index = 0; index < id.length; index += 1) {
+    hash = (Math.imul(hash, 31) + id.charCodeAt(index)) >>> 0
+  }
+  return SUBSCRIPTION_ACCENTS[hash % SUBSCRIPTION_ACCENTS.length] ?? SUBSCRIPTION_ACCENTS[0]
+}
+
 /**
  * 周期折算成月数,用来算月均 / 年均支出。
  *

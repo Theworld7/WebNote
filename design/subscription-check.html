@@ -27,6 +27,7 @@ import {
   formatPrice,
   localToday,
   sortSubscriptions,
+  subscriptionCardAccent,
   subscriptionIsEmpty,
   subscriptionName,
   subscriptionRoles,
@@ -132,6 +133,7 @@ note("金额 / 周期 / 日期")
 check("formatMoney 去尾零 + 千分位", formatMoney(148) === "148" && formatMoney(1234.5) === "1,234.5" && formatMoney(17.21) === "17.21", `${formatMoney(148)} / ${formatMoney(1234.5)} / ${formatMoney(17.21)}`)
 check("formatMoney 负与 -0", formatMoney(-12.5) === "-12.5" && formatMoney(-0) === "0", `${formatMoney(-12.5)} / ${formatMoney(-0)}`)
 check("formatPrice 带 ¥", formatPrice(148) === "¥148" && formatPrice(0) === "¥0", `${formatPrice(148)} / ${formatPrice(0)}`)
+check("卡片强调色按行 id 稳定", subscriptionCardAccent("r1") === subscriptionCardAccent("r1") && /^#[0-9a-f]{6}$/.test(subscriptionCardAccent("r1")), subscriptionCardAccent("r1"))
 const cycleCol = cols[3]
 check("cycleMonths 年/季/月", cycleMonths(cycleCol, "o3") === 12 && cycleMonths(cycleCol, "o2") === 3 && cycleMonths(cycleCol, "o1") === 1)
 check("cycleMonths 数字按月份", cycleMonths(cycleCol, 6) === 6)
@@ -198,8 +200,11 @@ check("写十个字段映射属性",
   ["data-name", "data-icon", "data-amount", "data-cycle", "data-auto-renew", "data-trial-end", "data-start", "data-end", "data-cancelled", "data-paid"].every((a) => html.includes(`${a}="`)),
   html.slice(0, 500))
 check("快照是订阅容器", html.includes('<div class="note-subs"'), html.slice(0, 160))
-check("顶部汇总带在订与月 / 年支出", html.includes("3 项订阅") && html.includes("每月约") && html.includes("每年约"), html)
+check("顶部汇总分栏带有效订阅与月 / 年支出",
+  html.includes('class="note-sub-stat"') && html.includes("有效订阅") && html.includes("月均支出") && html.includes("每年"),
+  html.slice(0, 700))
 check("卡片带名称、金额、周期、状态", html.includes("BiliBili 大会员") && html.includes("¥148") && html.includes("年付") && html.includes("已取消"), html)
+check("快照卡带状态与强调色", html.includes('data-state="active"') && html.includes('style="--sub-accent:#'), html.slice(0, 500))
 check("已到期与试用中在快照里", html.includes("已到期") && html.includes("试用中"), html)
 check("快照省略空行（6 张卡）", html.split('class="note-sub-card').length - 1 === 6, String(html.split('class="note-sub-card').length - 1))
 check("空指针块只写容器不写卡片", (() => {

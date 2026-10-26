@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>订阅会员卡 · 设计预览</title>
+<style>
+  :root {
+    color-scheme: light;
+    --canvas: #f3f4f7;
+    --paper: #ffffff;
+    --ink: #1c1c1e;
+    --muted: #707078;
+    --faint: #96969e;
+    --line: rgba(28, 28, 30, 0.09);
+    --soft-line: rgba(28, 28, 30, 0.06);
+    --brand: #1d4fd8;
+    --ok-bg: #e8f5ec;
+    --ok-fg: #1c7a3e;
+    --trial-bg: #eef2ff;
+    --trial-fg: #4258a6;
+    --warn-bg: #fdf2d0;
+    --warn-fg: #8a5a00;
+    --expired-bg: #fdeceb;
+    --expired-fg: #b42318;
+    --cancelled-bg: #ededf0;
+    --cancelled-fg: #6d6d75;
+    --shadow: 0 1px 2px rgba(20, 24, 34, 0.03), 0 12px 32px rgba(20, 24, 34, 0.07);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-width: 320px;
+    color: var(--ink);
+    background:
+      radial-gradient(circle at 8% -8%, rgba(89, 112, 255, 0.08), transparent 30rem),
+      radial-gradient(circle at 95% 10%, rgba(255, 133, 173, 0.07), transparent 26rem),
+      var(--canvas);
+    font: 14px/1.5 -apple-system, "SF Pro Text", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body::before {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    content: "";
+    background-image: radial-gradient(rgba(50, 55, 70, 0.12) 0.55px, transparent 0.55px);
+    background-size: 18px 18px;
+    mask-image: linear-gradient(to bottom, black, transparent 72%);
+    opacity: 0.22;
+  }
+
+  .shell { width: min(1180px, calc(100% - 48px)); margin: 0 auto; padding: 52px 0 64px; }
+  .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 30px; }
+  .eyebrow { margin: 0 0 10px; color: var(--brand); font-size: 11px; font-weight: 700; letter-spacing: 0.18em; }
+  h1 { margin: 0; font-size: clamp(28px, 4vw, 42px); font-weight: 650; letter-spacing: -0.045em; line-height: 1.14; }
+  .subtitle { margin: 12px 0 0; color: var(--muted); font-size: 14px; }
+  .appearance-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 38px;
+    padding: 0 14px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+    background: color-mix(in srgb, var(--paper) 80%, transparent);
+    box-shadow: 0 2px 8px rgba(20, 24, 34, 0.03);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    backdrop-filter: blur(12px);
+  }
+  .appearance-toggle:hover { border-color: rgba(28, 28, 30, 0.18); color: var(--ink); }
+  .appearance-toggle svg { width: 15px; height: 15px; }
+
+  .summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-bottom: 26px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--paper) 84%, transparent);
+    box-shadow: 0 4px 18px rgba(20, 24, 34, 0.035);
+    backdrop-filter: blur(16px);
+  }
+  .summary-item { position: relative; padding: 18px 22px; }
+  .summary-item + .summary-item::before { position: absolute; top: 16px; bottom: 16px; left: 0; width: 1px; content: ""; background: var(--line); }
+  .summary-label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 11px; letter-spacing: 0.04em; }
+  .summary-value { font-size: 23px; font-weight: 650; letter-spacing: -0.035em; font-variant-numeric: tabular-nums; }
+  .summary-value small { margin-left: 3px; color: var(--muted); font-size: 11px; font-weight: 500; letter-spacing: 0; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+  .card {
+    --accent: #6375df;
+    --accent-soft: #e9edff;
+    position: relative;
+    isolation: isolate;
+    min-height: 218px;
+    padding: 20px;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--accent) 17%, var(--line));
+    border-radius: 20px;
+    background:
+      radial-gradient(circle at 96% 0%, color-mix(in srgb, var(--accent) 19%, transparent), transparent 46%),
+      linear-gradient(145deg, color-mix(in srgb, var(--paper) 96%, var(--accent-soft)), color-mix(in srgb, var(--paper) 90%, var(--accent-soft)));
+    box-shadow: var(--shadow);
+    transition: transform 180ms ease, box-shadow 180ms ease;
+  }
+  .card::before {
+    position: absolute;
+    right: -50px;
+    bottom: -92px;
+    z-index: -1;
+    width: 230px;
+    height: 230px;
+    border: 1px solid color-mix(in srgb, var(--accent) 15%, transparent);
+    border-radius: 50%;
+    content: "";
+    box-shadow: 0 0 0 28px color-mix(in srgb, var(--accent) 4%, transparent), 0 0 0 58px color-mix(in srgb, var(--accent) 3%, transparent);
+  }
+  .card:hover { transform: translateY(-3px); box-shadow: 0 2px 3px rgba(20, 24, 34, 0.03), 0 18px 42px rgba(20, 24, 34, 0.11); }
+  .card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .identity { display: flex; align-items: center; gap: 11px; min-width: 0; }
+  .logo { display: grid; flex: 0 0 auto; width: 42px; height: 42px; place-items: center; border: 1px solid color-mix(in srgb, var(--accent) 15%, transparent); border-radius: 13px; color: var(--accent); background: color-mix(in srgb, var(--paper) 70%, var(--accent-soft)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.55); font-size: 16px; font-weight: 750; }
+  .name { overflow: hidden; font-size: 14px; font-weight: 650; letter-spacing: -0.01em; text-overflow: ellipsis; white-space: nowrap; }
+  .member-label { margin-top: 2px; color: var(--faint); font-size: 9px; font-weight: 650; letter-spacing: 0.16em; }
+  .status { flex: 0 0 auto; padding: 4px 8px; border-radius: 999px; font-size: 10px; font-weight: 650; }
+  .status-active { color: var(--ok-fg); background: var(--ok-bg); }
+  .status-trial { color: var(--trial-fg); background: var(--trial-bg); }
+  .status-soon { color: var(--warn-fg); background: var(--warn-bg); }
+  .status-expired { color: var(--expired-fg); background: var(--expired-bg); }
+  .status-cancelled { color: var(--cancelled-fg); background: var(--cancelled-bg); }
+  .price { display: flex; align-items: baseline; gap: 6px; margin-top: 25px; }
+  .price-value { font-size: 32px; font-weight: 650; letter-spacing: -0.055em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .price-cycle { color: var(--muted); font-size: 11px; }
+  .progress { height: 3px; margin-top: 21px; overflow: hidden; border-radius: 99px; background: color-mix(in srgb, var(--accent) 9%, transparent); }
+  .progress > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); opacity: 0.72; }
+  .card-footer { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-top: 12px; }
+  .date-label { margin-bottom: 2px; color: var(--faint); font-size: 9px; letter-spacing: 0.04em; }
+  .date-value { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .paid { text-align: right; }
+  .paid strong { color: var(--ink); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .card.is-cancelled { filter: saturate(0.45); }
+  .card.is-cancelled .logo, .card.is-cancelled .price-value { opacity: 0.64; }
+  .serial { position: absolute; top: 78px; right: 20px; color: color-mix(in srgb, var(--accent) 24%, transparent); font-size: 34px; font-weight: 750; letter-spacing: -0.06em; pointer-events: none; }
+
+  .dark {
+    color-scheme: dark;
+    --canvas: #111215;
+    --paper: #1b1c20;
+    --ink: #ededf0;
+    --muted: #a0a0aa;
+    --faint: #777781;
+    --line: rgba(255, 255, 255, 0.1);
+    --soft-line: rgba(255, 255, 255, 0.07);
+    --brand: #8eb2ff;
+    --ok-bg: rgba(46, 160, 83, 0.16);
+    --ok-fg: #79d795;
+    --trial-bg: rgba(107, 133, 234, 0.16);
+    --trial-fg: #b7c6ff;
+    --warn-bg: rgba(205, 154, 45, 0.15);
+    --warn-fg: #e8bd64;
+    --expired-bg: rgba(210, 72, 62, 0.15);
+    --expired-fg: #f09a94;
+    --cancelled-bg: rgba(255, 255, 255, 0.07);
+    --cancelled-fg: #9999a3;
+    --shadow: 0 1px 2px rgba(0,0,0,0.35), 0 16px 38px rgba(0,0,0,0.25);
+  }
+  .dark body, body.dark { background-color: var(--canvas); }
+  .dark .card, body.dark .card { background: linear-gradient(145deg, color-mix(in srgb, var(--paper) 94%, var(--accent)), color-mix(in srgb, var(--paper) 88%, var(--accent))); }
+  .dark .logo, body.dark .logo { box-shadow: inset 0 1px 0 rgba(255,255,255,0.05); }
+
+  @media (max-width: 900px) {
+    .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 600px) {
+    .shell { width: min(100% - 28px, 420px); padding: 32px 0 44px; }
+    .hero { align-items: flex-start; flex-direction: column; gap: 18px; }
+    .grid { grid-template-columns: 1fr; }
+    .summary-item { padding: 15px 13px; }
+    .summary-value { font-size: 19px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .card { transition: none; }
+    .card:hover { transform: none; }
+  }
+</style>
+</head>
+<body>
+<main class="shell">
+  <header class="hero">
+    <div>
+      <p class="eyebrow">SUBSCRIPTION PORTFOLIO</p>
+      <h1>订阅会员卡</h1>
+      <p class="subtitle">把每一项服务，收进自己的会员夹。</p>
+    </div>
+    <button class="appearance-toggle" id="theme-toggle" type="button" aria-label="切换深浅外观">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>
+      切换外观
+    </button>
+  </header>
+  <section class="summary" aria-label="订阅汇总">
+    <div class="summary-item"><span class="summary-label">有效订阅</span><span class="summary-value" id="live-count">0<small>项</small></span></div>
+    <div class="summary-item"><span class="summary-label">月均支出</span><span class="summary-value" id="monthly-cost">¥0</span></div>
+    <div class="summary-item"><span class="summary-label">最近到期</span><span class="summary-value" id="next-end" style="font-size:18px;letter-spacing:-.02em">—</span></div>
+  </section>
+  <section class="grid" id="cards" aria-label="订阅会员卡列表"></section>
+</main>
+<script>
+const rows = [
+  { name: "BiliBili 大会员", mark: "B", amount: 148, cycle: "年付", autoRenew: false, trialEnd: null, start: "2026-06-09", end: "2027-06-11", cancelled: false, paid: 148, accent: "#d95f91", soft: "#fbe7ef" },
+  { name: "MiniMax Plus", mark: "M", amount: 49, cycle: "月付", autoRenew: false, trialEnd: null, start: "2026-08-20", end: "2026-09-19", cancelled: true, paid: 98, accent: "#7464d8", soft: "#ece9fb" },
+  { name: "华为云空间 200G", mark: "云", amount: 17.21, cycle: "季付", autoRenew: false, trialEnd: null, start: "2026-07-03", end: "2026-10-01", cancelled: true, paid: 34.42, accent: "#cc554f", soft: "#fae9e7" },
+  { name: "WorkBuddy", mark: "W", amount: 70, cycle: "月付", autoRenew: false, trialEnd: null, start: "2026-09-21", end: "2026-10-21", cancelled: true, paid: 70, accent: "#1d4fd8", soft: "#e5ebfb" },
+  { name: "华为运动健康", mark: "健", amount: 0, cycle: "月付", autoRenew: false, trialEnd: "2026-12-24", start: "2026-09-24", end: "2026-12-24", cancelled: false, paid: 0, accent: "#188b70", soft: "#e2f3ed" },
+  { name: "华为音乐", mark: "乐", amount: 0, cycle: "月付", autoRenew: false, trialEnd: "2026-10-05", start: "2026-09-05", end: "2026-10-05", cancelled: true, paid: 0, accent: "#d44b56", soft: "#fae7e9" },
+  { name: "华为表盘会员", mark: "表", amount: 0, cycle: "月付", autoRenew: false, trialEnd: "2026-10-24", start: "2026-10-08", end: "2026-10-24", cancelled: false, paid: 0, accent: "#4385a7", soft: "#e4f0f5" },
+  { name: "微信读书", mark: "读", amount: 9, cycle: "月付", autoRenew: false, trialEnd: null, start: "2026-10-10", end: "2026-11-10", cancelled: false, paid: 9, accent: "#4676c8", soft: "#e6edf8" }
+];
+
+const money = value => `¥${Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`;
+</script>
+<script>
+const dayMs = 86400000;
+const day = value => {
+  if (!value) return null;
+  const [year, month, date] = value.split("-").map(Number);
+  return Date.UTC(year, month - 1, date);
+};
+const statusOf = row => {
+  const today = day(new Date().toLocaleDateString("en-CA"));
+  const end = day(row.end);
+  const trial = day(row.trialEnd);
+  if (row.cancelled) return { kind: "cancelled", label: "已取消" };
+  if (trial !== null && trial >= today && (row.start === null || day(row.start) <= today)) return { kind: "trial", label: "试用中" };
+  if (end === null) return { kind: "active", label: "生效中" };
+  if (end < today) return { kind: "expired", label: row.autoRenew ? "待续费" : "已到期" };
+  if (end - today <= 7 * dayMs) return { kind: "soon", label: "即将到期" };
+  return { kind: "active", label: "生效中" };
+};
+const progressOf = row => {
+  const start = day(row.start);
+  const end = day(row.end);
+  if (start === null || end === null || end <= start) return 0;
+  return Math.max(0, Math.min(100, ((day(new Date().toLocaleDateString("en-CA")) - start) / (end - start)) * 100));
+};
+document.getElementById("cards").innerHTML = rows.map((row, index) => {
+  const status = statusOf(row);
+  return `<article class="card ${status.kind === "cancelled" ? "is-cancelled" : ""}" style="--accent:${row.accent};--accent-soft:${row.soft}">
+    <div class="card-top">
+      <div class="identity"><div class="logo">${row.mark}</div><div><div class="name">${row.name}</div><div class="member-label">MEMBERSHIP</div></div></div>
+      <span class="status status-${status.kind}">${status.label}</span>
+    </div>
+    <div class="price"><span class="price-value">${money(row.amount)}</span><span class="price-cycle">/ ${row.cycle}</span></div>
+    <div class="progress"><span style="width:${progressOf(row)}%"></span></div>
+    <div class="card-footer"><div><div class="date-label">有效日期</div><div class="date-value">${row.start} — ${row.end}</div></div><div class="paid"><div class="date-label">累计支付</div><strong>${money(row.paid)}</strong></div></div>
+    <span class="serial">${String(index + 1).padStart(2, "0")}</span>
+  </article>`;
+}).join("");
+document.getElementById("live-count").innerHTML = `${rows.filter(row => statusOf(row).kind !== "cancelled" && statusOf(row).kind !== "expired").length}<small>项</small>`;
+document.getElementById("monthly-cost").textContent = money(rows.reduce((sum, row) => {
+  if (row.cancelled || statusOf(row).kind === "expired") return sum;
+  const months = row.cycle === "年付" ? 12 : row.cycle === "季付" ? 3 : 1;
+  return sum + row.amount / months;
+}, 0));
+document.getElementById("next-end").textContent = rows.filter(row => !row.cancelled && day(row.end) >= day(new Date().toLocaleDateString("en-CA"))).sort((a, b) => day(a.end) - day(b.end))[0]?.end ?? "—";
+document.getElementById("theme-toggle").addEventListener("click", () => {
+  const dark = document.body.classList.toggle("dark");
+  document.getElementById("theme-toggle").setAttribute("aria-pressed", String(dark));
+});
+</script>
+</body>
+</html>

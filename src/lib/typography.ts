@@ -447,9 +447,9 @@ export function docStyle(): string {
   const h = BLOCK_SPACING.h1
   const hTail = BLOCK_SPACING.h4
 
-  return `    :root { color-scheme: light dark; --fg: #1c1c1e; --muted: #6b7280; --line: #e4e4e7; --bg-soft: #f4f4f5; --accent-bg: #eef2ff; --accent-fg: #313d6b; --mark-bg: #fdf3b0; --link: #1d4fd8; --ledger-in: ${LEDGER_INCOME_COLOR}; --ledger-ex: ${LEDGER_EXPENSE_COLOR}; --radius-table: ${TABLE_RADIUS}px; }
+  return `    :root { color-scheme: light dark; --fg: #1c1c1e; --muted: #6b7280; --line: #e4e4e7; --bg-soft: #f4f4f5; --accent-bg: #eef2ff; --accent-fg: #313d6b; --mark-bg: #fdf3b0; --link: #1d4fd8; --sub-ok-bg: #e8f5ec; --sub-ok-fg: #1c7a3e; --sub-warn-bg: #fdf2d0; --sub-warn-fg: #8a5a00; --sub-danger-bg: #fdeceb; --sub-danger-fg: #b42318; --ledger-in: ${LEDGER_INCOME_COLOR}; --ledger-ex: ${LEDGER_EXPENSE_COLOR}; --radius-table: ${TABLE_RADIUS}px; }
     @media (prefers-color-scheme: dark) {
-      :root { --fg: #e6e6e8; --muted: #9ca3af; --line: #33333a; --bg-soft: #1e1e22; --accent-bg: #232a45; --accent-fg: #c3ccff; --mark-bg: #4a4120; --link: #5e93ff; --ledger-in: ${LEDGER_INCOME_COLOR_DARK}; --ledger-ex: ${LEDGER_EXPENSE_COLOR_DARK}; }
+      :root { --fg: #e6e6e8; --muted: #9ca3af; --line: #33333a; --bg-soft: #1e1e22; --accent-bg: #232a45; --accent-fg: #c3ccff; --mark-bg: #4a4120; --link: #5e93ff; --sub-ok-bg: #183021; --sub-ok-fg: #79d795; --sub-warn-bg: #332a16; --sub-warn-fg: #e8bd64; --sub-danger-bg: #3b1d1c; --sub-danger-fg: #f09a94; --ledger-in: ${LEDGER_INCOME_COLOR_DARK}; --ledger-ex: ${LEDGER_EXPENSE_COLOR_DARK}; }
 ${RUN_COLOR_DARK_RULES}
     }
     body { max-width: ${DOC_MEASURE_REM}rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; background: Canvas; color: var(--fg);
@@ -497,31 +497,61 @@ ${headingRules}
     .note-layout > section:empty { border-color: var(--line); min-height: 3rem; }
     .note-layout[data-layout="flex"] > section { flex: 1 1 0; min-width: 8rem; }
     .note-bookmark, .note-gallery, .note-kanban, .note-ledger, .note-subs, .note-playlist { margin: ${BLOCK_SPACING.gallery.top}px 0; }
-    /* 订阅卡与 SubscriptionBlockView 对齐:顶部汇总条 + 自适应卡片宫格。
-       网格下限用 minmax(0,1fr) 的写法,窄窗口下卡片跟着收缩而不是横向溢出。 */
-    .note-sub-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px;
-      margin-bottom: 10px; padding: 8px 12px; border-radius: 8px; background: var(--bg-soft);
-      font-size: 12px; color: var(--muted); }
-    .note-sub-summary .n { font-weight: 600; font-size: 12px; color: var(--fg); }
-    .note-sub-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
-    .note-sub-card { padding: 11px 13px; border: 1px solid var(--line); border-radius: 10px; background: Canvas; }
-    .note-sub-cancelled { opacity: .6; }
+    /* 订阅汇总条与 SubscriptionBlockView 对齐:一块平面白卡,内嵌分隔线分栏,
+       标签小字在上、数字大号在下。grid-auto-flow 横向排,指标增减不会换行。 */
+    .note-sub-summary { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+      margin-bottom: 12px; overflow: hidden; border: 1px solid var(--line); border-radius: 18px;
+      background: Canvas; }
+    .note-sub-stat { position: relative; padding: 14px 16px 15px; }
+    .note-sub-stat + .note-sub-stat::before { position: absolute; top: 14px; bottom: 14px; left: 0;
+      width: 1px; content: ""; background: var(--line); }
+    .note-sub-stat .k { display: block; margin-bottom: 3px; color: var(--muted);
+      font-size: 11px; letter-spacing: .04em; }
+    .note-sub-stat .n { font-size: 20px; font-weight: 600; letter-spacing: -.03em;
+      font-variant-numeric: tabular-nums; }
+    .note-sub-stat .n small { margin-left: 4px; color: var(--muted); font-size: 11px;
+      font-weight: 500; letter-spacing: 0; }
+    /* 卡片宫格:自适应列,窄窗口下卡片跟着收缩而不是横向溢出。 */
+    .note-sub-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); }
+    .note-sub-card { --sub-accent: var(--link); position: relative; isolation: isolate;
+      overflow: hidden; padding: 16px; border-radius: 16px;
+      border: 1px solid color-mix(in srgb, var(--sub-accent) 20%, var(--line));
+      background: radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--sub-accent) 15%, transparent), transparent 46%),
+        linear-gradient(145deg, color-mix(in srgb, var(--sub-accent) 5%, Canvas), Canvas 68%);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, .04); }
+    .note-sub-card::before { position: absolute; right: -58px; bottom: -86px; z-index: -1;
+      width: 190px; height: 190px; border-radius: 50%; content: "";
+      border: 1px solid color-mix(in srgb, var(--sub-accent) 14%, transparent);
+      box-shadow: 0 0 0 26px color-mix(in srgb, var(--sub-accent) 4%, transparent),
+        0 0 0 52px color-mix(in srgb, var(--sub-accent) 3%, transparent); pointer-events: none; }
+    .note-sub-cancelled { opacity: .72; filter: saturate(.45); }
     .note-sub-head { display: flex; align-items: flex-start; gap: 10px; }
     .note-sub-icon { flex: none; display: flex; align-items: center; justify-content: center;
-      width: 36px; height: 36px; border-radius: 9px; overflow: hidden; background: var(--bg-soft);
-      font-size: 14px; font-weight: 600; color: var(--muted); }
+      width: 44px; height: 44px; border-radius: 13px; overflow: hidden;
+      border: 1px solid color-mix(in srgb, var(--sub-accent) 16%, transparent);
+      background: color-mix(in srgb, var(--sub-accent) 11%, Canvas);
+      font-size: 16px; font-weight: 600; color: var(--sub-accent); }
     .note-sub-icon img { display: block; width: 100%; height: 100%; margin: 0; border-radius: 0; object-fit: cover; }
     .note-sub-title { min-width: 0; flex: 1; }
-    .note-sub-name { font-size: 13px; font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    .note-sub-price { margin-top: 2px; font-size: 22px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
-    .note-sub-cycle { margin-left: 4px; font-size: 11px; font-weight: 400; color: var(--muted); }
-    .note-sub-state { flex: none; padding: 2px 7px; border-radius: 999px; background: var(--bg-soft);
-      font-size: 11px; color: var(--muted); white-space: nowrap; }
-    .note-sub-meta { display: grid; gap: 2px; margin-top: 8px; font-size: 11px; color: var(--muted); }
+    .note-sub-name { font-size: 14px; font-weight: 600; line-height: 1.35;
+      overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .note-sub-caption { margin-top: 2px; font-size: 9px; font-weight: 600;
+      letter-spacing: .12em; line-height: 1.2; color: var(--muted); }
+    .note-sub-price { margin-top: 17px; font-size: 30px; font-weight: 600; line-height: 1;
+      letter-spacing: -.055em; font-variant-numeric: tabular-nums; }
+    .note-sub-cycle { margin-left: 5px; font-size: 11px; font-weight: 400;
+      letter-spacing: 0; color: var(--muted); }
+    .note-sub-state { flex: none; padding: 3px 8px; border-radius: 999px; background: var(--bg-soft);
+      font-size: 10px; color: var(--muted); white-space: nowrap; }
+    .note-sub-card[data-state="active"] .note-sub-state { color: var(--sub-ok-fg); background: var(--sub-ok-bg); }
+    .note-sub-card[data-state="trial"] .note-sub-state { color: var(--accent-fg); background: var(--accent-bg); }
+    .note-sub-card[data-state="soon"] .note-sub-state { color: var(--sub-warn-fg); background: var(--sub-warn-bg); }
+    .note-sub-card[data-state="expired"] .note-sub-state { color: var(--sub-danger-fg); background: var(--sub-danger-bg); }
+    .note-sub-meta { display: grid; gap: 3px; margin-top: 15px; font-size: 11px; color: var(--muted); }
     .note-sub-meta .r { display: flex; justify-content: space-between; gap: 10px; }
-    .note-sub-meta .v { font-variant-numeric: tabular-nums; }
-    .note-sub-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px;
-      padding-top: 6px; border-top: 1px solid var(--line); font-size: 11px; color: var(--muted); }
+    .note-sub-meta .v { font-variant-numeric: tabular-nums; color: color-mix(in srgb, var(--fg) 78%, transparent); }
+    .note-sub-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 13px;
+      padding-top: 10px; border-top: 1px solid var(--line); font-size: 10px; color: var(--muted); }
     /* 歌单与 PlaylistBlockView 对齐:头部一行曲目数 / 总时长,下面是序号 + 封面 +
        歌名 / 副标题 + 时长的行。行与行之间靠 1px 分隔线,不用卡片框 —— 一屏能多放几首。 */
     .note-pl-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px;
