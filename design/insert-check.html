@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>引用块插入：先选表再落块</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; } .fail { color: #b42318; }
+</style>
+</head>
+<body>
+<h1>引用块插入：`+` 菜单里每一种都先弹「选择数据表」，确认后才落块</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script>
+  // 模块级异常不会进 #out（import 在模块体之前执行），先把错误显示出来，cdp-dump 认 `ERROR` 前缀。
+  window.addEventListener("error", (event) => {
+    const out = document.getElementById("out")
+    if (out) out.textContent = `ERROR ${event.message} @ ${event.filename}:${event.lineno}:${event.colno}`
+  })
+  window.addEventListener("unhandledrejection", (event) => {
+    const out = document.getElementById("out")
+    if (out) out.textContent = `REJECT ${String(event.reason)}`
+  })
+</script>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { provideTables } from "../src/composables/useTables.ts"
+import { BLOCK_ROW_SELECTOR, DOM_ATTR } from "../src/lib/dom.ts"
+import { REFERENCE_BLOCK_TYPES, blockTypeMeta } from "../src/lib/blocks.ts"
+
+const out = document.querySelector("#out")
+const lines = []
+let passed = 0
+let failed = 0
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  out.textContent = lines.join("\n")
+}
+
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("insert-check", { create: true })
+const file = await dir.getFileHandle("a.html", { create: true })
+const writable = await file.createWritable()
+await writable.write("<p>占位</p>")
+await writable.close()
+window.showDirectoryPicker = async () => dir
+
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    // 数据表注册表与工作区共用同一对 driver / root（App.vue 也这么接）。新建 `.tbl` 走它，
+    // 不接的话 `resolveDataTableForNote` 只会说「数据表注册表未接上」并静默不落块。
+    const tables = provideTables(workspace.fs, workspace.root)
+    workspace.attachTableRegistry({
+      preload: (paths) => tables.preload(paths),
+      peek: (path) => tables.peek(path),
+      flush: (path) => tables.flush(path),
+      reload: (path) => tables.reload(path),
+      create: async (driver, root, path, initial) => {
+        const start = initial ?? tables.defaultTable()
+        await driver.createNote(root, path, tables.toJson(start))
+        tables.adopt(path, start)
+      },
+    })
+    provideTheme(provideSettings())
+    return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+const note = workspace.tree.value.find((node) => node.kind === "note")
+workspace.openFile(note.id)
+for (let i = 0; i < 60 && workspace.activeDocument.value.length < 1; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 50))
+}
+await nextTick()
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+async function menuContent() {
+  for (let i = 0; i < 40; i += 1) {
+    const content = document.querySelector('[data-slot="dropdown-menu-content"]')
+    if (content !== null) return content
+    await wait(50)
+  }
+  return null
+}
+async function dialogContent() {
+  for (let i = 0; i < 40; i += 1) {
+    const content = document.querySelector('[role="alertdialog"]')
+    if (content !== null) return content
+    await wait(50)
+  }
+  return null
+}
+async function clickMenuLabel(label) {
+  const content = await menuContent()
+  if (content === null) return false
+  const item = [...content.querySelectorAll('[role="menuitem"][data-type-option]')].find((node) =>
+    node.textContent.includes(label),
+  )
+  if (item === undefined) return false
+  item.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerType: "mouse" }))
+  item.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerType: "mouse" }))
+  item.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }))
+  return true
+}
+function plusButton() {
+  const first = workspace.activeDocument.value[0]
+  return document.querySelector(`${BLOCK_ROW_SELECTOR}[${DOM_ATTR.blockId}="${first?.id}"] button[aria-label="添加块"]`)
+}
+function buttonIn(scope, label) {
+  return [...(scope?.querySelectorAll("button") ?? [])].find((node) => node.textContent.trim() === label)
+}
+
+// ---------- 一、每一个引用块类型（数据表块除外）都先弹选表 ----------
+
+for (const type of REFERENCE_BLOCK_TYPES) {
+  if (type === "datatable") continue
+  const label = blockTypeMeta(type).label
+  plusButton()?.click()
+  const opened = (await menuContent()) !== null
+  const clicked = await clickMenuLabel(label)
+  check(`「${label}」点得到`, opened && clicked)
+  const dialog = await dialogContent()
+  check(`「${label}」先弹选表对话框`, dialog !== null)
+  check(`「${label}」确认前不落块`,
+    workspace.activeDocument.value.every((block) => block.type !== type),
+    workspace.activeDocument.value.map((block) => block.type).join(","))
+  buttonIn(dialog, "取消")?.click()
+  for (let i = 0; i < 20 && document.querySelector('[role="alertdialog"]') !== null; i += 1) await wait(50)
+  await wait(100)
+}
+
+check("取消后没留下任何块",
+  workspace.activeDocument.value.length === 1,
+  workspace.activeDocument.value.map((block) => block.type).join(","))
+
+// ---------- 二、走完「新建数据表 → 落块」，块真的带上表与规则 ----------
+
+const worktimeLabel = blockTypeMeta("worktime").label
+plusButton()?.click()
+await menuContent()
+await clickMenuLabel(worktimeLabel)
+const dialog = await dialogContent()
+check("默认停在「新建数据表」", (dialog?.textContent ?? "").includes("新建数据表"))
+buttonIn(dialog, "插入")?.click()
+for (let i = 0; i < 40 && workspace.activeDocument.value.every((block) => block.type !== "worktime"); i += 1) await wait(50)
+await wait(600)
+await nextTick()
+
+const block = workspace.activeDocument.value.find((item) => item.type === "worktime")
+check("确认后落下工时块", block !== undefined)
+check("块带着真实 .tbl 路径", typeof block?.path === "string" && block.path.endsWith(".tbl"), String(block?.path))
+check("新建的表带五个池的规则", Object.keys(block?.policies ?? {}).length === 5, String(Object.keys(block?.policies ?? {}).length))
+check("新建的表带列映射（类别列与时长列已指）",
+  (block?.kindColumnId ?? "") !== "" && (block?.amountColumnId ?? "") !== "")
+check("对话框已关闭", document.querySelector('[role="alertdialog"]') === null)
+
+// ---------- 收尾 ----------
+
+out.textContent = lines.join("\n") + `\n\n${failed === 0 ? "ALL OK" : "HAS FAIL"}`
+</script>
+</body>
+</html>

@@ -58,7 +58,7 @@ export type TextualBlockType =
   | "divider"
 
 /** 全部块类型 = 正文类 + 结构类。派生而常量列表，避免两处维护。 */
-export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "subscription" | "playlist" | "chat" | "layout" | "html"
+export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "subscription" | "playlist" | "worktime" | "chat" | "layout" | "html"
 
 /** 正文块。块之间是平铺列表；列表的嵌套层级用 `depth` 表达，不建树。 */
 export interface TextualBlock {
@@ -395,6 +395,174 @@ export interface PlaylistBlock {
   sources: PlaylistSource[]
 }
 
+/** 工时池的计量单位。年假按天、调休与加班按小时是常态,所以单位挂在**池**上而非整块。 */
+export type WorktimeUnit = "day" | "hour"
+
+/**
+ * 工时池的重置节奏 —— 「假期重置时间节点」。
+ *
+ * `calendar` 自然年;`fiscal` 按 `resetMonthDay` 起算的财年(如 04-01);
+ * `anniversary` 按**入职周年**起算,因此每人各有各的周期(需要入职日期列)。
+ */
+export type WorktimeReset = "none" | "calendar" | "fiscal" | "anniversary"
+
+/** 周期额度的发放方式:固定天数,或按工龄阶梯。 */
+export type WorktimeAccrual = "fixed" | "seniority"
+
+/** 工龄阶梯的一档:满 `minYears` 年、每年 `days` 天。 */
+export interface WorktimeTier {
+  minYears: number
+  days: number
+}
+
+/**
+ * 逐笔额度的到期日**对齐**方式。
+ *
+ * `none` 按 `validityMonths` 原样加月(05-01 + 3 月 = 08-01);`monthEnd` 加完月再收到月末。
+ *
+ * 对齐不是排版偏好,是两个真实的劳动口径:加班「记录月的次月底失效」= 1 个月 + 月末,
+ * 陪产假「出生次月 1 号起失效」= 0 个月 + 月末。注意 `validityMonths: 0` 本来是「不过期」,
+ * 配了 `monthEnd` 就变成「当月有效」—— 「月」一旦被点名,0 月就是「不到一个月」而不是
+ * 「永不过期」。
+ */
+export type WorktimeExpiryAlign = "none" | "monthEnd"
+
+/**
+ * 同一池内批次的扣减顺序。
+ *
+ * `expiry` 先到期先扣 —— 不浪费额度,是 0029 的口径;`latest` 最新一笔先扣 —— 工时台账的
+ * 直觉:「今天加班、今天调休」该动的是刚记的那笔,而不是上个月快过期的那笔。缺省 `expiry`。
+ */
+export type WorktimeConsume = "expiry" | "latest"
+
+/**
+ * 池在扣减关系里的位置。
+ *
+ * `standalone` 自给自足,负数行只扣自己 —— 缺省,也是 0029 唯一的模型。
+ * `chain` 与**同人员、同 `chain` 名**的池结成一条扣减链:负数行按 `chainOrder` 从链上依次
+ * 取额度,跨单位按 `hoursPerDay` 折算到小时。链上可以有一个「只被扣、从不发」的池(调休),
+ * 它自己没有额度,余额恒为 0 —— 值钱的是链合计。
+ */
+export type WorktimeScope = "standalone" | "chain"
+
+/**
+ * 批次过期后怎么处理。
+ *
+ * `writeoff` 作废(缺省,也是 0029 的口径);`retain` 只标记不扣减 —— 陪产假这类
+ * 「过了期也还算数,只是不能再请」的额度需要它。
+ */
+export type WorktimeLapse = "writeoff" | "retain"
+
+/**
+ * 一类工时池的人事规则 —— 「工时有效期」「重置时间节点」「年假固定还是按工龄」「和谁一起扣」
+ * 全在这里。
+ *
+ * 两条互斥的过期口径(见 `lib/worktime` 的说明):
+ * - `validityMonths > 0`(或 `expiryAlign: "monthEnd"`):**逐笔有效期**。每笔获得的额度从
+ *   产生日起 N 个月有效,过期按 `lapse` 处理。适合调休 / 加班 / 陪产假。
+ * - `reset !== "none"`: **周期性额度**。每期开始时发放(可选),期末未用完的按
+ *   `carryOverMax` 结转到下一期,结转额度到 `carryOverDeadline` 失效。适合年假。
+ *
+ * 两者同时配置时按逐笔口径走,重置与结转不参与 —— 一个池只有一种过期读法。
+ *
+ * `reset: "none"` + `autoGrant` + `grantFrom` 是三者的特例:**一次性额度**。从起算日发一笔
+ * `fixedDays`,到期按逐笔口径,之后再也不发。陪产假「15 天,一次给完」就是这么配的。
+ */
+export interface WorktimePolicy {
+  unit: WorktimeUnit
+  /** 逐笔有效月数。0 = 不单独过期,交给周期规则。 */
+  validityMonths: number
+  reset: WorktimeReset
+  /** `fiscal` 模式的周期起点,`"MM-DD"`。其它模式忽略。 */
+  resetMonthDay: string
+  /** 结转上限(按本池单位)。`null` = 不限,剩余全部结转。 */
+  carryOverMax: number | null
+  /** 结转额度的失效日,`"MM-DD"`(落在下一期内)。空串 = 不单独失效,跟随下一期期末。 */
+  carryOverDeadline: string
+  /** 是否按周期自动发放额度。关掉时额度只能靠手记正数行(纯手账用法)。 */
+  autoGrant: boolean
+  /**
+   * 额度的**起算日**,`"YYYY-MM-DD"`。空串 = 从表里第一条变动所在的期起算。
+   *
+   * 「有记录」不等于「从有记录那天起才有额度」:育儿假 2025-04-01 才开始,而表里 2026 年
+   * 才记第一笔,2025 那一期照样要发出来。给了起算日,周期循环就从那一期开始跑。
+   */
+  grantFrom: string
+  /**
+   * 最多发放几期,从起算期数起。`0` = 不限。
+   *
+   * 「每年 5 天,一共三年」= `3`。超出的期既不发放也不结转 —— 最后一期的余额在期末
+   * 自然作废,不再往后滚。只影响发放,不影响记账:超出窗口后的使用行照样扣,扣不到记超支。
+   */
+  periodLimit: number
+  accrual: WorktimeAccrual
+  /** `fixed` 时每期天数(或小时)。 */
+  fixedDays: number
+  /** `seniority` 的阶梯,按 `minYears` 升序理解。 */
+  tiers: WorktimeTier[]
+  /** 入职当年按剩余月份折算 —— 只在 `seniority` 与 `fixed` 的当年期生效。 */
+  prorate: boolean
+  /** 逐笔额度的到期日是否收到月末。缺省 `none`(与 0029 的行为一致)。 */
+  expiryAlign: WorktimeExpiryAlign
+  /** 同池批次的扣减顺序。缺省 `expiry`。 */
+  consume: WorktimeConsume
+  /** 独立池,还是参与某条扣减链。缺省 `standalone`。 */
+  scope: WorktimeScope
+  /** 链名。`scope: "chain"` 时非空;同一人员下同名即同一条链。 */
+  chain: string
+  /** 链内取额度的顺序,小的在前。链上第一个池先被扣光,再轮到下一个。 */
+  chainOrder: number
+  /** 折算比:1 个「天」等于多少小时。链上只有混合单位时才用得到。缺省 8。 */
+  hoursPerDay: number
+  /** 批次过期后作废还是只标记。缺省 `writeoff`。 */
+  lapse: WorktimeLapse
+}
+
+/**
+ * 工时块:把一张数据表按人事口径渲染成工时台账 —— 每类假期一个余额池、逐笔额度的
+ * 有效期与结转、以及一条带余额的变动明细。
+ *
+ * 与账目 / 订阅 / 歌单同源:数据只在 `.tbl` 里(ADR-0005),块上只带引用路径与
+ * **人事规则** —— 列映射、每池的策略、提醒阈值。余额、已用、应享、作废量全是
+ * **视图计算的派生值**(`lib/worktime`),不进 `.tbl` 也不进块:落进存储就是第二份
+ * 真源,还会随「今天」推移变成过期数据。
+ *
+ * 池子的身份是**类别列的选项 id**,不是写死的假期种类:加一个「婚假」只是给那一列
+ * 加一个选项,不用改代码;规则按选项 id 存,改选项名也不会丢。
+ *
+ * 导出形态与画册 / 账目同一条 ADR-0006 立场:快照 + 指针 —— 摘要条与明细表写成普通
+ * 表格与列表(双击可读),`data-*` 把路径、列映射与全部策略写进容器,编辑器据此还原
+ * 成活块。
+ */
+export interface WorktimeBlock {
+  id: string
+  type: "worktime"
+  /** 被引用的 `.tbl` 文件的工作区路径。 */
+  path: string
+  /** 日期列的列 id。变动发生日,余额按它排序。 */
+  dateColumnId: string
+  /** 人员列的列 id。空 = 单表一人;非空时余额按「人员 × 池」各算各的。 */
+  personColumnId: string
+  /** 类别列的列 id(`select`,选项即池)。空 = 未设置,视图显示引导。 */
+  kindColumnId: string
+  /** 时长列的列 id(数字)。正 = 获得,负 = 使用。 */
+  amountColumnId: string
+  /** 事由列的列 id。 */
+  noteColumnId: string
+  /** 单据状态列的列 id(`select`)。空 = 不按状态过滤。 */
+  statusColumnId: string
+  /** 入职日期列的列 id(`date`)。按工龄发年假、按入职周年重置时需要。 */
+  hireColumnId: string
+  /** 只统计该状态选项(存选项 id)。空串 = 全部行都算。 */
+  statusValue: string
+  /** 「即将到期」的提醒天数。缺省 30(`WORKTIME_SOON_DAYS_DEFAULT`),缺省态不落盘。 */
+  soonDays: number
+  /** 是否摊开每笔额度的批次明细(已用 / 剩余 / 到期日)。缺省 false。 */
+  showLots: boolean
+  /** 池的规则,键是类别列的**选项 id**。缺项按 `WORKTIME_POLICY_DEFAULT` 兜底。 */
+  policies: Record<string, WorktimePolicy>
+}
+
 /**
  * 布局块:笔记里唯一的**容器块** —— 把若干格子按网格或弹性方式排开,每个格子各持有
  * 一份独立的块列表(Notion 式)。顶层文档仍是扁平列表;布局块是唯一一层受控的嵌套,
@@ -453,7 +621,7 @@ export interface ChatBlock {
   messages: ChatMessage[]
 }
 
-export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | LedgerBlock | StatBlock | SubscriptionBlock | PlaylistBlock | ChatBlock | LayoutBlock | HtmlBlock
+export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | LedgerBlock | StatBlock | SubscriptionBlock | PlaylistBlock | WorktimeBlock | ChatBlock | LayoutBlock | HtmlBlock
 
 /**
  * 引用块展示设置的 patch 形状:六种引用块设置字段的并集,id / type / path 不在内
@@ -470,7 +638,8 @@ export type BlockSettingsPatch = Partial<
   Omit<KanbanBlock, "id" | "type" | "path"> &
   Omit<LedgerBlock, "id" | "type" | "path"> &
   Omit<StatBlock, "id" | "type" | "path"> &
-  Omit<SubscriptionBlock, "id" | "type" | "path">
+  Omit<SubscriptionBlock, "id" | "type" | "path"> &
+  Omit<WorktimeBlock, "id" | "type" | "path">
 >
 
 /** 块类型元数据：菜单分组 + 菜单标记 + 中文名。菜单渲染直接消费。 */

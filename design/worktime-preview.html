@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>工时块导出快照预览</title>
+<style>
+  body { margin: 0; padding: 16px; background: #f6f6f7; font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; }
+  iframe { display: block; width: 100%; height: 760px; border: 1px solid #dcdce0; border-radius: 10px; background: #fff; }
+  #out { margin: 0 0 8px; color: #6b6b70; font-size: 12px; }
+</style>
+</head>
+<body>
+<pre id="out">building…</pre>
+<iframe id="frame"></iframe>
+<script type="module">
+import { createWorktimeBlock } from "../src/lib/blocks.ts"
+import { createOptionId, emptyColumn } from "../src/lib/data-table.ts"
+import { DATA_TABLE_VERSION } from "../src/types/data-table.ts"
+import { WORKTIME_POLICY_DEFAULT } from "../src/lib/worktime.ts"
+import { serializeHtml } from "../src/lib/html/serialize.ts"
+
+const date = emptyColumn("日期", "date")
+const person = emptyColumn("人员")
+const kind = emptyColumn("类别", "select")
+const amount = emptyColumn("时长", "number")
+const note = emptyColumn("事由")
+const hire = emptyColumn("入职日期", "date")
+
+const annual = createOptionId()
+const comp = createOptionId()
+const overtime = createOptionId()
+const personal = createOptionId()
+kind.options.push(
+  { id: annual, name: "年假" },
+  { id: comp, name: "调休" },
+  { id: overtime, name: "加班" },
+  { id: personal, name: "事假" },
+)
+
+const columns = [date, person, kind, amount, note, hire]
+
+let seq = 0
+const row = (dateValue, personValue, kindId, hours, why, hireValue) => {
+  seq += 1
+  return {
+    id: `r${seq}`,
+    values: {
+      [date.id]: dateValue,
+      [person.id]: personValue,
+      [kind.id]: kindId,
+      [amount.id]: hours,
+      [note.id]: why,
+      [hire.id]: hireValue,
+    },
+  }
+}
+
+const table = {
+  version: DATA_TABLE_VERSION,
+  columns,
+  rows: [
+    row("2026-06-01", "熊飞", comp, 8, "6 月加班换调休", "2016-05-01"),
+    row("2026-09-28", "熊飞", personal, -1, "家事", "2016-05-01"),
+    row("2026-10-08", "熊飞", annual, -2, "国庆延长", "2016-05-01"),
+    row("2026-10-20", "熊飞", overtime, 3, "版本发布值守", "2016-05-01"),
+    row("2026-10-24", "熊飞", comp, -4, "下午陪家人", "2016-05-01"),
+  ],
+}
+
+const policy = (patch) => ({ ...WORKTIME_POLICY_DEFAULT, tiers: WORKTIME_POLICY_DEFAULT.tiers.map((tier) => ({ ...tier })), ...patch })
+
+const block = createWorktimeBlock(
+  "考勤.tbl",
+  { date: date.id, person: person.id, kind: kind.id, amount: amount.id, note: note.id, hire: hire.id },
+  {
+    [annual]: policy({ unit: "day", reset: "calendar", autoGrant: true, accrual: "seniority", carryOverMax: 5, carryOverDeadline: "03-31" }),
+    [comp]: policy({ unit: "hour", validityMonths: 3 }),
+    [overtime]: policy({ unit: "hour" }),
+    [personal]: policy({ unit: "day" }),
+  },
+)
+block.showLots = true
+
+const html = serializeHtml([block], { title: "工时台账" }, (path) => (path === "考勤.tbl" ? table : null))
+document.getElementById("frame").srcdoc = html
+document.getElementById("out").textContent = "3/3 快照已生成，下面就是双击打开该笔记时看到的样子"
+</script>
+</body>
+</html>
