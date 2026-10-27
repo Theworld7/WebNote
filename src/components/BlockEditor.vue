@@ -25,7 +25,7 @@ import { useTheme } from "@/composables/useTheme"
 import { useToast } from "@/composables/useToast"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { describeError } from "@/lib/errors"
-import { BATCH_RETYPE_TYPES, isTextualBlock, orderedIndexes as orderedIndexesOf, type ReferenceBlockType } from "@/lib/blocks"
+import { BATCH_RETYPE_TYPES, isTextualBlock, orderedIndexes as orderedIndexesOf } from "@/lib/blocks"
 import { blocksInBand, bandRectsOf, rectFromPoints } from "@/lib/block-select"
 import type { SelectRect } from "@/lib/block-select"
 import { headingEntries } from "@/lib/headings"
@@ -75,23 +75,15 @@ const {
 const { notify } = useToast()
 
 /**
- * 选表对话框承接的引用块类型:数据表块之外的全部引用块。
- *
- * 从 `REFERENCE_BLOCK_TYPES` 派生而不是抄一份名单 —— 少抄一份就少一处「加了新引用块却
- * 忘了让它先选表」的坑(工时块当初正是这么落成空路径块的)。
- */
-type PickTableKind = Exclude<ReferenceBlockType, "datatable">
-
-/**
- * 引用块的插入对话框状态:待插入的位置 + 落哪种块,null 表示关着。
+ * 画册 / 书签块的插入对话框状态:待插入的位置 + 落哪种块,null 表示关着。
  * 与数据表块一样「先有文件才能插」,但选表交给用户,确认后再落块。
- * 各类型共用一个对话框(同一套「挑表或新建」交互),用 kind 区分落块。
+ * 两种块共用一个对话框(同一套「挑表或新建」交互),用 kind 区分落块。
  */
-const dialogKind = ref<PickTableKind>("gallery")
+const dialogKind = ref<"gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "subscription" | "playlist">("gallery")
 const fileInsertIndex = ref<number | null>(null)
 
 /**
- * 引用块**转换**模式:待转换的块 id,null 表示不是转换。
+ * 画册 / 书签块**转换**模式:待转换的块 id,null 表示不是转换。
  * `/` 菜单与手柄的「转换为」不插新块,但同样要先挑表 —— 转换与插入共用一个对话框。
  */
 const fileRetypeId = ref<string | null>(null)
@@ -103,7 +95,7 @@ function closeFileInsert() {
 }
 
 /** 打开选表对话框(插入模式),记下落点:相对当前块偏移 0(前)或 1(后)。 */
-function openInsertDialog(kind: PickTableKind, id: string, offset: 0 | 1) {
+function openInsertDialog(kind: "gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "subscription" | "playlist", id: string, offset: 0 | 1) {
   const blocks = activeDocument.value
   const index = blocks.findIndex((item) => item.id === id)
   dialogKind.value = kind
@@ -212,8 +204,8 @@ function handleInsert(id: string, type: BlockType, offset: 0 | 1) {
     })
     return
   }
-  // 其余引用块同样先有文件,但选哪张交给用户:记下落点与落块种类,打开对话框。
-  if (type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat" || type === "subscription" || type === "playlist" || type === "worktime") {
+  // 画册 / 书签 / 看板 / 账目 / 统计 / 订阅块同样先有文件,但选哪张交给用户:记下落点与落块种类,打开对话框。
+  if (type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat" || type === "subscription" || type === "playlist") {
     openInsertDialog(type, id, offset)
     return
   }
@@ -233,10 +225,10 @@ function handleSplitAfter(id: string, type: BlockType, tail: InlineRun[]) {
 }
 
 function handleRetype(id: string, type: BlockType) {
-  // 转换成引用块同样**先有文件**:数据表自动同名解析(与插入同一套规则),其余引用块
+  // 转换成引用块同样**先有文件**:数据表自动同名解析(与插入同一套规则),画册与书签
   // 交给对话框挑表。不接这条规则,落下的就是空路径的引用块 —— 视图永远停在「正在读取」。
   // 解析失败就不转换,原块保持原样。
-  if (type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat" || type === "subscription" || type === "playlist" || type === "worktime") {
+  if (type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat" || type === "subscription" || type === "playlist") {
     dialogKind.value = type
     fileRetypeId.value = id
     return

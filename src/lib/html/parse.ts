@@ -1,12 +1,10 @@
-import type { Block, BookmarkBlock, ChatMessage, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, LedgerBlock, LedgerGroupMode, PlaylistBlock, StatBlock, SubscriptionBlock, TableAlign, TableBlock, TableCell, TextualBlockType, WorktimeBlock } from "@/types/workspace"
-import { createBookmarkBlock, createChatBlock, createGalleryBlock, createHtmlBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createLedgerBlock, createMermaidBlock, createPlaylistBlockFrom, createStatBlock, createSubscriptionBlock, createTableBlock, createTextualBlock, createWorktimeBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
+import type { Block, BookmarkBlock, ChatMessage, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, LedgerBlock, LedgerGroupMode, PlaylistBlock, StatBlock, SubscriptionBlock, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
+import { createBookmarkBlock, createChatBlock, createGalleryBlock, createHtmlBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createLedgerBlock, createMermaidBlock, createPlaylistBlockFrom, createStatBlock, createSubscriptionBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
 import { STAT_PRECISION_DEFAULT, STAT_PRECISION_OPTIONS } from "@/lib/data-table"
 import { SUBSCRIPTION_ROLE_ATTRS, SUBSCRIPTION_ROLES } from "@/lib/subscription"
 import type { SubscriptionRole } from "@/lib/subscription"
 import { createPlaylistSource, decodePlaylistSources, PLAYLIST_ROLE_ATTRS, PLAYLIST_ROLES } from "@/lib/playlist"
 import type { PlaylistRole } from "@/lib/playlist"
-import { decodeWorktimePolicies, WORKTIME_ROLES, WORKTIME_ROLE_ATTRS, WORKTIME_SOON_DAYS_DEFAULT } from "@/lib/worktime"
-import type { WorktimeRole } from "@/lib/worktime"
 import { runsText, textToRuns, trimRuns } from "@/lib/inline"
 import { isTableAlign } from "@/lib/table"
 import { docStyle } from "@/lib/typography"
@@ -303,12 +301,6 @@ function parseBlockElement(element: Element, state: ParseState, depth: number): 
       // 歌单块的展示快照容器:指针与四个字段映射在容器上,曲目列表是静态摘录,这里丢弃。
       if (element.hasAttribute("data-playlist")) {
         state.blocks.push(parsePlaylist(element))
-        return
-      }
-      // 工时块的展示快照容器:指针、七个列映射与每池规则都在容器上,明细与摘要是静态结果,
-      // 活数据从 `.tbl` 来,这里丢弃。
-      if (element.hasAttribute("data-worktime")) {
-        state.blocks.push(parseWorktime(element))
         return
       }
       break
@@ -642,32 +634,6 @@ function parsePlaylist(container: Element): PlaylistBlock {
     sources.push(createPlaylistSource(path, roles))
   }
   return createPlaylistBlockFrom(sources, path)
-}
-
-/**
- * `data-worktime` 容器 → 工时块。没有 `data-worktime` 不会走到这里(调用方已判)。
- *
- * 七个列映射的列 id 原样收下、不校验列还存在(指向的列被删后渲染时退化为自动识别,
- * 与订阅块同一立场);空属性 = 不写,保持自动识别。每池规则走 `decodeWorktimePolicies`
- * 宽容读取 —— 手改过的 JSON 不该让整块变成「读不到」。提醒阈值只认正整数,
- * 其余落回缺省(与 `parseStatPrecision` 的立场一致:解析端不吃离谱配置)。
- */
-function parseWorktime(container: Element): WorktimeBlock {
-  const roles: Partial<Record<WorktimeRole, string>> = {}
-  for (const role of WORKTIME_ROLES) {
-    const value = container.getAttribute(WORKTIME_ROLE_ATTRS[role]) ?? ""
-    if (value !== "") roles[role] = value
-  }
-  const block = createWorktimeBlock(
-    container.getAttribute("data-worktime") ?? "",
-    roles,
-    decodeWorktimePolicies(container.getAttribute("data-policies")),
-  )
-  block.statusValue = container.getAttribute("data-status-value") ?? ""
-  const soon = Number(container.getAttribute("data-soon"))
-  block.soonDays = Number.isInteger(soon) && soon > 0 ? soon : WORKTIME_SOON_DAYS_DEFAULT
-  block.showLots = container.getAttribute("data-lots") === "true"
-  return block
 }
 
 /**

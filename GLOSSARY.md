@@ -34,9 +34,9 @@ The atomic unit a Note is made of. Blocks are a flat list, not a tree.
 _Avoid_: Element, node, item, paragraph
 
 **Block type**:
-One of twenty-nine identifiers. Fourteen are *textual* — they carry body content. Fifteen are
+One of twenty-eight identifiers. Fourteen are *textual* — they carry body content. Fourteen are
 *structural* and carry their own fields: `image`, `table`, `mermaid`, `datatable`,
-`gallery`, `bookmark`, `kanban`, `ledger`, `stat`, `subscription`, `playlist`, `worktime`, `chat`, `layout`, `html`.
+`gallery`, `bookmark`, `kanban`, `ledger`, `stat`, `subscription`, `playlist`, `chat`, `layout`, `html`.
 _Avoid_: Kind, variant, tag
 
 **Textual block**:
@@ -46,8 +46,8 @@ _Avoid_: Rich block, text block
 
 **Structural block**:
 A Block that is not textual: an Image, a Table, a Mermaid diagram, a Data table block, a
-Bookmark, a Kanban, a Ledger, a Stat, a Subscription, a Playlist, a Worktime block, a Chat record,
-a Layout, or an HTML block. Each owns its own fields instead of a run list.
+Bookmark, a Kanban, a Ledger, a Stat, a Subscription, a Playlist, a Chat record, a Layout, or an HTML
+block. Each owns its own fields instead of a run list.
 _Avoid_: Widget, embed, special block
 
 **Chat record**:
@@ -323,68 +323,8 @@ balance column in the table (it is view-derived, not a Data column)
 **Missing Data table**:
 The state of a Data table block whose path no longer resolves. It is a normal, recoverable
 state — the file may have been moved, renamed or deleted, and the user may want to point the
-block at it again. It never marks the Note as broken and never blocks opening it. A reference
-block keeps its settings on the empty container, so the mappings and policies survive a moved
-file and come back when the path does.
+block at it again. It never marks the Note as broken and never blocks opening it.
 _Avoid_: Broken reference, dangling link, error
-
-**Worktime block**:
-A structural Block that renders a Data table as a personnel ledger of overtime, comp time and
-leave: a row is one movement — a date, a kind, a signed amount — and the Block shows a balance
-card per **Pool** (plus one card per **Chain**) and the movements with a running balance beside
-them. It points at the same
-`.tbl` a Data table block would, and stores only **field mappings** (which column is the date, the
-person, the kind, the amount, the note, the status, the hire date) and a **Worktime policy** per
-kind; the same table seen from two Notes is the same ledger. Balances, entitlements, carry-over,
-usage, forfeiture and the soon-to-expire window are **view-derived from a given today** and never
-written to the `.tbl` or the Block (ADR-0029) — a stored balance would be a second source of truth
-and would age the moment a lot lapses or a year rolls over. Amounts are plain numbers in the
-table; the unit and the period arithmetic are the Block's job.
-_Avoid_: Timesheet (the Block tracks leave entitlements, not hours worked), attendance block
-(nothing here is clocked in or out), balance column in the table (it is view-derived, not a Data
-column), leave type as a fixed list (a kind is a **Select option** the table defines)
-
-**Pool**:
-One balance bucket of a Worktime block: a **kind** (the option id of the block's kind column) for
-one person, since a table with a person column keeps every kind per person. A Pool owns a
-**Worktime policy** — unit, expiry reading, reset node, carry-over, and the **Chain** it may join —
-and the balance is what its Lots still hold, minus what was overdrawn. Adding a kind means adding a
-Select option to the column, not changing code; renaming the option keeps the policy, because the
-option's id is the key and its name is only a label.
-_Avoid_: Category, leave type list, account, quota
-
-**Lot**:
-One batch of entitlement inside a Pool — what one earning granted, when it expires, and how much
-of it has been spent. A positive row becomes a Lot (an overtime entry of `+8 小时` is 8 hours good
-until its own date plus `validityMonths`, optionally snapped to the month end), and so does a
-period's automatic grant, its carried-over remainder, and a one-off entitlement — which have no row
-behind them. A negative row spends Lots in the Pool's **consume order**: earliest expiry first by
-default, or the latest earning first when the Pool asks for it. A Lot that lapses with value left is
-written off — unless the Pool only marks it, in which case the value stays on the books.
-_Avoid_: Batch (reserve that for import runs), entry, chunk, segment
-
-**Chain**:
-A set of Pools of one person that share a spending order: a negative row on any member spends the
-first member's Lots, then the next, and so on by `chainOrder`. Membership is declared by name
-(`scope: "chain"` + the same `chain` string), never inferred from "same table". Units convert
-**only across a Chain**, at the Pool's `hoursPerDay`; inside a Pool every number keeps its own unit.
-A Chain reports one total in hours, which is the number that answers "how much comp time can I
-still take" when a member (like 调休) never grants anything itself.
-_Avoid_: Group (that is a Kanban word), bundle, shared pool (a Chain is not one Pool — each member
-keeps its own Lots, expiry reading and balance)
-
-**Worktime policy**:
-The per-Pool rule set of a Worktime block: unit (`day` / `hour`), per-Lot validity in months and
-whether the expiry snaps to the month end, the consume order within the Pool, whether a lapsed Lot
-is written off or only marked, the reset node (`none` / calendar year / fiscal year from `MM-DD` /
-hire anniversary), where the granting window opens (`grantFrom`) and how many periods it runs
-(`periodLimit`), the carry-over cap and its deadline, whether entitlement is granted automatically,
-how it is granted (fixed days per period, or a seniority tier), whether a hire year is prorated,
-and the Chain it belongs to. **Only one expiry reading applies**: a Pool with per-Lot validity
-ignores the reset and carry-over settings, because comp time and annual leave genuinely die on
-different clocks (ADR-0029). `reset: "none"` with `autoGrant` and a `grantFrom` is a third case —
-one entitlement, granted once, never again (ADR-0030).
-_Avoid_: Settings, config, rules (that names the whole Block's settings, not this per-Pool part)
 
 **Layout block**:
 A structural Block that arranges other Blocks side by side: grid mode (2–4 equal columns) or

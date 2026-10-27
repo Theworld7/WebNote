@@ -1,4 +1,4 @@
-import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, HtmlBlock, ImageBlock, KanbanBlock, LayoutBlock, LedgerBlock, MermaidBlock, PlaylistBlock, StatBlock, SubscriptionBlock, TableCell, TextualBlock, WorktimeBlock } from "@/types/workspace"
+import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, HtmlBlock, ImageBlock, KanbanBlock, LayoutBlock, LedgerBlock, MermaidBlock, PlaylistBlock, StatBlock, SubscriptionBlock, TableCell, TextualBlock } from "@/types/workspace"
 import type { DataColumn, DataTable, DataRow } from "@/types/data-table"
 import { GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT, LAYOUT_COLUMNS_DEFAULT, isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
@@ -41,17 +41,6 @@ import {
   totalDurationText,
 } from "@/lib/playlist"
 import type { PlaylistRoles } from "@/lib/playlist"
-import {
-  WORKTIME_ROLES,
-  WORKTIME_ROLE_ATTRS,
-  WORKTIME_ROLE_FIELDS,
-  WORKTIME_SOON_DAYS_DEFAULT,
-  WORKTIME_UNIT_LABELS,
-  encodeWorktimePolicies,
-  formatQuantity,
-  worktimeReport,
-  worktimeRoles,
-} from "@/lib/worktime"
 import { docStyle } from "@/lib/typography"
 
 /**
@@ -154,10 +143,6 @@ export function blocksToHtml(blocks: readonly Block[], lookupTables?: DataTableL
     }
     if (block.type === "playlist") {
       out.push(playlistHtml(block, lookup(playlistActiveSource(block)?.path ?? "")))
-      continue
-    }
-    if (block.type === "worktime") {
-      out.push(worktimeHtml(block, lookup(block.path)))
       continue
     }
     if (block.type === "chat") {
@@ -815,118 +800,6 @@ function kanbanFieldHtml(row: DataRow, column: DataColumn): string {
   const value =
     text === "" ? '<span class="v note-empty">空</span>' : `<span class="v">${escapeHtml(text)}</span>`
   return `<span class="note-kfield">${label}${value}</span>`
-}
-
-/**
- * 工时块 → **展示快照 + 指针**(与画册 / 账目同一条 ADR-0006 立场)。
- *
- * 导出与编辑器视图同构:一条摘要(每池可用余额 + 应享 / 已用)加一张明细表(变动日期、
- * 类别、时长、发生后余额、额度到期日)。余额 / 已用 / 应享 / 作废量全部走 `lib/worktime`
- * 的同一份函数,与编辑器视图不算两遍 ——「编辑器里算出多少,双击打开就是多少」。
- *
- * 指针属性(`data-worktime` + 七个列映射 + 状态过滤 + 提醒阈值 + 每池规则 JSON)挂在容器
- * `div` 上,解析端凭它认领回活的工时块;剥掉属性后剩下的就是一张普通表格与一排摘要,
- * 按表格读是「正确的读法」。表读不到时仍写出带属性的空容器:指针跟着笔记走,重开时块
- * 自己走「读不到」的提示态。
- *
- * 快照只写**映射到的列** + 余额 + 有效期至,不像账目那样原样铺开全部列 —— 这张表的读法
- * 由人事口径定义(日期 / 类别 / 时长 / 余额),把没映射上的列一起塞进快照只会让双击打开的
- * 那张表更像原始数据、更不像台账。
- */
-function worktimeHtml(block: WorktimeBlock, table: DataTable | null): string {
-  const attrs = [`data-worktime="${escapeHtml(block.path)}"`]
-  for (const role of WORKTIME_ROLES) {
-    const id = block[WORKTIME_ROLE_FIELDS[role]]
-    if (id !== "") attrs.push(`${WORKTIME_ROLE_ATTRS[role]}="${escapeHtml(id)}"`)
-  }
-  if (block.statusValue !== "") attrs.push(`data-status-value="${escapeHtml(block.statusValue)}"`)
-  // 阈值与批次开关只在非默认时落盘(与 data-balance / data-sort-dir 同一口径)。
-  if (block.soonDays !== WORKTIME_SOON_DAYS_DEFAULT) attrs.push(`data-soon="${block.soonDays}"`)
-  if (block.showLots) attrs.push(`data-lots="true"`)
-  const policies = encodeWorktimePolicies(block.policies)
-  if (policies !== "") attrs.push(`data-policies="${escapeHtml(policies)}"`)
-
-  const openTag = `<div class="note-worktime" ${attrs.join(" ")}>`
-  if (table === null) return openTag + "</div>"
-
-  const roles = worktimeRoles(table.columns, block)
-  const report = worktimeReport(table.rows, roles, block, localToday())
-  const poolByKey = new Map(report.pools.map((pool) => [pool.key, pool]))
-
-  const cards = report.pools
-    .filter((pool) => pool.lots.length > 0 || pool.used !== 0 || pool.available !== 0)
-    .map((pool) => {
-      const title = pool.person === "" ? pool.name : `${pool.person} · ${pool.name}`
-      const unit = WORKTIME_UNIT_LABELS[pool.policy.unit]
-      const detail: string[] = []
-      if (pool.granted !== 0) detail.push(`应享 ${formatQuantity(pool.granted)}`)
-      if (pool.carryIn !== 0) detail.push(`含结转 ${formatQuantity(pool.carryIn)}`)
-      if (pool.added !== 0) detail.push(`补入 ${formatQuantity(pool.added)}`)
-      detail.push(`已用 ${formatQuantity(pool.used)}`)
-      if (pool.expired > 0) detail.push(`作废 ${formatQuantity(pool.expired)}`)
-      if (pool.soon > 0) detail.push(`${pool.soonOn} 到期 ${formatQuantity(pool.soon)}`)
-      return `    <div class="note-wt-stat"><span class="k">${escapeHtml(title)}</span><span class="n">${escapeHtml(formatQuantity(pool.available))}<small>${unit}</small></span><span class="s">${escapeHtml(detail.join(" · "))}</span></div>`
-    })
-
-  // 链合计写在成员卡之前:一笔调休能请多少,看的是这个数,不是任何一个池。
-  const chainCards = report.chains.map((chain) => {
-    const title = chain.person === "" ? `${chain.name}合计` : `${chain.person} · ${chain.name}合计`
-    const members = chain.members
-      .map((key) => poolByKey.get(key)?.name ?? "")
-      .filter((name) => name !== "")
-      .join(" → ")
-    return `    <div class="note-wt-stat"><span class="k">${escapeHtml(title)}</span><span class="n">${escapeHtml(formatQuantity(chain.available))}<small>小时</small></span><span class="s">${escapeHtml(members)}</span></div>`
-  })
-  cards.unshift(...chainCards)
-
-  const items = table.rows.flatMap((row) => {
-    const info = report.rows.get(row.id)
-    if (info === undefined) return []
-    const value = roles.date === null ? null : cellValue(row, roles.date)
-    return [{ row, info, date: typeof value === "string" ? value : "" }]
-  })
-  items.sort((left, right) => right.date.localeCompare(left.date))
-
-  const cellOf = (row: DataRow, column: DataColumn | null): string => (column === null ? "" : valueText(cellValue(row, column), column))
-
-  const bodyLines = items.map(({ row, info, date }) => {
-    const amountValue = roles.amount === null ? null : cellValue(row, roles.amount)
-    const amount = typeof amountValue === "number" ? amountValue : 0
-    const unit = poolByKey.get(info.poolKey)?.policy.unit ?? "day"
-    const signed = `${amount > 0 ? "+" : amount < 0 ? "−" : ""}${formatQuantity(Math.abs(amount))} ${WORKTIME_UNIT_LABELS[unit]}`
-    // 链上的一笔,余额只讲链合计:它自己那个池(调休)恒为 0,写出来是句废话。
-    const balance = info.chainBalance === null ? info.balance : info.chainBalance
-    const cells = [
-      wrap("td", escapeHtml(date)),
-      wrap("td", escapeTextToHtml(cellOf(row, roles.person))),
-      wrap("td", escapeTextToHtml(cellOf(row, roles.kind))),
-      wrap("td", escapeTextToHtml(cellOf(row, roles.note))),
-      wrap("td", escapeHtml(signed), ' class="num"'),
-      wrap("td", escapeHtml(balance === null ? "—" : formatQuantity(balance)), ' class="num"'),
-      wrap("td", escapeHtml(info.expiresOn === "" ? "—" : info.expiresOn), ' class="num"'),
-    ]
-    return `      <tr>${cells.join("")}</tr>`
-  })
-
-  const head = `<tr>${[
-    "日期",
-    "人员",
-    "类别",
-    "事由",
-    "时长",
-    "余额",
-    "有效期至",
-  ]
-    .map((label) => wrap("th", label))
-    .join("")}</tr>`
-
-  const summary = cards.length === 0 ? "" : `<div class="note-wt-summary">\n${cards.join("\n")}\n  </div>`
-  const body =
-    bodyLines.length === 0
-      ? ""
-      : `\n  <table>\n  <thead>\n      ${head}\n  </thead>\n  <tbody>\n${bodyLines.join("\n")}\n  </tbody>\n</table>`
-
-  return `${openTag}${summary}${body}\n</div>`
 }
 
 /**

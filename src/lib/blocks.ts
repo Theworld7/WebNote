@@ -25,18 +25,14 @@ import type {
   TableCell,
   TextualBlock,
   TextualBlockType,
-  WorktimeBlock,
-  WorktimePolicy,
 } from "@/types/workspace"
 import type { SubscriptionRole } from "@/lib/subscription"
 import type { PlaylistRole } from "@/lib/playlist"
-import type { WorktimeRole } from "@/lib/worktime"
 import type { DataTable } from "@/types/data-table"
 import { cloneRuns, runsText, textToRuns } from "@/lib/inline"
 import { createLedgerPreset } from "@/lib/ledger"
 import { createPlaylistPreset, createPlaylistSource } from "@/lib/playlist"
 import { createSubscriptionPreset } from "@/lib/subscription"
-import { createWorktimePreset, WORKTIME_SOON_DAYS_DEFAULT } from "@/lib/worktime"
 import { cloneCell } from "@/lib/table"
 
 /**
@@ -99,9 +95,6 @@ export const BLOCK_TYPES = [
   { type: "subscription", group: "媒体与数据", marker: "↻", label: "订阅", initials: "dy" },
   // 紧挨 subscription：歌单块同样吃数据表的数据,把每行排成一行曲目。
   { type: "playlist", group: "媒体与数据", marker: "♪", label: "歌单", initials: "gd" },
-  // 紧挨 playlist：工时块同样吃数据表的数据,把每行按「类别 + 时长」记进各自的额度池,
-  // 带余额、有效期、结转与按工龄发年假 —— 人事台账的那一套。
-  { type: "worktime", group: "媒体与数据", marker: "◷", label: "工时", initials: "gs" },
   // 紧挨 kanban 之后、布局压轴之前:聊天记录是内容块,不是版面级重结构。
   { type: "chat", group: "媒体与数据", marker: "◌", label: "聊天记录", initials: "ltjl" },
   // 压轴：容器块是「版面级」的重结构,跟在内容块族的最后。
@@ -223,7 +216,6 @@ export function isTextualBlock(block: Block): block is TextualBlock {
     block.type !== "stat" &&
     block.type !== "subscription" &&
     block.type !== "playlist" &&
-    block.type !== "worktime" &&
     block.type !== "chat" &&
     block.type !== "layout" &&
     block.type !== "html"
@@ -237,7 +229,7 @@ export function isTextualBlock(block: Block): block is TextualBlock {
  * 这张表派生。serialize / parse 各自的读写分派虽仍逐块列出（编译器靠穷尽性兜住），
  * 但**凡是凭「有没有 path」区分的行为**都必须走这张表，不再各持一份会腐烂的清单。
  */
-export const REFERENCE_BLOCK_TYPES = ["datatable", "gallery", "bookmark", "kanban", "ledger", "stat", "subscription", "playlist", "worktime"] as const
+export const REFERENCE_BLOCK_TYPES = ["datatable", "gallery", "bookmark", "kanban", "ledger", "stat", "subscription", "playlist"] as const
 export type ReferenceBlockType = (typeof REFERENCE_BLOCK_TYPES)[number]
 
 /** 带 `path` 指针的引用块本体 —— `isReferenceBlock` 收窄后的结果。 */
@@ -499,33 +491,6 @@ export function createPlaylistBlockFrom(sources: PlaylistSource[], path = ""): P
 }
 
 /**
- * 造工时块。列映射缺省全空 = 按列名与类型自动识别;每池规则缺项按缺省兜底。
- * 新建路径会带上预设表的列 id 与五类池的规则(列名再改也不影响);已有表则留空走识别。
- */
-export function createWorktimeBlock(
-  path = "",
-  roles: Partial<Record<WorktimeRole, string>> = {},
-  policies: Record<string, WorktimePolicy> = {},
-): WorktimeBlock {
-  return {
-    id: createBlockId(),
-    type: "worktime",
-    path,
-    dateColumnId: roles.date ?? "",
-    personColumnId: roles.person ?? "",
-    kindColumnId: roles.kind ?? "",
-    amountColumnId: roles.amount ?? "",
-    noteColumnId: roles.note ?? "",
-    statusColumnId: roles.status ?? "",
-    hireColumnId: roles.hire ?? "",
-    statusValue: "",
-    soonDays: WORKTIME_SOON_DAYS_DEFAULT,
-    showLots: false,
-    policies,
-  }
-}
-
-/**
  * 新建一张表时的起手：初始内容，以及表落盘之后**指好列**的造块函数。
  *
  * 两项必须一起产出：预置列的 id 由 `table` 里的列对象生成，而 `create` 要指的就是它们。
@@ -571,13 +536,6 @@ export const REFERENCE_INSERT_SPEC: Record<ReferenceBlockType, ReferenceInsertSp
       return { table: preset.table, create: (path) => createPlaylistBlock(path, preset.roles) }
     },
   },
-  worktime: {
-    create: (path) => createWorktimeBlock(path),
-    preset: () => {
-      const preset = createWorktimePreset()
-      return { table: preset.table, create: (path) => createWorktimeBlock(path, preset.roles, preset.policies) }
-    },
-  },
   subscription: {
     create: (path) => createSubscriptionBlock(path),
     preset: () => {
@@ -621,7 +579,6 @@ export function createBlock(type: BlockType, text = ""): Block {
   if (type === "stat") return createStatBlock()
   if (type === "subscription") return createSubscriptionBlock()
   if (type === "playlist") return createPlaylistBlock()
-  if (type === "worktime") return createWorktimeBlock()
   if (type === "chat") return createChatBlock()
   if (type === "layout") return createLayoutBlock()
   if (type === "html") return createHtmlBlock()
@@ -644,7 +601,7 @@ export function retypeBlock(block: Block, type: BlockType): Block {
     const source = isTextualBlock(block) ? runsText(block.runs) : blockText(block)
     return type === "mermaid" ? { ...createMermaidBlock(), source } : { ...createHtmlBlock(), source }
   }
-  if (type === "image" || type === "table" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat" || type === "subscription" || type === "playlist" || type === "worktime" || type === "chat" || type === "layout") {
+  if (type === "image" || type === "table" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat" || type === "subscription" || type === "playlist" || type === "chat" || type === "layout") {
     return createBlock(type)
   }
   if (!isTextualBlock(block)) return createTextualBlock(type, textToRuns(blockText(block)))
@@ -669,15 +626,6 @@ export function cloneBlock(block: Block, id: string): Block {
   // 歌单的 sources 是对象数组：整体替换,但拷贝不该共享同一批绑定项。
   if (block.type === "playlist") {
     return { ...block, id, sources: block.sources.map((source) => ({ ...source })) }
-  }
-  // 工时的 policies 是「选项 id → 规则」的字典:每份规则与它的阶梯都要独立,否则复制出来的块
-  // 改一份规则会连带改另一份。
-  if (block.type === "worktime") {
-    const policies: Record<string, WorktimePolicy> = {}
-    for (const [optionId, policy] of Object.entries(block.policies)) {
-      policies[optionId] = { ...policy, tiers: policy.tiers.map((tier) => ({ ...tier })) }
-    }
-    return { ...block, id, policies }
   }
   // 画册的 hiddenFields 是数组：更新总以整体替换发生，但拷贝不该共享同一份。
   if (block.type === "gallery") {
@@ -731,8 +679,6 @@ export function blockText(block: Block): string {
   if (block.type === "subscription") return block.path
   // 歌单块只带路径 —— 字段映射是展示设置,不是文本。
   if (block.type === "playlist") return block.path
-  // 工时块只带路径 —— 列映射与每池规则是人事设置,不是文本。
-  if (block.type === "worktime") return block.path
   // 布局块把格子里的块递归拼起来 —— 字数统计因此覆盖容器内的内容。
   if (block.type === "layout") {
     return block.cells.map((cell) => cell.map((item) => blockText(item)).join(" ")).join(" ")

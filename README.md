@@ -54,14 +54,14 @@
 - 跨块选区：按住从一段拖到另一段，`Ctrl/Cmd+C` 连抄几刀，`Backspace` 整片删掉
 - 每篇笔记记住自己的滚动位置，切走再切回来还在原处
 
-### 二十九种块
+### 二十八种块
 
 | 分组 | 块 |
 | :-- | :-- |
 | 基础 | 文本、标题 1–6 |
 | 列表 | 待办、无序列表、有序列表 |
 | 内容 | 引用、代码块（按语言着色）、Mermaid 图、HTML、标注、分割线 |
-| 媒体与数据 | 图片、表格、数据表、画册、书签、看板、账目、统计卡、订阅、歌单、工时、对话记录 |
+| 媒体与数据 | 图片、表格、数据表、画册、书签、看板、账目、统计卡、订阅、歌单、对话记录 |
 | 版面 | 布局块（2–4 栏网格，或并排换行） |
 
 代码块的正文始终是纯文本，着色只画在重合的另一层上，所以复制出去不带颜色、也不会被颜色改写。
@@ -76,12 +76,12 @@ Mermaid 与 HTML 的源码只在需要时加载，不画图的笔记不必为它
 行内格式不走浏览器的 `execCommand`：那套 API 产出 `<b>` / `<span style>`，与序列化结果对不上，
 各平台 WebView 的行为也不一致。这里改的是正文的 run 结构，再自己重画。
 
-### 一份数据，九种看法
+### 一份数据，八种看法
 
 数据表是一个独立的 `.tbl` 文件（标准 JSON）：列有 id、显示名和类型（文本、数字、日期、选项、勾选、图片），
 行按列 id 存值，数字就是数字、日期就是日期 —— 排序、筛选、求和都靠这一点。数据表没有行数上限。
 
-同一张表，在笔记里可以有九种呈现，**呈现方式是块自己的设置，不是表的一部分**：
+同一张表，在笔记里可以有八种呈现，**呈现方式是块自己的设置，不是表的一部分**：
 
 | 块 | 它做的事 | 块自己的设置 |
 | :-- | :-- | :-- |
@@ -93,7 +93,6 @@ Mermaid 与 HTML 的源码只在需要时加载，不画图的笔记不必为它
 | 统计卡 | 把某一列的数值求和成一个大数字 | 求和列、小数位、可选筛选列 |
 | 订阅 | 每行一张订阅卡：名称、图标、金额 / 周期、起止日期、试用、自动续费、累计支付，顶部汇总月 / 年支出 | 名称、图标、金额、周期、自动续费、试用期、开始、到期、已取消、累计支付各指哪一列 |
 | 歌单 | 一份曲目表：序号、封面、歌名 / 副标题、时长，顶部是曲目数与总时长；就地加歌、删歌；可按歌名 / 歌手 / 专辑模糊搜索，一键复制成 `歌名 - 歌手` 的纯文本（导入听歌软件用）。一个块可绑多张表，顶部胶囊标签切换（标签名即表文件名） | 每张表各有一套：歌名、副标题、封面、时长各指哪一列 |
-| 工时 | 人事台账：类别列的每个选项一个额度池，每池一张余额卡（可用 / 应享 / 已用 / 作废 / 即将到期），下面是带「这一笔之后的余额」与「额度到期日」的变动明细；可摊开每笔额度的批次。加一个假期 = 给类别列加一个选项。**记一笔走表单**（日期 / 人员 / 类别 / 用掉还是得到 / 时长 / 事由），底部实时给出这一笔会扣自哪几个池 | 七个列映射，以及**每池一套规则**：单位、每笔有效月数、重置节点（自然年 / 财年 / 入职周年）、结转上限与失效日、是否自动发放、年假按固定天数还是按工龄阶梯 |
 
 所以同一张表可以在两篇笔记里长得完全不同：一篇按状态分组看进度，另一篇按月结算看余额，
 谁都不必复制数据。余额和合计都是**视图算出来的**，永远不写进文件。
@@ -273,8 +272,8 @@ pnpm icon           # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | 区域 | 页面 |
 | :-- | :-- |
 | 解析与往返 | `parse-check`、`inline-check` |
-| 编辑器交互 | `chrome-check`、`tab-check`、`toolbar-check`、`sidebar-check`、`tree-integration-check`、`drag-check`、`split-check`、`cell-check`、`undo-check`、`menu-nav-check`、`focus-check`、`insert-check`、`link-check`、`heading-nav-check`、`block-select-check` |
-| 块类型 | `table-check`、`table-align-check`、`data-table-check`、`gallery-check`、`kanban-check`、`ledger-check`、`ledger-edit-check`、`ledger-date-check`、`option-cell-check`、`subscription-check`、`playlist-check`、`playlist-edit-check`、`worktime-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check` |
+| 编辑器交互 | `chrome-check`、`tab-check`、`toolbar-check`、`sidebar-check`、`tree-integration-check`、`drag-check`、`split-check`、`cell-check`、`undo-check`、`menu-nav-check`、`focus-check`、`link-check`、`heading-nav-check`、`block-select-check` |
+| 块类型 | `table-check`、`table-align-check`、`data-table-check`、`gallery-check`、`kanban-check`、`ledger-check`、`ledger-edit-check`、`ledger-date-check`、`option-cell-check`、`subscription-check`、`playlist-check`、`playlist-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check` |
 | 样式与外观 | `typography-check`、`theme-check`、`theme-mode-check`、`page-style-check`、`settings-check` |
 | 文件操作 | `create-check`、`move-check` |
 | 其它 | `drawer-jitter-probe`（抽屉抖动守卫）、`icon-check`（图标观感） |

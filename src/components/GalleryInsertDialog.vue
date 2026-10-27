@@ -5,19 +5,17 @@ import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescript
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useWorkspace } from "@/composables/useWorkspace"
-import type { ReferenceBlockType } from "@/lib/blocks"
 import { fileStem } from "@/lib/fs/policy"
 import { fileName } from "@/lib/paths"
 
 /**
  * 插引用块前的「选表」对话框(插入与转换共用)。
  *
- * 数据表块之外的全部引用块 —— 画册、书签、看板、账目、统计卡、订阅、歌单、工时 ——
- * 都和数据表引用块一样,**先有文件才能插**:指向不存在的 `.tbl` 就是插一个永远读不到的
- * 提示态。区别在于数据表块是自动撞名/新建,这些块把选择权交给用户:列出工作区全部表
- * 挑一张,或点名新建一张。
+ * 画册块、书签块、看板块、账目块、统计卡与订阅块与数据表引用块一样,**先有文件才能插** —— 指向不存在的 `.tbl` 就是
+ * 插一个永远读不到的提示态。区别在于数据表块是自动撞名/新建,这些块把选择权交给
+ * 用户:列出工作区全部表挑一张,或点名新建一张。
  *
- * `kind` 决定确认后落哪种块,文案跟着换 —— 对话框本身对所有类型是同一个交互。
+ * `kind` 决定确认后落哪种块,文案跟着换 —— 对话框本身对两者是同一个交互。
  *
  * `retypeId` 非空时是**转换模式**:不插新块,把那个块原地转换并指向所选的表
  * (`/` 菜单与手柄的「转换为」从这条路进来,同样必须先挑表)。
@@ -26,8 +24,8 @@ import { fileName } from "@/lib/paths"
  * 规则),路径解析失败也不关 —— 原因已写进 `fsError`,对话框留着让人换一个名字。
  */
 const props = defineProps<{
-  /** 落哪种引用块。数据表块不走这里(它自动同名解析),所以排除掉。 */
-  kind: Exclude<ReferenceBlockType, "datatable">
+  /** 落哪种引用块。 */
+  kind: "gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "subscription" | "playlist"
   /** 插入位置(插入模式)。null 表示不是插入模式。与 `retypeId` 同时为 null 即关闭。 */
   index: number | null
   /** 转换模式:待转换的块 id。null 表示不是转换模式。 */
@@ -67,7 +65,7 @@ const tableOptions = computed(() =>
   tablePaths.value.map((path) => ({ path, label: fileName(path).replace(/\.tbl$/i, "") })),
 )
 
-const KIND_LABEL = { gallery: "画册", bookmark: "书签", kanban: "看板", ledger: "账目", stat: "统计卡", subscription: "订阅", playlist: "歌单", worktime: "工时" } as const
+const KIND_LABEL = { gallery: "画册", bookmark: "书签", kanban: "看板", ledger: "账目", stat: "统计卡", subscription: "订阅", playlist: "歌单" } as const
 
 /** 确认。插入落了块、或转换真的换了块,才关。 */
 async function confirm() {

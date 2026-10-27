@@ -271,7 +271,6 @@ export const BLOCK_SPACING: Readonly<Record<BlockType, BlockSpacing>> = {
   stat: { top: 16, bottom: 16 },
   subscription: { top: 16, bottom: 16 },
   playlist: { top: 16, bottom: 16 },
-  worktime: { top: 16, bottom: 16 },
   chat: { top: 16, bottom: 16 },
   layout: { top: 16, bottom: 16 },
   html: { top: 16, bottom: 16 },
@@ -497,8 +496,7 @@ ${headingRules}
     .note-layout > section { min-width: 0; border: 1px solid transparent; border-radius: 8px; }
     .note-layout > section:empty { border-color: var(--line); min-height: 3rem; }
     .note-layout[data-layout="flex"] > section { flex: 1 1 0; min-width: 8rem; }
-    .note-bookmark, .note-gallery, .note-kanban, .note-ledger, .note-subs, .note-playlist,
-    .note-worktime { margin: ${BLOCK_SPACING.gallery.top}px 0; }
+    .note-bookmark, .note-gallery, .note-kanban, .note-ledger, .note-subs, .note-playlist { margin: ${BLOCK_SPACING.gallery.top}px 0; }
     /* 订阅汇总条与 SubscriptionBlockView 对齐:一块平面白卡,内嵌分隔线分栏,
        标签小字在上、数字大号在下。grid-auto-flow 横向排,指标增减不会换行。 */
     .note-sub-summary { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
@@ -595,19 +593,6 @@ ${headingRules}
     .note-ledger tr.note-ledger-group th .s { margin-left: 10px; font-weight: 400; }
     .note-ledger tfoot td { font-weight: 500; background: var(--bg-soft); }
     .note-ledger tfoot .lbl, .note-ledger .lbl { color: var(--muted); font-weight: 400; }
-    /* 工时摘要条与 WorktimeBlockView 对齐:与订阅汇总条同一种平面卡读法(标签小字在上、
-       数字大号在下),但按池数自动换行 —— 假期的种类比订阅的固定指标多,横排会挤成一条缝。 */
-    .note-wt-summary { display: grid; gap: 1px; margin-bottom: 12px; overflow: hidden;
-      border: 1px solid var(--line); border-radius: 12px; background: var(--line);
-      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
-    .note-wt-stat { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; background: Canvas; }
-    .note-wt-stat .k { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .note-wt-stat .n { font-size: 20px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-    .note-wt-stat .n small { margin-left: 3px; font-size: 11px; font-weight: 500; color: var(--muted); }
-    .note-wt-stat .s { font-size: 11px; color: var(--muted); }
-    .note-worktime table { margin: 0; }
-    .note-worktime th, .note-worktime td { padding: 0.35em 0.7em; }
-    .note-worktime .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
     .note-bookmark, .note-gallery { display: flex; flex-direction: column; gap: 12px; }
     .note-sec-title { margin: 0; padding-bottom: 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
     .note-gallery-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
