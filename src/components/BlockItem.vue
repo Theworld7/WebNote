@@ -61,6 +61,8 @@ const emit = defineEmits<{
   (event: "retype", id: string, type: BlockType): void
   (event: "duplicate", id: string): void
   (event: "remove", id: string): void
+  /** 正文首 / 尾的上下方向键：光标该跨到相邻块。`-1` 向上（落上一块的末尾），`1` 向下。 */
+  (event: "focus-neighbor", id: string, direction: -1 | 1): void
 }>()
 
 const { setBlockRuns, toggleBlockChecked, followLink } = useWorkspace()
@@ -226,6 +228,30 @@ function onKeydown(event: KeyboardEvent) {
     event.preventDefault()
     yieldFocus = true
     emit("remove", props.block.id)
+  }
+
+  // 内容首 / 尾的上下方向键跨块落焦点：光标在正文开头按 ↑ 落到上一块的末尾，
+  // 在正文末尾按 ↓ 落到下一块的开头。带修饰键的一概放行 —— Shift+方向键是扩选区、
+  // Ctrl / Alt+方向键是系统手势，拦下来就把原本那件事吃掉了。
+  if (
+    (event.key === "ArrowUp" || event.key === "ArrowDown") &&
+    !event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey
+  ) {
+    const element = bodyRef.value
+    if (element === null) return
+    const caret = caretOffsetIn(element)
+    // 首尾判据与 splitAtCaret 同口径：光标位置从 DOM 现读，末尾拿文本长度比 ——
+    // 块内软换行（<br>）在这些口径下都不算内容，光标停在软换行处就放行给浏览器上下移行。
+    const atEdge =
+      event.key === "ArrowUp"
+        ? caret === 0
+        : caret !== null && caret >= runsText(runsFromNode(element, { collapseWhitespace: false })).length
+    if (!atEdge) return
+    event.preventDefault()
+    emit("focus-neighbor", props.block.id, event.key === "ArrowUp" ? -1 : 1)
   }
 }
 

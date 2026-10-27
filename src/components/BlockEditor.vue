@@ -255,6 +255,28 @@ function handleRemove(id: string) {
   if (target) void focusBlockById(target.id)
 }
 
+/**
+ * 正文首 / 尾的上下方向键：焦点跨到同层的相邻块（↑ 落上一块的末尾，↓ 落下一块的
+ * 开头）。只在本层里找 —— 顶层的邻居是顶层块，格子内的邻居是同格子的块，各自有
+ * 自己的处理函数。
+ *
+ * 路上那些落不下光标的块（分割线、图片、表格、HTML、布局……）跳过：用户在正文里
+ * 按 ↑↓ 想的是「走到上下一段」，中间夹一条分割线就停住不动的观感更像坏了。
+ * 一路到本层头尾都没得落，就什么也不做 —— 浏览器在这里本来也无事可做。
+ */
+function handleFocusNeighbor(id: string, direction: -1 | 1) {
+  const blocks = activeDocument.value
+  const index = blocks.findIndex((item) => item.id === id)
+  if (index === -1) return
+  for (let i = index + direction; i >= 0 && i < blocks.length; i += direction) {
+    const candidate = blocks[i]
+    if (candidate === undefined) break
+    if (findEditable(candidate.id) === null) continue
+    void focusBlockById(candidate.id, direction === -1 ? "end" : "start")
+    return
+  }
+}
+
 // ---- 拖拽排序 ----
 //
 // 用 pointer 事件而不是原生 HTML5 拖拽：原生拖拽一旦 dragstart，浏览器就切进「拖拽
@@ -1261,6 +1283,7 @@ function edgeOf(index: number, to: number): BlockDropEdge {
           @retype="handleRetype"
           @duplicate="duplicateBlock"
           @remove="handleRemove"
+          @focus-neighbor="handleFocusNeighbor"
         />
 
         <!-- 拖选高亮覆盖层:块内与跨块统一走这里,样式(.cross-selection-rect)在 style.css。

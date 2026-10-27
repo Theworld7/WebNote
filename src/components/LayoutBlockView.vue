@@ -13,7 +13,7 @@ import { ChevronDownIcon, Grid2x2PlusIcon, Grid2x2XIcon } from "@lucide/vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { LAYOUT_COLUMNS, orderedIndexes as orderedIndexesOf } from "@/lib/blocks"
 import { dragOverCell } from "@/lib/block-drag"
-import { focusBlockById } from "@/lib/dom"
+import { focusBlockById, findEditable } from "@/lib/dom"
 import BlockItem from "@/components/BlockItem.vue"
 
 /**
@@ -74,6 +74,25 @@ function onRemove(id: string) {
 /** 模式值从菜单回来是 string，收窄成 LayoutMode 再交操作层。 */
 function pickMode(value: string) {
   if (value === "grid" || value === "flex") setLayoutMode(props.block.id, value)
+}
+
+/**
+ * 格子内正文首 / 尾的上下方向键：与顶层 `handleFocusNeighbor` 同一口径，
+ * 只是邻居的范围收在本格子 —— 布局块之间是并排的格子，纵向跨格没有意义。
+ */
+function onFocusNeighbor(id: string, direction: -1 | 1) {
+  for (const cell of props.block.cells) {
+    const index = cell.findIndex((item) => item.id === id)
+    if (index === -1) continue
+    for (let i = index + direction; i >= 0 && i < cell.length; i += direction) {
+      const candidate = cell[i]
+      if (candidate === undefined) break
+      if (findEditable(candidate.id) === null) continue
+      void focusBlockById(candidate.id, direction === -1 ? "end" : "start")
+      return
+    }
+    return
+  }
 }
 
 // ---- 拖块进格子 ----
@@ -143,6 +162,7 @@ function isDropTarget(cellIndex: number): boolean {
           @retype="onRetype"
           @duplicate="duplicateBlock"
           @remove="onRemove"
+          @focus-neighbor="onFocusNeighbor"
         />
       </section>
     </div>

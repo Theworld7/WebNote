@@ -11,7 +11,7 @@
 </style>
 </head>
 <body>
-<h1>落块后的焦点：+ 菜单插入、`/` 转完，光标都该在新块里</h1>
+<h1>落块后的焦点：+ 菜单插入、`/` 转完，光标都该在新块里；正文首尾的方向键该跨到相邻块</h1>
 <!-- 脚本里有顶层 await（要等真实读盘），抓结果用 CDP 驱动跑：
      node design/cdp-dump.mjs http://localhost:1420/design/focus-check.html -->
 <div id="app"></div>
@@ -24,7 +24,7 @@ import BlockEditor from "../src/components/BlockEditor.vue"
 import { provideSettings } from "../src/composables/useSettings.ts"
 import { provideTheme } from "../src/composables/useTheme.ts"
 import { provideWorkspace } from "../src/composables/useWorkspace.ts"
-import { BLOCK_ROW_SELECTOR, DOM_ATTR } from "../src/lib/dom.ts"
+import { BLOCK_ROW_SELECTOR, DOM_ATTR, MENU_CONTENT_SELECTOR } from "../src/lib/dom.ts"
 
 /** 可编辑体的选择器。`editableSelector` 在 lib/dom 里是私有的，这里按同一约定拼。 */
 const editableSelectorOf = (blockId) => `[${DOM_ATTR.editable}="${blockId}"]`
@@ -250,6 +250,105 @@ if (subTrigger instanceof HTMLElement) {
       ) !== null,
   )
 }
+
+// ---------- 五、正文首 / 尾的上下方向键跨块 ----------
+//
+// 三块连排：上下两块是正文块，中间夹一个落不下光标的代码块。合成 KeyboardEvent 不会
+// 真的移动光标，所以除了焦点落点，还看 `defaultPrevented` —— 接管了为 true，
+// 放行（光标不在首尾、Shift+方向键）为 false。
+
+/** 把光标落到正文块里某个字符偏移处。夹具块都是纯文本，第一个子节点即文本节点。 */
+function placeCaretAt(blockId, offset) {
+  const el = document.querySelector(editableSelectorOf(blockId))
+  if (!(el instanceof HTMLElement) || el.firstChild === null) return false
+  el.focus()
+  const range = document.createRange()
+  range.setStart(el.firstChild, Math.min(offset, el.firstChild.textContent?.length ?? 0))
+  range.collapse(true)
+  const selection = window.getSelection()
+  selection.removeAllRanges()
+  selection.addRange(range)
+  return true
+}
+
+/** 光标离块首 / 块尾还差几个字 —— 「在首 / 在尾」的判据。 */
+function caretEdge(blockId) {
+  const el = document.querySelector(editableSelectorOf(blockId))
+  const selection = window.getSelection()
+  if (!(el instanceof HTMLElement) || selection === null || selection.rangeCount === 0) return null
+  const range = selection.getRangeAt(0)
+  if (!el.contains(range.startContainer)) return null
+  const before = range.cloneRange()
+  before.selectNodeContents(el)
+  before.setEnd(range.startContainer, range.startOffset)
+  const after = range.cloneRange()
+  after.selectNodeContents(el)
+  after.setStart(range.endContainer, range.endOffset)
+  return { atStart: before.toString() === "", atEnd: after.toString() === "" }
+}
+
+// 上一节动过「转为…」菜单：菜单还挂着时，落焦点会被压后处理，下面这条跨块链就整条失真。
+// 先等浮层收干净再开工 —— 判据与运行时同一把尺子。
+for (let i = 0; i < 40 && document.querySelector(MENU_CONTENT_SELECTOR) !== null; i += 1) await wait(50)
+
+const upper = workspace.appendBlock("text")
+const middle = workspace.appendBlock("code")
+const lower = workspace.appendBlock("text")
+await nextTick()
+await wait(150)
+check(
+  "三块落地：上下两块有正文可编辑体，中间代码块没有",
+  document.querySelector(editableSelectorOf(upper)) instanceof HTMLElement &&
+    document.querySelector(editableSelectorOf(middle)) === null &&
+    document.querySelector(editableSelectorOf(lower)) instanceof HTMLElement,
+)
+
+for (const [id, text] of [[upper, "上块"], [lower, "下块"]]) {
+  const el = document.querySelector(editableSelectorOf(id))
+  if (el instanceof HTMLElement) {
+    el.textContent = text
+    el.dispatchEvent(new InputEvent("input", { bubbles: true }))
+  }
+}
+await nextTick()
+await wait(100)
+
+function pressArrow(blockId, key, init = {}) {
+  const el = document.querySelector(editableSelectorOf(blockId))
+  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init })
+  el?.dispatchEvent(event)
+  return event
+}
+
+placeCaretAt(upper, "上块".length)
+const downEvent = pressArrow(upper, "ArrowDown")
+await nextTick()
+await wait(100)
+check("块尾按 ↓ 已接管", downEvent.defaultPrevented)
+check(
+  "块尾按 ↓ 落到下一块（跳过落不下光标的代码块）",
+  focusedBlockId() === lower,
+  `焦点在 ${focusedBlockId() ?? "块外"}；activeElement = ${describeActive()}`,
+)
+check("落点是下一块的开头", caretEdge(lower)?.atStart === true, JSON.stringify(caretEdge(lower)))
+
+placeCaretAt(lower, 0)
+const upEvent = pressArrow(lower, "ArrowUp")
+await nextTick()
+await wait(100)
+check("块首按 ↑ 已接管", upEvent.defaultPrevented)
+check("块首按 ↑ 落到上一块", focusedBlockId() === upper, `焦点在 ${focusedBlockId() ?? "块外"}；activeElement = ${describeActive()}`)
+check("落点是上一块的末尾", caretEdge(upper)?.atEnd === true, JSON.stringify(caretEdge(upper)))
+
+placeCaretAt(lower, 1)
+const innerEvent = pressArrow(lower, "ArrowDown")
+await wait(50)
+check("光标不在首尾时不接管（块内上下移行留给浏览器）", innerEvent.defaultPrevented === false)
+
+placeCaretAt(lower, 0)
+const shiftEvent = pressArrow(lower, "ArrowUp", { shiftKey: true })
+await wait(50)
+check("Shift+↑ 不接管（扩选区留给浏览器）", shiftEvent.defaultPrevented === false)
 
 lines.push(`自检 ${passed}/${passed + failed}`)
 out.textContent = lines.join("\n")
