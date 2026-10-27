@@ -171,8 +171,11 @@ if (contentOf() !== null) {
 
   await typeKey("d")
   check(
-    "敲 d 落到代码块与待办列表",
-    typeLabels().length === 2 && typeLabels().some((label) => label.includes("代码块")) && typeLabels().some((label) => label.includes("待办列表")),
+    "敲 d 落到待办列表、代码块与订阅",
+    typeLabels().length === 3 &&
+      typeLabels().some((label) => label.includes("待办列表")) &&
+      typeLabels().some((label) => label.includes("代码块")) &&
+      typeLabels().some((label) => label.includes("订阅")),
     `实得 ${typeLabels().join(" / ")}`,
   )
 
@@ -186,7 +189,7 @@ if (contentOf() !== null) {
 
   // 退格逐个还回来：dmk → dm → d → 全量。
   for (const _ of [0, 1, 2]) await typeKey("Backspace")
-  check("退格退空后清单复原", typeLabels().length === 26, `实得 ${typeLabels().length} 项`)
+  check("退格退空后清单复原", typeLabels().length === 28, `实得 ${typeLabels().length} 项`)
   check("退空后回显退回提示语", echoText().includes("拼音首字母筛选"), `实得「${echoText()}」`)
 
   // 筛不中：清单里没有块类型，但菜单还得开着，并给一句话让人知道是筛空的。
