@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { CreateTarget, FileNode } from "@/types/workspace"
 import { computed } from "vue"
-import { ChevronRightIcon, CopyIcon, DatabaseIcon, EllipsisIcon, FilePlusIcon, FileTextIcon, FolderIcon, FolderOpenIcon, FolderPlusIcon, GlobeIcon, PencilIcon, PlusIcon, TrashIcon } from "@lucide/vue"
+import { ChevronRightIcon, CopyIcon, DatabaseIcon, EllipsisIcon, FileDownIcon, FilePlusIcon, FileTextIcon, FileUpIcon, FolderIcon, FolderOpenIcon, FolderPlusIcon, GlobeIcon, PencilIcon, PlusIcon, TrashIcon } from "@lucide/vue"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useToast } from "@/composables/useToast"
@@ -23,8 +23,19 @@ const emit = defineEmits<{
   remove: [path: string, kind: CreateTarget["kind"]]
 }>()
 
-const { expandedIds, activePath, isSearching, toggleExpanded, openFile, draggingPath, dropTargetPath, fs, root } =
-  useWorkspace()
+const {
+  expandedIds,
+  activePath,
+  isSearching,
+  toggleExpanded,
+  openFile,
+  draggingPath,
+  dropTargetPath,
+  fs,
+  root,
+  exportMarkdown,
+  importMarkdownInto,
+} = useWorkspace()
 const { notify } = useToast()
 
 // 节点的 id 就是完整工作区路径（见 `lib/fs/policy` 的 `folderNode` / `fileNode`）。
@@ -112,6 +123,16 @@ async function openInBrowser() {
   await driver.openInBrowser(current, fullPath.value)
 }
 
+/** 把这篇笔记导出成 Markdown；取消（`false`）不提示。 */
+async function exportAsMarkdown() {
+  if (await exportMarkdown(fullPath.value)) notify("已导出为 Markdown")
+}
+
+/** 从这个文件夹导入 Markdown 文件，作为一篇新笔记。 */
+async function importMarkdown() {
+  if (await importMarkdownInto(fullPath.value)) notify("已导入 Markdown")
+}
+
 /** 文件行可拖，且拖的是「这个文件」。路径作为 `dataTransfer` 载荷由 FileTree 写。 */
 function startDrag(event: DragEvent) {
   draggingPath.value = fullPath.value
@@ -167,6 +188,11 @@ function startDrag(event: DragEvent) {
             <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('create', fullPath, 'folder')">
               <FolderPlusIcon class="size-3.5 text-muted-foreground" />
               <span>新建文件夹</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem class="gap-2 text-[13px]" @select="importMarkdown">
+              <FileUpIcon class="size-3.5 text-muted-foreground" />
+              <span>从 Markdown 导入</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -277,6 +303,10 @@ function startDrag(event: DragEvent) {
             </DropdownMenuItem>
             <DropdownMenuSeparator />
           </template>
+          <DropdownMenuItem v-if="isHtmlFile" class="gap-2 text-[13px]" @select="exportAsMarkdown">
+            <FileDownIcon class="size-3.5 text-muted-foreground" />
+            <span>导出为md</span>
+          </DropdownMenuItem>
           <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('rename', fullPath, node.kind)">
             <PencilIcon class="size-3.5 text-muted-foreground" />
             <span>重命名</span>

@@ -275,7 +275,7 @@ pnpm icon           # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | 编辑器交互 | `chrome-check`、`tab-check`、`toolbar-check`、`sidebar-check`、`tree-integration-check`、`drag-check`、`split-check`、`cell-check`、`undo-check`、`menu-nav-check`、`focus-check`、`link-check`、`heading-nav-check`、`block-select-check` |
 | 块类型 | `table-check`、`table-align-check`、`data-table-check`、`gallery-check`、`kanban-check`、`ledger-check`、`ledger-edit-check`、`ledger-date-check`、`option-cell-check`、`subscription-check`、`playlist-check`、`playlist-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check` |
 | 样式与外观 | `typography-check`、`theme-check`、`theme-mode-check`、`page-style-check`、`settings-check` |
-| 文件操作 | `create-check`、`move-check` |
+| 文件操作 | `create-check`、`move-check`、`markdown-check` |
 | 其它 | `drawer-jitter-probe`（抽屉抖动守卫）、`icon-check`（图标观感） |
 
 其中有几页要等一次真实的读盘（挂真实编辑器、有顶层 `await`），`--dump-dom` 抓不到结果，用配套的

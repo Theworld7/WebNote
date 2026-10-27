@@ -9,7 +9,10 @@ import { describeError } from "@/lib/errors"
 import { parseNote, serializeHtml } from "@/lib/html"
 import type { DataTableLookup } from "@/lib/html"
 import { createWorkspaceFs, isTauriRuntime } from "@/lib/fs"
+import { pickMarkdownFile, saveMarkdownFile } from "@/lib/fs/transfer"
+import type { MarkdownFile } from "@/lib/fs/transfer"
 import { linkTargetOf } from "@/lib/link"
+import { blocksToMarkdown, markdownTitleOf, markdownToBlocks } from "@/lib/markdown"
 import { openExternalUrl } from "@/lib/open-external"
 import { createPlaylistPreset, createPlaylistSource } from "@/lib/playlist"
 import { NOTE_EXTENSION, TABLE_EXTENSION, checkName, defaultExpanded, fileStem, isNoteFile, isTableFile } from "@/lib/fs/policy"
@@ -843,7 +846,12 @@ function createWorkspace() {
    * 重扫期间**不置位 `scanning`**：那个 ref 的语义是「整棵树正在读取」，
    * 侧栏根名与编辑区空态都在消费它，单层刷新复用它会让整个界面闪一下。
    */
-  async function createInto(parentPath: string, name: string, kind: CreateTarget["kind"]): Promise<boolean> {
+  async function createInto(
+    parentPath: string,
+    name: string,
+    kind: CreateTarget["kind"],
+    initialBlocks?: readonly Block[],
+  ): Promise<boolean> {
     const driver = fs.value
     const current = root.value
     if (driver === null || current === null) return false
@@ -889,7 +897,8 @@ function createWorkspace() {
         if (tables === null) throw new Error("数据表注册表未接上")
         await tables.create(driver, current, path)
       } else {
-        await driver.createNote(current, path, serializeHtml([createBlock("text")], { title: titleOf(path) }))
+        const blocks = initialBlocks ?? [createBlock("text")]
+        await driver.createNote(current, path, serializeHtml(blocks, { title: titleOf(path) }))
       }
     } catch (error) {
       fsError.value = `新建「${fileName}」失败：${describeError(error)}`
@@ -921,6 +930,77 @@ function createWorkspace() {
   /** 在 `parentPath` 下新建一个数据表。 */
   function createTableIn(parentPath: string, name: string): Promise<boolean> {
     return createInto(parentPath, name, "table")
+  }
+
+  // ---- Markdown 导入 / 导出 ----
+
+  /**
+   * 把一篇笔记导出成 Markdown。
+   *
+   * 已打开的笔记用内存里的块（含未保存改动）；没打开的先读盘再解析。引用块要写成
+   * 数据表快照，所以先把引用的表读进内存 —— 与保存时的顺序一致。
+   *
+   * 保存位置由系统对话框决定，默认落在同目录同名 `.md`；用户取消返回 `false`。
+   */
+  async function exportMarkdown(path: string): Promise<boolean> {
+    const driver = fs.value
+    const current = root.value
+    if (driver === null || current === null) return false
+
+    let blocks: readonly Block[]
+    if (loadedPaths.value.has(path)) {
+      blocks = documents.value[path] ?? []
+    } else {
+      try {
+        blocks = parseNote(await driver.readNote(current, path)).blocks
+      } catch (error) {
+        fsError.value = `导出「${fileName(path)}」失败：${describeError(error)}`
+        return false
+      }
+    }
+
+    await registry.value?.preload(refPathsOf(blocks))
+
+    const suggestedName = `${fileStem(path)}.md`
+    const targetPath = joinPath(parentOfPath(path), suggestedName)
+    try {
+      return await saveMarkdownFile(
+        suggestedName,
+        driver.absolutePath(current, targetPath),
+        blocksToMarkdown(blocks, lookupTable),
+      )
+    } catch (error) {
+      fsError.value = `导出「${fileName(path)}」失败：${describeError(error)}`
+      return false
+    }
+  }
+
+  /**
+   * 从用户选中的 Markdown 文件导入一篇新笔记，落在 `parentPath` 下。
+   *
+   * 文件名去掉 `.md` 就是笔记标题；重名沿用新建的拒绝口径（ADR-0002）。解析失败
+   * 或用户取消都不建文件。
+   */
+  async function importMarkdownInto(parentPath: string): Promise<boolean> {
+    let picked: MarkdownFile | null
+    try {
+      picked = await pickMarkdownFile()
+    } catch (error) {
+      fsError.value = `导入 Markdown 失败：${describeError(error)}`
+      return false
+    }
+    if (picked === null) return false
+
+    let blocks: Block[]
+    try {
+      const parsed = markdownToBlocks(picked.text)
+      blocks = parsed.length === 0 ? [createBlock("text")] : parsed
+    } catch (error) {
+      fsError.value = `导入「${picked.name}」失败：${describeError(error)}`
+      return false
+    }
+
+    return createInto(parentPath, markdownTitleOf(picked.name), "note", blocks)
   }
 
   // ---- 移动（见 ADR-0003）----
@@ -2043,6 +2123,8 @@ function createWorkspace() {
     createNoteIn,
     createFolderIn,
     createTableIn,
+    exportMarkdown,
+    importMarkdownInto,
     moveFileTo,
     renameFile,
     deleteFile,

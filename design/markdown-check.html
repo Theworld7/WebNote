@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Markdown 往返自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; }
+  .fail { color: #b42318; }
+  .sum { margin-top: 12px; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>笔记 ↔ Markdown，自检</h1>
+<pre id="out">running…</pre>
+
+<script type="module">
+import { createTextualBlock } from "../src/lib/blocks.ts"
+import { parseHtml } from "../src/lib/html/parse.ts"
+import { runsText } from "../src/lib/inline.ts"
+import { blocksToMarkdown, markdownToBlocks, markdownTitleOf } from "../src/lib/markdown/index.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) {
+    passed += 1
+    lines.push(`OK   ${name}`)
+  } else {
+    failed += 1
+    lines.push(`FAIL ${name} —— ${detail}`)
+  }
+}
+
+function types(blocks) {
+  return blocks.map((block) => block.type).join(",")
+}
+
+/** 直接找一段带某个标记的 run，避免整块字符串比对把 id / 规范化细节绑进来。 */
+function hasMark(blocks, mark) {
+  return blocks.some(
+    (block) => block.type !== "layout" && Array.isArray(block.runs) && block.runs.some((run) => run.marks.includes(mark)),
+  )
+}
+
+function findRun(blocks, text) {
+  for (const block of blocks) {
+    if (block.type === "layout") continue
+    if (!Array.isArray(block.runs)) continue
+    const run = block.runs.find((item) => item.text === text)
+    if (run !== undefined) return run
+  }
+  return null
+}
+
+// ---------- 一、正文类块 → Markdown ----------
+
+const rich = parseHtml(
+  "<h1>标题</h1>" +
+    "<p>正文<strong>加粗</strong><em>斜体</em><code>a`b</code><u>下划线</u>" +
+    '<a href="https://example.com">链接</a></p>',
+)
+const richMd = blocksToMarkdown(rich)
+check("标题写成 ATX 标题", richMd.startsWith("# 标题"), richMd)
+check("加粗走 **", richMd.includes("**加粗**"), richMd)
+check("斜体走 *", richMd.includes("*斜体*"), richMd)
+check("行内代码按内容加长围栏", richMd.includes("``a`b``"), richMd)
+check("下划线保留为行内 HTML", richMd.includes("<u>下划线</u>"), richMd)
+check("链接写成尖括号目标", richMd.includes("[链接](<https://example.com>)"), richMd)
+
+const richBack = markdownToBlocks(richMd)
+check("正文往返：块类型不变", types(richBack) === "h1,text", types(richBack))
+check("正文往返：加粗保留", hasMark(richBack, "bold"))
+check("正文往返：斜体保留", hasMark(richBack, "italic"))
+check("正文往返：下划线保留", hasMark(richBack, "underline"))
+check("正文往返：行内代码保留", hasMark(richBack, "code"))
+const linkRun = findRun(richBack, "链接")
+check("正文往返：链接 href 保留", linkRun !== null && linkRun.href === "https://example.com", JSON.stringify(linkRun))
+
+const colored = parseHtml('<p><span style="color:#9c6951" data-run-color="2">棕色</span> 普通</p>')
+const coloredMd = blocksToMarkdown(colored)
+check("颜色写成带 data-run-color 的行内 HTML", coloredMd.includes('data-run-color="2"'), coloredMd)
+const coloredBack = markdownToBlocks(coloredMd)
+const colorRun = findRun(coloredBack, "棕色")
+check("颜色往返：色值保留", colorRun !== null && colorRun.color === "#9c6951", JSON.stringify(colorRun))
+
+const card = parseHtml('<p><a href="https://example.com" data-link-shape="card" data-icon="E">卡片</a></p>')
+const cardBack = markdownToBlocks(blocksToMarkdown(card))
+const cardRun = findRun(cardBack, "卡片")
+check("卡片链接往返：形状保留", cardRun !== null && cardRun.linkShape === "card", JSON.stringify(cardRun))
+
+// ---------- 二、列表 / 待办 / 表格 ----------
+
+const lists = parseHtml(
+  "<ul><li>甲<ul><li>乙</li></ul></li></ul>" +
+    "<ol><li>一</li><li>二</li></ol>" +
+    '<ul><li><input type="checkbox" checked>完成</li><li><input type="checkbox">未完成</li></ul>',
+)
+const listsMd = blocksToMarkdown(lists)
+check("无序列表", listsMd.includes("- 甲\n    - 乙"), listsMd)
+check("有序列表编号连续", listsMd.includes("1. 一\n2. 二"), listsMd)
+check("待办列表写 [x] / [ ]", listsMd.includes("- [x] 完成\n- [ ] 未完成"), listsMd)
+
+const listsBack = markdownToBlocks(listsMd)
+check("列表往返：类型与深度", types(listsBack) === "ul,ul,ol,ol,todo,todo", types(listsBack))
+check("列表往返：深度保留", listsBack[1].depth === 1 && listsBack[0].depth === 0, `${listsBack[0]?.depth}/${listsBack[1]?.depth}`)
+check("待办往返：勾选状态", listsBack[4].checked === true && listsBack[5].checked === false)
+
+const table = parseHtml(
+  '<table><thead><tr><th>甲</th><th align="right">乙</th></tr></thead>' +
+    '<tbody><tr><td>1 | 2</td><td>3</td></tr></tbody></table>',
+)
+const tableMd = blocksToMarkdown(table)
+check("表格表头", tableMd.includes("| 甲 | 乙 |"), tableMd)
+check("表格对齐", tableMd.includes("| --- | ---: |"), tableMd)
+check("单元格竖线被转义", tableMd.includes("1 \\| 2"), tableMd)
+const tableBack = markdownToBlocks(tableMd)
+check("表格往返：类型", types(tableBack) === "table", types(tableBack))
+check("表格往返：右对齐", tableBack[0]?.rows[0]?.[1]?.align === "right", JSON.stringify(tableBack[0]?.rows[0]))
+
+// ---------- 三、引用 / 提示框 / 代码 / 分割线 / 图片 ----------
+
+const quoteBlocks = parseHtml("<blockquote>引用第一行<br>第二行</blockquote><aside>提示内容</aside><hr>")
+const quoteMd = blocksToMarkdown(quoteBlocks)
+check("引用块每行加 >", quoteMd.includes("> 引用第一行  \n> 第二行"), quoteMd)
+check("提示框写成 GFM alert", quoteMd.includes("> [!NOTE]  \n> 提示内容"), quoteMd)
+check("分割线", quoteMd.includes("---"), quoteMd)
+const quoteBack = markdownToBlocks(quoteMd)
+check("引用 / 提示框往返", types(quoteBack) === "quote,callout,divider", types(quoteBack))
+
+const code = parseHtml('<pre><code class="language-js">const a = "```"</code></pre>')
+const codeMd = blocksToMarkdown(code)
+check("代码围栏按内容加长", codeMd.startsWith("````js\n"), codeMd)
+const codeBack = markdownToBlocks(codeMd)
+check("代码往返：语言", codeBack[0]?.type === "code" && codeBack[0]?.lang === "js", JSON.stringify(codeBack[0]))
+check("代码往返：内容", codeBack[0]?.type === "code" && runsText(codeBack[0].runs) === 'const a = "```"')
+
+const image = parseHtml('<img src="a b.png" alt="图" title="标题">')
+check("图片写成 Markdown 图片", blocksToMarkdown(image).includes('![图](<a b.png> "标题")'), blocksToMarkdown(image))
+
+// ---------- 四、结构块快照 ----------
+
+const tableSource = {
+  version: 1,
+  columns: [
+    { id: "c1", name: "名称", type: "text" },
+    { id: "c2", name: "金额", type: "number" },
+  ],
+  rows: [
+    { id: "r1", values: { c1: "甲", c2: 12 } },
+    { id: "r2", values: { c1: "乙", c2: 34 } },
+  ],
+}
+const lookup = () => tableSource
+
+const dataBlock = { id: "b1", type: "datatable", path: "数据/账目.tbl" }
+const dataMd = blocksToMarkdown([dataBlock], lookup)
+check("数据表块导出为快照表格", dataMd.includes("| 名称 | 金额 |") && dataMd.includes("| 甲 | 12 |"), dataMd)
+check("数据表快照可被重新导入为表格", markdownToBlocks(dataMd)[0]?.type === "table", types(markdownToBlocks(dataMd)))
+
+const missingMd = blocksToMarkdown([{ id: "b2", type: "gallery", path: "丢了.tbl" }], () => null)
+check("读不到的数据表写提示而不是丢块", missingMd.includes("引用的数据表读不到"), missingMd)
+
+const statBlock = {
+  id: "b3",
+  type: "stat",
+  path: "数据/账目.tbl",
+  columnId: "c2",
+  filterColumnId: "c1",
+  filterValue: "甲",
+}
+const statMd = blocksToMarkdown([statBlock], lookup)
+check("统计块写成列名 + 合计", statMd.includes("**金额 · 名称 = 甲**：12.00"), statMd)
+
+const chatBlock = {
+  id: "b4",
+  type: "chat",
+  messages: [
+    { role: "you", text: "你好" },
+    { role: "agent", text: "在" },
+  ],
+}
+check("聊天记录逐条写出", blocksToMarkdown([chatBlock]).includes("**我**：你好\n\n**对方**：在"), blocksToMarkdown([chatBlock]))
+
+const layoutBlock = {
+  id: "b5",
+  type: "layout",
+  mode: "grid",
+  cells: [parseHtml("<p>左</p>"), parseHtml("<p>右</p>")],
+}
+const layoutMd = blocksToMarkdown([layoutBlock])
+check("布局块按格子顺序摊平", layoutMd === "左\n\n右", JSON.stringify(layoutMd))
+
+const htmlBlock = { id: "b6", type: "html", source: '<div class="raw">原文</div>' }
+const htmlMd = blocksToMarkdown([htmlBlock])
+check("HTML 块原文放进 note-html 围栏", htmlMd.includes("<!--note-html-->") && htmlMd.includes('<div class="raw">原文</div>'), htmlMd)
+const htmlBack = markdownToBlocks(htmlMd)
+check("HTML 块往返", htmlBack[0]?.type === "html" && htmlBack[0]?.source === '<div class="raw">原文</div>', JSON.stringify(htmlBack))
+
+// ---------- 五、Markdown → 笔记 ----------
+
+const external = [
+  "# 外来的标题",
+  "",
+  "段落里有 **粗体** 和 [链接](https://example.com)。",
+  "",
+  "- 第一层",
+  "  - 第二层",
+  "",
+  "1. 甲",
+  "2. 乙",
+  "",
+  "- [x] 已做",
+  "- [ ] 没做",
+  "",
+  "| 列一 | 列二 |",
+  "| --- | ---: |",
+  "| 值 | 2 |",
+  "",
+  "```ts",
+  "const n = 1",
+  "```",
+  "",
+  "> [!TIP]",
+  "> 从外部导入的提示。",
+].join("\n")
+const externalBlocks = markdownToBlocks(external)
+check(
+  "外部 Markdown：块类型齐全",
+  types(externalBlocks) === "h1,text,ul,ul,ol,ol,todo,todo,table,code,callout",
+  types(externalBlocks),
+)
+check("外部 Markdown：表格右对齐", externalBlocks[8]?.rows[0]?.[1]?.align === "right")
+check("外部 Markdown：提示框由 GFM alert 还原", externalBlocks[10]?.type === "callout")
+check("外部 Markdown：任务列表还原", externalBlocks[6]?.checked === true && externalBlocks[7]?.checked === false)
+
+check("文件名去掉 .md 就是标题", markdownTitleOf("我的笔记.MD") === "我的笔记", markdownTitleOf("我的笔记.MD"))
+check("空 Markdown 解析为空块列表", markdownToBlocks("").length === 0)
+
+// ---------- 输出 ----------
+
+const summary = `自检 ${passed}/${passed + failed} 通过`
+document.getElementById("out").textContent = lines.join("\n") + `\n\n${summary}`
+document.title = summary
+
+const box = document.getElementById("out")
+box.insertAdjacentHTML(
+  "beforeend",
+  `<span class="sum ${failed > 0 ? "fail" : "ok"}">${summary}</span>`,
+)
+</script>
+</body>
+</html>

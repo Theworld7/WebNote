@@ -2,9 +2,10 @@
 import type { CreateTarget, TreeTarget } from "@/types/workspace"
 import { FolderIcon, FolderOpenIcon, PlusIcon, RefreshCwIcon, SearchIcon } from "@lucide/vue"
 import { computed, ref } from "vue"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { useToast } from "@/composables/useToast"
 import { useWorkspace } from "@/composables/useWorkspace"
 import CreateDialog from "./CreateDialog.vue"
 import DeleteDialog from "./DeleteDialog.vue"
@@ -13,7 +14,8 @@ import RenameDialog from "./RenameDialog.vue"
 
 defineProps<{ width: number }>()
 
-const { query, rootName, hasRoot, scanning, fsHint, openRoot, refreshTree } = useWorkspace()
+const { query, rootName, hasRoot, scanning, fsHint, openRoot, refreshTree, importMarkdownInto } = useWorkspace()
+const { notify } = useToast()
 
 /** 挂起的命名对话框目标。null 表示关着。 */
 const createTarget = ref<CreateTarget | null>(null)
@@ -26,6 +28,12 @@ const deleteTarget = ref<TreeTarget | null>(null)
 function requestCreate(kind: CreateTarget["kind"]) {
   if (!hasRoot.value) return
   createTarget.value = { parentPath: "", kind }
+}
+
+/** 根层导入 Markdown：和根层新建一样落在工作区根目录。 */
+async function requestImport() {
+  if (!hasRoot.value) return
+  if (await importMarkdownInto("")) notify("已导入 Markdown")
 }
 
 /**
@@ -102,6 +110,10 @@ function setQuery(value: string | number) {
             </DropdownMenuItem>
             <DropdownMenuItem class="gap-2 text-[13px]" @select="requestCreate('folder')">
               <span>新建文件夹</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem class="gap-2 text-[13px]" @select="requestImport">
+              <span>从 Markdown 导入</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

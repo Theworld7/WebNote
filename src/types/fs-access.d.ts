@@ -18,6 +18,14 @@ interface DirectoryPickerOptions {
   startIn?: FileSystemHandle | string
 }
 
+/** `showSaveFilePicker` 的选项；只声明导出 Markdown 用到的那几项。 */
+interface SaveFilePickerOptions {
+  suggestedName?: string
+  types?: { description?: string; accept: Record<string, string[]> }[]
+}
+
 interface Window {
   showDirectoryPicker(options?: DirectoryPickerOptions): Promise<FileSystemDirectoryHandle>
+  /** 浏览器没实现时是 `undefined`，调用前做特性探测。 */
+  showSaveFilePicker?(options?: SaveFilePickerOptions): Promise<FileSystemFileHandle>
 }
