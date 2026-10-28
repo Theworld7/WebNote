@@ -11,8 +11,9 @@ import type { DataTableLookup } from "@/lib/html"
 import { createWorkspaceFs, isTauriRuntime } from "@/lib/fs"
 import { pickMarkdownFile, saveMarkdownFile } from "@/lib/fs/transfer"
 import type { MarkdownFile } from "@/lib/fs/transfer"
-import { linkTargetOf } from "@/lib/link"
+import { linkTargetOf, resolveRelativePath } from "@/lib/link"
 import { blocksToMarkdown, markdownTitleOf, markdownToBlocks } from "@/lib/markdown"
+import { bytesToBlob, imageDataUriOf, imageMimeOf } from "@/lib/image"
 import { openExternalUrl } from "@/lib/open-external"
 import { createPlaylistPreset, createPlaylistSource } from "@/lib/playlist"
 import { MARKDOWN_EXTENSION, NOTE_EXTENSION, TABLE_EXTENSION, checkName, defaultExpanded, fileStem, isMarkdownFile, isNoteFile, isTableFile } from "@/lib/fs/policy"
@@ -613,7 +614,7 @@ function createWorkspace() {
       return
     }
     if (target.kind === "unsupported") {
-      fsError.value = `链接指向的不是笔记或数据表：${target.href}`
+      fsError.value = `链接指向的不是笔记、数据表或 Markdown：${target.href}`
       return
     }
     const driver = fs.value
@@ -1088,7 +1089,54 @@ function createWorkspace() {
       return false
     }
 
+    await inlineRelativeImages(driver, current, blocks, path)
     return createInto(parentPath, name, "note", blocks)
+  }
+
+  /**
+   * 把 Markdown 里的相对图片读成 data URI，就地写回图片块。
+   *
+   * 图片块只会认「磁盘相对路径或 data URI」里的后者 —— 预览可以靠 `imageSourceOf`
+   * 现读现绑 object URL，落盘的笔记没有那条通道，不内联的话（真机上验证过）一打开
+   * 就是「图片打不开」。读不到的保留原地址：转换不该因为一张图放弃整篇。
+   */
+  async function inlineRelativeImages(
+    driver: WorkspaceFs,
+    current: FsRoot,
+    blocks: readonly Block[],
+    markdownPath: string,
+  ): Promise<void> {
+    for (const block of blocks) {
+      if (block.type !== "image" || block.src.startsWith("data:")) continue
+      const path = resolveRelativePath(markdownPath, block.src)
+      if (path === null) continue
+      try {
+        block.src = await imageDataUriOf(await driver.readBinary(current, path), imageMimeOf(path))
+      } catch {
+        // 文件不在盘上、不是图片：留着原地址，至少能看出它本来指向哪里。
+      }
+    }
+  }
+
+  /**
+   * 工作区里的图片文件 → 能直接挂到 `<img src>` 的地址。
+   *
+   * Markdown 预览引用的是盘上的相对路径（`./images/a.png`），不能像图片块那样内联成
+   * data URI —— 那条路读的是用户拖进来的 `File`。这里读字节再包成 object URL；
+   * 每调一次都是一个新 URL，调用方用完必须 `URL.revokeObjectURL`。
+   *
+   * 失败返回 `null`：图裂一张不影响整篇预览，调用方保留原地址即可。
+   */
+  async function imageSourceOf(path: string): Promise<string | null> {
+    const driver = fs.value
+    const current = root.value
+    if (driver === null || current === null) return null
+    try {
+      const bytes = await driver.readBinary(current, path)
+      return URL.createObjectURL(bytesToBlob(bytes, imageMimeOf(fileName(path))))
+    } catch {
+      return null
+    }
   }
 
   // ---- 移动（见 ADR-0003）----
@@ -2222,6 +2270,7 @@ function createWorkspace() {
     exportMarkdown,
     importMarkdownInto,
     convertMarkdownToNote,
+    imageSourceOf,
     moveFileTo,
     renameFile,
     deleteFile,

@@ -57,6 +57,13 @@ const MARKDOWN = [
   "",
   "> 引用",
   "",
+  "> [!NOTE]",
+  "> 提示框正文。",
+  "",
+  "![图](./图.png)",
+  "",
+  "[同伴](./同伴.md)",
+  "",
   "```js",
   "const a = 1",
   "```",
@@ -67,11 +74,35 @@ const MARKDOWN = [
 
 step("opfs")
 const opfs = await navigator.storage.getDirectory()
+// 上一轮跑过会留下 说明.html，转换那条用例会被「重名拒绝」顶掉 —— 每次从空目录开始。
+await opfs.removeEntry("markdown-view-probe", { recursive: true }).catch(() => {})
 const dir = await opfs.getDirectoryHandle("markdown-view-probe", { create: true })
 const file = await dir.getFileHandle("说明.md", { create: true })
 const writable = await file.createWritable()
 await writable.write(MARKDOWN)
 await writable.close()
+
+// 相对图片要读的是一张真图：用 canvas 现画一张，比手抄 base64 可靠（抄错就是「解码失败」）。
+const canvas = document.createElement("canvas")
+canvas.width = 2
+canvas.height = 2
+const context = canvas.getContext("2d")
+if (context !== null) {
+  context.fillStyle = "#c00"
+  context.fillRect(0, 0, 2, 2)
+}
+const pngBlob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"))
+const pngFile = await dir.getFileHandle("图.png", { create: true })
+const pngWritable = await pngFile.createWritable()
+await pngWritable.write(new Uint8Array(await pngBlob.arrayBuffer()))
+await pngWritable.close()
+
+// 相对链接指向的另一篇 Markdown（转换完再点，免得换了标签影响前面的断言）。
+const companion = await dir.getFileHandle("同伴.md", { create: true })
+const companionWritable = await companion.createWritable()
+await companionWritable.write("# 同伴")
+await companionWritable.close()
+
 window.showDirectoryPicker = async () => dir
 
 step("mount")
@@ -113,7 +144,8 @@ if (mdNode === null) {
 
 const docRoot = () => document.querySelector("[data-markdown-doc]")
 const headings = () => document.querySelectorAll("[data-markdown-doc] h1")
-const xssImage = () => document.querySelector("[data-markdown-doc] img")
+const xssImage = () => document.querySelector('[data-markdown-doc] img[src="x"]')
+const localImage = () => document.querySelector("[data-markdown-doc] img[src^='blob:']")
 
 check("打开的是 Markdown 标签", workspace.isActiveMarkdown.value === true)
 check("原文读进来了", workspace.activeMarkdown.value.includes("# 说明"), workspace.activeMarkdown.value)
@@ -139,6 +171,21 @@ check("脚本元素没有进 DOM", docRoot()?.querySelector("script") === null)
 check("事件属性被摘掉", xssImage() !== null && !xssImage().hasAttribute("onerror"))
 check("消毒后的内容没有执行", window.__xss === undefined, String(window.__xss))
 
+step("alert")
+check("alert 渲染成提示框", docRoot()?.querySelector('aside[data-block-type="callout"]') !== null)
+check("提示框里没有触发词", docRoot()?.textContent.includes("[!NOTE]") === false)
+
+step("local image")
+// 读盘 + 解码都是异步的：等图真的画出来再断言，否则量到的是「还没开始加载」。
+for (let i = 0; i < 80; i += 1) {
+  const image = localImage()
+  if (image !== null && image.complete && image.naturalWidth > 0) break
+  await wait(50)
+}
+const loadedImage = localImage()
+check("相对图片换成 object URL", loadedImage !== null)
+check("本地图片解码出来", loadedImage?.naturalWidth === 2, String(loadedImage?.naturalWidth))
+
 step("convert")
 // `?preview` 只留预览不点转换：截图看排版时用，转换会把编辑区切到新笔记，预览就空了。
 const previewOnly = new URLSearchParams(location.search).has("preview")
@@ -157,8 +204,28 @@ if (previewOnly) {
     const noteText = await (await noteFile.getFile()).text()
     check("产物是笔记形态的 HTML", noteText.includes("<h1"), noteText.slice(0, 160))
     check("产物里没有 Markdown 记号", !noteText.includes("**"), noteText.slice(0, 160))
+    // 图片块只认 data URI：留着 `./图.png` 的话一打开就是「图片打不开」（真机验收踩过）。
+    check("相对图片内联成 data URI", noteText.includes("data:image/png;base64,"), noteText.slice(0, 160))
   }
   check("原 Markdown 还在盘上", (await dir.getFileHandle("说明.md").catch(() => null)) !== null)
+}
+
+step("relative link")
+if (previewOnly) {
+  lines.push("SKIP 预览模式：不点相对链接")
+} else {
+  // 转换把编辑区切到了新笔记，预览已经空了：先把 Markdown 重新打开再点链接。
+  await workspace.openFile(mdNode.id)
+  for (let i = 0; i < 80 && workspace.activeMarkdown.value === ""; i += 1) await wait(50)
+  await nextTick()
+
+  const anchors = [...document.querySelectorAll("[data-markdown-doc] a")]
+  // marked 会把中文地址百分号编码（`./%E5%90%8C...`），比较前先解码。
+  const link = anchors.find((el) => decodeURIComponent(el.getAttribute("href") ?? "") === "./同伴.md")
+  check("相对链接渲染出来", link !== undefined, anchors.map((el) => el.getAttribute("href")).join(" | "))
+  link?.click()
+  for (let i = 0; i < 80 && workspace.activePath.value !== "同伴.md"; i += 1) await wait(50)
+  check("相对链接按所在目录解析并开标签", workspace.activePath.value === "同伴.md", workspace.activePath.value)
 }
 
 document.getElementById("out").textContent = [`自检 ${passed}/${passed + failed} 通过`, "", ...lines].join("\n")

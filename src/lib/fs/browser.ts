@@ -257,6 +257,11 @@ export function createBrowserFs(): WorkspaceFs {
       return readFileAt(rootOf(root), path)
     },
 
+    async readBinary(root, path) {
+      const handle = await fileHandleAt(rootOf(root), path, false)
+      return new Uint8Array(await (await handle.getFile()).arrayBuffer())
+    },
+
     async writeNote(root, path, html) {
       await writeFileAt(rootOf(root), path, html)
     },

@@ -1,4 +1,5 @@
-import { isNoteFile, isTableFile } from "@/lib/fs/policy"
+import { isMarkdownFile, isNoteFile, isTableFile } from "@/lib/fs/policy"
+import { fromSegments, toSegments } from "@/lib/paths"
 
 /**
  * 行内链接「点下去会去哪儿」的判定。
@@ -12,8 +13,8 @@ import { isNoteFile, isTableFile } from "@/lib/fs/policy"
  *
  * - `none`：空地址与页内片段（`#xxx`），没有可打开的文档；
  * - `external`：带 scheme 的地址，交给系统浏览器；
- * - `workspace`：工作区里的笔记或数据表，在应用内开标签；
- * - `unsupported`：相对地址但指向的不是那两种文件，应用里打不开。
+ * - `workspace`：工作区里的笔记、数据表或 Markdown，在应用内开标签；
+ * - `unsupported`：相对地址但指向的不是那几种文件，应用里打不开。
  */
 export type LinkTarget =
   | { kind: "none" }
@@ -38,12 +39,12 @@ export function linkTargetOf(href: string): LinkTarget {
 /**
  * 这条工作区路径指向的是不是**能在应用里打开**的东西。
  *
- * 只有笔记与数据表有编辑器（见 ADR-0005），别的文件即使真在盘上，也没有可开的标签。
- * 后缀判定复用 `policy` 的那两个函数（它们只看名字末尾，传整条路径同样成立）——
- * 「什么后缀算笔记」不许有第二份口径。
+ * 只有笔记、数据表与 Markdown 有界面能开（见 ADR-0005），别的文件即使真在盘上，
+ * 也没有可开的标签。后缀判定复用 `policy` 的那几个函数（它们只看名字末尾，传整条路径
+ * 同样成立）——「什么后缀算工作区文档」不许有第二份口径。
  */
 export function isWorkspaceDoc(path: string): boolean {
-  return isNoteFile(path) || isTableFile(path)
+  return isNoteFile(path) || isTableFile(path) || isMarkdownFile(path)
 }
 
 /**
@@ -73,4 +74,36 @@ function decodeSafely(text: string): string {
   } catch {
     return text
   }
+}
+
+/**
+ * 把一条**相对于某篇文档**的地址解析成工作区路径。
+ *
+ * Markdown 预览里的 `./图/a.png`、`../其他.html` 是相对「读到的那份文件所在目录」写的，
+ * 而工作区路径以根为基准 —— 先把基准目录铺开，再逐段处理 `.` 与 `..`。
+ *
+ * 带 scheme 的地址（`https:` / `data:`）、协议相对地址（`//host/x`）与页内片段都不是
+ * 文件定位，返回 `null`。`..` 越过根时同样返回 `null`：工作区没有「根之上」，指向一个
+ * 猜出来的同名文件，比如实打不开更坏。
+ *
+ * 查询串与片段一并摘掉：它们不参与定位文件。
+ */
+export function resolveRelativePath(basePath: string, href: string): string | null {
+  const [beforeFragment = ""] = href.split("#")
+  const [head = ""] = beforeFragment.split("?")
+  const text = decodeSafely(head).replace(/\\/g, "/")
+  if (SCHEME.test(text) || text.startsWith("//")) return null
+
+  const stack: string[] = text.startsWith("/") ? [] : toSegments(basePath).slice(0, -1)
+  for (const raw of text.split("/")) {
+    const segment = raw.trim()
+    if (segment === "" || segment === ".") continue
+    if (segment === "..") {
+      if (stack.length === 0) return null
+      stack.pop()
+      continue
+    }
+    stack.push(segment)
+  }
+  return stack.length === 0 ? null : fromSegments(stack)
 }

@@ -21,6 +21,7 @@ import { createTextualBlock } from "../src/lib/blocks.ts"
 import { parseHtml } from "../src/lib/html/parse.ts"
 import { runsText } from "../src/lib/inline.ts"
 import { blocksToMarkdown, markdownToBlocks, markdownTitleOf, markdownToHtml } from "../src/lib/markdown/index.ts"
+import { resolveRelativePath } from "../src/lib/link.ts"
 
 const lines = []
 let passed = 0
@@ -266,6 +267,21 @@ check("预览：段落带块类型", preview.includes('<p data-block-type="text"
 check("预览：列表保留原生标签", preview.includes("<li>") && preview.includes('<ul data-block-type="ul">'), preview)
 check("预览：代码块带块类型", preview.includes('<pre data-block-type="code">'), preview)
 check("预览：表格保留原生标签", preview.includes("<table>"), preview)
+
+// alert：预览必须与导入端认出同一批写法，转成笔记前后才不是「引用块变提示框」。
+const alerted = markdownToHtml(["> [!NOTE]", "> 记得保存。", "", "> 普通引用"].join("\n"))
+check("预览：alert 还原成提示框", alerted.includes('<aside data-block-type="callout">'), alerted)
+check("预览：提示框里没有触发词", !alerted.includes("[!NOTE]"), alerted)
+check("预览：普通引用仍是引用块", alerted.includes('<blockquote data-block-type="quote">'), alerted)
+
+// 相对地址：Markdown 里的写法是相对所在目录的，不是相对工作区根。
+check("相对路径：同级文件", resolveRelativePath("笔记 / 说明.md", "./图/a.png") === "笔记 / 图 / a.png", String(resolveRelativePath("笔记 / 说明.md", "./图/a.png")))
+check("相对路径：上级目录", resolveRelativePath("a / b / c.md", "../x.html") === "a / x.html", String(resolveRelativePath("a / b / c.md", "../x.html")))
+check("相对路径：越出根不猜", resolveRelativePath("c.md", "../x.html") === null)
+check("相对路径：根相对写法", resolveRelativePath("a / b.md", "/顶层/文档.html") === "顶层 / 文档.html", String(resolveRelativePath("a / b.md", "/顶层/文档.html")))
+check("相对路径：摘掉片段与查询串", resolveRelativePath("a.md", "./b.html?v=1#小节") === "b.html", String(resolveRelativePath("a.md", "./b.html?v=1#小节")))
+check("相对路径：外链不落盘", resolveRelativePath("a.md", "https://example.com/x") === null)
+check("相对路径：页内片段不落盘", resolveRelativePath("a.md", "#小节") === null)
 
 const unsafe = markdownToHtml(
   // 末尾那个闭合标签必须写成 `<\/script>`：内联脚本里出现字面的闭合 script 标签会把

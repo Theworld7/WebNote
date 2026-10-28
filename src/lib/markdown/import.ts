@@ -12,7 +12,13 @@ import { createTextualBlock } from "@/lib/blocks"
 import { parseNote } from "@/lib/html"
 import { normalizeRuns } from "@/lib/inline"
 
-const ALERT_MARKER = /^\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/
+/**
+ * GFM alert 的触发词。
+ *
+ * 导入端与预览端（`render.ts`）必须认同一批写法 —— 否则同一篇 Markdown 浏览时是
+ * 引用块、转成笔记后却成了提示框。所以这条正则只有这一份。
+ */
+export const ALERT_MARKER = /^\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/
 
 /** Markdown 文本 → 块列表。空文档返回空数组，由调用方决定补一个空文本块。 */
 export function markdownToBlocks(source: string): Block[] {

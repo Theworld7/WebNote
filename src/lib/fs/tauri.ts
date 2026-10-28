@@ -3,7 +3,7 @@ import type { FileNode } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "./types"
 import { invoke } from "@tauri-apps/api/core"
 import { open } from "@tauri-apps/plugin-dialog"
-import { exists as fsExists, mkdir, readDir, readTextFile, remove as fsRemove, rename, writeTextFile } from "@tauri-apps/plugin-fs"
+import { exists as fsExists, mkdir, readDir, readFile, readTextFile, remove as fsRemove, rename, writeTextFile } from "@tauri-apps/plugin-fs"
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener"
 import { joinPath, toSegments } from "@/lib/paths"
 import {
@@ -156,6 +156,11 @@ export function createTauriFs(): WorkspaceFs {
 
     async readNote(root, path) {
       return readTextFile(absoluteOf(root, path))
+    },
+
+    async readBinary(root, path) {
+      if (root.kind !== "path") throw new Error("桌面端实现收到了非路径形态的根目录")
+      return readFile(absoluteOf(root, path))
     },
 
     async writeNote(root, path, html) {

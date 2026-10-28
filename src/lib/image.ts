@@ -11,12 +11,49 @@
 
 const IMAGE_PREFIX = "image/"
 
+/**
+ * 图片后缀 → MIME。
+ *
+ * 预览从盘上读出来的是裸字节，Blob 需要一个类型；缺省成空串交给浏览器嗅探 ——
+ * 猜错类型比不说更糟（把 JPEG 声明成 PNG，有的内核会拒绝解码）。
+ */
+const IMAGE_MIME: Readonly<Record<string, string>> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  avif: "image/avif",
+  svg: "image/svg+xml",
+  bmp: "image/bmp",
+  ico: "image/x-icon",
+}
+
+/** 按文件名判图片的 MIME。不认识的形态返回空串，让浏览器自己嗅。 */
+export function imageMimeOf(name: string): string {
+  const dot = name.lastIndexOf(".")
+  if (dot === -1) return ""
+  return IMAGE_MIME[name.slice(dot + 1).toLowerCase()] ?? ""
+}
+
 export function isImageFile(file: File): boolean {
   return file.type.startsWith(IMAGE_PREFIX)
 }
 
-/** 图片文件 → data URI。 */
-export function readImageFile(file: File): Promise<string> {
+/**
+ * 字节 → Blob。
+ *
+ * 复制进一个新 `ArrayBuffer`：`Uint8Array<ArrayBufferLike>` 不是 `BlobPart`，
+ * 而项目不允许用类型断言把这件事糊过去。
+ */
+export function bytesToBlob(bytes: Uint8Array, mime: string): Blob {
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  return new Blob([copy.buffer], { type: mime })
+}
+
+/** 图片 → data URI。`File` 是 `Blob`，拖进来的文件和盘上读回来的字节都走这一条。 */
+export function readImageFile(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {
@@ -27,6 +64,11 @@ export function readImageFile(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error ?? new Error("图片读取失败"))
     reader.readAsDataURL(file)
   })
+}
+
+/** 图片字节 → data URI。转换 Markdown 时把本地图片内联进笔记用。 */
+export function imageDataUriOf(bytes: Uint8Array, mime: string): Promise<string> {
+  return readImageFile(bytesToBlob(bytes, mime))
 }
 
 /**

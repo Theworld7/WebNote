@@ -47,6 +47,13 @@ export interface WorkspaceFs {
   scanDir(root: FsRoot, path: string): Promise<FileNode[]>
   /** 按工作区路径读一篇笔记的 HTML 原文。 */
   readNote(root: FsRoot, path: string): Promise<string>
+  /**
+   * 按工作区路径读一个文件的原始字节。
+   *
+   * 文本通道（`readNote`）会把二进制当文本解，Markdown 预览里引用的本地图片需要的是
+   * 原样字节 —— 前端再把它包成 object URL 交给 `<img>`。
+   */
+  readBinary(root: FsRoot, path: string): Promise<Uint8Array>
   /** 把 HTML 写回工作区路径。已有的覆盖，浏览器端不存在的会被创建。 */
   writeNote(root: FsRoot, path: string, html: string): Promise<void>
   /**
