@@ -14,9 +14,11 @@ import {
 } from "@/components/ui/dropdown-menu"
 import TableRefNotice from "@/components/TableRefNotice.vue"
 import OptionCell from "@/components/OptionCell.vue"
+import DateCalendar from "@/components/DateCalendar.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
 import { useCellEditing } from "@/composables/useCellEditing"
+import { useDateCellPanel } from "@/composables/useDateCellPanel"
 import * as dt from "@/lib/data-table"
 
 /**
@@ -110,7 +112,36 @@ function cellOf(row: DataRow, column: DataColumn): string {
  * 勾选直接切换。这一套与画册卡 / 账目行共用 `useCellEditing` ——
  * 同一格在表格编辑页与三种引用块里编辑,规则必须是同一条。
  */
-const { editing, cellKey, commitOnEnter, commitOnBlur, commitOption, toggleCheck, focusOnMount } = useCellEditing(change)
+const { editing, cellKey, commit, commitOnEnter, commitOnBlur, commitOption, toggleCheck, focusOnMount } = useCellEditing(change)
+
+/**
+ * 日期格的下拉月历,与账目行同一套(状态与焦点处理都在 `useDateCellPanel`):
+ * 点开输入框就展开,选中的那天直接写回格。卡片本身小,靠文本手敲 `YYYY-MM-DD`
+ * 太容易打错,日历面板省掉这一层。
+ */
+const {
+  panel: datePanel,
+  open: openDatePanel,
+  close: closeDatePanel,
+  pick: pickDate,
+  blur: blurDateCell,
+  keydown: dateKeydown,
+} = useDateCellPanel(
+  { editing, cellKey, commit, commitOnBlur },
+  { rows: () => rows.value, columns: () => columns.value },
+)
+
+/**
+ * 卡片格子的键盘。日期格把方向键与回车让给月历(高亮那天、回车确认)，
+ * 其余键照常进输入框打日期;非日期格就是原来的「回车提交」。
+ */
+function onCellKeydown(column: DataColumn, event: KeyboardEvent): void {
+  if (column.type === "date" && dateKeydown(event)) return
+  if (event.key === "Enter") {
+    event.preventDefault()
+    commitOnEnter(event)
+  }
+}
 
 // ---- 拖拽改值 ----
 
@@ -385,14 +416,20 @@ function openTable() {
                 @pick="commitOption(row, column, $event)"
               />
 
+              <!-- 日期格:输入框一聚焦就展开月历(浮层在模板末尾的 Teleport 里)。
+                   面板上所有 mousedown 都 prevent,点日期不会让输入框失焦 —— 失焦即提交、
+                   一提交就退出编辑态,面板跟着消失,那一天根本点不到。 -->
               <input
                 v-else-if="editing === cellKey(row, column)"
                 :ref="focusOnMount"
                 class="w-full min-w-0 rounded bg-transparent px-0.5 text-[12px] leading-snug outline-none"
                 :value="cellOf(row, column)"
                 :placeholder="column.type === 'date' ? 'YYYY-MM-DD' : ''"
-                @keydown.enter.prevent="commitOnEnter"
-                @blur="(event: Event) => commitOnBlur(row, column, event)"
+                @focus="column.type === 'date' && openDatePanel(row, column, $event)"
+                @click="column.type === 'date' && openDatePanel(row, column, $event)"
+                @keydown="onCellKeydown(column, $event)"
+                @keydown.esc.prevent="column.type === 'date' && closeDatePanel()"
+                @blur="column.type === 'date' ? blurDateCell(row, column, $event) : commitOnBlur(row, column, $event)"
               >
 
               <button
@@ -408,5 +445,18 @@ function openTable() {
         </div>
       </section>
     </div>
+
+    <!-- 日期浮层:挂到 body 上、fixed 定位 —— 看板外面是横向滚动容器,卡内浮层会被裁掉。
+         `mousedown.prevent` 是这套面板的命门:点日期时输入框不失焦,编辑态与面板都还活着。 -->
+    <Teleport to="body">
+      <div
+        v-if="datePanel !== null"
+        class="fixed z-50 rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10"
+        :style="{ top: `${datePanel.top}px`, left: `${datePanel.left}px` }"
+        @mousedown.prevent
+      >
+        <DateCalendar :value="datePanel.value" :focus="datePanel.focus" @pick="pickDate($event)" @clear="pickDate('')" />
+      </div>
+    </Teleport>
   </div>
 </template>

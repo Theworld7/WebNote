@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { LedgerBlock } from "@/types/workspace"
 import type { DataColumn, DataRow } from "@/types/data-table"
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue"
 import { DatabaseIcon, PlusIcon, Settings2Icon, Trash2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
@@ -18,9 +18,9 @@ import OptionCell from "@/components/OptionCell.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
 import { useCellEditing } from "@/composables/useCellEditing"
+import { useDateCellPanel } from "@/composables/useDateCellPanel"
 import * as dt from "@/lib/data-table"
 import { balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, ledgerSort, sortRows, sumRows } from "@/lib/ledger"
-import { placeBelow, watchScrollHosts } from "@/lib/floating"
 
 /**
  * 账目块:把一张数据表按财务口径渲染成流水账 —— 收入列 / 支出列带符号的金额、
@@ -245,9 +245,6 @@ watch(editing, (key) => {
       frozenOrder.value = orderedRows.value.map((row) => row.id)
     }
     lastRowId = key.slice(0, key.indexOf(":"))
-    // 回车跳到下一格时不会走 blur —— 面板若还挂着,就是悬在旧格下面的一块浮层。
-    const panel = calendarPanel.value
-    if (panel !== null && `${panel.rowId}:${panel.columnId}` !== key) closeCalendar()
     return
   }
   const id = lastRowId
@@ -272,78 +269,29 @@ function flash(id: string): void {
 
 // ---- 日期格的下拉面板 ----
 
-/**
- * 面板状态。`null` = 没展开。
- *
- * 不用 Popover 那套:它的 FocusScope 在关闭时会把焦点从输入框挪走(还给 trigger,
- * trigger 不存在就落回 body)—— 输入框的 blur 一触发就提交并退出编辑态,紧接着面板
- * 与被编辑的格一起消失,点中的那一天根本落不进表里。日期面板要的是「一个跟着输入框
- * 走的浮层」而不是「一个弹窗」,所以这里只记位置,焦点**始终留在输入框**:
- * 面板上所有 mousedown 都 prevent,点日期不会让输入框失焦。
- */
-interface CalendarPanel {
-  rowId: string
-  columnId: string
-  top: number
-  left: number
-  /** 打开那一刻的值,给日历定初始月份与选中态。 */
-  value: string
-}
-
-const calendarPanel = ref<CalendarPanel | null>(null)
-
-const PANEL_WIDTH = 232
-const PANEL_HEIGHT = 272
-
-/** 日期面板的滚动订阅。同一时刻只有一个浮层开着,状态就挂在开它的这一处。 */
-let stopDateScroll: (() => void) | null = null
+/** 月历浮层的开合 / 落位 / 焦点处理在 `useDateCellPanel`,与看板卡同源。 */
+const {
+  panel: calendarPanel,
+  open: openCalendar,
+  close: closeCalendar,
+  pick: pickDate,
+  blur: blurCell,
+  keydown: dateKeydown,
+} = useDateCellPanel(
+  { editing, cellKey, commit, commitOnBlur },
+  { rows: () => rows.value, columns: () => columns.value },
+)
 
 /**
- * 打开面板并把位置钉在输入框下面。
- *
- * 浮层 `fixed` 且挂在 body 上:账目表外层是 `overflow-x-auto`,垂直方向同样被那个
- * 滚动容器截住,浮在格里的面板在靠下的几行会被裁掉。落位与滚动订阅都在 `lib/floating`,
- * 与选择格共用一份 —— 越界夹回视口,下方放不下就翻到输入框上方。
+ * 格子的键盘。日期格把方向键与回车让给月历(高亮那天、回车确认)，其余键照常
+ * 进输入框打日期;非日期格就是原来的「回车提交 + 跳下一行同列」。
  */
-function openCalendar(row: DataRow, column: DataColumn, event: Event): void {
-  const target = event.target
-  if (!(target instanceof HTMLInputElement)) return
-  const { top, left } = placeBelow(target.getBoundingClientRect(), { height: PANEL_HEIGHT, width: PANEL_WIDTH })
-  calendarPanel.value = { rowId: row.id, columnId: column.id, top, left, value: editText(row, column) }
-  // 换格时上一个订阅先解除,否则旧的 close 会继续挂在滚动容器上。
-  stopDateScroll?.()
-  stopDateScroll = watchScrollHosts(target, closeCalendar)
-}
-
-function closeCalendar(): void {
-  stopDateScroll?.()
-  stopDateScroll = null
-  calendarPanel.value = null
-}
-
-/**
- * 选中一天:写进格、收起面板,但**留在编辑态**。
- *
- * 用户选完日期接下来就要填金额,这时退出编辑会立刻触发重排(日期已经能排序了)——
- * 那正是「还没填金额,行就跳走」的老毛病。焦点一直在输入框里,所以这里什么都不用搬。
- *
- * 行与列按 id 从**当前**表里重取:面板开着的时候表可能已经变过,闭包里那份旧行写回去
- * 会把这中间别的改动覆盖掉。
- */
-function pickDate(value: string): void {
-  const panel = calendarPanel.value
-  if (panel === null) return
-  closeCalendar()
-  const row = rows.value.find((item) => item.id === panel.rowId)
-  const column = columns.value.find((item) => item.id === panel.columnId)
-  if (row === undefined || column === undefined) return
-  commit(row, column, value)
-}
-
-/** 失焦:先收面板(点表格别处 / 点正文都会走到这里),再提交这一格。 */
-function blurCell(row: DataRow, column: DataColumn, event: Event): void {
-  closeCalendar()
-  commitOnBlur(row, column, event)
+function onCellKeydown(row: DataRow, column: DataColumn, event: KeyboardEvent): void {
+  if (column.type === "date" && dateKeydown(event)) return
+  if (event.key === "Enter") {
+    event.preventDefault()
+    commitOnEnter(row, column, event)
+  }
 }
 
 // ---- 选择格 ----
@@ -365,19 +313,8 @@ function pickOption(row: DataRow, column: DataColumn, value: string): void {
   commit(freshRow, freshColumn, value)
 }
 
-/** 窗口一改大小,面板就跟格子的位置对不上了 —— 与其漂着,不如收起来,再点一下就回来。 */
-function closeCalendarOnResize(): void {
-  closeCalendar()
-}
-
-onMounted(() => {
-  window.addEventListener("resize", closeCalendarOnResize)
-})
-
 onBeforeUnmount(() => {
   window.clearTimeout(flashTimer)
-  stopDateScroll?.()
-  window.removeEventListener("resize", closeCalendarOnResize)
 })
 
 /**
@@ -693,7 +630,7 @@ function openTable() {
                     :placeholder="column.type === 'date' ? 'YYYY-MM-DD' : ''"
                     @focus="column.type === 'date' && openCalendar(row, column, $event)"
                     @click="column.type === 'date' && openCalendar(row, column, $event)"
-                    @keydown.enter.prevent="commitOnEnter(row, column, $event)"
+                    @keydown="onCellKeydown(row, column, $event)"
                     @keydown.esc.prevent="column.type === 'date' && closeCalendar()"
                     @blur="column.type === 'date' ? blurCell(row, column, $event) : commitOnBlur(row, column, $event)"
                   >
@@ -746,7 +683,7 @@ function openTable() {
       :style="{ top: `${calendarPanel.top}px`, left: `${calendarPanel.left}px` }"
       @mousedown.prevent
     >
-      <DateCalendar :value="calendarPanel.value" @pick="pickDate($event)" @clear="pickDate('')" />
+      <DateCalendar :value="calendarPanel.value" :focus="calendarPanel.focus" @pick="pickDate($event)" @clear="pickDate('')" />
     </div>
   </Teleport>
 </template>

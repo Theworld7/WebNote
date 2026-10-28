@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>看板块 · 卡片日期面板自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { height: 520px; display: flex; flex-direction: column; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>看板块：卡片的日期格点开即出月历、选中的那天写回格（挂真实编辑器 + OPFS）</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { provideTables } from "../src/composables/useTables.ts"
+import { createKanbanBlock } from "../src/lib/blocks.ts"
+import { blocksToHtml } from "../src/lib/html/serialize.ts"
+import { tableFromJson } from "../src/lib/data-table.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function report(kind, detail) {
+  document.getElementById("out").textContent = [kind, "", detail, "", ...lines].join("\n")
+}
+window.addEventListener("unhandledrejection", (e) => report("REJECT", e.reason?.stack ?? String(e.reason)))
+window.addEventListener("error", (e) => report("ERROR", e.message))
+function step(name) {
+  document.getElementById("out").textContent = `running: ${name}\n${lines.join("\n")}`
+}
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+
+// ---- 夹具：按「状态」分两列，卡片上带一列日期 ----
+const TABLE = {
+  version: 1,
+  columns: [
+    { id: "c1", name: "事项", type: "text", options: [] },
+    { id: "c2", name: "日期", type: "date", options: [] },
+    { id: "c3", name: "状态", type: "select", options: [
+      { id: "o1", name: "待办" },
+      { id: "o2", name: "进行中" },
+    ] },
+  ],
+  rows: [
+    { id: "r1", values: { c1: "写文档", c2: "2026-09-10", c3: "o1" } },
+    { id: "r2", values: { c1: "改样式", c2: "", c3: "o2" } },
+  ],
+}
+const TABLE_JSON = JSON.stringify(TABLE, null, 2) + "\n"
+const NOTE_HTML = blocksToHtml(
+  [createKanbanBlock("看板.tbl", "c3", [], [])],
+  (path) => (path === "看板.tbl" ? tableFromJson(TABLE_JSON) : null),
+)
+
+step("opfs")
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("kanban-date-probe", { create: true })
+for (const [name, text] of [["看板.tbl", TABLE_JSON], ["看板笔记.html", NOTE_HTML]]) {
+  const handle = await dir.getFileHandle(name, { create: true })
+  const writable = await handle.createWritable()
+  await writable.write(text)
+  await writable.close()
+}
+window.showDirectoryPicker = async () => dir
+
+/** 等真实 I/O 与 Vue 重渲染落地：microtask 轮询等不到读盘。 */
+async function settle() {
+  for (let i = 0; i < 4; i += 1) {
+    await nextTick()
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
+
+step("mount")
+let workspace = null
+let tablesRef = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    provideTheme(provideSettings())
+    const tables = provideTables(workspace.fs, workspace.root)
+    tablesRef = tables
+    workspace.attachTableRegistry({
+      preload: (paths) => tables.preload(paths),
+      peek: (path) => tables.peek(path),
+      flush: (path) => tables.flush(path),
+      reload: (path) => tables.reload(path),
+      create: () => Promise.reject(new Error("本页不新建数据表")),
+    })
+    return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+
+step("bootstrap")
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+const note = (function find(nodes) {
+  for (const node of nodes) {
+    if (node.kind === "note") return node
+    const hit = node.children ? find(node.children) : null
+    if (hit) return hit
+  }
+  return null
+})(workspace.tree.value)
+
+step("openFile")
+if (note !== null) {
+  workspace.openFile(note.id)
+  for (let i = 0; i < 60 && workspace.activeDocument.value.length < 1; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  await settle()
+}
+
+// ---- DOM 取景 ----
+function cards() {
+  return [...document.querySelectorAll("[data-block-id] article")]
+}
+/** 卡片里某一列的那一格（列名 span 是每格的第一层子元素）。 */
+function fieldDiv(card, name) {
+  return [...card.children].find((el) => el.firstElementChild?.textContent?.trim() === name) ?? null
+}
+function fieldText(card, name) {
+  const div = fieldDiv(card, name)
+  if (div === null) return ""
+  return (div.lastElementChild?.textContent ?? "").trim()
+}
+function fieldButton(card, name) {
+  const button = fieldDiv(card, name)?.querySelector("button")
+  return button instanceof HTMLButtonElement ? button : null
+}
+function fieldInput(card, name) {
+  const input = fieldDiv(card, name)?.querySelector("input")
+  return input instanceof HTMLInputElement ? input : null
+}
+/** 月历挂在 body 上（Teleport），不在这块里。 */
+function calendar() {
+  return document.querySelector("[data-date-calendar]")
+}
+function dayButton(key) {
+  return calendar()?.querySelector(`[data-day="${key}"]`) ?? null
+}
+/** 表在内存里的值 —— 落盘走标签的统一保存，自检不等那条异步路。 */
+function storedCell(rowIndex, columnId) {
+  const table = tablesRef?.peek("看板.tbl") ?? null
+  return table === null ? undefined : table.rows[rowIndex]?.values[columnId]
+}
+function type(input, value) {
+  if (input === null) return
+  input.value = value
+  input.dispatchEvent(new Event("input", { bubbles: true }))
+}
+
+// ---------- 一、卡片渲染与点开日期格 ----------
+step("open")
+const list = cards()
+check("渲染出两张卡片", list.length === 2, `实际 ${list.length}`)
+const card = list[0]
+check("卡片上有日期这一格", fieldDiv(card, "日期") !== null, fieldText(card, "日期"))
+check("日期格显示表里的值", fieldText(card, "日期") === "2026-09-10", fieldText(card, "日期"))
+check("没点开时没有月历", calendar() === null)
+
+fieldButton(card, "日期")?.click()
+await settle()
+const input = fieldInput(card, "日期")
+check("点了格值就进输入态", input !== null)
+
+// 输入框挂上时 `focusOnMount` 已经聚焦过，这里不重复 focus（重复也不会多出面板）。
+await settle()
+check("输入框聚焦后月历展开", calendar() !== null)
+
+const calendarBox = calendar()?.parentElement?.getBoundingClientRect()
+const inputBox = input?.getBoundingClientRect()
+check("月历钉在输入框下面（差一个 4px 的缝）",
+  calendarBox !== undefined && inputBox !== undefined && Math.abs(calendarBox.top - inputBox.bottom - 4) <= 1,
+  `panel=${calendarBox?.top} input=${inputBox?.bottom}`)
+
+check("月历浮在 body 上，不在会裁剪它的滚动容器里",
+  calendar()?.closest("[data-block-id]") === null)
+
+// ---------- 二、选一天 ----------
+step("pick")
+let mousedownPrevented = false
+calendar()?.parentElement?.addEventListener("mousedown", (event) => {
+  mousedownPrevented = event.defaultPrevented
+})
+dayButton("2026-09-15")?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }))
+check("面板上的 mousedown 被拦下（点日期不会让格子失焦）", mousedownPrevented)
+
+dayButton("2026-09-15")?.click()
+await settle()
+check("选中的那天写进编辑框", fieldInput(card, "日期")?.value === "2026-09-15", fieldInput(card, "日期")?.value ?? "null")
+check("选完面板收起", calendar() === null)
+check("选完仍在编辑态（可以接着改别的格）", fieldInput(card, "日期") !== null)
+check("表里也是新日期", storedCell(0, "c2") === "2026-09-15", String(storedCell(0, "c2")))
+
+// ---------- 三、Esc 收面板、手写日期仍然可用 ----------
+step("esc")
+fieldInput(card, "日期")?.blur()
+await settle()
+check("失焦后卡片显示新日期", fieldText(card, "日期") === "2026-09-15", fieldText(card, "日期"))
+
+fieldButton(card, "日期")?.click()
+await settle()
+check("再点开又出月历", calendar() !== null)
+fieldInput(card, "日期")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+await settle()
+check("Esc 收起月历", calendar() === null)
+check("Esc 不退出编辑态", fieldInput(card, "日期") !== null)
+
+step("type")
+type(fieldInput(card, "日期"), "2026-12-01")
+fieldInput(card, "日期")?.blur()
+await settle()
+check("手写日期照旧提交", fieldText(card, "日期") === "2026-12-01", fieldText(card, "日期"))
+check("表里也是手写那天的日期", storedCell(0, "c2") === "2026-12-01", String(storedCell(0, "c2")))
+
+// ---------- 四、换一张卡：面板跟着走，失焦即收 ----------
+step("move")
+const other = cards()[1]
+fieldButton(other, "日期")?.click()
+await settle()
+const otherCal = calendar()?.parentElement?.getBoundingClientRect()
+const otherInput = fieldInput(other, "日期")?.getBoundingClientRect()
+check("另一张卡的日期格也能出月历", otherInput !== undefined && otherCal !== undefined)
+check("面板挪到这张卡下面",
+  otherCal !== undefined && otherInput !== undefined && Math.abs(otherCal.top - otherInput.bottom - 4) <= 1,
+  `panel=${otherCal?.top} input=${otherInput?.bottom}`)
+fieldInput(other, "日期")?.blur()
+await settle()
+check("失焦后面板收起", calendar() === null)
+
+// ---------- 五、键盘：方向键移高亮、回车确认 ----------
+step("keys")
+/** 高亮那一格带一圈 2px 内描边（`ring-2`），与「表里的值」的实心底分开。 */
+function highlighted() {
+  const marked = [...(calendar()?.querySelectorAll("[data-day]") ?? [])].find((el) => el.className.includes("ring-2"))
+  return marked?.getAttribute("data-day") ?? null
+}
+/** 键派发到输入框上 —— 焦点从不进面板，这是整套键盘交互的前提。 */
+function press(key) {
+  const input = fieldInput(card, "日期")
+  if (input === null) return null
+  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })
+  input.dispatchEvent(event)
+  return event
+}
+
+fieldButton(card, "日期")?.click()
+await settle()
+check("再点开面板", calendar() !== null)
+check("焦点仍在输入框（键盘模型的前提）", document.activeElement === fieldInput(card, "日期"))
+check("高亮落在格里的值上", highlighted() === "2026-12-01", String(highlighted()))
+
+const arrowEvent = press("ArrowRight")
+await settle()
+check("→ 往后一天", highlighted() === "2026-12-02", String(highlighted()))
+check("方向键被拦下（不会同时挪输入框里的光标）", arrowEvent?.defaultPrevented === true)
+
+press("ArrowDown")
+await settle()
+check("↓ 往后一周", highlighted() === "2026-12-09", String(highlighted()))
+press("ArrowUp")
+await settle()
+check("↑ 往前一周", highlighted() === "2026-12-02", String(highlighted()))
+press("ArrowLeft")
+await settle()
+check("← 往前一天", highlighted() === "2026-12-01", String(highlighted()))
+
+press("PageDown")
+await settle()
+check("PageDown 翻到下个月同一天", highlighted() === "2027-01-01", String(highlighted()))
+check("日历跟着翻到 2027 年 1 月", calendar()?.textContent?.includes("2027 年 1 月") === true, calendar()?.textContent?.slice(0, 40))
+press("PageUp")
+await settle()
+check("PageUp 翻回上个月", highlighted() === "2026-12-01", String(highlighted()))
+
+press("Home")
+await settle()
+check("Home 到本周周一（跨月，日历跟着翻）", highlighted() === "2026-11-30", String(highlighted()))
+check("跨月时月历翻到了 11 月", calendar()?.textContent?.includes("2026 年 11 月") === true)
+press("End")
+await settle()
+check("End 到本周周日", highlighted() === "2026-12-06", String(highlighted()))
+
+press("ArrowLeft")
+await settle()
+const moveEvent = press("Enter")
+await settle()
+check("回车把高亮那天写进格", storedCell(0, "c2") === "2026-12-05", String(storedCell(0, "c2")))
+check("回车被月历消费掉（不再走「失焦提交」那条路）", moveEvent?.defaultPrevented === true)
+check("回车后面板收起", calendar() === null)
+check("回车后仍在编辑态", fieldInput(card, "日期") !== null)
+
+// 手敲的日期说了算：回车还是「提交这一格」，不被高亮那天顶掉。
+type(fieldInput(card, "日期"), "2026-12-20")
+press("Enter")
+await settle()
+check("手敲的日期落进表里（没被高亮那天顶掉）", storedCell(0, "c2") === "2026-12-20", String(storedCell(0, "c2")))
+check("失焦提交后卡片显示它", fieldText(card, "日期") === "2026-12-20", fieldText(card, "日期"))
+
+step("done")
+report(`自检 ${passed} 过 / ${failed} 败`)
+</script>
+</body>
+</html>
