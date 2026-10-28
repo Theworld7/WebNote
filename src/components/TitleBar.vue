@@ -12,18 +12,21 @@ import PageStyleButton from "./PageStyleButton.vue"
 import SettingsPanel from "./SettingsPanel.vue"
 
 /**
- * 窗口 chrome —— 整个窗口只有这一条（ADR-0024）。
+ * 窗口 chrome —— 无装饰窗口（`tauri.conf.json` 里 `decorations: false`）里自己画的那两行：
  *
- * 窗口是无装饰的（`tauri.conf.json` 里 `decorations: false`），所以这一条同时是：
- * 品牌锚点、全局动作（折叠侧栏 / 外观 / 设置）、打开的标签、当前文档的位置与字数、
- * 页面样式入口，以及最小化 / 最大化 / 关闭。
+ * 1. 标题栏（44px）：品牌锚点、全局动作（折叠侧栏 / 外观 / 设置）、撤销重做、拖拽面、
+ *    当前文档的字数与页面样式入口，以及最小化 / 最大化 / 关闭。
+ * 2. 标签行（36px，有标签才渲染）：打开的文件，后面跟一段拖拽空白。
  *
- * 从左到右的次序按「离窗口越远越抽象」排：品牌与全局动作贴着左缘，标签跟着它们，
- * 文档相关的信息收在右端、紧挨窗口按钮。窗口按钮必须贴到右上角，那是用户手指的
- * 肌肉记忆，不要为了对称把它挪进浮岛。
+ * 次序按「离窗口越远越抽象」排：品牌与全局动作贴着左缘，文档相关的信息收在右端、
+ * 紧挨窗口按钮。窗口按钮必须贴到右上角，那是用户手指的肌肉记忆，不要为了对称把它挪进浮岛。
  *
- * 为什么不再让标签条自带浮岛外壳：那层壳连同它与编辑区之间的 10px 一起，
- * 把窗口顶部 86px 全部变成了 chrome，正文要等这么久才出现。并进一条后是 48px。
+ * **标签为什么不能留在标题栏里**（ADR-0029）：`data-tauri-drag-region` 只认事件目标自己
+ * 带没带这个属性，标签和按钮都不带 —— 标签占掉标题栏中段，就等于把唯一能拖窗口的地方
+ * 挖掉一大块。标签一多，剩下的 `min-w-4` 十六像素连点都点不准。
+ *
+ * 代价是两行共 80px。ADR-0024 那会儿并成一条是为了省 38px，但那是拿「窗口能不能拖」
+ * 换来的，不划算。
  */
 defineProps<{ sidebarCollapsed: boolean }>()
 const emit = defineEmits<{ (event: "toggle-sidebar"): void }>()
@@ -132,8 +135,8 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
 
 <template>
   <!-- 整条都是拖拽区（`data-tauri-drag-region` 只看事件目标自己带不带这个属性，
-       所以按钮和标签不吃它，点得动）。双击标题栏最大化由 Tauri 内建处理。
-       标签条后面那段 flex-1 空白是主要的拖拽面 —— 标签少时窗口也有地方可拖。 -->
+       所以按钮不吃它，点得动）。双击标题栏最大化由 Tauri 内建处理。
+       中段那段 flex-1 是窗口唯一的拖拽面 —— 这里**不许再放标签**（见 ADR-0029）。 -->
   <header class="flex h-11 flex-none items-center gap-2 pr-3 pl-3 select-none" data-tauri-drag-region>
     <!-- 品牌名从侧栏顶部搬上来：它描述的是窗口（与 productName 同一件事），不是侧栏。
          留在 chrome 里还顺带解决了「折叠侧栏时标签整排左跳 40px」。 -->
@@ -214,16 +217,9 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
       </Tooltip>
     </div>
 
-    <!-- 动作区与标签区之间那道竖线：它分的是「两堆东西」，没有标签时右边那堆是空的，
-         留着就只是一根悬在半空的短线。跟标签条同生共死。 -->
-    <span v-if="tabs.length > 0" class="h-4 w-px flex-none bg-line" aria-hidden="true" />
-
-    <!-- 标签条按内容收缩（不 flex-1），后面跟一段拖拽空白：标签少时整条 chrome 仍可拖，
-         标签多到放不下时它自己横向滚动。 -->
-    <div class="flex min-w-0 flex-1 items-center gap-2">
-      <EditorTabBar class="min-w-0" />
-      <div class="h-full min-w-4 flex-1" data-tauri-drag-region />
-    </div>
+    <!-- 动作区与右侧文档信息之间整段都可拖。`min-w-4` 是底线：窗口窄到极限时它仍然
+         存在，标题栏不会整条变成「点得动但拖不动」。 -->
+    <div class="h-full min-w-4 flex-1" data-tauri-drag-region />
 
     <!-- 右端文档信息：窄窗口先让字数，页面样式与窗口按钮永远留位 ——
          前者是整篇笔记排版的唯一入口，后者是平台约定。
@@ -261,6 +257,19 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
       </button>
     </div>
   </header>
+
+  <!-- 标签行独立于标题栏（ADR-0029）：标签自己不带拖拽属性，占用标题栏中段就等于
+       把唯一能拖窗口的地方挖掉一大块。搬下来之后窗口照样能从上沿任何一处拖走。
+       没有标签时整行不渲染，chrome 退回 44px。 -->
+  <div
+    v-if="tabs.length > 0"
+    class="flex h-9 flex-none items-center gap-2 pr-3 pl-3 select-none"
+    data-tauri-drag-region
+  >
+    <!-- 标签条按内容收缩，后面跟一段拖拽空白 —— 与标题栏同一个道理。 -->
+    <EditorTabBar class="min-w-0" />
+    <div class="h-full min-w-4 flex-1" data-tauri-drag-region />
+  </div>
 
   <SettingsPanel v-model:open="settingsOpen" />
 </template>

@@ -65,8 +65,8 @@ watch(() => tabs.value.length, () => nextTick(updateOverflow))
 </script>
 
 <template>
-  <!-- 标签条是 chrome 里的一段，不再自带外壳（ADR-0024）：宽度按内容收缩、放不下才滚动，
-       后面的拖拽空白由 TitleBar 补 —— 所以这里既不能 flex-1，也不能撑破父级。
+  <!-- 标签条是标签行里的一段，不再自带外壳（ADR-0024 / 0029）：宽度按内容收缩、放不下才滚动，
+       后面的拖拽空白由 TitleBar 那条标签行补 —— 所以这里既不能 flex-1，也不能撑破父级。
        group/tabs：自绘滚动指示条挂在标签条下缘，hover 这一段才显形。 -->
   <div class="group/tabs relative min-w-0 max-w-full">
     <!-- **没开文件时标签区不渲染**：没有标签可显示，留一条空轨道只会把 chrome 中间撑出一条缝。 -->

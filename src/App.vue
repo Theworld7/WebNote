@@ -147,9 +147,10 @@ onBeforeUnmount(() => {
 
 <template>
   <TooltipProvider>
-    <!-- 窗口无系统装饰，chrome 是自绘的第一行（品牌 + 全局动作 + 标签 + 文档信息 + 窗口按钮，
-         见 ADR-0024）：它贴着窗口上沿，下面的卡片区才留内边距。
-         侧栏折叠状态要跨这两块用（chrome 里的按钮改它，下面的侧栏读它），所以留在根组件。 -->
+    <!-- 窗口无系统装饰，chrome 是自绘的两行：标题栏 + 标签行（品牌 / 全局动作 / 文档信息 /
+         窗口按钮在上，标签在下，见 ADR-0024 与 ADR-0029）：它们贴着窗口上沿，下面的卡片区
+         才留内边距。侧栏折叠状态要跨这两块用（chrome 里的按钮改它，下面的侧栏读它），
+         所以留在根组件。 -->
     <div class="flex h-screen flex-col overflow-hidden bg-canvas">
       <TitleBar :sidebar-collapsed="collapsed" @toggle-sidebar="toggleSidebar" />
 

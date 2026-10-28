@@ -1,5 +1,10 @@
 # All chrome lives in one row
 
+**Partly superseded by [ADR-0029](0029-tabs-live-in-their-own-row.md)**: the tab strip moved back
+out into its own row, because tabs cannot carry the drag region and the strip was eating the
+middle of the header. The rest of this decision — status bar deleted, brand in the header,
+fixed-width count, window buttons at top-right — still holds.
+
 The window has no system decoration (`decorations: false`), so everything a title bar normally
 gives you is hand-drawn. Until now that meant **three** horizontal bands stacked before any
 content appeared: a 36px title bar (brand was elsewhere, so it held only three action buttons),

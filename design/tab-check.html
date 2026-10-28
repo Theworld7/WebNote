@@ -6,8 +6,8 @@
 <style>
   body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
   h1 { font-size: 15px; margin: 0 0 12px; }
-  /* 必须是 flex row：真实布局里标签栏是 chrome 里的一行 flex 子项（父级是 TitleBar 的
-     `flex min-w-0 flex-1 items-center`），宽度按内容收缩、max-w-full 封顶后才横向滚动。
+  /* 必须是 flex row：真实布局里标签栏是标签行里的一个 flex 子项（父级是 TitleBar 的
+     `flex h-9 items-center`），宽度按内容收缩、max-w-full 封顶后才横向滚动。
      探针里给它一个块级父容器的话它直接撑满整行，右缘几何就没法量。 */
   #app { margin: 0 0 16px; display: flex; align-items: center; }
   pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }

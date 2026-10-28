@@ -13,8 +13,9 @@
 </style>
 </head>
 <body>
-<h1>窗口 chrome：单条标题栏的品牌 / 动作 / 标签 / 文档信息</h1>
-<!-- ADR-0024：标签条、面包屑、字数、页面样式入口全部并进标题栏一条。
+<h1>窗口 chrome：标题栏（品牌 / 动作 / 文档信息）与独立的标签行</h1>
+<!-- ADR-0024 把 chrome 并成一条，ADR-0029 又把标签拆了出去：标签不带拖拽属性，
+     留在标题栏中段就等于挖掉唯一能拖窗口的地方。
      抓结果：node design/cdp-dump.mjs http://localhost:1420/design/chrome-check.html -->
 <div id="app"></div>
 <pre id="out">running…</pre>
@@ -53,19 +54,21 @@ await nextTick()
 
 const chrome = () => document.querySelector("header")
 const brand = () => chrome()?.querySelector(":scope > span")
-const scroller = () => chrome()?.querySelector('[class*="overflow-x-auto"]') ?? null
+const scroller = () => document.querySelector('[class*="overflow-x-auto"]')
+/** 标签行：滚动容器所在的那条可拖拽带子。它必须是 header 的兄弟，不是它的后代。 */
+const tabRow = () => scroller()?.closest("[data-tauri-drag-region]") ?? null
+/** 标题栏中段那段拖拽空白。标签搬走之后它是窗口唯一能拖的地方。 */
+const dragSurface = () => chrome()?.querySelector(":scope > [data-tauri-drag-region]") ?? null
 /** 「页面样式」那颗按钮。它是唯一入口，任何状态下都不该被挤掉。 */
 const styleEntry = () => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === "页面样式")
 /** 字数那一格：靠 `tabular-nums` 认，不靠位置 —— 文案会变。 */
 const charCell = () => chrome()?.querySelector('[class*="tabular-nums"]') ?? null
 const box = (el) => (el ? el.getBoundingClientRect() : null)
-/** 动作区与标签区之间那道竖线：`aria-hidden` 的裸 span，品牌名那个 span 没有这个属性。 */
-const divider = () => chrome()?.querySelector(':scope > span[aria-hidden="true"]') ?? null
 
-// ---------- 一、单条 chrome 的体量 ----------
+// ---------- 一、标题栏的体量 ----------
 
-check("chrome 只有一条", document.querySelectorAll("header").length === 1, `共 ${document.querySelectorAll("header").length} 条`)
-check("chrome 高度是 44px", box(chrome())?.height === 44, `实际 ${box(chrome())?.height ?? "缺失"}`)
+check("标题栏只有一条", document.querySelectorAll("header").length === 1, `共 ${document.querySelectorAll("header").length} 条`)
+check("标题栏高度是 44px", box(chrome())?.height === 44, `实际 ${box(chrome())?.height ?? "缺失"}`)
 check("品牌名在最左端", brand()?.textContent?.trim() === "玉简", brand()?.textContent?.trim() ?? "缺失")
 
 const brandRight = box(brand())?.right ?? 0
@@ -79,11 +82,9 @@ workspace.tabs.value = []
 workspace.activePath.value = ""
 await nextTick()
 check("无标签时不渲染滚动容器", scroller() === null)
+check("无标签时整条标签行不渲染（chrome 退回 44px）", tabRow() === null)
 check("无激活标签时不渲染字数", charCell() === null)
 check("无激活标签时不渲染页面样式入口", styleEntry() === undefined)
-// 竖线分的是动作区与标签区：右边的标签区空着时，它只是一根悬空的短线。
-check("无标签时不渲染动作区后的分隔线", divider() === null,
-  divider()?.getAttribute("class") ?? "")
 
 // ---------- 三、有标签时的落位 ----------
 
@@ -93,23 +94,69 @@ await nextTick()
 
 const strip = scroller()
 check("有标签时挂上滚动容器", strip !== null && strip !== undefined)
-check("有标签时出现动作区后的分隔线", divider() !== null)
-const stripBox = box(strip)
-const chromeBox = box(chrome())
+
+// 这一条是整个拆分的理由：标签在标题栏里，窗口就没法从上沿拖。
 check(
-  "标签条在 chrome 里垂直居中（上下各 8px）",
-  stripBox !== null && chromeBox !== null &&
-    Math.abs(stripBox.top - chromeBox.top - 8) < EPS &&
-    Math.abs(chromeBox.bottom - stripBox.bottom - 8) < EPS,
-  stripBox === null ? "标签条缺失" : `上 ${(stripBox.top - chromeBox.top).toFixed(1)} 下 ${(chromeBox.bottom - stripBox.bottom).toFixed(1)}`,
-)
-check(
-  "标签条不压品牌名与动作区",
-  stripBox !== null && brandRight > 0 && stripBox.left >= brandRight,
-  stripBox === null ? "标签条缺失" : `标签左缘 ${stripBox.left.toFixed(1)} vs 品牌右缘 ${brandRight.toFixed(1)}`,
+  "标签不在标题栏里（标题栏里没有标签按钮）",
+  chrome()?.querySelector('button[class*="group/tab"]') === null,
+  `标题栏里的标签按钮 ${chrome()?.querySelectorAll('button[class*="group/tab"]').length ?? "?"} 个`,
 )
 
-// ---------- 四、右端文档信息 ----------
+const row = tabRow()
+const chromeBox = box(chrome())
+const rowBox = box(row)
+check("标签行是标题栏的兄弟（不在 header 里面）",
+  row !== null && row !== undefined && !chrome()?.contains(row),
+  row === null ? "标签行缺失" : "标签行在 header 内")
+check("标签行高度是 36px", rowBox?.height === 36, `实际 ${rowBox?.height ?? "缺失"}`)
+check(
+  "标签行贴着标题栏下沿",
+  rowBox !== null && chromeBox !== null && Math.abs(rowBox.top - chromeBox.bottom) < EPS,
+  rowBox === null || chromeBox === null ? "缺失" : `标签行顶 ${rowBox.top.toFixed(1)} vs 标题栏底 ${chromeBox.bottom.toFixed(1)}`,
+)
+check("标签行整条是可拖拽区",
+  row !== null && row !== undefined && row.hasAttribute("data-tauri-drag-region"),
+  row === null ? "标签行缺失" : "标签行没带 data-tauri-drag-region")
+
+const stripBox = box(strip)
+check(
+  "标签条在标签行里垂直居中（上下各 4px）",
+  stripBox !== null && rowBox !== null &&
+    Math.abs(stripBox.top - rowBox.top - 4) < EPS &&
+    Math.abs(rowBox.bottom - stripBox.bottom - 4) < EPS,
+  stripBox === null || rowBox === null ? "缺失" : `上 ${(stripBox.top - rowBox.top).toFixed(1)} 下 ${(rowBox.bottom - stripBox.bottom).toFixed(1)}`,
+)
+check(
+  "标签左缘与品牌左缘对齐（同一条 pl-3）",
+  stripBox !== null && Math.abs(stripBox.left - (box(brand())?.left ?? NaN)) < EPS,
+  stripBox === null ? "标签条缺失" : `标签 ${stripBox.left.toFixed(1)} vs 品牌 ${(box(brand())?.left ?? NaN).toFixed(1)}`,
+)
+
+// ---------- 四、标题栏中段是拖拽面 ----------
+
+const surfaceBox = box(dragSurface())
+check("标题栏中段挂着拖拽区", dragSurface() !== null && dragSurface()?.hasAttribute("data-tauri-drag-region") === true)
+// 1000px 探针下：品牌 + 三颗动作 + 撤销重做占不到 200px，右端文档信息占不到 200px。
+check(
+  "拖拽区宽度足够（不小于 300px，标签多寡不影响它）",
+  surfaceBox !== null && surfaceBox.width >= 300,
+  surfaceBox === null ? "拖拽区缺失" : `实际 ${surfaceBox.width.toFixed(1)}`,
+)
+const surfaceBefore = surfaceBox?.width ?? NaN
+workspace.tabs.value = Array.from({ length: 12 }, (_, i) => ({ path: `第${i}章.html`, dirty: false, dirtyTables: [] }))
+workspace.activePath.value = "第11章.html"
+await nextTick()
+check(
+  "标签塞满一整行后拖拽区不变窄",
+  Math.abs((box(dragSurface())?.width ?? NaN) - surfaceBefore) < EPS,
+  `前 ${surfaceBefore.toFixed(1)} 后 ${(box(dragSurface())?.width ?? NaN).toFixed(1)}`,
+)
+
+// ---------- 五、右端文档信息 ----------
+
+workspace.tabs.value = [{ path: "日记/2026-10-23.html", dirty: false, dirtyTables: [] }]
+workspace.activePath.value = "日记/2026-10-23.html"
+await nextTick()
 
 check("有激活标签时出现字数", charCell() !== null)
 check("有激活标签时出现页面样式入口", styleEntry() !== undefined)
@@ -134,7 +181,7 @@ check(
   `前 ${styleLeftBefore.toFixed(1)} 后 ${(box(styleEntry())?.left ?? NaN).toFixed(1)}`,
 )
 
-// ---------- 五、没有窗口按钮 ----------
+// ---------- 六、没有窗口按钮 ----------
 
 check("浏览器里不画窗口三键（没有最小化 / 关闭）",
   document.querySelector('button[aria-label="关闭"]') === null &&
