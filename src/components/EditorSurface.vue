@@ -45,8 +45,9 @@ const hasDocument = computed(() => activeTab.value !== null && !isLoadingDocumen
   >
     <!-- 标签行是这张卡片自己的第一行（ADR-0033）：标签描述的是「这篇文档」，不是窗口，
          所以跟着文档待在卡片里；没有标签时整行不渲染，空态直接从 EditorHome 开始。
-         `h-9` + `items-center` 让 28px 的标签上下各留 4px，与它先前在 chrome 里的体量一致。 -->
-    <div v-if="tabs.length > 0" class="flex h-9 flex-none items-center gap-2 px-2.5">
+         行高 44 = 28px 标签 + 上下各 8px：卡片上沿是 18px 圆角，标签只让开 4px 时两颗圆弧
+         挤在同一个角上，看着发紧。 -->
+    <div v-if="tabs.length > 0" class="flex h-11 flex-none items-center gap-2 px-2.5">
       <EditorTabBar class="min-w-0" />
     </div>
 

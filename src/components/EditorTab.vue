@@ -25,7 +25,9 @@ const label = computed(() => fileName(props.tab.path))
   <button
     type="button"
     :class="cn(
-      'group/tab flex h-7 max-w-[230px] shrink-0 items-center gap-1.5 rounded-[9px] pr-2 pl-3 text-xs transition-colors',
+      // 胶囊（28px 高 → 14px，正好是 `--radius-island`）：标签住在 18px 圆角的卡片里，
+      // 9px 和 18px 两颗圆弧挨在一起像在互相较劲；胶囊的曲率不跟任何相邻圆角比大小。
+      'group/tab flex h-7 max-w-[230px] shrink-0 items-center gap-1.5 rounded-full pr-2 pl-3 text-xs transition-colors',
       active
         ? 'bg-selection font-medium text-selection-foreground'
         : 'text-muted-foreground hover:bg-muted',

@@ -15,8 +15,14 @@ header keeps brand, global actions, undo/redo, the drag surface, count, page-sty
 window buttons. Chrome is one 44px row again, and the tab row's 36px no longer exists above the
 card — the strip's height now lives inside the card, where the document is.
 
-The row is `h-9` with the 28px chips vertically centred, 10px in from the card's left edge
-(`px-2.5`, the same inset the tree rows use), so the first chip clears the card's 18px corner.
+The row is `h-11` — 28px chips with 8px above and below — 10px in from the card's left edge
+(`px-2.5`, the same inset the tree rows use). The 8px is not padding for its own sake: at 4px the
+chip's corner and the card's 18px corner fight for the same square, and the row reads as cramped.
+For the same reason the chip itself went from `rounded-[9px]` to a capsule (`rounded-full`): a 9px
+arc next to an 18px arc invites the eye to compare them, and 9 is not half of 18 by intent, it is
+an unrelated number that happens to sit nearby. A capsule whose radius exceeds half its height
+makes no such comparison possible.
+
 `EditorTabBar`'s overflow gradients switched from `canvas` to `card`: the strip now sits on the
 card, and a mask tinted for the canvas would draw a grey smear across white.
 

@@ -74,9 +74,10 @@ const box = (el) => (el ? el.getBoundingClientRect() : null)
 const chrome = () => document.querySelector("header")
 const surface = () => document.querySelector("[data-editor-surface]")
 /** 标签行：卡片里那一行 flex 容器（标签条是它的子项）。 */
-const tabRow = () => surface()?.querySelector(':scope > [class*="h-9"]') ?? null
+const tabRow = () => surface()?.querySelector(':scope > [class*="h-11"]') ?? null
 const strip = () => surface()?.querySelector('[class*="group/tabs"]') ?? null
 const scroller = () => surface()?.querySelector('[class*="overflow-x-auto"]') ?? null
+const firstTab = () => surface()?.querySelector('button[class*="group/tab"]') ?? null
 
 // ---------- 一、没有标签时 ----------
 
@@ -105,23 +106,33 @@ check(
   row !== null && surface()?.firstElementChild === row,
   row === null ? "标签行缺失" : `首个子元素是 ${surface()?.firstElementChild?.className ?? "?"}`,
 )
-check("标签行高度是 36px", rowBox?.height === 36, `实际 ${rowBox?.height ?? "缺失"}`)
+check("标签行高度是 44px", rowBox?.height === 44, `实际 ${rowBox?.height ?? "缺失"}`)
 check(
   "标签行贴着卡片顶端（卡片圆角内第一行）",
   rowBox !== null && surfaceBox !== null && Math.abs(rowBox.top - surfaceBox.top) < EPS,
   rowBox === null || surfaceBox === null ? "缺失" : `行顶 ${rowBox.top.toFixed(1)} vs 卡片顶 ${surfaceBox.top.toFixed(1)}`,
 )
 check(
-  "标签条在标签行里垂直居中（上下各 4px）",
+  "标签条在标签行里垂直居中（上下各 8px，让开卡片的 18px 圆角）",
   stripBox !== null && rowBox !== null &&
-    Math.abs(stripBox.top - rowBox.top - 4) < EPS &&
-    Math.abs(rowBox.bottom - stripBox.bottom - 4) < EPS,
+    Math.abs(stripBox.top - rowBox.top - 8) < EPS &&
+    Math.abs(rowBox.bottom - stripBox.bottom - 8) < EPS,
   stripBox === null || rowBox === null ? "缺失" : `上 ${(stripBox.top - rowBox.top).toFixed(1)} 下 ${(rowBox.bottom - stripBox.bottom).toFixed(1)}`,
 )
 check(
   "标签条左缘让开卡片内边距 10px（px-2.5）",
   stripBox !== null && surfaceBox !== null && Math.abs(stripBox.left - surfaceBox.left - 10) < EPS,
   stripBox === null || surfaceBox === null ? "缺失" : `实际 ${(stripBox.left - surfaceBox.left).toFixed(1)}`,
+)
+// 9px 与卡片的 18px 挨在同一个角上像两颗圆弧互相较劲；胶囊的曲率跟任何相邻圆角都不构成
+// 「谁该跟谁一致」的问题。`rounded-full` 在 Tailwind v4 里是 `calc(infinity * 1px)`，
+// 量出来是个天文数字，所以判据是「不小于高度的一半」而不是等于 14px。
+const tabRadius = firstTab() === null ? NaN : parseFloat(getComputedStyle(firstTab()).borderTopLeftRadius)
+const tabHeight = box(firstTab())?.height ?? NaN
+check(
+  "标签是胶囊（圆角不小于高度的一半，即上下都收成半圆）",
+  Number.isFinite(tabRadius) && Number.isFinite(tabHeight) && tabRadius >= tabHeight / 2 - EPS,
+  firstTab() === null ? "标签缺失" : `圆角 ${tabRadius} vs 高度 ${tabHeight}`,
 )
 
 // 搬家之后 chrome 只剩 44px：卡片顶端与标题栏之间只有 App 那一层 `pt-1`。
