@@ -34,7 +34,9 @@
   簇右端、查不到就是没有(0030)、手动检查更新住在设置「关于」里、第一次之后的请求都带
   `If-None-Match`（304 不占限额）、每次按下都以一条瞬态提示收尾(0031)、主路没给出结论就问
   jsDelivr 上的 `package.json`、镜像只往「有更新」下结论且链接退回列表页(0032)、标签住在编辑
-  卡片的第一行、chrome 只剩一条标题栏(0033)。
+  卡片的第一行、chrome 只剩一条标题栏(0033)、记一笔是模态表单而不是行内逐格:字段按列现生成、
+  回车提交 Esc 取消、表单对话框走 `Dialog` 而非 `AlertDialog`（后者的 `openAutoFocus` 写死给
+  取消钮）(0034)。
   改对应行为前先读那篇。(0029 的标签位置已被 0033 取代)
 
 ## 验证
@@ -45,7 +47,7 @@
    用类型收窄和类型守卫表达。
 2. **自检页**:`design/*.html` 是能直接跑的回归页,每个用例输出 `OK` / `FAIL` 行。
    `pnpm dev` 后访问 `/design/<名字>.html`;其中 `drag-check`、`typography-check`、
-   `data-table-check`、`ledger-edit-check`、`ledger-date-check`、`kanban-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check`、`tab-housing-check` 含顶层 `await`,要抓结果用
+   `data-table-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-date-check`、`kanban-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check`、`tab-housing-check` 含顶层 `await`,要抓结果用
    `node design/cdp-dump.mjs http://localhost:1420/design/<名字>.html`。
 
 改哪层跑哪页:动 `lib/html` → `parse-check`;动块拖拽 / 标签栏 → `drag-check` / `tab-check`;
@@ -76,7 +78,8 @@
 (`lib/link.ts`、`lib/open-external.ts`、`linkHrefOf`)→ `link-check`(挂真实编辑器,走 CDP);
 动选择格的键盘模型 / 浮层落位(`components/OptionCell.vue`、`lib/floating.ts`)→
 `option-cell-check`(组件级,不借账目夹具);动账目块的财务口径 → `ledger-check`,动它的就地增删改 →
-`ledger-edit-check`,动日期面板 / 编辑期钉住排序 → `ledger-date-check`(都挂真实编辑器,走 CDP 驱动);
+`ledger-edit-check`,动记一笔的表单(字段生成 / 键盘模型 / 校验 / `LedgerEntryDialog`)→
+`ledger-entry-check`,动日期面板 / 编辑期钉住排序 → `ledger-date-check`(都挂真实编辑器,走 CDP 驱动);
 动日期格的月历浮层本身(`composables/useDateCellPanel.ts`,账目行与看板卡共用)、
 它的键盘导航(`lib/date-key.ts` 的日期算术、`DateCalendar.vue` 的高亮环)→ 两页都跑;
 动看板卡的逐格编辑 → `kanban-date-check`(挂真实编辑器,走 CDP 驱动);动歌单块的字段识别 / 在线封面 / 多表绑定的落盘形态(`lib/playlist.ts`)→

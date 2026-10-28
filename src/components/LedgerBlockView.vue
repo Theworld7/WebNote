@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { LedgerBlock } from "@/types/workspace"
-import type { DataColumn, DataRow } from "@/types/data-table"
+import type { DataCellValue, DataColumn, DataRow } from "@/types/data-table"
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue"
 import { DatabaseIcon, PlusIcon, Settings2Icon, Trash2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import TableRefNotice from "@/components/TableRefNotice.vue"
 import DateCalendar from "@/components/DateCalendar.vue"
+import LedgerEntryDialog from "@/components/LedgerEntryDialog.vue"
 import OptionCell from "@/components/OptionCell.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
@@ -31,10 +32,13 @@ import { balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledg
  *
  * 就地增删改与看板卡的逐格编辑同一套口径(解析走 `dt.parseCellInput`):点格值即编辑,
  * 文本框 / 数字 / 日期是输入框,select 换下拉,勾选直接切;回车提交并跳到**下一行同列**
- * —— 纵向把一列金额录完最快;块顶右上角的「记一笔」追加到末尾、光标落进新行首格,并把
- * 那一行滚进视口(入口在表头、新行在表尾);行号列
- * 悬停变 ✕ 删行。金额格显示的是格式化后的带符号金额,一进编辑态就换回**原始数字**,
- * 于是「看到的是账,改的是数」,来回一趟不会把显示串解析成空。
+ * —— 纵向把一列金额录完最快;行号列悬停变 ✕ 删行。金额格显示的是格式化后的带符号金额,
+ * 一进编辑态就换回**原始数字**,于是「看到的是账,改的是数」,来回一趟不会把显示串解析成空。
+ *
+ * 新增走**模态表单**(`LedgerEntryDialog`):「记一笔」一次填完整条记录再落盘,不再把
+ * 光标塞进新行首格让人一路 Tab。理由是新增与改旧要的东西不一样 —— 改旧靠行内(就地、
+ * 一格一改),新增是一条完整记录,在行内则要跟「编辑期钉住排序」那套机制搏斗(见
+ * `frozenOrder`)。两条路径共用同一个解析器与同一个保存出口,手感不至于分叉。
  *
  * 逐格编辑的输入框**绝对定位浮在格值按钮上**、不参与文档流 —— 表格是 auto 布局,列宽由内容
  * 算出,输入框自带的 intrinsic 宽度会把列撑宽,点一下整张表就横向抖一次(详见模板里的注释)。
@@ -318,22 +322,49 @@ onBeforeUnmount(() => {
 })
 
 /**
- * 记一笔:追加到末尾 —— 流水账的末位就是最新一笔,落点没有歧义 —— 然后把光标
- * 放进新行的第一个可输入格(图片格不能就地编辑、勾选格是直接切,都不作落点)。
+ * 记一笔:打开模态表单。表单自己管草稿与校验,这里只管「打开」。
  *
- * 入口在块顶、新行落在表尾,所以要把它滚到眼前:长表里点了按钮却什么都没动,是因为
- * 那一行在视口外。`nearest` 而不是 `center` —— 新行本来就在视野里时(短表)不动,
- * 免得整页跟着跳一下。
+ * 没有包一层触发器 —— 那颗按钮坐在悬停浮现的动作组里,再包一层会让它的键盘可达性
+ * 变得含糊。开与关都由这里的 `entryOpen` 说,提交之后焦点再手动还给按钮
+ * (见 `focusAddButton`)。
  */
-async function addEntry(): Promise<void> {
-  await change((current) => dt.addRow(current))
+const entryOpen = ref(false)
+
+function openEntry(): void {
+  entryOpen.value = true
+}
+
+/**
+ * 表单提交:先 `addRow` 造一行空值,再把表单里填过的列一次写完 —— 只走一次 `change`,
+ * 盘上不会出现「只填了一半」的中间态。新行追加到表尾:流水账的末位就是最新一笔,落点
+ * 没有歧义。然后把它滚到眼前并闪一下底纹。
+ *
+ * 新行可能按排序落在表中间(日期倒序时它就是第一行),所以必须闪一下 —— 否则用户只看到
+ * 「对话框关了,表好像没变化」,其实那一行在他没看的地方。`nearest` 而不是 `center`:
+ * 新行本来就在视野里时(短表)不动,免得整页跟着跳一下。
+ */
+async function submitEntry(values: Record<string, DataCellValue>): Promise<void> {
+  entryOpen.value = false
+  await change((current) => {
+    const withRow = dt.addRow(current)
+    const blank = withRow.rows[withRow.rows.length - 1]
+    if (blank === undefined) return withRow
+    let filled = blank
+    for (const [columnId, value] of Object.entries(values)) filled = dt.setCell(filled, columnId, value)
+    return dt.replaceRow(withRow, filled)
+  })
   const added = rows.value[rows.value.length - 1]
   if (added === undefined) return
-  const first = columns.value.find((column) => column.type !== "image" && column.type !== "checkbox")
-  if (first === undefined) return
-  editing.value = cellKey(added, first)
+  flash(added.id)
   await nextTick()
   rootEl.value?.querySelector(`[data-row-id="${added.id}"]`)?.scrollIntoView({ block: "nearest" })
+  focusAddButton()
+}
+
+/** 焦点还给「记一笔」:纯键盘用户接着记下一条,不必重新找入口(动作组靠 focus-within 显形)。 */
+function focusAddButton(): void {
+  const button = rootEl.value?.querySelector("[data-ledger-add]")
+  if (button instanceof HTMLElement) button.focus()
 }
 
 /** 删一行。正在编辑这一行时先把编辑态收掉,免得输入框跟着一个已消失的行。 */
@@ -428,7 +459,8 @@ function openTable() {
         variant="ghost"
         size="sm"
         class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground"
-        @click="addEntry"
+        data-ledger-add
+        @click="openEntry"
       >
         <PlusIcon class="size-3" />记一笔
       </Button>
@@ -672,6 +704,17 @@ function openTable() {
         </tfoot>
       </table>
     </div>
+
+    <!-- 记一笔的表单。挂在块的根节点里而不是 `table !== null` 的那一支:表还没读完时
+         对话框本来就不会开,但把它放在同一层能让「打开 / 提交 / 关闭」的状态只有一处。 -->
+    <LedgerEntryDialog
+      :open="entryOpen"
+      :columns="columns"
+      :income-column-id="props.block.incomeColumnId"
+      :expense-column-id="props.block.expenseColumnId"
+      @submit="submitEntry"
+      @close="entryOpen = false"
+    />
   </div>
 
   <!-- 日期浮层:挂到 body 上、fixed 定位 —— 账目表外面是横向滚动容器,格内浮层会被裁掉。

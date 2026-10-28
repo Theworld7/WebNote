@@ -257,7 +257,7 @@ await settle()
 check("退出编辑后按新日期排到中间（09-18 > 09-15 > 09-03）", order() === "2026-09-18,2026-09-15,2026-09-03", order())
 check("金额也一起提交了", cellText(bodyRows()[1], 2) === "+88.00", cellText(bodyRows()[1], 2))
 check("被挪动的那行短暂高亮，眼睛能跟上",
-  bodyRows()[1].className.includes("bg-selection"), bodyRows()[1].className)
+  bodyRows()[1].className.includes("bg-tint"), bodyRows()[1].className)
 
 // ---------- 四·五、回车跳格时面板跟着换位，不悬在旧格 ----------
 step("enter")

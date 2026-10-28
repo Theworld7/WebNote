@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>账目块「记一笔」模态表单自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { height: 480px; display: flex; flex-direction: column; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>账目块「记一笔」模态表单自检（只靠键盘填完，末了读盘核对类型）</h1>
+<!-- 脚本里有顶层 await（真实读盘、真实写盘），--dump-dom 抓不到结果，用 CDP 驱动跑：
+     node design/cdp-dump.mjs http://localhost:1420/design/ledger-entry-check.html -->
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { provideTables } from "../src/composables/useTables.ts"
+import { createBlock, createLedgerBlock } from "../src/lib/blocks.ts"
+import { blocksToHtml } from "../src/lib/html/serialize.ts"
+import { tableFromJson } from "../src/lib/data-table.ts"
+import { todayKey } from "../src/lib/date-key.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function report(kind, detail) {
+  document.getElementById("out").textContent = [kind, "", detail, "", ...lines].join("\n")
+}
+window.addEventListener("unhandledrejection", (e) => report("REJECT", e.reason?.stack ?? String(e.reason)))
+window.addEventListener("error", (e) => report("ERROR", e.message))
+function step(name) {
+  document.getElementById("out").textContent = `running: ${name}\n${lines.join("\n")}`
+}
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+
+/**
+ * 夹具：一张六种控件里挑出五种（日期 / 文本 / 选择 / 数字×2）的礼账，外加一行旧账。
+ * 表单字段按列现生成，所以列的形状就是这一页要验的东西。
+ */
+const TABLE = {
+  version: 1,
+  columns: [
+    { id: "c1", name: "日期", type: "date", options: [] },
+    { id: "c2", name: "人员", type: "text", options: [] },
+    { id: "c3", name: "分类", type: "select", options: [{ id: "o1", name: "礼金" }, { id: "o2", name: "礼品" }] },
+    { id: "c4", name: "收入", type: "number", options: [] },
+    { id: "c5", name: "支出", type: "number", options: [] },
+  ],
+  rows: [
+    { id: "r1", values: { c1: "2026-10-01", c2: "赵赫", c3: "o1", c4: 200, c5: null } },
+  ],
+}
+const TABLE_JSON = JSON.stringify(TABLE, null, 2) + "\n"
+const NOTE_HTML = blocksToHtml(
+  [createBlock("text"), createLedgerBlock("礼账.tbl", "c4", "c5", true, "none", "")],
+  (path) => (path === "礼账.tbl" ? tableFromJson(TABLE_JSON) : null),
+)
+
+step("opfs")
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("ledger-entry-probe", { create: true })
+for (const [name, text] of [["礼账.tbl", TABLE_JSON], ["账.html", NOTE_HTML]]) {
+  const handle = await dir.getFileHandle(name, { create: true })
+  const writable = await handle.createWritable()
+  await writable.write(text)
+  await writable.close()
+}
+window.showDirectoryPicker = async () => dir
+
+async function readFile(name) {
+  const handle = await dir.getFileHandle(name)
+  return (await handle.getFile()).text()
+}
+/** 等真实 I/O 与 Vue 重渲染落地：microtask 轮询等不到读盘。 */
+async function settle() {
+  for (let i = 0; i < 4; i += 1) {
+    await nextTick()
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
+
+step("mount")
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    provideTheme(provideSettings())
+    const tables = provideTables(workspace.fs, workspace.root)
+    workspace.attachTableRegistry({
+      preload: (paths) => tables.preload(paths),
+      peek: (path) => tables.peek(path),
+      flush: (path) => tables.flush(path),
+      reload: (path) => tables.reload(path),
+      create: () => Promise.reject(new Error("本页不新建数据表")),
+    })
+    return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+
+step("bootstrap")
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+const note = (function find(nodes) {
+  for (const node of nodes) {
+    if (node.kind === "note") return node
+    const hit = node.children ? find(node.children) : null
+    if (hit) return hit
+  }
+  return null
+})(workspace.tree.value)
+check("扫到了预置笔记", note !== null, JSON.stringify(workspace.tree.value.map((n) => n.name)))
+
+step("openFile")
+if (note !== null) {
+  workspace.openFile(note.id)
+  for (let i = 0; i < 60 && workspace.activeDocument.value.length < 2; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  await settle()
+}
+
+// ---- DOM 取景 ----
+function ledgerRoot() {
+  return [...document.querySelectorAll("[data-block-id]")].find((el) => el.querySelector("table") !== null) ?? null
+}
+function bodyRows() {
+  const root = ledgerRoot()
+  if (root === null) return []
+  return [...root.querySelectorAll("tbody tr")].filter((tr) => tr.querySelector('[aria-label="删除本行"]') !== null)
+}
+function cells(row) { return [...row.querySelectorAll("td")] }
+function cellText(row, index) { return (cells(row)[index]?.textContent ?? "").trim() }
+function addButton() {
+  const root = ledgerRoot()
+  if (root === null) return null
+  return [...root.querySelectorAll("button")].find((button) => (button.textContent ?? "").includes("记一笔")) ?? null
+}
+/** 对话框本体（reka 把 portal 挂到 body 上，不在账目块的子树里）。 */
+function dialog() { return document.querySelector('[data-slot="dialog-content"]') }
+/**
+ * 等对话框真的从 DOM 里消失。关掉时会走 100ms 的淡出动画，`settle()` 那 100ms
+ * 正好卡在动画中途 —— 断言「关没关」必须等元素被移走，不能只等一拍。
+ */
+async function waitClosed() {
+  for (let i = 0; i < 60 && dialog() !== null; i += 1) await new Promise((resolve) => setTimeout(resolve, 20))
+  return dialog() === null
+}
+function fields() { return [...(dialog()?.querySelectorAll("[data-field]") ?? [])] }
+function field(id) { return dialog()?.querySelector(`[data-field="${id}"]`) ?? null }
+function submitButton() {
+  return [...(dialog()?.querySelectorAll("button") ?? [])].find((button) => (button.textContent ?? "").trim() === "记下") ?? null
+}
+function labelTextOf(column) {
+  const label = dialog()?.querySelector(`label[for="ledger-entry-${column}"]`)
+  return (label?.textContent ?? "").trim()
+}
+function type(input, value) {
+  input.value = value
+  input.dispatchEvent(new Event("input", { bubbles: true }))
+}
+function press(target, init) {
+  target.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }))
+}
+async function openDialog() {
+  addButton()?.click()
+  await settle()
+}
+
+step("open")
+const rows0 = bodyRows()
+check("账目块渲染出 1 行旧账", rows0.length === 1, `实际 ${rows0.length}`)
+check("打开前没有对话框", dialog() === null)
+
+await openDialog()
+check("点「记一笔」打开模态框", dialog() !== null)
+check("表单字段数 = 表的列数（图片列除外，这里没有图片列）", fields().length === 5, `实际 ${fields().length}`)
+check(
+  "字段顺序跟着表的列序走（日期 / 人员 / 分类 / 收入 / 支出）",
+  ["c1", "c2", "c3", "c4", "c5"].every((id, index) => fields()[index]?.dataset.field === id),
+  fields().map((el) => el.dataset.field).join(","),
+)
+check("字段标签用的是列名", ["日期", "人员", "分类", "收入", "支出"].every((name, index) => labelTextOf(`c${index + 1}`) === name),
+  ["c1", "c2", "c3", "c4", "c5"].map(labelTextOf).join(","))
+
+// ---- 焦点：打开就落在第一个字段，且只预填了今天 ----
+const first = field("c1")
+check("打开后焦点落在第一个字段（日期）", document.activeElement === first, String(document.activeElement?.tagName))
+check("日期列预填今天", first instanceof HTMLInputElement && first.value === todayKey(), String(first?.value))
+check("其余列都是空的",
+  [field("c2"), field("c4"), field("c5")].every((el) => el instanceof HTMLInputElement && el.value === ""),
+  [field("c2"), field("c4"), field("c5")].map((el) => `${el?.dataset.field}=${el?.value}`).join(","))
+check("分类是原生下拉，默认落在「（空）」", field("c3") instanceof HTMLSelectElement && field("c3").value === "",
+  String(field("c3")?.value))
+check("只预填了日期不算「填过」，提交键是禁用的", submitButton()?.disabled === true, String(submitButton()?.disabled))
+
+// ---- 控制类型跟着列类型走 ----
+check("收入 / 支出格是文本框 + 数字键盘提示（不用 number，免得千分位被吞掉）",
+  field("c4") instanceof HTMLInputElement && field("c4").getAttribute("inputmode") === "decimal",
+  field("c4")?.getAttribute("inputmode") ?? "缺")
+check("金额格右对齐（跟表里那一列同一副样子）",
+  getComputedStyle(field("c4")).textAlign === "right", getComputedStyle(field("c4")).textAlign)
+
+// ---- 只靠键盘把表填完 ----
+step("keyboard-fill")
+let typed = 0
+for (const [id, value] of [["c2", "新客"], ["c4", "1234.5"]]) {
+  const input = field(id)
+  if (input instanceof HTMLInputElement) {
+    type(input, value)
+    typed += 1
+  }
+}
+await settle()
+check("文本与数字都能录入", typed === 2, `实际 ${typed}`)
+check("填了东西之后提交键解禁", submitButton()?.disabled === false, String(submitButton()?.disabled))
+
+// 分类走原生下拉：键盘上下键改的就是它的 value。
+const select = field("c3")
+if (select instanceof HTMLSelectElement) {
+  select.value = "o2"
+  select.dispatchEvent(new Event("change", { bubbles: true }))
+}
+await settle()
+check("下拉选中的是选项 id（不是显示名）", field("c3")?.value === "o2", String(field("c3")?.value))
+
+// 最后在备注式的文本列里回车 = 提交（表单里回车不换行，它没有多行字段）。
+const lastInput = field("c2")
+check("回车前对话框还开着", dialog() !== null)
+if (lastInput !== null) press(lastInput, { key: "Enter" })
+await settle()
+
+check("回车提交后对话框关闭", await waitClosed())
+const rows1 = bodyRows()
+check("表里多出一行", rows1.length === 2, `实际 ${rows1.length}`)
+const added = rows1[1]
+check("新行人员落值", cellText(added, 1) === "新客", cellText(added, 1))
+check("新行收入显示带符号金额 +1,234.50", cellText(added, 3) === "+1,234.50", cellText(added, 3))
+check("新行日期是今天", cellText(added, 0) === todayKey(), cellText(added, 0))
+check("分类显示的是选项名（礼金 / 礼品 里的「礼品」）", cellText(added, 2) === "礼品", cellText(added, 2))
+check("新行闪一下底纹（列被排序挪走时也能看见）", added?.className.includes("bg-tint") === true, added?.className ?? "缺行")
+check("提交后焦点回到「记一笔」", document.activeElement === addButton(), String(document.activeElement?.textContent ?? document.activeElement?.tagName))
+check("合计跟着重算（+1,434.50）", (ledgerRoot()?.querySelector("tfoot")?.textContent ?? "").includes("+1,434.50"),
+  ledgerRoot()?.querySelector("tfoot")?.textContent ?? "缺 tfoot")
+
+// ---- Esc 取消：不落盘，草稿清空 ----
+step("escape")
+await openDialog()
+const escort = field("c2")
+if (escort instanceof HTMLInputElement) type(escort, "别记我")
+await settle()
+if (escort !== null) press(escort, { key: "Escape" })
+await settle()
+check("Esc 关掉对话框", await waitClosed())
+check("Esc 不往表里加行", bodyRows().length === 2, `实际 ${bodyRows().length}`)
+
+await openDialog()
+check("重开后草稿是空的（上次取消的内容没留下来）",
+  field("c2") instanceof HTMLInputElement && field("c2").value === "",
+  String(field("c2")?.value))
+check("重开时日期仍预填今天", field("c1")?.value === todayKey(), String(field("c1")?.value))
+
+// ---- 输入法合成中的回车不算提交（中文选词就按回车） ----
+step("ime")
+const imeInput = field("c2")
+if (imeInput instanceof HTMLInputElement) {
+  type(imeInput, "张")
+  press(imeInput, { key: "Enter", isComposing: true })
+}
+await settle()
+check("合成中的回车不提交", dialog() !== null && bodyRows().length === 2,
+  `对话框 ${dialog() === null ? "已关" : "还在"}，行数 ${bodyRows().length}`)
+
+// ---- 校验：日期格式不对就指回那一格，别关窗 ----
+step("validate")
+const badDate = field("c1")
+if (badDate instanceof HTMLInputElement) type(badDate, "10/28")
+await settle()
+if (imeInput !== null) press(imeInput, { key: "Enter" })
+await settle()
+check("日期格式不对时对话框不关", dialog() !== null)
+check("错误信息指着日期那一格", (dialog()?.textContent ?? "").includes("写成 2026-10-28 这样"), dialog()?.textContent ?? "无对话框")
+check("焦点回到出错的那一格", document.activeElement === field("c1"), String(document.activeElement?.dataset?.field ?? document.activeElement?.tagName))
+check("行数没变", bodyRows().length === 2, `实际 ${bodyRows().length}`)
+
+// 改对再提交，顺带验证金额里的千分位会被拒绝而不是被解析成空。
+const money = field("c4")
+if (money instanceof HTMLInputElement) type(money, "1,000")
+if (badDate instanceof HTMLInputElement) type(badDate, todayKey())
+await settle()
+if (imeInput !== null) press(imeInput, { key: "Enter" })
+await settle()
+check("金额写了千分位就拦下来（不静默解析成空）",
+  dialog() !== null && (dialog()?.textContent ?? "").includes("只收数字"), dialog()?.textContent ?? "无对话框")
+
+if (money instanceof HTMLInputElement) type(money, "300")
+await settle()
+if (imeInput !== null) press(imeInput, { key: "Enter" })
+await settle()
+check("改对之后提交成功", await waitClosed() && bodyRows().length === 3, `行数 ${bodyRows().length}`)
+
+// ---- 保存：真写盘，读回来核对类型 ----
+step("save")
+await workspace.save()
+await settle()
+const saved = JSON.parse(await readFile("礼账.tbl"))
+check("盘上行数 = 3", saved.rows.length === 3, `实际 ${saved.rows.length}`)
+const keyboardRow = saved.rows.find((row) => row.values.c2 === "新客")
+check("键盘录的那一行落盘了", keyboardRow !== undefined, JSON.stringify(saved.rows.map((row) => row.values.c2)))
+check("收入以数字落盘（1234.5）", keyboardRow?.values.c4 === 1234.5 && typeof keyboardRow.values.c4 === "number",
+  JSON.stringify(keyboardRow?.values.c4))
+check("日期以 YYYY-MM-DD 字符串落盘", keyboardRow?.values.c1 === todayKey(), JSON.stringify(keyboardRow?.values.c1))
+check("分类存的是选项 id", keyboardRow?.values.c3 === "o2", JSON.stringify(keyboardRow?.values.c3))
+check("被取消的那条没有落盘", !saved.rows.some((row) => row.values.c2 === "别记我"),
+  JSON.stringify(saved.rows.map((row) => row.values.c2)))
+check("新增行的列键齐全（每列都有键）",
+  saved.rows.every((row) => saved.columns.every((column) => column.id in row.values)))
+
+lines.push(failed === 0 ? `自检 ${passed}/${passed}` : `自检 ${passed} 过 / ${failed} 败`)
+document.getElementById("out").textContent = lines.join("\n")
+</script>
+</body>
+</html>
