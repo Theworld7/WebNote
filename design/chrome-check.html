@@ -201,7 +201,7 @@ check("没有检测到新版本时不长按钮", updateButton() === undefined, u
 const realFetch = window.fetch
 window.fetch = async () =>
   new Response(JSON.stringify({ tag_name: "v9.9.9", html_url: "https://github.com/Theworld7/WebNote/releases/tag/v9.9.9" }), { status: 200 })
-await useUpdateCheck().check()
+await useUpdateCheck().checkNow()
 await nextTick()
 window.fetch = realFetch
 

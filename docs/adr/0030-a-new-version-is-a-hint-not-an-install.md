@@ -65,4 +65,5 @@ than assumed — it is the one thing in the header that cannot afford to shrink.
 
 **Not addressed.** In-app download or install-on-quit (rejected above, not deferred); a "check for
 updates" command in the settings panel, which would need ETag caching before it could be offered
-at a click; and the macOS / Linux packaging story, which is still the open item from ADR-0024.
+at a click (added later, with conditional requests — see ADR-0031); and the macOS / Linux
+packaging story, which is still the open item from ADR-0024.

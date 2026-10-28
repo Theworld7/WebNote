@@ -10,7 +10,7 @@
 </style>
 </head>
 <body>
-<h1>新版本检测：版本号比较、GitHub release 的解析、按钮的行为</h1>
+<h1>新版本检测：版本号比较、GitHub release 的解析、手动检查的三种结论、按钮的行为</h1>
 <!-- 网络是这里唯一的外部边界，打桩打的就是它：GitHub 那边到底发了什么，不由本页决定。
      抓结果：node design/cdp-dump.mjs http://localhost:1420/design/update-check.html -->
 <div id="host"></div>
@@ -73,7 +73,7 @@ check("草稿不算发布", parseLatestRelease({ ...payload, draft: true }, FALL
 check("预发布不算发布", parseLatestRelease({ ...payload, prerelease: true }, FALLBACK) === null)
 check("响应根本不是对象就当没有", parseLatestRelease("{}", FALLBACK) === null && parseLatestRelease(null, FALLBACK) === null)
 
-// ---------- 四、按钮：只在该出现的时候出现 ----------
+// ---------- 四、按钮与三种结论 ----------
 
 createApp(
   defineComponent({ render: () => h(TooltipProvider, null, { default: () => h(NewVersionButton) }) }),
@@ -85,16 +85,41 @@ const button = () => [...host.querySelectorAll("button")].find((el) => el.textCo
 
 check("没有检测到新版本时按钮不渲染", button() === undefined)
 
+/*
+ * 网络是这里唯一的外部输入。打桩的同时记账：手动检查那颗按钮第二次点下去时到底有没有
+ * 带上 `If-None-Match`，只有把请求收下来才看得见。
+ */
 const release = { tag_name: "v9.9.9", html_url: "https://github.com/Theworld7/WebNote/releases/tag/v9.9.9" }
 const realFetch = window.fetch
 const realOpen = window.open
+const calls = []
 const opened = []
-window.fetch = async () => new Response(JSON.stringify(release), { status: 200 })
+let reply = () => new Response("{}", { status: 500 })
+
+/** GitHub 的 200：带 ETag 头，下一次就能问成条件请求。 */
+const json = (body, headers = {}) => new Response(JSON.stringify(body), { status: 200, headers })
+
+window.fetch = async (url, init) => {
+  const headers = init?.headers ?? {}
+  calls.push({ url: String(url), ifNoneMatch: headers["If-None-Match"] ?? null })
+  return reply()
+}
 window.open = (url) => { opened.push(String(url)); return null }
 
-await useUpdateCheck().check()
-await nextTick()
+const { latest, checking, checkNow } = useUpdateCheck()
 
+// 1. 最新发布就是手上这一版：结论 current，不该长出按钮。
+reply = () => json({ tag_name: `v${__APP_VERSION__}`, html_url: release.html_url }, { ETag: '"same"' })
+check("最新发布等于当前版本 → 结论 current", (await checkNow()) === "current")
+await nextTick()
+check("没有更新时不长按钮", button() === undefined)
+check("检查结束后不在「检查中」", checking.value === false)
+check("第一次请求没有回执可带", calls[0]?.ifNoneMatch === null, String(calls[0]?.ifNoneMatch))
+
+// 2. 真有一个更新的版本：按钮出现，地址来自那条 release。
+reply = () => json(release, { ETag: '"newer"' })
+check("查到更新的版本 → 结论 newer", (await checkNow()) === "newer")
+await nextTick()
 check("检测到更新的版本后按钮出现", button() !== undefined)
 check("按钮写的字是「新版本」", button()?.textContent?.trim() === "新版本", button()?.textContent?.trim() ?? "缺失")
 check("无障碍名字带上版本号",
@@ -104,6 +129,23 @@ check("无障碍名字带上版本号",
 button()?.click()
 await Promise.resolve()
 check("点一下就把 release 页面交给系统浏览器", opened[0] === release.html_url, opened[0] ?? "没有打开任何地址")
+
+// 3. 再点一次：带上上一次的 ETag，GitHub 回 304 —— 结论沿用，且这一次不占限额。
+reply = () => new Response(null, { status: 304 })
+check("304 沿用上一次的结论", (await checkNow()) === "newer")
+check("第二次请求带上了 If-None-Match", calls[2]?.ifNoneMatch === '"newer"', String(calls[2]?.ifNoneMatch))
+await nextTick()
+check("304 之后按钮还在", button() !== undefined)
+
+// 4. 被限流：结论 failed，但已经查到的提示不该被抹掉。
+reply = () => new Response("{}", { status: 403 })
+check("403 → 结论 failed", (await checkNow()) === "failed")
+await nextTick()
+check("失败不清掉已经查到的提示", button() !== undefined && latest.value?.version === "9.9.9")
+
+// 5. 断网：同样只是 failed，不往外抛。
+reply = () => { throw new TypeError("Failed to fetch") }
+check("fetch 抛错 → 结论 failed，不冒泡", (await checkNow()) === "failed")
 
 window.fetch = realFetch
 window.open = realOpen

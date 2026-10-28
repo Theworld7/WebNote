@@ -30,11 +30,13 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { CONTENT_WIDTH_PX, HEADING_NAV_MIN_FLOOR, useSettings } from "@/composables/useSettings"
+import { useUpdateCheck } from "@/composables/useUpdateCheck"
 import { listSystemFonts } from "@/lib/fonts"
 import { resolvePlace } from "@/lib/place"
 import { dayOf, sunTimes } from "@/lib/sun"
 import { minutesOf } from "@/lib/theme-mode"
 import FontPicker from "./FontPicker.vue"
+import NewVersionButton from "./NewVersionButton.vue"
 
 /**
  * 设置面板。
@@ -63,12 +65,30 @@ onMounted(() => {
 const SECTIONS = [
   { id: "display", label: "显示" },
   { id: "appearance", label: "外观" },
+  { id: "about", label: "关于" },
 ] as const
 
 type SectionId = (typeof SECTIONS)[number]["id"]
 
 /** 当前分区。默认停在「显示」—— 它是这块面板打开时的原有落点。 */
 const activeSection = ref<SectionId>("display")
+
+/**
+ * 「关于」那一行：装的是哪一版、能不能手动再查一次。
+ *
+ * 结论（`outcome`）由 `useUpdateCheck` 持有，不放在本组件里：面板一关就卸载，
+ * 重新打开时「刚才那次检查说了什么」不该丢。
+ */
+const { version, latest, outcome, checking, checkNow } = useUpdateCheck()
+
+/** 结果那句话。`null` 表示这次启动还没查过 —— 那时一个字都不写，「未检查」只是噪声。 */
+const updateHint = computed(() => {
+  const result = outcome.value
+  if (result === null) return null
+  if (result === "current") return "已是最新版本"
+  if (result === "failed") return "没能检查，可能离线或 GitHub 限流"
+  return latest.value === null ? "发现新版本" : `发现新版本 v${latest.value.version}`
+})
 
 interface TableEffectOption {
   value: TableEffect
@@ -610,6 +630,45 @@ function optionClass(isActive: boolean): string {
             <p class="text-[12px] leading-[1.5] text-muted-foreground">
               自动模式下，标签栏那颗按钮只改当前这一段：到下一个切换点（日出、日落、固定时刻、
               系统外观翻转）就交回自动，设置里的选择不会被改掉。
+            </p>
+          </div>
+
+          <!-- 关于：版本 + 手动检查。放在设置里而不是 chrome 上 —— 它是「偶尔才做一次」的事，
+               没有新版本时一行都不该占标题栏。 -->
+          <div v-else-if="activeSection === 'about'" class="flex flex-col gap-4 p-3.5">
+            <section class="flex flex-col gap-2">
+              <h3 class="text-[13px] font-medium text-foreground">版本</h3>
+              <SheetDescription>
+                启动时会自动查一次 GitHub 上的最新发布；查不到就算了，不打扰。
+              </SheetDescription>
+
+              <div class="mt-0.5 flex flex-col gap-2 rounded-[9px] border border-line p-2.5">
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-[13px] leading-[1.4] text-foreground">玉简 v{{ version }}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    :disabled="checking"
+                    @click="checkNow"
+                  >
+                    {{ checking ? "检查中…" : "检查更新" }}
+                  </Button>
+                </div>
+
+                <!-- 有新版时那颗小按钮就是这一步的落点（打开那个 release 的页面），
+                     与标题栏里那颗是同一个组件、同一个动作。 -->
+                <div
+                  v-if="updateHint !== null"
+                  class="flex items-center gap-1.5 text-[12px] leading-[1.45] text-muted-foreground"
+                >
+                  <span>{{ updateHint }}</span>
+                  <NewVersionButton v-if="outcome === 'newer'" />
+                </div>
+              </div>
+            </section>
+
+            <p class="text-[12px] leading-[1.5] text-muted-foreground">
+              应用不自己下载安装包：那颗按钮把发布页交给系统浏览器，下不下、装不装由你决定。
             </p>
           </div>
         </ScrollArea>

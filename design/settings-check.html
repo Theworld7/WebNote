@@ -29,6 +29,7 @@ import "../src/style.css"
 import BlockEditor from "../src/components/BlockEditor.vue"
 import SettingsPanel from "../src/components/SettingsPanel.vue"
 import TableBlockView from "../src/components/TableBlockView.vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
 import { provideSettings } from "../src/composables/useSettings.ts"
 import { provideTheme } from "../src/composables/useTheme.ts"
 import { provideWorkspace } from "../src/composables/useWorkspace.ts"
@@ -82,11 +83,17 @@ const Root = defineComponent({
     provideWorkspace()
     // BlockEditor 也挂上：内容宽度偏好的几何断言量的是它那层 [data-doc] 容器
     // （computed maxWidth），比只验数据落盘多走一整段「设置 → 渲染」链路。
-    return () => h("div", { class: "doc" }, [
-      h(TableBlockView, { block }),
-      h(BlockEditor),
-      h(SettingsPanel, { open: open.value, "onUpdate:open": (v) => (open.value = v) }),
-    ])
+    // TooltipProvider 照生产来：面板「关于」里那颗「新版本」按钮要用它，缺了会让整块 patch
+    // 抛错，症状是「点了检查更新界面上什么都没变」—— 很容易被误判成响应式坏了。
+    return () =>
+      h(TooltipProvider, null, {
+        default: () =>
+          h("div", { class: "doc" }, [
+            h(TableBlockView, { block }),
+            h(BlockEditor),
+            h(SettingsPanel, { open: open.value, "onUpdate:open": (v) => (open.value = v) }),
+          ]),
+      })
   },
 })
 createApp(Root).mount("#app")
@@ -572,6 +579,65 @@ check("清回后变量回到系统栈基线上", fontVar("--font-sans") === SYST
 check("清回后存的是空串（表示跟随系统）", window.localStorage.getItem(FONT_KEY) === "",
   String(window.localStorage.getItem(FONT_KEY)))
 
+// ---------- 四点六、关于 → 检查更新 ----------
+//
+// 这一节的落点：入口在面板里、按下去真的走查网那条路、三种结论里「有新版本」会顺手
+// 长出那颗小按钮。网络打桩（与 update-check 同一手），因为这里验的是面板，不是 GitHub。
+
+note("关于 → 检查更新")
+const aboutNav = [...(panelRoot()?.querySelectorAll("nav button") ?? [])].find((node) => node.textContent.trim() === "关于")
+check("分区栏出现「关于」", aboutNav !== undefined)
+aboutNav?.click()
+await nextTick()
+await new Promise((resolve) => setTimeout(resolve, 30))
+
+const aboutText = () => panelRoot()?.textContent ?? ""
+check("关于分区写着当前版本", aboutText().includes(`玉简 v${__APP_VERSION__}`),
+  aboutText().slice(0, 80))
+
+/** 面板里的那颗「检查更新」；`textContent` 换字说明它正忙。 */
+const checkButton = () =>
+  [...(panelRoot()?.querySelectorAll("button") ?? [])].find((node) => node.textContent.trim() === "检查更新")
+
+check("有「检查更新」入口", checkButton() !== undefined)
+check("没查过时不写任何结论", !aboutText().includes("已是最新") && !aboutText().includes("发现新版本"))
+
+const realFetch = window.fetch
+const realOpen = window.open
+window.open = () => null
+let reply = () => new Response("{}", { status: 500 })
+window.fetch = async () => reply()
+
+reply = () =>
+  new Response(JSON.stringify({ tag_name: "v9.9.9", html_url: "https://github.com/Theworld7/WebNote/releases/tag/v9.9.9" }), {
+    status: 200,
+    headers: { ETag: '"x"' },
+  })
+checkButton()?.click()
+await new Promise((resolve) => setTimeout(resolve, 60))
+await nextTick()
+
+check("查完摊出结论：发现新版本 v9.9.9", aboutText().includes("发现新版本 v9.9.9"),
+  aboutText().slice(0, 120))
+check("结论旁边那颗「新版本」按钮出现了",
+  [...(panelRoot()?.querySelectorAll("button") ?? [])].some((node) => node.textContent.includes("新版本")))
+
+// 换一个「没有更新」的回答：结论要跟着改，那颗小按钮要收回。
+reply = () => new Response(JSON.stringify({ tag_name: `v${__APP_VERSION__}`, html_url: "" }), { status: 200 })
+checkButton()?.click()
+await new Promise((resolve) => setTimeout(resolve, 60))
+await nextTick()
+check("没有更新时结论是「已是最新版本」", aboutText().includes("已是最新版本"), aboutText().slice(0, 120))
+check("没有更新时不摆那颗按钮",
+  ![...(panelRoot()?.querySelectorAll("button") ?? [])].some((node) => node.textContent.includes("新版本")))
+
+window.fetch = realFetch
+window.open = realOpen
+
+// 回到「显示」，别把分区状态漏给后面的用例。
+;[...document.querySelectorAll("nav button")].find((node) => node.textContent.trim() === "显示")?.click()
+await nextTick()
+
 // ---------- 五、坏值防御 ----------
 
 note("坏值防御")
@@ -582,11 +648,15 @@ const BadRoot = defineComponent({
   setup() {
     provideTheme(provideSettings())
     provideWorkspace()
-    return () => h("div", { class: "doc" }, [
-      h(TableBlockView, { block }),
-      h(BlockEditor),
-      h(SettingsPanel, { open: badOpen.value, "onUpdate:open": (v) => (badOpen.value = v) }),
-    ])
+    return () =>
+      h(TooltipProvider, null, {
+        default: () =>
+          h("div", { class: "doc" }, [
+            h(TableBlockView, { block }),
+            h(BlockEditor),
+            h(SettingsPanel, { open: badOpen.value, "onUpdate:open": (v) => (badOpen.value = v) }),
+          ]),
+      })
   },
 })
 const badMount = document.createElement("div")
