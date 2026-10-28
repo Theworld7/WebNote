@@ -165,8 +165,13 @@ async function waitClosed() {
 }
 function fields() { return [...(dialog()?.querySelectorAll("[data-field]") ?? [])] }
 function field(id) { return dialog()?.querySelector(`[data-field="${id}"]`) ?? null }
-/** 字段下方内联展开的面板：月历与选项共用同一种外壳（`data-entry-panel`）。 */
+/** 字段下方浮出的面板：月历与选项共用同一种外壳（`data-entry-panel`）。 */
 function entryPanel() { return dialog()?.querySelector("[data-entry-panel]") ?? null }
+/** 某个字段控件的视口顶部 —— 用来证明浮层不挪动别的字段。 */
+function topOf(id) {
+  const el = field(id)
+  return el === null ? NaN : el.getBoundingClientRect().top
+}
 function calendarPanel() { return dialog()?.querySelector("[data-date-calendar]") ?? null }
 function optionPanel() { return dialog()?.querySelector("[role='listbox']") ?? null }
 /** 面板里的键盘高亮（选项项 / 日历格各有自己的标记，这里只取选项那一套）。 */
@@ -231,11 +236,18 @@ check("分类是自绘按钮（不用原生 select），收起态显示「（空
 check("刚打开时不弹面板（一开门就被一块 250px 的月历顶住太重）", entryPanel() === null,
   entryPanel() === null ? "" : "面板开了")
 // 离开再回来 = 真的「切换」到这个字段，这时才展开。
+// 展开前记一个「后面的字段」的位置：面板若是内联展开，它会被推下去。
+const beforeTop = topOf("c2")
 if (field("c2") instanceof HTMLInputElement) field("c2").focus()
 if (first instanceof HTMLInputElement) first.focus()
 await settle()
 check("切回日期字段时自动展开月历（Tab 进来就有面板，不用先点那颗钮）",
   calendarPanel() !== null, entryPanel() === null ? "没有面板" : "面板在但不是月历")
+check("面板不占布局：展开前后「人员」字段一动不动",
+  Math.abs(topOf("c2") - beforeTop) < 0.5, `${beforeTop.toFixed(1)} → ${topOf("c2").toFixed(1)}`)
+check("面板是绝对定位的浮层（不参与表单的排版）",
+  entryPanel() !== null && getComputedStyle(entryPanel()).position === "absolute",
+  entryPanel() === null ? "没有面板" : getComputedStyle(entryPanel()).position)
 check("月历高亮落在预填的今天（回车确认的就是它）", ringDay(todayKey()), todayKey())
 check("只预填了日期不算「填过」，提交键是禁用的", submitButton()?.disabled === true, String(submitButton()?.disabled))
 
@@ -439,6 +451,31 @@ check("被取消的那条没有落盘", !saved.rows.some((row) => row.values.c2 
   JSON.stringify(saved.rows.map((row) => row.values.c2)))
 check("新增行的列键齐全（每列都有键）",
   saved.rows.every((row) => saved.columns.every((column) => column.id in row.values)))
+
+// ---- 浮层定位：占的是「浮」的那一层，不该把字段推走，也不该被滚动容器裁掉 ----
+step("panel-placement")
+await openDialog()
+if (field("c2") instanceof HTMLInputElement) field("c2").focus()
+if (field("c1") instanceof HTMLInputElement) field("c1").focus()
+await settle()
+const formEl = dialog()?.querySelector('[data-field-wrap="c1"]')?.parentElement ?? null
+const panelBox = entryPanel()?.getBoundingClientRect() ?? null
+const formBox = formEl?.getBoundingClientRect() ?? null
+check("浮层整块落在表单可视区内（不被 overflow 裁掉半块）",
+  panelBox !== null && formBox !== null && panelBox.bottom <= formBox.bottom + 0.5,
+  panelBox === null || formBox === null ? "缺失" : `面板底 ${panelBox.bottom.toFixed(1)} vs 表单底 ${formBox.bottom.toFixed(1)}`)
+
+// 把表单区压到 200px：整块月历放不下，面板该自己收窄、内部滚动，而不是被裁。
+if (formEl instanceof HTMLElement) formEl.style.height = "200px"
+if (field("c2") instanceof HTMLInputElement) field("c2").focus()
+if (field("c1") instanceof HTMLInputElement) field("c1").focus()
+await settle()
+const tightPanel = entryPanel()?.getBoundingClientRect() ?? null
+const tightForm = formEl?.getBoundingClientRect() ?? null
+check("矮窗口里月历自己收窄（不被裁掉半块，面板内部滚）",
+  tightPanel !== null && tightForm !== null && tightPanel.bottom <= tightForm.bottom + 0.5,
+  tightPanel === null || tightForm === null ? "缺失" : `面板底 ${tightPanel.bottom.toFixed(1)} vs 表单底 ${tightForm.bottom.toFixed(1)}`)
+if (formEl instanceof HTMLElement) formEl.style.height = ""
 
 lines.push(failed === 0 ? `自检 ${passed}/${passed}` : `自检 ${passed} 过 / ${failed} 败`)
 document.getElementById("out").textContent = lines.join("\n")

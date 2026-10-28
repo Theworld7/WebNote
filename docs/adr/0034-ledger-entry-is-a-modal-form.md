@@ -38,12 +38,22 @@ selects the control, then Enter or Space expands it", and that model belongs to 
 the page. On a keyboard-only path a date that can only be picked by clicking a 24px button is a dead
 end, and the calendar button is unreachable if the surrounding flow is Tab-driven.
 
-The panels are **inline** — they push the fields below down and the form scrolls — rather than
-floating. A `fixed` overlay inside a dialog would have to negotiate with reka's focus trap, the
-scrim's `interact-outside`, and a scrolling form that leaves the panel behind; the calendar was
-already inline. So both panels share one piece of state (`panelOf`), one highlight, and one set of
-keys, and neither ever takes focus (their rows are not in the Tab order), which is what makes "Tab
-once leaves the field and closes the panel" true for free.
+The panels **float** — absolutely positioned under the field, so opening one moves nothing. The first
+pass drew them inline, and that was wrong for a reason that is not obvious until you Tab twice: the
+caret stays put while the field it belongs to slides down, so every date or select field you cross
+re-lays out the entire form underneath a cursor that has not moved. A panel occluding one field is
+cheaper than the whole form reflowing.
+
+They are **not** teleported to `body`. A `fixed` overlay outside the dialog's tree would have to
+negotiate with reka's focus trap and the scrim's `interact-outside` on its own; kept inside the field,
+both already account for it, and it scrolls with its anchor. The cost is that the form's
+`overflow-y-auto` can clip it, so after opening we measure once and flip the panel above the field
+when there is no room below, shrinking the calendar to the available height (it scrolls inside) when
+neither side fits. In a normal window none of that fires.
+
+Both panels share one piece of state (`panelOf`), one highlight, and one set of keys, and neither ever
+takes focus (their rows are not in the Tab order), which is what makes "Tab once leaves the field and
+closes the panel" true for free.
 
 Two exceptions keep it from being noisy. The automatic focus when the dialog opens expands nothing —
 landing in a field is not "switching to" it, and a 250px calendar as the first thing on screen buries
@@ -72,7 +82,9 @@ possible reading), and a focus hand-back to the entry button.
 click, and then fills it the way a keyboard would — value + `input` event, Enter on a field, Esc,
 Enter with `isComposing` — checking field order, focus, autofocus target, disabled submit, the flash,
 the focus hand-back, per-field validation, both panels (expand on arrival, arrow keys, Enter confirms,
-Escape closes only the panel, `↓` brings it back), and what lands on disk (number as number, date as
+Escape closes only the panel, `↓` brings it back, and — the point of floating them — that opening one
+leaves the neighbouring field's `top` untouched and the panel stays inside the form's visible box even
+when that box is squeezed to 200px), and what lands on disk (number as number, date as
 `YYYY-MM-DD`, select as an option **id**). `design/ledger-edit-check.html` now drives its two "add a
 row" cases through the form, because that is the only way to add one.
 

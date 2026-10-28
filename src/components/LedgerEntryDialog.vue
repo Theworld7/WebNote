@@ -37,9 +37,11 @@ import {
  * 展开后方向键 / Esc / Tab 全交给系统控件，页面无处插手；日期这块原先要人先点右侧那颗
  * 月历钮，纯键盘根本够不着。两道口头规矩换成一个动作：**Tab 进来就有面板，方向键移高亮，
  * 回车确认**。打开对话框时那一次自动聚焦不算「进来」，不展开（见 `skipFocusOpen`）。
- * 面板全部内联在字段下方（不是浮层）—— 对话框里再挂一个 `fixed` 浮层，要和 reka 的
- * 焦点陷阱、遮罩的 `interact-outside`、表单一滚动就脱落这三件事同时商量，而月历本来就
- * 是内联的；两者同一副外壳，观感也不分裂。
+ * 面板是**浮层**（`absolute`，贴着字段下方），不占布局：内联展开会把下面每个字段推走，
+ * 光标还在原地、眼前的表已经换了个样，Tab 两次跳两下 —— 这比「面板盖住一个字段」难受得多。
+ * 不 `Teleport` 到 body 的理由是对话框自带焦点陷阱与 `interact-outside`，脱离这棵树的浮层
+ * 要把那两件事重新谈一遍；留在字段内则两者天然认它，滚动时也跟着字段走。
+ * 代价是可能超出表单可视区（滚动容器会裁），所以展开后量一次，下方放不下就翻到上方。
  *
  * 焦点**从不进面板**：面板里所有可点元素都不在 Tab 序列里（`tabindex="-1"` / `div`），
  * 所以一次 Tab 直接落到下一个字段，面板随失焦收起。键盘高亮是 `panelFocus`，靠它
@@ -96,6 +98,8 @@ const panelBase = ref("")
  * 打开时紧凑，手一动（Tab / ↓ / 点击）面板立刻出现。
  */
 let skipFocusOpen = false
+/** 面板翻到字段上方了。浮层不占布局，位置得自己挑 —— 下方放不下就往上开。 */
+const panelUp = ref(false)
 
 const formEl = ref<HTMLElement | null>(null)
 
@@ -119,6 +123,7 @@ function seed(): void {
   panelOf.value = ""
   panelFocus.value = ""
   panelBase.value = ""
+  panelUp.value = false
 }
 
 watch(
@@ -205,7 +210,8 @@ function optionLabel(column: DataColumn): string {
  * 展开某个字段的面板。**幂等** —— `focus` 与点击两条入口都会走到这里，重复调用不该关掉它。
  *
  * 高亮起点：日期落在格里的值上（空格子落在今天，方向键立刻有落点），选项落在当前值上。
- * 面板贴着字段下方展开，字段本身可能已经在表单可视区底部，所以展开后要把它滚进来。
+ * 面板是浮层，展开**不动别的字段**；要管的只是「别被滚动容器裁掉」：先把字段本身滚进
+ * 视野，再量一次上下余量，下方放不下才翻上去。
  */
 function openPanel(column: DataColumn): void {
   if (skipFocusOpen) {
@@ -222,14 +228,57 @@ function openPanel(column: DataColumn): void {
   } else {
     return
   }
+  // 先按「向下」渲染一帧：要量面板真实高度，得先让它存在。
+  panelUp.value = false
   panelOf.value = column.id
-  scrollPanel()
+  void nextTick(() => {
+    const wrap = formEl.value?.querySelector(`[data-field-wrap="${column.id}"]`)
+    if (wrap instanceof HTMLElement) wrap.scrollIntoView({ block: "nearest" })
+    placePanel()
+  })
+}
+
+/**
+ * 挑面板开在哪一侧。浮层不占布局，滚动容器（`overflow-y-auto`）却照样裁它，所以得知道
+ * 上下各有多少余量。**向下优先** —— 眼睛和滚轮都习惯往下走；下方真放不下、且上方更宽裕
+ * 才翻上去。两边都不够时先滚一下表单把字段挪到能放下的一侧，月历再放不下就收窄自己
+ * （面板内部滚），总之不让它被裁成半块。
+ */
+function placePanel(): void {
+  const form = formEl.value
+  const panel = form?.querySelector("[data-entry-panel]")
+  if (form === null || !(panel instanceof HTMLElement)) return
+  const wrap = panel.parentElement
+  if (wrap === null) return
+
+  const room = (): { below: number; above: number } => {
+    const formRect = form.getBoundingClientRect()
+    const wrapRect = wrap.getBoundingClientRect()
+    return { below: formRect.bottom - wrapRect.bottom, above: wrapRect.top - formRect.top }
+  }
+
+  const natural = panel.offsetHeight
+  const need = natural + 8
+  let space = room()
+  // 上下都不够（字段正好卡在容器中间、容器又矮）：把字段推到容器顶端，让面板尽量整块
+  // 露出来。滚动只在「翻上去也放不下」时发生，正常窗口走不到这里。
+  if (space.below < need && space.above < need) {
+    form.scrollTop += wrap.getBoundingClientRect().top - form.getBoundingClientRect().top
+    space = room()
+  }
+  panelUp.value = space.below < need && space.above > space.below
+  // 翻上去也放不下（矮窗口里的月历）：削到可用高度，让面板内部滚，而不是被容器裁掉半块。
+  const avail = panelUp.value ? space.above : space.below
+  if (avail < need && panel.dataset.panelKind === "calendar") {
+    panel.style.maxHeight = `${Math.max(120, avail - 8)}px`
+  }
 }
 
 function closePanel(): void {
   panelOf.value = ""
   panelFocus.value = ""
   panelBase.value = ""
+  panelUp.value = false
 }
 
 function toggleCalendar(column: DataColumn): void {
@@ -266,14 +315,6 @@ function pickDate(column: DataColumn, value: string): void {
   draft.value = { ...draft.value, [column.id]: value }
   closePanel()
   focusField(column)
-}
-
-/** 展开面板时把它滚进视野。`nearest` —— 本来就看得见就不动，免得每 Tab 一次表单跳一下。 */
-function scrollPanel(): void {
-  void nextTick(() => {
-    formEl.value?.querySelector("[data-entry-panel]")?.scrollIntoView({ block: "nearest" })
-    scrollPanelActive()
-  })
 }
 
 /** 高亮在面板里挪出可视区时（选项多到要滚）把它带回来。 */
@@ -472,7 +513,9 @@ function onKeydown(event: KeyboardEvent): void {
 
       <!-- `min-h-0` 是给 flex 子项用的：不写它，内容会把这一块撑开、`flex-1` 也就滚不起来。 -->
       <div ref="formEl" class="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-0.5 pr-1">
-        <div v-for="column in fields" :key="column.id">
+        <!-- `relative` + `data-field-wrap` 是给浮层的锚点：面板 `absolute` 挂在字段容器上，
+             所以它既不占布局，又跟着字段一起滚。 -->
+        <div v-for="column in fields" :key="column.id" class="relative" :data-field-wrap="column.id">
           <label :for="`ledger-entry-${column.id}`" class="mb-1 block text-[11px] text-muted-foreground">
             {{ column.name }}
           </label>
@@ -493,11 +536,10 @@ function onKeydown(event: KeyboardEvent): void {
           </label>
 
           <!--
-            选项字段：一颗按钮 + 字段下方内联展开的列表。**不用原生 `<select>`** ——
-            它的键盘模型是「Tab 只是选中它，还得再按一次回车或空格才展开」，展不展开、
-            Esc 归谁全由系统控件说了算，页面无处插手。这里要的是「Tab 进来就有面板」，
-            与 `OptionCell` 同一套判断；区别是那边的浮层要 `Teleport` 到 body，对话框里
-            会和焦点陷阱、遮罩的 `interact-outside` 互相掰扯，所以改成字段下方内联展开。
+            选项字段：一颗按钮 + 浮层列表。**不用原生 `<select>`** —— 它的键盘模型是
+            「Tab 只是选中它，还得再按一次回车或空格才展开」，展不展开、Esc 归谁全由系统
+            控件说了算，页面无处插手。这里要的是「Tab 进来就有面板」，与 `OptionCell`
+            同一套判断。
           -->
           <div v-else-if="column.type === 'select'">
             <button
@@ -519,41 +561,6 @@ function onKeydown(event: KeyboardEvent): void {
               >{{ optionLabel(column) === '' ? "（空）" : optionLabel(column) }}</span>
               <ChevronDownIcon class="ml-auto size-3.5 shrink-0 opacity-50" />
             </button>
-
-            <!-- 宽度贴合最长的那一项（`min-w` 兜住「有 / 无」这种两个字的选择），
-                 与月历面板同一条规矩：面板是附着在字段上的一小块，不跟着表单撑满。 -->
-            <div
-              v-if="panelOf === column.id"
-              class="mt-1.5 w-fit max-w-full overflow-hidden rounded-lg border border-line bg-popover"
-              data-entry-panel
-              @mousedown.prevent
-            >
-              <div role="listbox" class="max-h-[168px] min-w-[140px] overflow-y-auto p-0.5">
-                <div
-                  v-for="item in optionItems(column)"
-                  :key="item.id"
-                  role="option"
-                  :aria-selected="item.id === panelFocus"
-                  :data-panel-active="item.id === panelFocus"
-                  class="flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[6px] px-1.5 py-[5px] text-[12px]"
-                  :class="[
-                    item.id === panelFocus ? 'bg-selection' : 'hover:bg-muted/60',
-                    item.id === '' && 'text-muted-foreground',
-                  ]"
-                  @mouseenter="panelFocus = item.id"
-                  @click="pickOption(column, item.id)"
-                >
-                  <span>{{ item.label }}</span>
-                  <CheckIcon v-if="item.id === panelFocus" class="ml-4 size-3 shrink-0 opacity-70" />
-                </div>
-                <div
-                  v-if="column.options.length === 0"
-                  class="px-1.5 py-1 text-[11px] whitespace-nowrap text-muted-foreground"
-                >
-                  这一列还没有选项 —— 去数据表里加。
-                </div>
-              </div>
-            </div>
           </div>
 
           <!--
@@ -605,14 +612,55 @@ function onKeydown(event: KeyboardEvent): void {
             @input="onText(column, $event)"
           />
 
-          <!-- 宽度贴合月历自己的 216px（`w-fit`），不跟着表单撑满 —— 否则 405px 的框里
-               只有中间一小块有用。靠左对齐，读起来就像一个下拉列表。
-               `mousedown.prevent` 是命门：点日期时输入框不失焦，否则 `focusout` 先把面板
-               收掉、`click` 再回来，中间闪一下；焦点不动也让 `pickDate` 之后的回焦成为空操作。 -->
+          <!--
+            **两块浮层，都在字段容器这一层**（`absolute` 挂在上面那个 `relative` 上）：
+            面板不占布局，展开它不会有任何字段被推走。宽度贴合内容 —— 405px 的框里只有中间
+            一小块有用、两侧全空白，读起来不像一个下拉。`left-0` 与字段左缘对齐。
+            `panelUp` 由 `placePanel` 量出来：下方放不下就翻到上方。
+
+            `mousedown.prevent` 是命门：点面板时不把焦点从字段上拿走，否则 `focusout` 先
+            把面板收掉、`click` 再回来，中间闪一下；焦点不动也让选完之后的回焦成为空操作。
+          -->
+          <div
+            v-if="column.type === 'select' && panelOf === column.id"
+            class="absolute left-0 z-20 w-fit max-w-full overflow-hidden rounded-lg bg-popover shadow-pop ring-1 ring-line/70"
+            :class="panelUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'"
+            data-entry-panel
+            @mousedown.prevent
+          >
+            <div role="listbox" class="max-h-[168px] min-w-[140px] overflow-y-auto p-0.5">
+              <div
+                v-for="item in optionItems(column)"
+                :key="item.id"
+                role="option"
+                :aria-selected="item.id === panelFocus"
+                :data-panel-active="item.id === panelFocus"
+                class="flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[6px] px-1.5 py-[5px] text-[12px]"
+                :class="[
+                  item.id === panelFocus ? 'bg-selection' : 'hover:bg-muted/60',
+                  item.id === '' && 'text-muted-foreground',
+                ]"
+                @mouseenter="panelFocus = item.id"
+                @click="pickOption(column, item.id)"
+              >
+                <span>{{ item.label }}</span>
+                <CheckIcon v-if="item.id === panelFocus" class="ml-4 size-3 shrink-0 opacity-70" />
+              </div>
+              <div
+                v-if="column.options.length === 0"
+                class="px-1.5 py-1 text-[11px] whitespace-nowrap text-muted-foreground"
+              >
+                这一列还没有选项 —— 去数据表里加。
+              </div>
+            </div>
+          </div>
+
           <div
             v-if="column.type === 'date' && panelOf === column.id"
-            class="mt-1.5 w-fit rounded-lg border border-line bg-popover p-0.5"
+            class="absolute left-0 z-20 w-fit overflow-y-auto rounded-lg bg-popover p-0.5 shadow-pop ring-1 ring-line/70"
+            :class="panelUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'"
             data-entry-panel
+            data-panel-kind="calendar"
             @mousedown.prevent
           >
             <DateCalendar
