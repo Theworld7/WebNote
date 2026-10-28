@@ -24,10 +24,16 @@ twice. `current` — 已是最新版本. `failed` — 没能检查, which is not
 from the limit, a 404 on a repository with no releases, and a body that does not parse all mean
 the same thing to the reader, exactly as they did in ADR-0030.
 
-**It is a line, not a toast.** The toast exists for actions whose result is invisible and
-finished — copying to the clipboard is the example in `useToast`. "There is a new version" is
-neither: it is a fact you may want to read twice, and a message that disappears after two seconds
-would be the wrong shape for it. It also is not an error strip: nothing is broken.
+**The line is the state; the toast is the receipt.** The toast exists for actions whose result is
+invisible — copying to the clipboard is the example in `useToast` — and a manual check is exactly
+that case, for a reason the line cannot fix: the launch check has already written a conclusion into
+the same spot, so opening 关于 shows a verdict before anyone presses anything, and pressing it again
+into the same verdict moves not one pixel. A button that answers identically whether it works or is
+wired to nothing is a dead button. So every manual press also emits a toast carrying the same
+sentence, built by the same function, so the two can never drift; `failed` goes out as an error
+toast, which the panel's line deliberately is not. The line stays as it was — it is not a
+disappearing substitute, because "there is a new version" is a fact worth reading twice and two
+seconds is the wrong lifetime for it.
 
 **A failed re-check does not erase what an earlier one found.** The panel shows 「发现新版本」 from
 a release that a previous answer named, and then the network goes away. The release is still
@@ -36,7 +42,8 @@ newer than this build; only the asking failed. Clearing the line would turn "cou
 
 **Consequences.** `useUpdateCheck` grows `outcome`, `checking` and `checkNow` alongside
 `checkOnLaunch`, and the panel reads them rather than holding them — the sheet unmounts when it
-closes, and 「刚才那一次说了什么」 must survive that. The panel now contains the 「新版本」button and
+closes, and 「刚才那一次说了什么」 must survive that. The panel also reaches for `useToast` now, and
+keeps one `resultText()` that both exits read from. It contains the 「新版本」button and
 therefore needs a `TooltipProvider` ancestor; the real app has one at the root, and
 `design/settings-check.html` had to grow one. Worth recording: without it the patch throws
 mid-render and the visible symptom is *clicking 检查更新 changes nothing*, which reads exactly

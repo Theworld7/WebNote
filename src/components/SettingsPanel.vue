@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ContentWidth, MenuGroupLayout, TableEffect } from "@/composables/useSettings"
+import type { UpdateOutcome } from "@/composables/useUpdateCheck"
 import type { ThemeMode } from "@/types/workspace"
 import type { Component } from "vue"
 import { computed, onMounted, ref } from "vue"
@@ -30,6 +31,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { CONTENT_WIDTH_PX, HEADING_NAV_MIN_FLOOR, useSettings } from "@/composables/useSettings"
+import { useToast } from "@/composables/useToast"
 import { useUpdateCheck } from "@/composables/useUpdateCheck"
 import { listSystemFonts } from "@/lib/fonts"
 import { resolvePlace } from "@/lib/place"
@@ -80,15 +82,35 @@ const activeSection = ref<SectionId>("display")
  * 重新打开时「刚才那次检查说了什么」不该丢。
  */
 const { version, latest, outcome, checking, checkNow } = useUpdateCheck()
+const { notify } = useToast()
+
+/**
+ * 一种结论一句话。两个出口（常驻的那行、点击后的瞬态提示）都从这里取文案，
+ * 免得同一件事在两处各写一套措辞。
+ */
+function resultText(result: UpdateOutcome, newest: string | null): string {
+  if (result === "current") return "已是最新版本"
+  if (result === "failed") return "没能检查，可能离线或 GitHub 限流"
+  return newest === null ? "发现新版本" : `发现新版本 v${newest}`
+}
 
 /** 结果那句话。`null` 表示这次启动还没查过 —— 那时一个字都不写，「未检查」只是噪声。 */
 const updateHint = computed(() => {
   const result = outcome.value
-  if (result === null) return null
-  if (result === "current") return "已是最新版本"
-  if (result === "failed") return "没能检查，可能离线或 GitHub 限流"
-  return latest.value === null ? "发现新版本" : `发现新版本 v${latest.value.version}`
+  return result === null ? null : resultText(result, latest.value?.version ?? null)
 })
+
+/**
+ * 手动检查。
+ *
+ * 必须自己再发一条瞬态提示：这行字在面板打开时就已经写着启动那次的结论了，
+ * 所以同一条结论再来一遍，界面上什么都不会变 —— 对用户来说就是「点了没反应」。
+ * 提示是这次点击的收据，那行字是查到的状态，两者不重叠。
+ */
+async function check(): Promise<void> {
+  const result = await checkNow()
+  notify(resultText(result, latest.value?.version ?? null), result === "failed" ? "error" : "success")
+}
 
 interface TableEffectOption {
   value: TableEffect
@@ -649,7 +671,7 @@ function optionClass(isActive: boolean): string {
                     variant="outline"
                     size="sm"
                     :disabled="checking"
-                    @click="checkNow"
+                    @click="check"
                   >
                     {{ checking ? "检查中…" : "检查更新" }}
                   </Button>

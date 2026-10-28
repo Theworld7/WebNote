@@ -29,9 +29,11 @@ import "../src/style.css"
 import BlockEditor from "../src/components/BlockEditor.vue"
 import SettingsPanel from "../src/components/SettingsPanel.vue"
 import TableBlockView from "../src/components/TableBlockView.vue"
+import ToastStack from "../src/components/ToastStack.vue"
 import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
 import { provideSettings } from "../src/composables/useSettings.ts"
 import { provideTheme } from "../src/composables/useTheme.ts"
+import { useToast } from "../src/composables/useToast.ts"
 import { provideWorkspace } from "../src/composables/useWorkspace.ts"
 import { createTableBlock } from "../src/lib/blocks.ts"
 import { textToRuns } from "../src/lib/inline.ts"
@@ -85,14 +87,17 @@ const Root = defineComponent({
     // （computed maxWidth），比只验数据落盘多走一整段「设置 → 渲染」链路。
     // TooltipProvider 照生产来：面板「关于」里那颗「新版本」按钮要用它，缺了会让整块 patch
     // 抛错，症状是「点了检查更新界面上什么都没变」—— 很容易被误判成响应式坏了。
+    // ToastStack 也照生产来（App 里挂在最外层）：提示的层级要在抽屉遮罩之上才看得清。
     return () =>
       h(TooltipProvider, null, {
-        default: () =>
+        default: () => [
           h("div", { class: "doc" }, [
             h(TableBlockView, { block }),
             h(BlockEditor),
             h(SettingsPanel, { open: open.value, "onUpdate:open": (v) => (open.value = v) }),
           ]),
+          h(ToastStack),
+        ],
       })
   },
 })
@@ -583,6 +588,9 @@ check("清回后存的是空串（表示跟随系统）", window.localStorage.ge
 //
 // 这一节的落点：入口在面板里、按下去真的走查网那条路、三种结论里「有新版本」会顺手
 // 长出那颗小按钮。网络打桩（与 update-check 同一手），因为这里验的是面板，不是 GitHub。
+//
+// 还有一条：每次按下去都得留下一条瞬态提示。结论行不是收据 —— 面板打开时它就已经写着
+// 启动那次的结论了，同一条结论再来一遍，界面上一个像素都不会变。
 
 note("关于 → 检查更新")
 const aboutNav = [...(panelRoot()?.querySelectorAll("nav button") ?? [])].find((node) => node.textContent.trim() === "关于")
@@ -608,6 +616,9 @@ window.open = () => null
 let reply = () => new Response("{}", { status: 500 })
 window.fetch = async () => reply()
 
+/** 瞬态提示的现状（`kind:文案`），按发出顺序。 */
+const toasts = () => useToast().toasts.value.map((toast) => `${toast.kind}:${toast.message}`)
+
 reply = () =>
   new Response(JSON.stringify({ tag_name: "v9.9.9", html_url: "https://github.com/Theworld7/WebNote/releases/tag/v9.9.9" }), {
     status: 200,
@@ -621,6 +632,8 @@ check("查完摊出结论：发现新版本 v9.9.9", aboutText().includes("发�
   aboutText().slice(0, 120))
 check("结论旁边那颗「新版本」按钮出现了",
   [...(panelRoot()?.querySelectorAll("button") ?? [])].some((node) => node.textContent.includes("新版本")))
+check("有新版时那次点击也留了提示", toasts().at(-1) === "success:发现新版本 v9.9.9",
+  toasts().join(" | "))
 
 // 换一个「没有更新」的回答：结论要跟着改，那颗小按钮要收回。
 reply = () => new Response(JSON.stringify({ tag_name: `v${__APP_VERSION__}`, html_url: "" }), { status: 200 })
@@ -630,6 +643,29 @@ await nextTick()
 check("没有更新时结论是「已是最新版本」", aboutText().includes("已是最新版本"), aboutText().slice(0, 120))
 check("没有更新时不摆那颗按钮",
   ![...(panelRoot()?.querySelectorAll("button") ?? [])].some((node) => node.textContent.includes("新版本")))
+check("没有更新也有提示 —— 这行字本来就是「已是最新版本」，不另发声就等于点了没反应",
+  toasts().at(-1) === "success:已是最新版本", toasts().join(" | "))
+
+// 第三条：查不到。提示要按失败来画（红），文案与常驻那行一致。
+reply = () => new Response("{}", { status: 500 })
+checkButton()?.click()
+await new Promise((resolve) => setTimeout(resolve, 60))
+await nextTick()
+check("查不到时结论行说「没能检查」", aboutText().includes("没能检查"), aboutText().slice(0, 120))
+check("查不到时提示是失败样式", toasts().at(-1) === "error:没能检查，可能离线或 GitHub 限流",
+  toasts().join(" | "))
+
+// 同一件事在常驻行和提示里必须是一个说法：抄一遍文案就会漂。
+const hintLine = aboutText().match(/没能检查[^应]*/)?.[0]?.trim()
+check("提示文案与结论行是同一句", hintLine !== undefined && `error:${hintLine}` === toasts().at(-1),
+  `${String(hintLine)} vs ${toasts().at(-1)}`)
+
+// 提示得压在抽屉遮罩之上：遮罩是 portal 到 body 的，同层级下它按 DOM 顺序盖住提示，
+// `backdrop-blur-xs` 把整颗提示糊成一片白 —— 看得见轮廓，读不出字。
+const layerOf = (selector) => Number(getComputedStyle(document.querySelector(selector)).zIndex)
+check("提示的层级高于抽屉遮罩",
+  layerOf('[aria-live="polite"]') > layerOf('[data-slot="sheet-overlay"]'),
+  `toast ${layerOf('[aria-live="polite"]')} vs overlay ${layerOf('[data-slot="sheet-overlay"]')}`)
 
 window.fetch = realFetch
 window.open = realOpen
