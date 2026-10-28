@@ -311,7 +311,7 @@ function startDrag(event: DragEvent) {
           </template>
           <DropdownMenuItem v-if="isHtmlFile" class="gap-2 text-[13px]" @select="exportAsMarkdown">
             <FileDownIcon class="size-3.5 text-muted-foreground" />
-            <span>导出为md</span>
+            <span>导出为 Markdown</span>
           </DropdownMenuItem>
           <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('rename', fullPath, node.kind)">
             <PencilIcon class="size-3.5 text-muted-foreground" />
