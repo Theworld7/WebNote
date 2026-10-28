@@ -165,6 +165,24 @@ async function waitClosed() {
 }
 function fields() { return [...(dialog()?.querySelectorAll("[data-field]") ?? [])] }
 function field(id) { return dialog()?.querySelector(`[data-field="${id}"]`) ?? null }
+/** 字段下方内联展开的面板：月历与选项共用同一种外壳（`data-entry-panel`）。 */
+function entryPanel() { return dialog()?.querySelector("[data-entry-panel]") ?? null }
+function calendarPanel() { return dialog()?.querySelector("[data-date-calendar]") ?? null }
+function optionPanel() { return dialog()?.querySelector("[role='listbox']") ?? null }
+/** 面板里的键盘高亮（选项项 / 日历格各有自己的标记，这里只取选项那一套）。 */
+function activeOption() { return dialog()?.querySelector("[role='option'][aria-selected='true']") ?? null }
+/** 日历格的高亮是描边而不是选中态，只能看类名。 */
+function ringDay(key) {
+  const cell = dialog()?.querySelector(`[data-day="${key}"]`) ?? null
+  return cell !== null && (cell.className ?? "").includes("ring-2")
+}
+/** 往某个日期上加减天数 —— 与 `lib/date-key` 的 `shiftDays` 同一口径，这里只为了写期望值。 */
+function shiftDate(key, days) {
+  const [year, month, day] = key.split("-").map(Number)
+  const date = new Date(year, month - 1, day + days)
+  const pad = (n) => String(n).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
 function submitButton() {
   return [...(dialog()?.querySelectorAll("button") ?? [])].find((button) => (button.textContent ?? "").trim() === "记下") ?? null
 }
@@ -207,8 +225,18 @@ check("日期列预填今天", first instanceof HTMLInputElement && first.value 
 check("其余列都是空的",
   [field("c2"), field("c4"), field("c5")].every((el) => el instanceof HTMLInputElement && el.value === ""),
   [field("c2"), field("c4"), field("c5")].map((el) => `${el?.dataset.field}=${el?.value}`).join(","))
-check("分类是原生下拉，默认落在「（空）」", field("c3") instanceof HTMLSelectElement && field("c3").value === "",
-  String(field("c3")?.value))
+check("分类是自绘按钮（不用原生 select），收起态显示「（空）」",
+  field("c3") instanceof HTMLButtonElement && (field("c3")?.textContent ?? "").trim() === "（空）",
+  `${field("c3")?.tagName} / ${(field("c3")?.textContent ?? "").trim()}`)
+check("刚打开时不弹面板（一开门就被一块 250px 的月历顶住太重）", entryPanel() === null,
+  entryPanel() === null ? "" : "面板开了")
+// 离开再回来 = 真的「切换」到这个字段，这时才展开。
+if (field("c2") instanceof HTMLInputElement) field("c2").focus()
+if (first instanceof HTMLInputElement) first.focus()
+await settle()
+check("切回日期字段时自动展开月历（Tab 进来就有面板，不用先点那颗钮）",
+  calendarPanel() !== null, entryPanel() === null ? "没有面板" : "面板在但不是月历")
+check("月历高亮落在预填的今天（回车确认的就是它）", ringDay(todayKey()), todayKey())
 check("只预填了日期不算「填过」，提交键是禁用的", submitButton()?.disabled === true, String(submitButton()?.disabled))
 
 // ---- 控制类型跟着列类型走 ----
@@ -232,14 +260,43 @@ await settle()
 check("文本与数字都能录入", typed === 2, `实际 ${typed}`)
 check("填了东西之后提交键解禁", submitButton()?.disabled === false, String(submitButton()?.disabled))
 
-// 分类走原生下拉：键盘上下键改的就是它的 value。
-const select = field("c3")
-if (select instanceof HTMLSelectElement) {
-  select.value = "o2"
-  select.dispatchEvent(new Event("change", { bubbles: true }))
-}
+// ---- 选项面板：Tab 进来就展开，方向键移高亮，回车确认 ----
+step("option-panel")
+const optionButton = field("c3")
+if (optionButton instanceof HTMLButtonElement) optionButton.focus()
 await settle()
-check("下拉选中的是选项 id（不是显示名）", field("c3")?.value === "o2", String(field("c3")?.value))
+check("选项字段一获得焦点就展开面板（不用先按一次回车）", optionPanel() !== null)
+check("高亮落在当前值「（空）」上", (activeOption()?.textContent ?? "").trim() === "（空）",
+  (activeOption()?.textContent ?? "无").trim())
+if (optionButton !== null) press(optionButton, { key: "ArrowDown" })
+await settle()
+check("↓ 把高亮挪到第一个真选项", (activeOption()?.textContent ?? "").trim() === "礼金",
+  (activeOption()?.textContent ?? "无").trim())
+if (optionButton !== null) press(optionButton, { key: "ArrowDown" })
+await settle()
+if (optionButton !== null) press(optionButton, { key: "Enter" })
+await settle()
+check("回车确认并把选项名写回按钮", (field("c3")?.textContent ?? "").trim() === "礼品",
+  (field("c3")?.textContent ?? "").trim())
+check("确认后面板收起", optionPanel() === null)
+
+// Esc 只收面板，不关对话框。
+// 对一个已经聚焦的元素再 `focus()` 不会触发 focus 事件，所以要真的离开再回来。
+if (field("c2") instanceof HTMLInputElement) field("c2").focus()
+if (optionButton instanceof HTMLButtonElement) optionButton.focus()
+await settle()
+check("离开再回到选项字段，面板又开", optionPanel() !== null)
+if (optionButton !== null) press(optionButton, { key: "Escape" })
+await settle()
+check("面板开着时 Esc 只收面板", optionPanel() === null && dialog() !== null,
+  `面板 ${optionPanel() === null ? "已收" : "还在"}，对话框 ${dialog() === null ? "已关" : "还在"}`)
+// 收了之后方向键还能把它叫回来 —— 不然 Esc 一按就只剩鼠标一条路。
+if (optionButton !== null) press(optionButton, { key: "ArrowDown" })
+await settle()
+check("面板收着时按方向键把它叫回来", optionPanel() !== null)
+// 再收一次，免得影响后面按回车提交。
+if (optionButton !== null) press(optionButton, { key: "Escape" })
+await settle()
 
 // 最后在备注式的文本列里回车 = 提交（表单里回车不换行，它没有多行字段）。
 const lastInput = field("c2")
@@ -276,6 +333,56 @@ check("重开后草稿是空的（上次取消的内容没留下来）",
   field("c2") instanceof HTMLInputElement && field("c2").value === "",
   String(field("c2")?.value))
 check("重开时日期仍预填今天", field("c1")?.value === todayKey(), String(field("c1")?.value))
+
+// ---- 日期面板：方向键移高亮、回车确认、Esc 只收面板 ----
+step("date-panel")
+const dateField = field("c1")
+check("重开后焦点仍在日期字段，但面板不展开", calendarPanel() === null)
+const tomorrow = shiftDate(todayKey(), 1)
+if (dateField !== null) press(dateField, { key: "ArrowDown" })
+await settle()
+check("↓ 把面板叫回来（← → 在输入框里是挪光标，不抢）", calendarPanel() !== null)
+if (dateField !== null) press(dateField, { key: "ArrowRight" })
+await settle()
+check("→ 把月历高亮挪到明天", ringDay(tomorrow), tomorrow)
+check("挪高亮不改输入框里的字（改的是「还没确认」的那一格）",
+  dateField?.value === todayKey(), String(dateField?.value))
+if (dateField !== null) press(dateField, { key: "Enter" })
+await settle()
+check("回车确认高亮那天，写进输入框", dateField?.value === tomorrow, String(dateField?.value))
+check("确认后面板收起", calendarPanel() === null)
+check("回车确认日期不顺手提交表单", dialog() !== null && bodyRows().length === 2,
+  `对话框 ${dialog() === null ? "已关" : "还在"}`)
+
+// 鼠标也没丢：面板的 `mousedown.prevent` 只挡聚焦，不挡 click。
+if (dateField !== null) press(dateField, { key: "ArrowDown" })
+await settle()
+const dayAfter = shiftDate(todayKey(), 2)
+const dayCell = dialog()?.querySelector(`[data-day="${dayAfter}"]`)
+dayCell?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }))
+dayCell?.click()
+await settle()
+check("鼠标点某一天照样选得上", dateField?.value === dayAfter, String(dateField?.value))
+check("点完就收面板", calendarPanel() === null)
+
+// 面板开着时按 Esc 只收面板 —— 外层那道 Esc 是关对话框的，不能一起触发。
+if (field("c2") instanceof HTMLInputElement) field("c2").focus()
+if (dateField instanceof HTMLInputElement) dateField.focus()
+await settle()
+check("离开再回到日期字段，面板又开", calendarPanel() !== null)
+if (dateField !== null) press(dateField, { key: "Escape" })
+await settle()
+check("面板开着时 Esc 只收面板，对话框还在", calendarPanel() === null && dialog() !== null,
+  `面板 ${calendarPanel() === null ? "已收" : "还在"}，对话框 ${dialog() === null ? "已关" : "还在"}`)
+// 收了之后 ↓ 还能把它叫回来（← → 留给光标，不抢）。
+if (dateField !== null) press(dateField, { key: "ArrowDown" })
+await settle()
+check("面板收着时按 ↓ 把它叫回来", calendarPanel() !== null)
+if (dateField !== null) press(dateField, { key: "Escape" })
+await settle()
+// 手动拨回今天，后面的校验一节拿它当合法值。
+if (dateField instanceof HTMLInputElement) type(dateField, todayKey())
+await settle()
 
 // ---- 输入法合成中的回车不算提交（中文选词就按回车） ----
 step("ime")
