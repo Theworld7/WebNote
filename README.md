@@ -170,8 +170,8 @@ CSS 碰不到，得由 Rust 侧直接跟系统说话。
 
 ### 观感
 
-界面是浮岛式的：画布一层底色，文件树、标签栏、正文各自是圆角卡片，侧栏宽度可拖。没有多余的边框和分隔线，
-层级靠明暗关系表达。
+界面是浮岛式的：画布一层底色，文件树、正文各自是圆角卡片，打开的标签就住在正文那张卡片的
+第一行；侧栏宽度可拖。没有多余的边框和分隔线，层级靠明暗关系表达。
 
 - **一套排版规格**驱动两处渲染：编辑器里看到的字号、行高、块间距，与导出文件里的完全同源 ——
   不会出现「编辑器里挺好、双击打开全变了」
@@ -281,7 +281,7 @@ pnpm icon           # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | 区域 | 页面 |
 | :-- | :-- |
 | 解析与往返 | `parse-check`、`inline-check` |
-| 编辑器交互 | `chrome-check`、`tab-check`、`toolbar-check`、`sidebar-check`、`tree-integration-check`、`drag-check`、`split-check`、`cell-check`、`undo-check`、`menu-nav-check`、`focus-check`、`link-check`、`heading-nav-check`、`block-select-check` |
+| 编辑器交互 | `chrome-check`、`tab-check`、`tab-housing-check`、`toolbar-check`、`sidebar-check`、`tree-integration-check`、`drag-check`、`split-check`、`cell-check`、`undo-check`、`menu-nav-check`、`focus-check`、`link-check`、`heading-nav-check`、`block-select-check` |
 | 块类型 | `table-check`、`table-align-check`、`data-table-check`、`gallery-check`、`kanban-check`、`kanban-date-check`、`ledger-check`、`ledger-edit-check`、`ledger-date-check`、`option-cell-check`、`subscription-check`、`playlist-check`、`playlist-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check` |
 | 样式与外观 | `typography-check`、`theme-check`、`theme-mode-check`、`page-style-check`、`settings-check` |
 | 文件操作 | `create-check`、`move-check`、`markdown-check`、`markdown-view-check` |

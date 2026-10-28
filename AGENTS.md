@@ -33,8 +33,9 @@
   标签行独立在标题栏之下、标题栏中段整段留给拖拽(0029)、新版本只提示不代劳:按钮落在撤销重做
   簇右端、查不到就是没有(0030)、手动检查更新住在设置「关于」里、第一次之后的请求都带
   `If-None-Match`（304 不占限额）、每次按下都以一条瞬态提示收尾(0031)、主路没给出结论就问
-  jsDelivr 上的 `package.json`、镜像只往「有更新」下结论且链接退回列表页(0032)。
-  改对应行为前先读那篇。
+  jsDelivr 上的 `package.json`、镜像只往「有更新」下结论且链接退回列表页(0032)、标签住在编辑
+  卡片的第一行、chrome 只剩一条标题栏(0033)。
+  改对应行为前先读那篇。(0029 的标签位置已被 0033 取代)
 
 ## 验证
 
@@ -44,11 +45,13 @@
    用类型收窄和类型守卫表达。
 2. **自检页**:`design/*.html` 是能直接跑的回归页,每个用例输出 `OK` / `FAIL` 行。
    `pnpm dev` 后访问 `/design/<名字>.html`;其中 `drag-check`、`typography-check`、
-   `data-table-check`、`ledger-edit-check`、`ledger-date-check`、`kanban-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check` 含顶层 `await`,要抓结果用
+   `data-table-check`、`ledger-edit-check`、`ledger-date-check`、`kanban-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check`、`tab-housing-check` 含顶层 `await`,要抓结果用
    `node design/cdp-dump.mjs http://localhost:1420/design/<名字>.html`。
 
 改哪层跑哪页:动 `lib/html` → `parse-check`;动块拖拽 / 标签栏 → `drag-check` / `tab-check`;
-动窗口 chrome(品牌名 / 全局动作 / 标签条落位 / 字数 / 页面样式入口)→ `chrome-check`;
+动窗口 chrome(品牌名 / 全局动作 / 拖拽面 / 字数 / 页面样式入口)→ `chrome-check`;
+动标签的落位(编辑卡片第一行长什么样、塞满时在卡片里滚动)→ `tab-housing-check`(挂真实
+标题栏与编辑卡片,走 CDP);
 动文件树的整合数据表视图（笔记隐后缀、引用表收进笔记名下、展开箭头）→ `tree-integration-check`;
 动块菜单的方向键寻路(`lib/menu-nav.ts`、横向布局的列间移动)→ `menu-nav-check`(挂真实菜单,
 走 CDP);动右侧标题导航(收录范围 / 出现门槛 / 点击跳转 / 激活跟随滚动,`lib/headings.ts`、

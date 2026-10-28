@@ -2,7 +2,9 @@
 
 **Partly superseded by [ADR-0029](0029-tabs-live-in-their-own-row.md)**: the tab strip moved back
 out into its own row, because tabs cannot carry the drag region and the strip was eating the
-middle of the header. The rest of this decision — status bar deleted, brand in the header,
+middle of the header. **That placement is itself superseded by
+[ADR-0033](0033-tabs-live-in-the-document-card.md)** — tabs now live in the edit card, so chrome is
+one header again. The rest of this decision — status bar deleted, brand in the header,
 fixed-width count, window buttons at top-right — still holds.
 
 The window has no system decoration (`decorations: false`), so everything a title bar normally

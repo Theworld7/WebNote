@@ -7,27 +7,22 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useTheme } from "@/composables/useTheme"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { isTauriRuntime } from "@/lib/fs"
-import EditorTabBar from "./EditorTabBar.vue"
 import NewVersionButton from "./NewVersionButton.vue"
 import PageStyleButton from "./PageStyleButton.vue"
 import SettingsPanel from "./SettingsPanel.vue"
 
 /**
- * 窗口 chrome —— 无装饰窗口（`tauri.conf.json` 里 `decorations: false`）里自己画的那两行：
- *
- * 1. 标题栏（44px）：品牌锚点、全局动作（折叠侧栏 / 外观 / 设置）、撤销重做、拖拽面、
- *    当前文档的字数与页面样式入口，以及最小化 / 最大化 / 关闭。
- * 2. 标签行（36px，有标签才渲染）：打开的文件，后面跟一段拖拽空白。
+ * 窗口 chrome —— 无装饰窗口（`tauri.conf.json` 里 `decorations: false`）里自己画的那一条
+ * 44px 标题栏：品牌锚点、全局动作（折叠侧栏 / 外观 / 设置）、撤销重做、拖拽面、当前文档的
+ * 字数与页面样式入口，以及最小化 / 最大化 / 关闭。
  *
  * 次序按「离窗口越远越抽象」排：品牌与全局动作贴着左缘，文档相关的信息收在右端、
  * 紧挨窗口按钮。窗口按钮必须贴到右上角，那是用户手指的肌肉记忆，不要为了对称把它挪进浮岛。
  *
- * **标签为什么不能留在标题栏里**（ADR-0029）：`data-tauri-drag-region` 只认事件目标自己
- * 带没带这个属性，标签和按钮都不带 —— 标签占掉标题栏中段，就等于把唯一能拖窗口的地方
- * 挖掉一大块。标签一多，剩下的 `min-w-4` 十六像素连点都点不准。
- *
- * 代价是两行共 80px。ADR-0024 那会儿并成一条是为了省 38px，但那是拿「窗口能不能拖」
- * 换来的，不划算。
+ * **标签不在这里**（ADR-0033）：标签描述的是文档而不是窗口，所以搬到编辑卡片自己的第一行
+ * 去了（`EditorSurface`）。顺带把 ADR-0029 的难题一并解掉 —— 标签和按钮都不带
+ * `data-tauri-drag-region`，`data-tauri-drag-region` 又一概只看事件目标自己带没带这个属性；
+ * 标签既然不在标题栏里，中段这条拖拽面就永远是整条窗口的，标签开多少个都不影响。
  */
 defineProps<{ sidebarCollapsed: boolean }>()
 const emit = defineEmits<{ (event: "toggle-sidebar"): void }>()
@@ -48,7 +43,7 @@ const themeActionLabel = computed(() => (theme.value === "dark" ? "切换到浅�
  * 而 HIG 的 macOS 条款明确反对把「控制与关键信息」放窗口底部：用户常把窗口移到底部，
  * 底边会被屏幕边缘裁掉。搬上来之后底部那一条整体撤掉，字数不再需要单独一条 32px。
  */
-const { tabs, activeTab, charCount, isActiveMarkdown, undo, redo, canUndo, canRedo } = useWorkspace()
+const { activeTab, charCount, isActiveMarkdown, undo, redo, canUndo, canRedo } = useWorkspace()
 const hasDocument = computed(() => activeTab.value !== null)
 
 /**
@@ -105,8 +100,8 @@ const closeWindow = () => runWindowAction((win) => win.close())
 let unlistenResized: (() => void) | null = null
 
 /**
- * 标签区放不下时要重新量，但「标签变多」这件事现在发生在别的组件里（EditorTabBar 自己管
- * 滚动），chrome 只在窗口宽度变化时补一次 —— 交叉轴上标签高度是固定的，不需要订阅内容。
+ * 右上角那颗图标要跟着窗口状态走：最大化 / 还原可以被打不到我们的方式改变（贴边、双击、
+ * 快捷键），所以订阅 onResized 而不是只在点击后更新。
  */
 onMounted(() => {
   if (!inTauri) return
@@ -137,7 +132,8 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
 <template>
   <!-- 整条都是拖拽区（`data-tauri-drag-region` 只看事件目标自己带不带这个属性，
        所以按钮不吃它，点得动）。双击标题栏最大化由 Tauri 内建处理。
-       中段那段 flex-1 是窗口唯一的拖拽面 —— 这里**不许再放标签**（见 ADR-0029）。 -->
+       中段那段 flex-1 是窗口唯一的拖拽面 —— 标签已经不在这里了（ADR-0033），
+       它的宽度只由两端的内容决定，开多少个文件都一样宽。 -->
   <header class="flex h-11 flex-none items-center gap-2 pr-3 pl-3 select-none" data-tauri-drag-region>
     <!-- 品牌名从侧栏顶部搬上来：它描述的是窗口（与 productName 同一件事），不是侧栏。
          留在 chrome 里还顺带解决了「折叠侧栏时标签整排左跳 40px」。 -->
@@ -262,19 +258,6 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
       </button>
     </div>
   </header>
-
-  <!-- 标签行独立于标题栏（ADR-0029）：标签自己不带拖拽属性，占用标题栏中段就等于
-       把唯一能拖窗口的地方挖掉一大块。搬下来之后窗口照样能从上沿任何一处拖走。
-       没有标签时整行不渲染，chrome 退回 44px。 -->
-  <div
-    v-if="tabs.length > 0"
-    class="flex h-9 flex-none items-center gap-2 pr-3 pl-3 select-none"
-    data-tauri-drag-region
-  >
-    <!-- 标签条按内容收缩，后面跟一段拖拽空白 —— 与标题栏同一个道理。 -->
-    <EditorTabBar class="min-w-0" />
-    <div class="h-full min-w-4 flex-1" data-tauri-drag-region />
-  </div>
 
   <SettingsPanel v-model:open="settingsOpen" />
 </template>

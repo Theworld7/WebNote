@@ -5,9 +5,11 @@ import { useWorkspace } from "@/composables/useWorkspace"
 import BlockEditor from "./BlockEditor.vue"
 import DataTableEditor from "./DataTableEditor.vue"
 import EditorHome from "./EditorHome.vue"
+import EditorTabBar from "./EditorTabBar.vue"
 import MarkdownView from "./MarkdownView.vue"
 
 const {
+  tabs,
   activeTab,
   activePath,
   isLoadingDocument,
@@ -41,6 +43,13 @@ const hasDocument = computed(() => activeTab.value !== null && !isLoadingDocumen
     class="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-block bg-card shadow-block"
     data-editor-surface
   >
+    <!-- 标签行是这张卡片自己的第一行（ADR-0033）：标签描述的是「这篇文档」，不是窗口，
+         所以跟着文档待在卡片里；没有标签时整行不渲染，空态直接从 EditorHome 开始。
+         `h-9` + `items-center` 让 28px 的标签上下各留 4px，与它先前在 chrome 里的体量一致。 -->
+    <div v-if="tabs.length > 0" class="flex h-9 flex-none items-center gap-2 px-2.5">
+      <EditorTabBar class="min-w-0" />
+    </div>
+
     <!-- 读写错误条。常驻在编辑区顶部而不是只在空态里 —— 保存失败时正开着文档，
          那条错误若不显示出来，用户会以为已经存好了。
          `role="alert"`：这一条几乎总是「刚才那个动作没成」的结果，屏幕阅读器必须

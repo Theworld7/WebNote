@@ -13,9 +13,9 @@
 </style>
 </head>
 <body>
-<h1>窗口 chrome：标题栏（品牌 / 动作 / 文档信息）与独立的标签行</h1>
-<!-- ADR-0024 把 chrome 并成一条，ADR-0029 又把标签拆了出去：标签不带拖拽属性，
-     留在标题栏中段就等于挖掉唯一能拖窗口的地方。
+<h1>窗口 chrome：一条标题栏（品牌 / 动作 / 文档信息 / 拖拽面）</h1>
+<!-- ADR-0024 把 chrome 并成一条，ADR-0029 把标签拆成独立一行，ADR-0033 又把标签搬进了
+     编辑卡片 —— 于是 chrome 回到一条，且标签不在里面，中段那条拖拽面永远整条可用。
      抓结果：node design/cdp-dump.mjs http://localhost:1420/design/chrome-check.html -->
 <div id="app"></div>
 <pre id="out">running…</pre>
@@ -56,9 +56,7 @@ await nextTick()
 const chrome = () => document.querySelector("header")
 const brand = () => chrome()?.querySelector(":scope > span")
 const scroller = () => document.querySelector('[class*="overflow-x-auto"]')
-/** 标签行：滚动容器所在的那条可拖拽带子。它必须是 header 的兄弟，不是它的后代。 */
-const tabRow = () => scroller()?.closest("[data-tauri-drag-region]") ?? null
-/** 标题栏中段那段拖拽空白。标签搬走之后它是窗口唯一能拖的地方。 */
+/** 标题栏中段那段拖拽空白。标签搬进编辑卡片之后，它是窗口唯一能拖的地方。 */
 const dragSurface = () => chrome()?.querySelector(":scope > [data-tauri-drag-region]") ?? null
 /** 「页面样式」那颗按钮。它是唯一入口，任何状态下都不该被挤掉。 */
 const styleEntry = () => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === "页面样式")
@@ -82,56 +80,25 @@ check("品牌名在三颗全局动作的左边", actions.length >= 3 && brandRig
 workspace.tabs.value = []
 workspace.activePath.value = ""
 await nextTick()
-check("无标签时不渲染滚动容器", scroller() === null)
-check("无标签时整条标签行不渲染（chrome 退回 44px）", tabRow() === null)
+check("无标签时 chrome 就只有标题栏这一条（44px）", box(chrome())?.height === 44, `实际 ${box(chrome())?.height ?? "缺失"}`)
 check("无激活标签时不渲染字数", charCell() === null)
 check("无激活标签时不渲染页面样式入口", styleEntry() === undefined)
 
-// ---------- 三、有标签时的落位 ----------
+// ---------- 三、标签不在 chrome 里 ----------
 
 workspace.tabs.value = [{ path: "日记/2026-10-23.html", dirty: false, dirtyTables: [] }]
 workspace.activePath.value = "日记/2026-10-23.html"
 await nextTick()
 
-const strip = scroller()
-check("有标签时挂上滚动容器", strip !== null && strip !== undefined)
-
-// 这一条是整个拆分的理由：标签在标题栏里，窗口就没法从上沿拖。
+// 这一条是标签搬家的理由之一：标签只要在标题栏里，中段拖拽面就会被它们吃掉。
 check(
   "标签不在标题栏里（标题栏里没有标签按钮）",
   chrome()?.querySelector('button[class*="group/tab"]') === null,
   `标题栏里的标签按钮 ${chrome()?.querySelectorAll('button[class*="group/tab"]').length ?? "?"} 个`,
 )
-
-const row = tabRow()
-const chromeBox = box(chrome())
-const rowBox = box(row)
-check("标签行是标题栏的兄弟（不在 header 里面）",
-  row !== null && row !== undefined && !chrome()?.contains(row),
-  row === null ? "标签行缺失" : "标签行在 header 内")
-check("标签行高度是 36px", rowBox?.height === 36, `实际 ${rowBox?.height ?? "缺失"}`)
-check(
-  "标签行贴着标题栏下沿",
-  rowBox !== null && chromeBox !== null && Math.abs(rowBox.top - chromeBox.bottom) < EPS,
-  rowBox === null || chromeBox === null ? "缺失" : `标签行顶 ${rowBox.top.toFixed(1)} vs 标题栏底 ${chromeBox.bottom.toFixed(1)}`,
-)
-check("标签行整条是可拖拽区",
-  row !== null && row !== undefined && row.hasAttribute("data-tauri-drag-region"),
-  row === null ? "标签行缺失" : "标签行没带 data-tauri-drag-region")
-
-const stripBox = box(strip)
-check(
-  "标签条在标签行里垂直居中（上下各 4px）",
-  stripBox !== null && rowBox !== null &&
-    Math.abs(stripBox.top - rowBox.top - 4) < EPS &&
-    Math.abs(rowBox.bottom - stripBox.bottom - 4) < EPS,
-  stripBox === null || rowBox === null ? "缺失" : `上 ${(stripBox.top - rowBox.top).toFixed(1)} 下 ${(rowBox.bottom - stripBox.bottom).toFixed(1)}`,
-)
-check(
-  "标签左缘与品牌左缘对齐（同一条 pl-3）",
-  stripBox !== null && Math.abs(stripBox.left - (box(brand())?.left ?? NaN)) < EPS,
-  stripBox === null ? "标签条缺失" : `标签 ${stripBox.left.toFixed(1)} vs 品牌 ${(box(brand())?.left ?? NaN).toFixed(1)}`,
-)
+// 标签条现在住在编辑卡片里（`design/tab-housing-check.html` 钉落位细节），
+// chrome 这一侧只负责「它没回来」：开着标签时标题栏里也量不到滚动容器。
+check("开着标签时标题栏里也没有标签条", scroller() === null, "标题栏里出现了滚动容器")
 
 // ---------- 四、标题栏中段是拖拽面 ----------
 
@@ -148,7 +115,7 @@ workspace.tabs.value = Array.from({ length: 12 }, (_, i) => ({ path: `第${i}章
 workspace.activePath.value = "第11章.html"
 await nextTick()
 check(
-  "标签塞满一整行后拖拽区不变窄",
+  "开满 12 个标签后拖拽区不变窄",
   Math.abs((box(dragSurface())?.width ?? NaN) - surfaceBefore) < EPS,
   `前 ${surfaceBefore.toFixed(1)} 后 ${(box(dragSurface())?.width ?? NaN).toFixed(1)}`,
 )

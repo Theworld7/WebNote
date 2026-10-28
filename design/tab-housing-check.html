@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>标签落在编辑卡片里自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  /* 宽度与高度都要钉住：卡片是 `flex-1`，探针给了尺寸才量得到「标签行属于卡片」这件事。 */
+  #app { width: 1000px; height: 420px; margin: 0 0 16px; overflow: hidden; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>标签落在编辑卡片里：位置 / 体量 / 溢出</h1>
+<!-- ADR-0033 把标签从 chrome 搬进编辑卡片：标签描述的是文档而不是窗口。这一页钉的是搬家
+     之后的位置 —— 卡片第一行、36px、条左缘让开卡片内边距、塞满时在卡片里滚动而不是把卡片撑破。
+     chrome 一侧（标签不在标题栏里）由 `chrome-check` 守。
+     抓结果：node design/cdp-dump.mjs http://localhost:1420/design/tab-housing-check.html -->
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import EditorSurface from "../src/components/EditorSurface.vue"
+import TitleBar from "../src/components/TitleBar.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+
+const out = document.querySelector("#out")
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  out.textContent = lines.join("\n")
+}
+
+addEventListener("error", (event) => { out.textContent = `ERROR ${event.message}\n${lines.join("\n")}` })
+addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason
+  out.textContent = `REJECT ${reason instanceof Error ? reason.message : String(reason)}\n${lines.join("\n")}`
+})
+
+const EPS = 1
+
+let workspace = null
+/**
+ * 摆出 App.vue 的那两层壳：一条标题栏 + 带内边距的卡片区。
+ * 只挂这两个组件而不挂整个 App —— 侧栏与工作区自举都不参与「标签落在哪」这件事。
+ */
+const Root = defineComponent({
+  setup() {
+    provideTheme(provideSettings())
+    workspace = provideWorkspace()
+    return () =>
+      h(TooltipProvider, null, {
+        default: () =>
+          h("div", { class: "flex h-full flex-col overflow-hidden bg-canvas" }, [
+            h(TitleBar, { sidebarCollapsed: true }),
+            h("div", { class: "flex min-h-0 flex-1 px-2.5 pb-2.5 pt-1" }, [h(EditorSurface)]),
+          ]),
+      })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+
+const box = (el) => (el ? el.getBoundingClientRect() : null)
+const chrome = () => document.querySelector("header")
+const surface = () => document.querySelector("[data-editor-surface]")
+/** 标签行：卡片里那一行 flex 容器（标签条是它的子项）。 */
+const tabRow = () => surface()?.querySelector(':scope > [class*="h-9"]') ?? null
+const strip = () => surface()?.querySelector('[class*="group/tabs"]') ?? null
+const scroller = () => surface()?.querySelector('[class*="overflow-x-auto"]') ?? null
+
+// ---------- 一、没有标签时 ----------
+
+workspace.tabs.value = []
+workspace.activePath.value = ""
+await nextTick()
+
+check("没有标签时卡片里没有标签行", tabRow() === null)
+check("没有标签时卡片里没有标签条", strip() === null)
+
+// ---------- 二、有标签时的落位 ----------
+
+workspace.tabs.value = [{ path: "日记/2026-10-23.html", dirty: false, dirtyTables: [] }]
+// 刻意不给 activePath：这一页只量「标签行落在哪」，别为了断言把正文编辑器一起挂上来。
+await nextTick()
+
+const row = tabRow()
+const surfaceBox = box(surface())
+const rowBox = box(row)
+const stripBox = box(strip())
+const chromeBox = box(chrome())
+
+check("标签行在编辑卡片里", row !== null && surface()?.contains(row) === true)
+check(
+  "标签行是卡片的第一个子元素（在错误条 / 正文之前）",
+  row !== null && surface()?.firstElementChild === row,
+  row === null ? "标签行缺失" : `首个子元素是 ${surface()?.firstElementChild?.className ?? "?"}`,
+)
+check("标签行高度是 36px", rowBox?.height === 36, `实际 ${rowBox?.height ?? "缺失"}`)
+check(
+  "标签行贴着卡片顶端（卡片圆角内第一行）",
+  rowBox !== null && surfaceBox !== null && Math.abs(rowBox.top - surfaceBox.top) < EPS,
+  rowBox === null || surfaceBox === null ? "缺失" : `行顶 ${rowBox.top.toFixed(1)} vs 卡片顶 ${surfaceBox.top.toFixed(1)}`,
+)
+check(
+  "标签条在标签行里垂直居中（上下各 4px）",
+  stripBox !== null && rowBox !== null &&
+    Math.abs(stripBox.top - rowBox.top - 4) < EPS &&
+    Math.abs(rowBox.bottom - stripBox.bottom - 4) < EPS,
+  stripBox === null || rowBox === null ? "缺失" : `上 ${(stripBox.top - rowBox.top).toFixed(1)} 下 ${(rowBox.bottom - stripBox.bottom).toFixed(1)}`,
+)
+check(
+  "标签条左缘让开卡片内边距 10px（px-2.5）",
+  stripBox !== null && surfaceBox !== null && Math.abs(stripBox.left - surfaceBox.left - 10) < EPS,
+  stripBox === null || surfaceBox === null ? "缺失" : `实际 ${(stripBox.left - surfaceBox.left).toFixed(1)}`,
+)
+
+// 搬家之后 chrome 只剩 44px：卡片顶端与标题栏之间只有 App 那一层 `pt-1`。
+check(
+  "标题栏下方只有 4px 间隙就进卡片（chrome 只剩 44px）",
+  surfaceBox !== null && chromeBox !== null && Math.abs(surfaceBox.top - chromeBox.bottom - 4) < EPS,
+  surfaceBox === null || chromeBox === null ? "缺失" : `实际 ${(surfaceBox.top - chromeBox.bottom).toFixed(1)}`,
+)
+
+// ---------- 三、标签塞满时在卡片里滚动 ----------
+
+workspace.tabs.value = Array.from({ length: 12 }, (_, i) => ({ path: `第${i}章.html`, dirty: false, dirtyTables: [] }))
+await nextTick()
+
+const wide = scroller()
+const wideBox = box(wide)
+const wideSurface = box(surface())
+check(
+  "标签多到放不下时滚动区真的溢出",
+  wide !== null && wide !== undefined && wide.scrollWidth > wide.clientWidth,
+  wide === null || wide === undefined ? "滚动容器缺失" : `scrollWidth ${wide.scrollWidth} vs clientWidth ${wide.clientWidth}`,
+)
+check(
+  "标签条不撑破卡片（右缘不越出卡片）",
+  wideBox !== null && wideSurface !== null && wideBox.right <= wideSurface.right + EPS,
+  wideBox === null || wideSurface === null ? "缺失" : `标签右缘 ${wideBox.right.toFixed(1)} vs 卡片右缘 ${wideSurface.right.toFixed(1)}`,
+)
+if (wide !== null && wide !== undefined) wide.scrollLeft = 9999
+await nextTick()
+check(
+  "滚动容器能实际滚动（scrollLeft 生效）",
+  wide !== null && wide !== undefined && wide.scrollLeft > 0,
+  `scrollLeft ${wide?.scrollLeft ?? "缺失"}`,
+)
+// 量完把视口摆回开头：这一页常被拿来截图看落位，停在末尾的话首标签被渐变遮罩盖着。
+if (wide !== null && wide !== undefined) wide.scrollLeft = 0
+
+lines.push(`自检 ${passed}/${passed + failed}`)
+out.textContent = lines.join("\n")
+</script>
+</body>
+</html>

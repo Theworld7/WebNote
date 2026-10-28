@@ -30,7 +30,7 @@ const DIALOG_BTN = "h-7 px-3 text-[13px]"
 
 /**
  * 标签条两端的渐变遮罩：某一侧还有内容可滚时才显示，
- * 表示「这边被截断了」。颜色从 chrome 底色（canvas）淡出，盖在标签上不突兀。
+ * 表示「这边被截断了」。颜色从卡片底色（card）淡出，盖在标签上不突兀。
  */
 const stripRef = ref<HTMLElement | null>(null)
 const overflow = ref({ left: false, right: false })
@@ -65,11 +65,12 @@ watch(() => tabs.value.length, () => nextTick(updateOverflow))
 </script>
 
 <template>
-  <!-- 标签条是标签行里的一段，不再自带外壳（ADR-0024 / 0029）：宽度按内容收缩、放不下才滚动，
-       后面的拖拽空白由 TitleBar 那条标签行补 —— 所以这里既不能 flex-1，也不能撑破父级。
+  <!-- 标签条是编辑卡片第一行里的一段，不自带外壳：宽度按内容收缩、放不下才滚动，
+       右端的余量留在卡片里（这一行没有别的子项，余量是空的，不再当拖拽面用 ——
+       窗口的拖拽面在标题栏，见 ADR-0033）。所以这里既不能 flex-1，也不能撑破父级。
        group/tabs：自绘滚动指示条挂在标签条下缘，hover 这一段才显形。 -->
   <div class="group/tabs relative min-w-0 max-w-full">
-    <!-- **没开文件时标签区不渲染**：没有标签可显示，留一条空轨道只会把 chrome 中间撑出一条缝。 -->
+    <!-- **没开文件时标签区不渲染**：没有标签可显示，留一条空轨道只会把卡片顶端撑出一条缝。 -->
     <div
       v-if="tabs.length > 0"
       ref="stripRef"
@@ -91,11 +92,11 @@ watch(() => tabs.value.length, () => nextTick(updateOverflow))
     <!-- 两端渐变：有内容被截断的一侧才显示。pointer-events-none，不挡点击。 -->
     <div
       v-if="overflow.left"
-      class="pointer-events-none absolute left-0 top-0 h-7 w-6 bg-gradient-to-r from-canvas to-transparent"
+      class="pointer-events-none absolute left-0 top-0 h-7 w-6 bg-gradient-to-r from-card to-transparent"
     />
     <div
       v-if="overflow.right"
-      class="pointer-events-none absolute right-0 top-0 h-7 w-6 bg-gradient-to-l from-canvas to-transparent"
+      class="pointer-events-none absolute right-0 top-0 h-7 w-6 bg-gradient-to-l from-card to-transparent"
     />
 
     <!-- 自绘滚动指示条：可滚才渲染，hover 才显形。绝对定位挂在标签条下缘的留白里，

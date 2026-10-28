@@ -6,8 +6,8 @@
 <style>
   body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
   h1 { font-size: 15px; margin: 0 0 12px; }
-  /* 必须是 flex row：真实布局里标签栏是标签行里的一个 flex 子项（父级是 TitleBar 的
-     `flex h-9 items-center`），宽度按内容收缩、max-w-full 封顶后才横向滚动。
+  /* 必须是 flex row：真实布局里标签栏是编辑卡片第一行里的一个 flex 子项（见
+     `tab-housing-check`），宽度按内容收缩、max-w-full 封顶后才横向滚动。
      探针里给它一个块级父容器的话它直接撑满整行，右缘几何就没法量。 */
   #app { margin: 0 0 16px; display: flex; align-items: center; }
   pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
@@ -123,8 +123,8 @@ check("无激活标签 → 隐藏", saveButton() === undefined)
 // ---- 结构 ----
 //
 // 「在目录中定位」从来没有接过 click，点了没反应，已连同那个只剩它一个按钮的动作组
-// 一起删掉。ADR-0024 之后标签条也不再自带浮岛外壳：它是窗口 chrome 里的一个片段，
-// 宽度按内容收缩、放不下就滚动，左右不再有那层 p-1（间距现在由 chrome 的 gap 承担）。
+// 一起删掉。标签条从来不带浮岛外壳：它是编辑卡片第一行里的一个片段（ADR-0033），
+// 宽度按内容收缩、放不下就滚动，左右那层 p-1 由卡片的内边距接管。
 
 const EPS = 0.5
 /** 组件根。它常驻（chrome 里要占住自己的位置），只有内部的滚动容器按「有没有标签」挂。 */

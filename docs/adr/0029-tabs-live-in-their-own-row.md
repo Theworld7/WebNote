@@ -1,5 +1,9 @@
 # Tabs live in their own row
 
+**Superseded in part by [ADR-0033](0033-tabs-live-in-the-document-card.md)**: the strip moved again,
+into the edit card's first row. The reasoning below about the drag surface still holds and is why
+tabs are not allowed back into the header; the placement it settled on is history.
+
 ADR-0024 merged every piece of chrome into one 44px header and deleted the status bar to buy
 38px of note. One of the things it merged was the tab strip, on the reasoning that a strip
 sizing to its content would leave a `flex-1` remainder behind it, and that remainder would be
