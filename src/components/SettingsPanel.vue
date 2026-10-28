@@ -90,7 +90,7 @@ const { notify } = useToast()
  */
 function resultText(result: UpdateOutcome, newest: string | null): string {
   if (result === "current") return "已是最新版本"
-  if (result === "failed") return "没能检查，可能离线或 GitHub 限流"
+  if (result === "failed") return "没能检查，可能离线或被限流"
   return newest === null ? "发现新版本" : `发现新版本 v${newest}`
 }
 

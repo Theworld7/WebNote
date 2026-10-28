@@ -16,7 +16,9 @@ kept and sent back as `If-None-Match`. GitHub answers 304, and a 304 **does not 
 rate limit**. That is what makes a click safe: a person can press the button as often as they
 like and only the first press is a real query. The tag is not persisted — it dies with the process
 for the same reason the result does (a cached answer survives the upgrade it announces), and a
-fresh launch is one unconditional request, which is the budget ADR-0030 already spent.
+fresh launch is one unconditional request, which is the budget ADR-0030 already spent. That
+budget assumes the quota is ours to spend; behind a shared accelerator it is not, which is why the
+ask now has a second source when the first is refused (ADR-0032).
 
 **Three outcomes, one line each.** `newer` — 发现新版本, the version number, and the same small
 「新版本」 button the title bar uses, because it is the same action and should not be written

@@ -652,7 +652,7 @@ checkButton()?.click()
 await new Promise((resolve) => setTimeout(resolve, 60))
 await nextTick()
 check("查不到时结论行说「没能检查」", aboutText().includes("没能检查"), aboutText().slice(0, 120))
-check("查不到时提示是失败样式", toasts().at(-1) === "error:没能检查，可能离线或 GitHub 限流",
+check("查不到时提示是失败样式", toasts().at(-1) === "error:没能检查，可能离线或被限流",
   toasts().join(" | "))
 
 // 同一件事在常驻行和提示里必须是一个说法：抄一遍文案就会漂。

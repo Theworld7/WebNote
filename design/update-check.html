@@ -10,7 +10,7 @@
 </style>
 </head>
 <body>
-<h1>新版本检测：版本号比较、GitHub release 的解析、手动检查的三种结论、按钮的行为</h1>
+<h1>新版本检测：版本号比较、两条数据源的解析、主路被限流时的兜底、按钮的行为</h1>
 <!-- 网络是这里唯一的外部边界，打桩打的就是它：GitHub 那边到底发了什么，不由本页决定。
      抓结果：node design/cdp-dump.mjs http://localhost:1420/design/update-check.html -->
 <div id="host"></div>
@@ -21,7 +21,7 @@ import "../src/style.css"
 import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
 import NewVersionButton from "../src/components/NewVersionButton.vue"
 import { useUpdateCheck } from "../src/composables/useUpdateCheck.ts"
-import { isNewer, parseLatestRelease, parseVersion } from "../src/lib/update.ts"
+import { isNewer, parseLatestRelease, parseManifestVersion, parseVersion } from "../src/lib/update.ts"
 
 const out = document.querySelector("#out")
 const lines = []
@@ -73,6 +73,13 @@ check("草稿不算发布", parseLatestRelease({ ...payload, draft: true }, FALL
 check("预发布不算发布", parseLatestRelease({ ...payload, prerelease: true }, FALLBACK) === null)
 check("响应根本不是对象就当没有", parseLatestRelease("{}", FALLBACK) === null && parseLatestRelease(null, FALLBACK) === null)
 
+// 镜像上只有 package.json，能拿到的也就只有版本号。
+check("package.json 的 version 读得出", parseManifestVersion({ version: "0.9.0" }) === "0.9.0")
+check("带 v 的也读得出", parseManifestVersion({ version: "v0.9.0" }) === "0.9.0")
+check("没有 version 字段就当没有", parseManifestVersion({ name: "webnote" }) === null)
+check("version 读不懂就当没有", parseManifestVersion({ version: "nightly" }) === null)
+check("不是对象就当没有", parseManifestVersion("0.9.0") === null && parseManifestVersion(null) === null)
+
 // ---------- 四、按钮与三种结论 ----------
 
 createApp(
@@ -86,38 +93,52 @@ const button = () => [...host.querySelectorAll("button")].find((el) => el.textCo
 check("没有检测到新版本时按钮不渲染", button() === undefined)
 
 /*
- * 网络是这里唯一的外部输入。打桩的同时记账：手动检查那颗按钮第二次点下去时到底有没有
- * 带上 `If-None-Match`，只有把请求收下来才看得见。
+ * 网络是这里唯一的外部输入。两条路各自打桩：主路是 GitHub 的 API，兜底是镜像上的
+ * package.json。分开记账，才看得见「谁答的」和「主路有没有带上 If-None-Match」。
  */
 const release = { tag_name: "v9.9.9", html_url: "https://github.com/Theworld7/WebNote/releases/tag/v9.9.9" }
 const realFetch = window.fetch
 const realOpen = window.open
 const calls = []
 const opened = []
-let reply = () => new Response("{}", { status: 500 })
+let api = () => new Response("{}", { status: 500 })
+let mirror = () => new Response("{}", { status: 404 })
 
 /** GitHub 的 200：带 ETag 头，下一次就能问成条件请求。 */
 const json = (body, headers = {}) => new Response(JSON.stringify(body), { status: 200, headers })
+/** 打到主路上的那些请求，按顺序。 */
+const apiCalls = () => calls.filter((call) => call.url.includes("api.github.com"))
+/** 打到镜像上的那些请求，按顺序。 */
+const mirrorCalls = () => calls.filter((call) => call.url.includes("jsdelivr"))
 
 window.fetch = async (url, init) => {
-  const headers = init?.headers ?? {}
-  calls.push({ url: String(url), ifNoneMatch: headers["If-None-Match"] ?? null })
-  return reply()
+  const address = String(url)
+  calls.push({ url: address, ifNoneMatch: init?.headers?.["If-None-Match"] ?? null })
+  return address.includes("api.github.com") ? api() : mirror()
 }
 window.open = (url) => { opened.push(String(url)); return null }
 
 const { latest, checking, checkNow } = useUpdateCheck()
 
 // 1. 最新发布就是手上这一版：结论 current，不该长出按钮。
-reply = () => json({ tag_name: `v${__APP_VERSION__}`, html_url: release.html_url }, { ETag: '"same"' })
+api = () => json({ tag_name: `v${__APP_VERSION__}`, html_url: release.html_url }, { ETag: '"same"' })
 check("最新发布等于当前版本 → 结论 current", (await checkNow()) === "current")
 await nextTick()
 check("没有更新时不长按钮", button() === undefined)
 check("检查结束后不在「检查中」", checking.value === false)
-check("第一次请求没有回执可带", calls[0]?.ifNoneMatch === null, String(calls[0]?.ifNoneMatch))
+check("第一次请求没有回执可带", apiCalls()[0]?.ifNoneMatch === null, String(apiCalls()[0]?.ifNoneMatch))
+check("主路答了就不去问镜像", mirrorCalls().length === 0, `${mirrorCalls().length} 次`)
 
-// 2. 真有一个更新的版本：按钮出现，地址来自那条 release。
-reply = () => json(release, { ETag: '"newer"' })
+// 2. 主路被限流（国内开加速器的常态），镜像顶上：结论照样有，且只问一次。
+api = () => new Response("{}", { status: 403 })
+mirror = () => json({ version: __APP_VERSION__ })
+check("主路 403、镜像说同一版 → 结论 current", (await checkNow()) === "current")
+check("主路不通才去问镜像", mirrorCalls().length === 1, `${mirrorCalls().length} 次`)
+check("镜像那条请求不带 If-None-Match（它不吃限额，也没什么可省的）",
+  mirrorCalls()[0]?.ifNoneMatch === null)
+
+// 3. 真有一个更新的版本：按钮出现，地址来自那条 release。
+api = () => json(release, { ETag: '"newer"' })
 check("查到更新的版本 → 结论 newer", (await checkNow()) === "newer")
 await nextTick()
 check("检测到更新的版本后按钮出现", button() !== undefined)
@@ -130,22 +151,42 @@ button()?.click()
 await Promise.resolve()
 check("点一下就把 release 页面交给系统浏览器", opened[0] === release.html_url, opened[0] ?? "没有打开任何地址")
 
-// 3. 再点一次：带上上一次的 ETag，GitHub 回 304 —— 结论沿用，且这一次不占限额。
-reply = () => new Response(null, { status: 304 })
+// 4. 再点一次：带上上一次的 ETag，GitHub 回 304 —— 结论沿用，且这一次不占限额。
+api = () => new Response(null, { status: 304 })
 check("304 沿用上一次的结论", (await checkNow()) === "newer")
-check("第二次请求带上了 If-None-Match", calls[2]?.ifNoneMatch === '"newer"', String(calls[2]?.ifNoneMatch))
+check("这一次请求带上了上一次的回执", apiCalls().at(-1)?.ifNoneMatch === '"newer"', String(apiCalls().at(-1)?.ifNoneMatch))
 await nextTick()
 check("304 之后按钮还在", button() !== undefined)
 
-// 4. 被限流：结论 failed，但已经查到的提示不该被抹掉。
-reply = () => new Response("{}", { status: 403 })
-check("403 → 结论 failed", (await checkNow()) === "failed")
+// 5. 只剩镜像可问，而镜像说新版本：版本号照用，地址退回列表页（拼不出确认存在的 release 页）。
+api = () => new Response("{}", { status: 403 })
+mirror = () => json({ version: "9.9.10" })
+check("主路 403、镜像有新版 → 结论 newer", (await checkNow()) === "newer")
 await nextTick()
-check("失败不清掉已经查到的提示", button() !== undefined && latest.value?.version === "9.9.9")
+check("新版版本号取自镜像", latest.value?.version === "9.9.10", String(latest.value?.version))
+check("地址退回 releases 列表，不拼一个可能 404 的 tag 页",
+  latest.value?.url === FALLBACK, String(latest.value?.url))
+button()?.click()
+await Promise.resolve()
+check("这颗按钮落到列表页", opened.at(-1) === FALLBACK, String(opened.at(-1)))
 
-// 5. 断网：同样只是 failed，不往外抛。
-reply = () => { throw new TypeError("Failed to fetch") }
-check("fetch 抛错 → 结论 failed，不冒泡", (await checkNow()) === "failed")
+// 6. 镜像滞后：它说「没有更新的」，可能只是还没看到 —— 不该把主路先前查到的收回去。
+mirror = () => json({ version: __APP_VERSION__ })
+check("镜像说没有新版本时不收回已经查到的提示", (await checkNow()) === "newer" && latest.value?.version === "9.9.10",
+  `${String(latest.value?.version)}`)
+await nextTick()
+check("那颗按钮也还在", button() !== undefined)
+
+// 7. 两条路都不行：failed，但同样不清掉已经查到的提示。
+mirror = () => new Response("{}", { status: 404 })
+check("主路 403、镜像 404 → 结论 failed", (await checkNow()) === "failed")
+await nextTick()
+check("失败不清掉已经查到的提示", button() !== undefined && latest.value?.version === "9.9.10")
+
+// 8. 断网：两条路都抛，同样只是 failed，不往外抛。
+api = () => { throw new TypeError("Failed to fetch") }
+mirror = () => { throw new TypeError("Failed to fetch") }
+check("两条路都抛错 → 结论 failed，不冒泡", (await checkNow()) === "failed")
 
 window.fetch = realFetch
 window.open = realOpen
