@@ -166,6 +166,59 @@ check("正文列吃到导出文档的版心", rootStyle?.maxWidth === `${DOC_MEA
 const h1Style = headings().length === 0 ? null : getComputedStyle(headings()[0])
 check("标题吃到导出文档的字号", h1Style?.fontSize === `${HEADING_FONT_SIZES[0]}px`, h1Style?.fontSize ?? "")
 
+// 只读提示与「转为笔记」浮在右上角，右缘要贴**正文内容**的右缘 —— 正文列在宽窗口里是
+// 居中的 720，贴编辑区右缘会让它悬在文字外面，看着像掉出去了。
+const actions = document.querySelector("[data-markdown-actions]")
+const docBox = docRoot()?.getBoundingClientRect() ?? null
+const docPadRight = rootStyle === null ? 0 : parseFloat(rootStyle.paddingRight)
+const actionsRight = actions?.getBoundingClientRect().right ?? NaN
+const contentRight = docBox === null ? NaN : docBox.right - docPadRight
+check(
+  "只读浮标的右缘贴正文内容右缘",
+  actions !== null && Math.abs(actionsRight - contentRight) < 1,
+  actions === null
+    ? "浮标缺失"
+    : `浮标 ${actionsRight.toFixed(1)} vs 内容 ${contentRight.toFixed(1)}（差 ${(actionsRight - contentRight).toFixed(1)}）`,
+)
+
+// 上一条只是「此刻对上了」。它要一直对上，浮标与正文列必须**共用同一个包含块**：
+// 浮标挂在滚动视口外面时，两者各按自己的宽度居中，视口哪天真为滚动条留了宽度，
+// 就会一个在里一个在外，差半个滚动条。放进视口（sticky 钉住）才把这条钉死。
+const viewportOf = () => document.querySelector("[data-reka-scroll-area-viewport]")
+check(
+  "只读浮标在滚动视口里（与正文列同一个包含块）",
+  actions !== null && viewportOf() !== null && viewportOf()?.contains(actions) === true,
+  actions === null ? "浮标缺失" : "浮标在视口外",
+)
+// 挂进视口就得是零高：否则正文被那一横推下去几十像素，卷到顶时正文顶上多了条空带。
+const viewportBox = viewportOf()?.getBoundingClientRect() ?? null
+check(
+  "只读浮标不占正文高度（正文顶仍然贴着视口顶）",
+  docBox !== null && viewportBox !== null && Math.abs(docBox.top - viewportBox.top) < 1,
+  docBox === null || viewportBox === null ? "缺失" : `正文顶 ${docBox.top.toFixed(1)} vs 视口顶 ${viewportBox.top.toFixed(1)}`,
+)
+
+// sticky 必须真的钉住：滚下去之后它还停在视口顶下 12px。位置一旦退化成 static，
+// 上面三条几何断言在「卷到顶」的状态下全都照样通过 —— 只有滚一遍才看得见。
+const stampViewport = viewportOf()
+check(
+  "夹具够长、视口能滚（下面那条才有意义）",
+  stampViewport !== null && stampViewport.scrollHeight > stampViewport.clientHeight,
+  stampViewport === null ? "视口缺失" : `scrollHeight ${stampViewport.scrollHeight} vs clientHeight ${stampViewport.clientHeight}`,
+)
+if (stampViewport !== null && actions !== null) {
+  stampViewport.scrollTop = 200
+  await wait(60)
+  const pinnedTop = actions.getBoundingClientRect().top
+  const viewTop = stampViewport.getBoundingClientRect().top
+  check(
+    "滚下去之后浮标仍钉在视口顶下 12px",
+    Math.abs(pinnedTop - viewTop - 12) < 1,
+    `浮标顶 ${pinnedTop.toFixed(1)} vs 视口顶 + 12 = ${(viewTop + 12).toFixed(1)}（滚了 ${stampViewport.scrollTop}）`,
+  )
+  stampViewport.scrollTop = 0
+}
+
 step("sanitize")
 check("脚本元素没有进 DOM", docRoot()?.querySelector("script") === null)
 check("事件属性被摘掉", xssImage() !== null && !xssImage().hasAttribute("onerror"))

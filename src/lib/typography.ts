@@ -68,6 +68,14 @@ export const DOC_MEASURE_PX = 720
 /** 上者的 rem 形式，只给导出侧的 CSS 用（浏览器根字号是 16px）。 */
 const DOC_MEASURE_REM = DOC_MEASURE_PX / 16
 
+/**
+ * 版心的左右留白，rem。
+ *
+ * 导出文件的 `body` 与 Markdown 预览里那组浮标（只读提示 / 转为笔记）都读它 ——
+ * 后者要贴正文内容的右缘，留白一旦两边不一致，浮标就会比正文宽出或缩进一截。
+ */
+export const DOC_GUTTER_REM = 1.5
+
 /** 六级标题的字号，索引 0 对应 h1。 */
 export const HEADING_FONT_SIZES = [30, 22, 18, 16, 16, 16] as const
 
@@ -452,7 +460,7 @@ export function docStyle(): string {
       :root { --fg: #e6e6e8; --muted: #9ca3af; --line: #33333a; --bg-soft: #1e1e22; --accent-bg: #232a45; --accent-fg: #c3ccff; --mark-bg: #4a4120; --link: #5e93ff; --sub-ok-bg: #183021; --sub-ok-fg: #79d795; --sub-warn-bg: #332a16; --sub-warn-fg: #e8bd64; --sub-danger-bg: #3b1d1c; --sub-danger-fg: #f09a94; --ledger-in: ${LEDGER_INCOME_COLOR_DARK}; --ledger-ex: ${LEDGER_EXPENSE_COLOR_DARK}; }
 ${RUN_COLOR_DARK_RULES}
     }
-    body { max-width: ${DOC_MEASURE_REM}rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; background: Canvas; color: var(--fg);
+    body { max-width: ${DOC_MEASURE_REM}rem; margin: 0 auto; padding: 3rem ${DOC_GUTTER_REM}rem 6rem; background: Canvas; color: var(--fg);
       font: ${BODY_FONT_SIZE}px/${LINE_HEIGHT} ${SYSTEM_FONT_STACK}; -webkit-font-smoothing: antialiased; }
     h1, h2, h3, h4, h5, h6 { margin: ${h.top}px 0 ${h.bottom}px; font-weight: ${HEADING_FONT_WEIGHT}; }
 ${headingRules}

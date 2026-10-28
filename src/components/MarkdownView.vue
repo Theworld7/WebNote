@@ -9,10 +9,16 @@ import { resolveRelativePath } from "@/lib/link"
 import { markdownToHtml } from "@/lib/markdown"
 import { scopeCss } from "@/lib/note-style"
 import { openExternalUrl } from "@/lib/open-external"
-import { docStyle } from "@/lib/typography"
+import { docStyle, DOC_GUTTER_REM, DOC_MEASURE_PX } from "@/lib/typography"
 
 const { activePath, activeMarkdown, convertMarkdownToNote, followLink, imageSourceOf } = useWorkspace()
 const { theme } = useTheme()
+
+/**
+ * 右上角那组浮标的盒子：与 `docStyle()` 给 body 的版心、左右留白同源，才能把右缘落在
+ * 正文内容上。走内联 style 而不是 `max-w-[720px]`：这两个数只能有一处真源。
+ */
+const ACTIONS_BOX = { maxWidth: `${DOC_MEASURE_PX}px`, paddingInline: `${DOC_GUTTER_REM}rem` }
 
 const html = computed(() => markdownToHtml(activeMarkdown.value))
 
@@ -133,21 +139,31 @@ async function convert() {
 
 <template>
   <div class="relative flex min-h-0 flex-1 flex-col">
-    <!-- 只读提示与转换入口贴在右上角：正文列自己不摆工具栏，滚动时这组也不跟着走。 -->
-    <div class="absolute top-3 right-4 z-10 flex items-center gap-2">
-      <span class="text-[11px] text-muted-foreground">Markdown · 只读</span>
-      <Button
-        variant="ghost"
-        size="sm"
-        :disabled="converting"
-        class="h-7 gap-1 rounded-full bg-popover px-2.5 text-[12px] shadow-sm"
-        @click="convert"
-      >
-        <FileTextIcon class="size-3.5" />
-        转为笔记
-      </Button>
-    </div>
     <ScrollArea class="min-h-0 flex-1">
+      <!-- 只读提示与转换入口贴在正文列右上角：正文列自己不摆工具栏，滚动时这组也不跟着走。
+           它挂在滚动视口**里面**、sticky 钉住、零高 —— 与正文列共用同一个包含块，正文列按
+           哪个宽度居中它就按哪个宽度居中，视口哪天真为滚动条留了宽度，两者一起挪，不会
+           一个在里一个在外。零高是不许那一横把正文推下去。
+           宽度与左右留白跟 `docStyle()` 里 body 的那两行同源，右缘才落在**内容**右缘上
+           （宽窗口里正文列是居中的 720，贴编辑区右缘会让这组悬在文字外面）。
+           外层 pointer-events-none：这条横在正文列顶上，挡住的话滚轮在这里就滚不动了。 -->
+      <div class="pointer-events-none sticky top-0 z-10 h-0">
+        <div class="mx-auto flex justify-end pt-3" :style="ACTIONS_BOX">
+          <div data-markdown-actions class="pointer-events-auto flex items-center gap-2">
+            <span class="text-[11px] text-muted-foreground">Markdown · 只读</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              :disabled="converting"
+              class="h-7 gap-1 rounded-full bg-popover px-2.5 text-[12px] shadow-sm"
+              @click="convert"
+            >
+              <FileTextIcon class="size-3.5" />
+              转为笔记
+            </Button>
+          </div>
+        </div>
+      </div>
       <!-- 内容来自本地 Markdown，`markdownToHtml` 已摘掉脚本与事件属性，才允许 v-html。 -->
       <div ref="docRef" data-markdown-doc @click="onClick" v-html="html" />
     </ScrollArea>
