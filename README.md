@@ -285,7 +285,7 @@ pnpm icon           # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | 块类型 | `table-check`、`table-align-check`、`data-table-check`、`gallery-check`、`kanban-check`、`kanban-date-check`、`ledger-check`、`ledger-edit-check`、`ledger-date-check`、`option-cell-check`、`subscription-check`、`playlist-check`、`playlist-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check` |
 | 样式与外观 | `typography-check`、`theme-check`、`theme-mode-check`、`page-style-check`、`settings-check` |
 | 文件操作 | `create-check`、`move-check`、`markdown-check`、`markdown-view-check` |
-| 其它 | `drawer-jitter-probe`（抽屉抖动守卫）、`icon-check`（图标观感） |
+| 其它 | `update-check`（新版本检测）、`drawer-jitter-probe`（抽屉抖动守卫）、`icon-check`（图标观感） |
 
 其中有几页要等一次真实的读盘（挂真实编辑器、有顶层 `await`），`--dump-dom` 抓不到结果，用配套的
 CDP 驱动：`node design/cdp-dump.mjs http://localhost:1420/design/<名字>.html`（加 `SHOT=/tmp/x.png`

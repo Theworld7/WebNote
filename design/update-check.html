@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>新版本检测自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>新版本检测：版本号比较、GitHub release 的解析、按钮的行为</h1>
+<!-- 网络是这里唯一的外部边界，打桩打的就是它：GitHub 那边到底发了什么，不由本页决定。
+     抓结果：node design/cdp-dump.mjs http://localhost:1420/design/update-check.html -->
+<div id="host"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { createApp, defineComponent, h, nextTick } from "vue"
+import "../src/style.css"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import NewVersionButton from "../src/components/NewVersionButton.vue"
+import { useUpdateCheck } from "../src/composables/useUpdateCheck.ts"
+import { isNewer, parseLatestRelease, parseVersion } from "../src/lib/update.ts"
+
+const out = document.querySelector("#out")
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  out.textContent = lines.join("\n")
+}
+
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+
+// ---------- 一、版本号只有一种读法 ----------
+
+check("三段数字读得懂", same(parseVersion("0.8.2"), [0, 8, 2]), JSON.stringify(parseVersion("0.8.2")))
+check("前导 v 不算数", same(parseVersion("v1.2.3"), [1, 2, 3]), JSON.stringify(parseVersion("v1.2.3")))
+check("两头空白不算数", same(parseVersion(" 0.8.2 "), [0, 8, 2]), JSON.stringify(parseVersion(" 0.8.2 ")))
+check("两段数字读不懂", parseVersion("0.8") === null, JSON.stringify(parseVersion("0.8")))
+check("预发布读不懂（不拿它当新版本推给人）", parseVersion("v0.9.0-beta.1") === null, JSON.stringify(parseVersion("v0.9.0-beta.1")))
+check("空串读不懂", parseVersion("") === null)
+
+// ---------- 二、谁比谁新 ----------
+
+check("补丁号大就是新", isNewer("0.8.3", "0.8.2"))
+check("同版本不算新", isNewer("0.8.2", "0.8.2") === false)
+check("补丁号小不算新", isNewer("0.8.1", "0.8.2") === false)
+check("次版本号进位按数字比，不按字符串比", isNewer("0.10.0", "0.9.9"))
+check("主版本号压过后面所有位", isNewer("1.0.0", "0.99.99"))
+check("一边带 v 也照样能比", isNewer("v0.8.3", "0.8.2"))
+check("读不懂的一边直接判「没有更新」", isNewer("latest", "0.8.2") === false)
+check("当前版本就是 package.json 的那个（注入生效）", __APP_VERSION__ === "0.8.2", __APP_VERSION__)
+
+// ---------- 三、GitHub 的响应 ----------
+
+const FALLBACK = "https://github.com/Theworld7/WebNote/releases"
+const payload = { tag_name: "v0.9.0", html_url: "https://github.com/Theworld7/WebNote/releases/tag/v0.9.0" }
+
+const parsed = parseLatestRelease(payload, FALLBACK)
+check("正常响应 → 版本号去 v、地址取 release 自己的页",
+  parsed !== null && parsed.version === "0.9.0" && parsed.url === payload.html_url,
+  JSON.stringify(parsed))
+check("缺 html_url 时退回 releases 列表",
+  parseLatestRelease({ tag_name: "v0.9.0" }, FALLBACK)?.url === FALLBACK)
+check("tag_name 读不懂就当没有", parseLatestRelease({ tag_name: "nightly" }, FALLBACK) === null)
+check("缺 tag_name 就当没有", parseLatestRelease({ html_url: payload.html_url }, FALLBACK) === null)
+check("草稿不算发布", parseLatestRelease({ ...payload, draft: true }, FALLBACK) === null)
+check("预发布不算发布", parseLatestRelease({ ...payload, prerelease: true }, FALLBACK) === null)
+check("响应根本不是对象就当没有", parseLatestRelease("{}", FALLBACK) === null && parseLatestRelease(null, FALLBACK) === null)
+
+// ---------- 四、按钮：只在该出现的时候出现 ----------
+
+createApp(
+  defineComponent({ render: () => h(TooltipProvider, null, { default: () => h(NewVersionButton) }) }),
+).mount("#host")
+await nextTick()
+
+const host = document.querySelector("#host")
+const button = () => [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("新版本"))
+
+check("没有检测到新版本时按钮不渲染", button() === undefined)
+
+const release = { tag_name: "v9.9.9", html_url: "https://github.com/Theworld7/WebNote/releases/tag/v9.9.9" }
+const realFetch = window.fetch
+const realOpen = window.open
+const opened = []
+window.fetch = async () => new Response(JSON.stringify(release), { status: 200 })
+window.open = (url) => { opened.push(String(url)); return null }
+
+await useUpdateCheck().check()
+await nextTick()
+
+check("检测到更新的版本后按钮出现", button() !== undefined)
+check("按钮写的字是「新版本」", button()?.textContent?.trim() === "新版本", button()?.textContent?.trim() ?? "缺失")
+check("无障碍名字带上版本号",
+  (button()?.getAttribute("aria-label") ?? "").includes("9.9.9"),
+  button()?.getAttribute("aria-label") ?? "缺失")
+
+button()?.click()
+await Promise.resolve()
+check("点一下就把 release 页面交给系统浏览器", opened[0] === release.html_url, opened[0] ?? "没有打开任何地址")
+
+window.fetch = realFetch
+window.open = realOpen
+
+lines.push(`自检 ${passed}/${passed + failed}`)
+out.textContent = lines.join("\n")
+</script>
+</body>
+</html>

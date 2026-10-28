@@ -30,7 +30,8 @@
   单调向上的色阶（画布 < 页面底 < 卡片 < 浮层）、浮起面用 popover 而阴影走 `--elev-*` 间接(0026)、
   字号是九档阶梯且不落半像素、h4~h6 靠字重与颜色分、字体栈只存一份（CSS 那份由自检页钉住）、
   版心 720px 与标准档同源(0027)、块框选只收基础/列表两组、逐块换类型不合并、矩形只比纵向(0028)、
-  标签行独立在标题栏之下、标题栏中段整段留给拖拽(0029)。
+  标签行独立在标题栏之下、标题栏中段整段留给拖拽(0029)、新版本只提示不代劳:按钮落在撤销重做
+  簇右端、查不到就是没有(0030)。
   改对应行为前先读那篇。
 
 ## 验证
@@ -57,6 +58,8 @@
 `markdown-view-check`(挂真实编辑器，排版 / 消毒 / 转笔记)、
 `create-check`(扫描 / 打开 / 同目录转换)、`tree-integration-check`(整合视图保留 `.md`);
 动设置 → `settings-check`;动布局块 → `layout-check`;
+动新版本检测(`lib/update.ts`、`composables/useUpdateCheck.ts`、`components/NewVersionButton.vue`)
+→ `update-check`(版本号比较 / release 解析 / 按钮行为),按钮在标题栏里的落位 → `chrome-check`;
 动代码块的编辑态 / 格式化 / 静态配色(`lib/monaco-code.ts`、`lib/source-format.ts`、
 `style.css` 里的 `--color-code-*`)→ `code-edit-check`(挂真实编辑器,走 CDP 驱动);
 动对比度 / 配色 token → `theme-check`、`code-edit-check` 的第十节;

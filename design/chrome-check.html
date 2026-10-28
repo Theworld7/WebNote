@@ -26,6 +26,7 @@ import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
 import TitleBar from "../src/components/TitleBar.vue"
 import { provideSettings } from "../src/composables/useSettings.ts"
 import { provideTheme } from "../src/composables/useTheme.ts"
+import { useUpdateCheck } from "../src/composables/useUpdateCheck.ts"
 import { provideWorkspace } from "../src/composables/useWorkspace.ts"
 
 const out = document.querySelector("#out")
@@ -186,6 +187,34 @@ check(
 check("浏览器里不画窗口三键（没有最小化 / 关闭）",
   document.querySelector('button[aria-label="关闭"]') === null &&
     document.querySelector('button[aria-label="最小化"]') === null)
+
+// ---------- 七、新版本提示 ----------
+
+const updateButton = () => [...document.querySelectorAll("button")].find((b) => b.textContent?.includes("新版本"))
+const redoButton = () => document.querySelector('button[aria-label="重做"]')
+
+// 没有更新时它不该占位：chrome 上常驻一颗「已是最新」的按钮是最没用的那类像素。
+check("没有检测到新版本时不长按钮", updateButton() === undefined, updateButton()?.textContent ?? "")
+
+// 网络是这块里唯一的外部输入，打桩的就它一处；版本号由 `__APP_VERSION__` 决定，
+// 所以这里塞一个远高过它的 tag —— 比的是真的那套比较逻辑。
+const realFetch = window.fetch
+window.fetch = async () =>
+  new Response(JSON.stringify({ tag_name: "v9.9.9", html_url: "https://github.com/Theworld7/WebNote/releases/tag/v9.9.9" }), { status: 200 })
+await useUpdateCheck().check()
+await nextTick()
+window.fetch = realFetch
+
+const update = updateButton()
+const redo = redoButton()
+check("检测到新版本后长出一颗「新版本」按钮", update !== undefined)
+check("它挂在撤销重做这一簇的右端（在重做右边，不是右端的文档信息区）",
+  update !== undefined && (box(update)?.left ?? NaN) > (box(redo)?.right ?? NaN) - EPS,
+  update === undefined ? "按钮缺失" : `按钮左缘 ${(box(update)?.left ?? NaN).toFixed(1)} vs 重做右缘 ${(box(redo)?.right ?? NaN).toFixed(1)}`)
+check("它与撤销重做同一行（垂直居中）",
+  update !== undefined && Math.abs((box(update)?.top ?? NaN) + (box(update)?.height ?? 0) / 2 - ((box(redo)?.top ?? NaN) + (box(redo)?.height ?? 0) / 2)) < EPS,
+  update === undefined ? "按钮缺失" : `按钮中线 ${((box(update)?.top ?? NaN) + (box(update)?.height ?? 0) / 2).toFixed(1)}`,
+)
 
 lines.push(`自检 ${passed}/${passed + failed}`)
 out.textContent = lines.join("\n")

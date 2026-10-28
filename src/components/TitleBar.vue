@@ -8,6 +8,7 @@ import { useTheme } from "@/composables/useTheme"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { isTauriRuntime } from "@/lib/fs"
 import EditorTabBar from "./EditorTabBar.vue"
+import NewVersionButton from "./NewVersionButton.vue"
 import PageStyleButton from "./PageStyleButton.vue"
 import SettingsPanel from "./SettingsPanel.vue"
 
@@ -215,6 +216,10 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
         </TooltipTrigger>
         <TooltipContent>重做 · Ctrl+Shift+Z</TooltipContent>
       </Tooltip>
+
+      <!-- 新版本提示跟在撤销重做这一簇的右端：它是「当前这个应用该换了」的提醒，
+           不是某篇文档的动作，所以不另起一簇、也不加分隔线 —— 品牌色已经把它区分开了。 -->
+      <NewVersionButton />
     </div>
 
     <!-- 动作区与右侧文档信息之间整段都可拖。`min-w-4` 是底线：窗口窄到极限时它仍然

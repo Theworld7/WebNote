@@ -5,6 +5,7 @@ import { provideWorkspace } from "@/composables/useWorkspace"
 import { provideTables } from "@/composables/useTables"
 import { provideSettings } from "@/composables/useSettings"
 import { provideTheme } from "@/composables/useTheme"
+import { useUpdateCheck } from "@/composables/useUpdateCheck"
 import { useResizableWidth } from "@/composables/useResizableWidth"
 import AppSidebar from "@/components/AppSidebar.vue"
 import CloseWindowDialog from "@/components/CloseWindowDialog.vue"
@@ -48,6 +49,12 @@ provideTheme(settings)
 attachCloseGuard(hasDirty)
 
 const { width: sidebarWidth, dragging, startDrag } = useResizableWidth()
+
+/**
+ * 新版本检测。挂在根组件而不是那颗按钮里：它是一次启动只发生一次的查网动作，
+ * 按钮只负责「有结果就画出来」。查不到就什么都不发生（见 `useUpdateCheck`）。
+ */
+const { check: checkUpdate } = useUpdateCheck()
 
 /**
  * 侧栏折叠，两个来源分开存：
@@ -125,6 +132,8 @@ onMounted(() => {
   syncAutoCollapse()
   // 工作区要在挂载后再进 —— 它要异步挑运行时驱动（Tauri / 浏览器），还可能去恢复上次的目录。
   void bootstrap()
+  // 不去 await：查网慢一点不该拖住首屏，按钮什么时候出来都行。
+  void checkUpdate()
 
   if (!isTauriRuntime()) return
   void (async () => {
