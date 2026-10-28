@@ -234,6 +234,42 @@ check(
 )
 check("折叠没有把子节点从树数据里删掉", folderNodeOf()?.children?.length === 1)
 
+// ---- 四、Markdown 浏览与转换 ----
+//
+// 树要认 `.md`；打开后走只读预览而不是块模型；转换落在原文件同目录，原文件保留。
+
+const markdown = createMemoryFs()
+markdown.seedFile("资料 / 说明.md", "# 说明\n\n正文 **粗体**")
+await workspace.attachForTest(markdown.fs, { kind: "path", path: "/stub" })
+await nextTick()
+
+const mdNode = workspace.tree.value
+  .find((n) => n.kind === "folder" && n.name === "资料")
+  ?.children?.find((n) => n.name === "说明.md")
+check("Markdown 文件被扫进树", mdNode?.kind === "markdown", JSON.stringify(workspace.tree.value))
+
+await workspace.openFile("资料 / 说明.md")
+await nextTick()
+check("打开 Markdown 后读到原文", workspace.activeMarkdown.value.includes("# 说明"), workspace.activeMarkdown.value)
+check("Markdown 标签走只读预览", workspace.isActiveMarkdown.value === true)
+check("Markdown 不进块模型", workspace.activeDocument.value.length === 0)
+check("Markdown 标签没有脏态", workspace.tabs.value[0]?.dirty === false)
+
+workspace.dismissError()
+const converted = await workspace.convertMarkdownToNote("资料 / 说明.md")
+check("转换成功", converted === true, workspace.fsError.value)
+check("产物落在原文件同目录", (await markdown.fs.exists(null, "资料 / 说明.html")) === true)
+check("转换后打开新笔记", workspace.activePath.value === "资料 / 说明.html", workspace.activePath.value)
+check("原 Markdown 留在盘上", (await markdown.fs.exists(null, "资料 / 说明.md")) === true)
+const convertedHtml = markdown.read("资料 / 说明.html") ?? ""
+check("产物是真笔记：标题块", convertedHtml.includes("<h1"), convertedHtml.slice(0, 160))
+check("产物不再是 Markdown 记号", !convertedHtml.includes("**"), convertedHtml.slice(0, 160))
+
+workspace.dismissError()
+const duplicate = await workspace.convertMarkdownToNote("资料 / 说明.md")
+check("同目录已有同名笔记时拒绝转换", duplicate === false)
+check("拒绝时说明是转换失败", workspace.fsError.value.includes("转换失败"), workspace.fsError.value)
+
 finished = true
 lines.push(`自检 ${passed}/${passed + failed}`)
 out.textContent = lines.join("\n")

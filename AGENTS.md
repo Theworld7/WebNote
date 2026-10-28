@@ -1,7 +1,8 @@
 # AGENTS.md
 
 玉简(代号 WebNote):本地优先的块式笔记编辑器。笔记 = 磁盘上的普通 `.html` 文件,就地读写,盘上 HTML
-即规范形态;数据表 `.tbl`(标准 JSON)是独立文档,可被任意多篇笔记同时引用。
+即规范形态;数据表 `.tbl`(标准 JSON)是独立文档,可被任意多篇笔记同时引用;Markdown(`.md` /
+`.markdown`)只读浏览,可转成同目录同名的 HTML 笔记。
 技术栈:Tauri 2 + Vue 3 + TypeScript(strict)+ Tailwind v4,包管理用 pnpm。
 
 ## 读代码前
@@ -50,7 +51,11 @@
 `components/HeadingNav.vue`)→ `heading-nav-check`(挂真实编辑器,走 CDP);
 动数据表 → `data-table-check`;动排版样式 → `typography-check`;动新建 / 移动 →
 `create-check` / `move-check`;动 Markdown 导入 / 导出(`lib/markdown/*`、`lib/fs/transfer.ts`)→
-`markdown-check`;动设置 → `settings-check`;动布局块 → `layout-check`;
+`markdown-check`;动 Markdown 浏览 / 转笔记(`lib/markdown/render.ts`、`components/MarkdownView.vue`、
+树上 `.md` 节点、`convertMarkdownToNote`)→ `markdown-check`(预览 HTML 与消毒)、
+`markdown-view-check`(挂真实编辑器，排版 / 消毒 / 转笔记)、
+`create-check`(扫描 / 打开 / 同目录转换)、`tree-integration-check`(整合视图保留 `.md`);
+动设置 → `settings-check`;动布局块 → `layout-check`;
 动代码块的编辑态 / 格式化 / 静态配色(`lib/monaco-code.ts`、`lib/source-format.ts`、
 `style.css` 里的 `--color-code-*`)→ `code-edit-check`(挂真实编辑器,走 CDP 驱动);
 动对比度 / 配色 token → `theme-check`、`code-edit-check` 的第十节;

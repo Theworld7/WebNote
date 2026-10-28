@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Markdown 预览与转换自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { height: 560px; display: flex; flex-direction: column; border: 1px solid #e5e5e5; }
+  pre { margin: 12px 0 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>Markdown 预览（排版 / 消毒 / 转笔记）自检</h1>
+<!-- 脚本里有顶层 await（要等真实读盘），--dump-dom 抓不到结果：
+     node design/cdp-dump.mjs http://localhost:1420/design/markdown-view-check.html -->
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import MarkdownView from "../src/components/MarkdownView.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { DOC_MEASURE_PX, HEADING_FONT_SIZES } from "../src/lib/typography.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function report(kind, detail) {
+  document.getElementById("out").textContent = [kind, "", detail, "", ...lines].join("\n")
+}
+window.addEventListener("unhandledrejection", (e) => report("REJECT", e.reason?.stack ?? String(e.reason)))
+window.addEventListener("error", (e) => report("ERROR", e.message))
+
+function step(name) {
+  document.getElementById("out").textContent = `running: ${name}`
+}
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+// 末端的闭合标签写成 `<\/script>`：内联脚本里出现字面的闭合 script 标签会把页面提前截断。
+const MARKDOWN = [
+  "# 说明",
+  "",
+  "正文 **粗体** 与 [外链](https://example.com)。",
+  "",
+  "- 第一项",
+  "- 第二项",
+  "",
+  "> 引用",
+  "",
+  "```js",
+  "const a = 1",
+  "```",
+  "",
+  '<img src="x" onerror="window.__xss = 1">',
+  '<script>window.__xss = 2<\/script>',
+].join("\n")
+
+step("opfs")
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("markdown-view-probe", { create: true })
+const file = await dir.getFileHandle("说明.md", { create: true })
+const writable = await file.createWritable()
+await writable.write(MARKDOWN)
+await writable.close()
+window.showDirectoryPicker = async () => dir
+
+step("mount")
+let workspace = null
+let settings = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    settings = provideSettings()
+    provideTheme(settings)
+    return () => h(MarkdownView)
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+
+step("bootstrap")
+await workspace.bootstrap()
+step("openRoot")
+await workspace.openRoot()
+await nextTick()
+
+const mdNode = (function find(nodes) {
+  for (const node of nodes) {
+    if (node.kind === "markdown") return node
+    const hit = node.children ? find(node.children) : null
+    if (hit !== null) return hit
+  }
+  return null
+})(workspace.tree.value)
+
+if (mdNode === null) {
+  report("ERROR", "OPFS 里没扫到预置的 .md")
+} else {
+  await workspace.openFile(mdNode.id)
+  for (let i = 0; i < 80 && workspace.activeMarkdown.value === ""; i += 1) await wait(50)
+  await nextTick()
+}
+
+const docRoot = () => document.querySelector("[data-markdown-doc]")
+const headings = () => document.querySelectorAll("[data-markdown-doc] h1")
+const xssImage = () => document.querySelector("[data-markdown-doc] img")
+
+check("打开的是 Markdown 标签", workspace.isActiveMarkdown.value === true)
+check("原文读进来了", workspace.activeMarkdown.value.includes("# 说明"), workspace.activeMarkdown.value)
+check("Markdown 不进块模型", workspace.activeDocument.value.length === 0)
+check("Markdown 标签没有脏态", workspace.tabs.value[0]?.dirty === false)
+
+step("render")
+check("渲染出预览容器", docRoot() !== null)
+check("标题渲染成 h1", headings().length === 1 && headings()[0].textContent === "说明", headings()[0]?.textContent ?? "")
+check("块打上了 data-block-type", docRoot()?.querySelector('h1[data-block-type="h1"]') !== null)
+check("段落也带块类型", docRoot()?.querySelector('p[data-block-type="text"]') !== null)
+check("列表保留原生 li", docRoot()?.querySelector("li") !== null)
+
+const styleEl = document.querySelector("style[data-markdown-style]")
+check("注入了 scoped 文档样式", styleEl !== null)
+const rootStyle = docRoot() === null ? null : getComputedStyle(docRoot())
+check("正文列吃到导出文档的版心", rootStyle?.maxWidth === `${DOC_MEASURE_PX}px`, rootStyle?.maxWidth ?? "")
+const h1Style = headings().length === 0 ? null : getComputedStyle(headings()[0])
+check("标题吃到导出文档的字号", h1Style?.fontSize === `${HEADING_FONT_SIZES[0]}px`, h1Style?.fontSize ?? "")
+
+step("sanitize")
+check("脚本元素没有进 DOM", docRoot()?.querySelector("script") === null)
+check("事件属性被摘掉", xssImage() !== null && !xssImage().hasAttribute("onerror"))
+check("消毒后的内容没有执行", window.__xss === undefined, String(window.__xss))
+
+step("convert")
+// `?preview` 只留预览不点转换：截图看排版时用，转换会把编辑区切到新笔记，预览就空了。
+const previewOnly = new URLSearchParams(location.search).has("preview")
+if (previewOnly) {
+  lines.push("SKIP 预览模式：不执行转换")
+} else {
+  const button = [...document.querySelectorAll("button")].find((el) => el.textContent?.includes("转为笔记"))
+  check("预览里有「转为笔记」入口", button !== undefined)
+  button?.click()
+  for (let i = 0; i < 80 && !workspace.activePath.value.endsWith(".html"); i += 1) await wait(50)
+
+  check("转换后打开的是新笔记", workspace.activePath.value === "说明.html", workspace.activePath.value)
+  const noteFile = await dir.getFileHandle("说明.html").catch(() => null)
+  check("笔记落在原文件同目录", noteFile !== null)
+  if (noteFile !== null) {
+    const noteText = await (await noteFile.getFile()).text()
+    check("产物是笔记形态的 HTML", noteText.includes("<h1"), noteText.slice(0, 160))
+    check("产物里没有 Markdown 记号", !noteText.includes("**"), noteText.slice(0, 160))
+  }
+  check("原 Markdown 还在盘上", (await dir.getFileHandle("说明.md").catch(() => null)) !== null)
+}
+
+document.getElementById("out").textContent = [`自检 ${passed}/${passed + failed} 通过`, "", ...lines].join("\n")
+</script>
+</body>
+</html>

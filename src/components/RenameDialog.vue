@@ -33,6 +33,7 @@ const placeholder = computed(() => {
   const kind = props.target?.kind
   if (kind === "folder") return "文件夹名"
   if (kind === "table") return "数据表名（不必写 .tbl）"
+  if (kind === "markdown") return "文件名（不必写 .md）"
   return "笔记名（不必写 .html）"
 })
 

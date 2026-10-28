@@ -491,8 +491,8 @@ export interface BlockTypeMeta {
 /**
  * 文件树的节点。
  *
- * 三种文件形态里两种是文件：`note` 与 `table`。分开而不是合成一个 `"file"`，因为
- * 消费方真的要区别对待 —— 双击打开的是两种不同的编辑器（见 ADR-0005）。
+ * 四种节点里三种是文件：`note` / `table` / `markdown`。分开而不是合成一个 `"file"`，因为
+ * 消费方真的要区别对待 —— 双击打开的是不同的查看 / 编辑界面（见 ADR-0005）。
  *
  * 它们**各自成行**，不合并：`客户.tbl` 与 `客户.html` 在盘上是两个东西，在树里也就是
  * 两行。合并成一个节点会让树不再是磁盘的投影，而那正是 ADR-0001 / ADR-0003 的前提。
@@ -500,7 +500,7 @@ export interface BlockTypeMeta {
 export interface FileNode {
   id: string
   name: string
-  kind: "folder" | "note" | "table"
+  kind: "folder" | "note" | "table" | "markdown"
   children?: FileNode[]
   /**
    * 整合数据表视图里挂在这篇笔记名下的引用数据表（展示层专用）。
@@ -550,7 +550,7 @@ export interface CreateTarget {
  */
 export interface TreeTarget {
   path: string
-  kind: "note" | "folder" | "table"
+  kind: "note" | "folder" | "table" | "markdown"
 }
 
 /**

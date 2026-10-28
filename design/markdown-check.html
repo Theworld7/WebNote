@@ -20,7 +20,7 @@
 import { createTextualBlock } from "../src/lib/blocks.ts"
 import { parseHtml } from "../src/lib/html/parse.ts"
 import { runsText } from "../src/lib/inline.ts"
-import { blocksToMarkdown, markdownToBlocks, markdownTitleOf } from "../src/lib/markdown/index.ts"
+import { blocksToMarkdown, markdownToBlocks, markdownTitleOf, markdownToHtml } from "../src/lib/markdown/index.ts"
 
 const lines = []
 let passed = 0
@@ -240,6 +240,41 @@ check("外部 Markdown：任务列表还原", externalBlocks[6]?.checked === tru
 
 check("文件名去掉 .md 就是标题", markdownTitleOf("我的笔记.MD") === "我的笔记", markdownTitleOf("我的笔记.MD"))
 check("空 Markdown 解析为空块列表", markdownToBlocks("").length === 0)
+
+// ---------- 六、Markdown → 预览 HTML ----------
+
+const preview = markdownToHtml([
+  "# 标题",
+  "",
+  "段落 **粗**",
+  "",
+  "- 一",
+  "- 二",
+  "",
+  "| 甲 | 乙 |",
+  "| --- | --- |",
+  "| 1 | 2 |",
+  "",
+  "> 引用",
+  "",
+  "```js",
+  "const a = 1",
+  "```",
+].join("\n"))
+check("预览：标题带块类型", preview.includes('<h1 data-block-type="h1">'), preview)
+check("预览：段落带块类型", preview.includes('<p data-block-type="text">'), preview)
+check("预览：列表保留原生标签", preview.includes("<li>") && preview.includes('<ul data-block-type="ul">'), preview)
+check("预览：代码块带块类型", preview.includes('<pre data-block-type="code">'), preview)
+check("预览：表格保留原生标签", preview.includes("<table>"), preview)
+
+const unsafe = markdownToHtml(
+  // 末尾那个闭合标签必须写成 `<\/script>`：内联脚本里出现字面的闭合 script 标签会把
+  // script 元素提前截断，后半段 JS 会被当成 HTML 塞进 body（顺带把那个 onerror 真跑起来）。
+  '<script>alert(1)<\/script><img src="x" onerror="alert(1)"><a href="javascript:alert(1)">坏</a>',
+)
+check("预览：脚本元素被摘掉", !unsafe.includes("<script"), unsafe)
+check("预览：事件属性被摘掉", !/onerror/i.test(unsafe), unsafe)
+check("预览：javascript: 地址被摘掉", !/javascript:/i.test(unsafe), unsafe)
 
 // ---------- 输出 ----------
 

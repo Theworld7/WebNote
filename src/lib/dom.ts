@@ -230,7 +230,7 @@ const TREE_KIND = dataAttr("treeKind")
 export const TREE_ATTR = {
   /** 树行（文件夹行与文件行都有），值是该节点的工作区路径。 */
   path: TREE_PATH,
-  /** 树行的种类：`folder` 或 `file`。落点判定据此区分。 */
+  /** 树行的种类，与 `FileNode.kind` 同值：`folder` / `note` / `table` / `markdown`。落点判定据此区分。 */
   kind: TREE_KIND,
 } as const
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import type { CreateTarget, FileNode } from "@/types/workspace"
+import type { CreateTarget, FileNode, TreeTarget } from "@/types/workspace"
 import { computed } from "vue"
-import { ChevronRightIcon, CopyIcon, DatabaseIcon, EllipsisIcon, FileDownIcon, FilePlusIcon, FileTextIcon, FileUpIcon, FolderIcon, FolderOpenIcon, FolderPlusIcon, GlobeIcon, PencilIcon, PlusIcon, TrashIcon } from "@lucide/vue"
+import { ChevronRightIcon, CopyIcon, DatabaseIcon, EllipsisIcon, FileCodeIcon, FileDownIcon, FilePlusIcon, FileTextIcon, FileUpIcon, FolderIcon, FolderOpenIcon, FolderPlusIcon, GlobeIcon, PencilIcon, PlusIcon, TrashIcon } from "@lucide/vue"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useToast } from "@/composables/useToast"
@@ -19,8 +19,8 @@ const emit = defineEmits<{
   /** 请求新建：`kind` 决定建笔记还是文件夹，父目录就是这个节点自己。 */
   create: [parentPath: string, kind: CreateTarget["kind"]]
   /** 请求重命名 / 删除这个节点自己。 */
-  rename: [path: string, kind: CreateTarget["kind"]]
-  remove: [path: string, kind: CreateTarget["kind"]]
+  rename: [path: string, kind: TreeTarget["kind"]]
+  remove: [path: string, kind: TreeTarget["kind"]]
 }>()
 
 const {
@@ -43,8 +43,10 @@ const { notify } = useToast()
 const fullPath = computed(() => props.node.id)
 
 const isFolder = computed(() => props.node.kind === "folder")
-/** 数据表节点。与 `isFolder` 一起构成三种形态 —— 它们不重叠。 */
+/** 数据表节点。与 `isFolder` 一起构成四种形态 —— 它们不重叠。 */
 const isTable = computed(() => props.node.kind === "table")
+/** Markdown 节点。只读预览，图标与笔记区分开，避免和 `.html` 混在一起。 */
+const isMarkdown = computed(() => props.node.kind === "markdown")
 /**
  * 整合视图开着（`refs` 有定义，哪怕是空数组）。判据只看字段定义与否：
  * 空数组表示「这篇没引用表」，后缀照样要隐，不能让它看起来像没开整合。
@@ -263,9 +265,13 @@ function startDrag(event: DragEvent) {
       @dragend="draggingPath = ''"
       @click="openFile(fullPath)"
     >
-      <!-- 数据表一个图标、笔记一个：树上两行同名文件时，这是唯一的区分线索。 -->
+      <!-- 数据表、Markdown 各一个图标：树上同名 / 相邻的几种文件靠它一眼分开。 -->
       <DatabaseIcon
         v-if="isTable"
+        :class="cn('size-3.5 shrink-0', isActive ? 'text-selection-foreground' : 'text-muted-foreground')"
+      />
+      <FileCodeIcon
+        v-else-if="isMarkdown"
         :class="cn('size-3.5 shrink-0', isActive ? 'text-selection-foreground' : 'text-muted-foreground')"
       />
       <FileTextIcon

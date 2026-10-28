@@ -121,6 +121,8 @@ await writeTable(workbench, "未引用.tbl")
 await writeNote(workbench, "笔记甲.html", BOOKMARK("数据 / 客户.tbl"))
 await writeNote(workbench, "笔记乙.html", BOOKMARK("数据 / 客户.tbl"))
 await writeNote(workbench, "孤儿笔记.html", PLAIN)
+// Markdown 也进树：它没有引用表可挂，整合视图里不该隐后缀、也不该有展开图标。
+await writeNote(workbench, "说明.md", "# 说明\n\n正文")
 
 // ---- 挂真实的侧栏 ----
 
@@ -166,6 +168,7 @@ check(
   JSON.stringify(rowNames()),
 )
 check("未开启：被引用表仍在原位置", rowOf("客户.tbl") !== undefined, JSON.stringify(rowNames()))
+check("未开启：Markdown 文件也进树", rowOf("说明.md") !== undefined, JSON.stringify(rowNames()))
 
 // ---- 开启整合视图 ----
 
@@ -201,6 +204,11 @@ check(
 check(
   "没引用的笔记不给展开图标",
   chevronOf(rowOf("孤儿笔记")) === null,
+  JSON.stringify(rowNames()),
+)
+check(
+  "整合后：Markdown 保留 .md 后缀，也没有引用展开图标",
+  rowOf("说明.md") !== undefined && chevronOf(rowOf("说明.md")) === null,
   JSON.stringify(rowNames()),
 )
 

@@ -355,6 +355,13 @@ A directory under the workspace. It is not a document and holds nothing itself �
 role is to be a segment of the Note paths beneath it. It can be created, but never opened.
 _Avoid_: Directory, group, category
 
+**Markdown file**:
+A workspace file whose name ends in `.md` or `.markdown`. It is browsed read-only in a Tab,
+never parsed into Blocks and never written back. Converting it creates a new Note beside it
+with the same stem — subject to the usual Name collision refusal — and leaves the source file
+untouched.
+_Avoid_: Note (when you mean the source file), preview document, import
+
 **Note path**:
 A Note's location under the workspace, written as folder names joined by `" / "` and ending
 in the file name. It is the identity of an open Tab, and a Folder's identity is the path
@@ -381,22 +388,23 @@ order, so the tree's sequence is always recomputed from names and a Move can nev
 _Avoid_: Drag-and-drop, reorder, relocate
 
 **Rename**:
-Changing a Note's, a Data table file's, or a Folder's name in place — the path changes, the
-parent does not. The new name passes the same checks a Create does (including the collision
-refusal), the disk is touched first, and every path-keyed state is rekeyed afterwards, so a
-failed Rename leaves the workspace exactly as it was.
+Changing a Note's, a Data table file's, a Markdown file's, or a Folder's name in place — the
+path changes, the parent does not. The new name passes the same checks a Create does
+(including the collision refusal), the disk is touched first, and every path-keyed state is
+rekeyed afterwards, so a failed Rename leaves the workspace exactly as it was.
 _Avoid_: Edit name, modify
 
 **Delete**:
-Removing a Note, a Data table file, or a Folder — with everything under it — from disk. It
-asks for an explicit confirmation and it refuses to run while an affected Data table still
-holds unsaved changes: a later save must never be able to write a deleted file back into
-existence.
+Removing a Note, a Data table file, a Markdown file, or a Folder — with everything under it
+— from disk. It asks for an explicit confirmation and it refuses to run while an affected
+Data table still holds unsaved changes: a later save must never be able to write a deleted
+file back into existence.
 _Avoid_: Remove (that is the adapter-level primitive), erase, destroy
 
 **Tab**:
-An open Note within the editing session. Tabs are few and each has a dirty flag; a note can
-be open or not, but a Note is never "half-open".
+An open document within the editing session — a Note, a Data table, or a Markdown file.
+Tabs are few; Notes and Data tables carry a dirty flag, a Markdown file never does. A
+document can be open or not, but is never "half-open".
 _Avoid_: Buffer, editor instance
 
 **Dirty**:

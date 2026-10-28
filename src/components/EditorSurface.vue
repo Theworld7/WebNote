@@ -5,8 +5,18 @@ import { useWorkspace } from "@/composables/useWorkspace"
 import BlockEditor from "./BlockEditor.vue"
 import DataTableEditor from "./DataTableEditor.vue"
 import EditorHome from "./EditorHome.vue"
+import MarkdownView from "./MarkdownView.vue"
 
-const { activeTab, activePath, isLoadingDocument, isActiveTable, fsError, dismissError, busyLabel } = useWorkspace()
+const {
+  activeTab,
+  activePath,
+  isLoadingDocument,
+  isActiveTable,
+  isActiveMarkdown,
+  fsError,
+  dismissError,
+  busyLabel,
+} = useWorkspace()
 
 /**
  * 只有真拿到正文才挂 BlockEditor。
@@ -69,6 +79,8 @@ const hasDocument = computed(() => activeTab.value !== null && !isLoadingDocumen
          不加 key 的话,两个数据表标签之间切换会复用实例,永远显示第一张激活的表。
          key 让每个路径一个实例:换表 = 重挂 = 重读。 -->
     <DataTableEditor v-else-if="isActiveTable" :key="activePath" />
+    <!-- Markdown 同理：每个路径一个实例，切文件时重挂并重新注入那份 scoped 样式。 -->
+    <MarkdownView v-else-if="isActiveMarkdown" :key="activePath" />
     <BlockEditor v-else />
   </div>
 </template>

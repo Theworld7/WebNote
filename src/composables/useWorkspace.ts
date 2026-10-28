@@ -1,5 +1,5 @@
 import type { InjectionKey, Ref } from "vue"
-import type { Block, BlockSettingsPatch, BlockType, ChatMessage, CloseStrategy, CreateTarget, FileNode, InlineRun, LayoutMode, OpenTab, PlaylistSource, TableAlign, TableCell } from "@/types/workspace"
+import type { Block, BlockSettingsPatch, BlockType, ChatMessage, CloseStrategy, CreateTarget, FileNode, InlineRun, LayoutMode, OpenTab, PlaylistSource, TableAlign, TableCell, TreeTarget } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref, watch } from "vue"
 import { CELL_EXCLUDED_TYPES, REFERENCE_INSERT_SPEC, cloneBlock, countChars, createBlock, createBlockId, isReferenceBlock, isTextualBlock, refPathsOf, retypeBlock } from "@/lib/blocks"
@@ -15,7 +15,7 @@ import { linkTargetOf } from "@/lib/link"
 import { blocksToMarkdown, markdownTitleOf, markdownToBlocks } from "@/lib/markdown"
 import { openExternalUrl } from "@/lib/open-external"
 import { createPlaylistPreset, createPlaylistSource } from "@/lib/playlist"
-import { NOTE_EXTENSION, TABLE_EXTENSION, checkName, defaultExpanded, fileStem, isNoteFile, isTableFile } from "@/lib/fs/policy"
+import { MARKDOWN_EXTENSION, NOTE_EXTENSION, TABLE_EXTENSION, checkName, defaultExpanded, fileStem, isMarkdownFile, isNoteFile, isTableFile } from "@/lib/fs/policy"
 import * as table from "@/lib/table"
 import { fileName, fromSegments, isUnder, joinPath, migratePath, titleOf, toSegments } from "@/lib/paths"
 
@@ -159,6 +159,13 @@ function createWorkspace() {
    * 生命周期与 `documents` 严格对齐：一起读、一起存、一起丢、一起改名。
    */
   const styles = ref<Record<string, string>>({})
+  /**
+   * 已读进来的 Markdown 原文，按路径各一份。
+   *
+   * 只读浏览，不参与「改动 → 脏标记 → 保存」那条流程 —— 它不是块模型，也不回写盘。
+   * 与 `documents` 分开存，打开标签时按文件类型分派到两种界面。
+   */
+  const markdowns = ref<Record<string, string>>({})
   /** 已经读过盘的路径。与 `documents` 分开，见文件头第 1 条。 */
   const loadedPaths = ref(new Set<string>())
   const loadingPaths = ref(new Set<string>())
@@ -305,6 +312,11 @@ function createWorkspace() {
           result.push({ ...node, children: next })
           continue
         }
+        // Markdown 没有引用表可挂，原样保留（整合视图不隐它的后缀）。
+        if (node.kind === "markdown") {
+          result.push(node)
+          continue
+        }
         const refs: FileNode[] = []
         for (const path of folding ? noteTableRefs.value[node.id] ?? [] : []) {
           const table = tables.get(path)
@@ -348,11 +360,19 @@ function createWorkspace() {
   /**
    * 当前标签是不是一个数据表。
    *
-   * 编辑器据此分派到两种界面之一 —— 笔记是块编辑器，数据表是表格编辑器。分开而不是
-   * 让一个组件内部判分支：两者的状态、保存语义、快捷键全都不同，糅在一起会立刻变成
-   * 一个到处是 `if` 的组件。
+   * 编辑器据此分派到三种界面之一 —— 笔记是块编辑器，数据表是表格编辑器，Markdown 是
+   * 只读预览。分开而不是让一个组件内部判分支：三者的状态、保存语义、快捷键全都不同，
+   * 糅在一起会立刻变成一个到处是 `if` 的组件。
    */
   const isActiveTable = computed(() => activePath.value !== "" && isTableFile(fileName(activePath.value)))
+
+  /** 当前标签是不是 Markdown 文件。只读预览，与笔记的块编辑器分开。 */
+  const isActiveMarkdown = computed(
+    () => activePath.value !== "" && isMarkdownFile(fileName(activePath.value)),
+  )
+
+  /** 当前 Markdown 的原文。没有打开 Markdown 时为空串。 */
+  const activeMarkdown = computed<string>(() => markdowns.value[activePath.value] ?? "")
 
   const charCount = computed(() => countChars(activeDocument.value))
 
@@ -406,6 +426,7 @@ function createWorkspace() {
     activePath.value = ""
     documents.value = {}
     styles.value = {}
+    markdowns.value = {}
     history.clear()
     loadedPaths.value = new Set()
     loadingPaths.value = new Set()
@@ -461,18 +482,28 @@ function createWorkspace() {
       refCache.clear()
       for (const tab of tabs.value) {
         if (tab.dirty || isTableFile(fileName(tab.path)) || !loadedPaths.value.has(tab.path)) continue
+        const markdown = isMarkdownFile(fileName(tab.path))
         if (tab.path === activePath.value) {
           try {
-            const note = parseNote(await driver.readNote(current, tab.path))
-            documents.value[tab.path] = note.blocks
-            styles.value[tab.path] = note.style
+            const text = await driver.readNote(current, tab.path)
+            if (markdown) {
+              markdowns.value[tab.path] = text
+            } else {
+              const note = parseNote(text)
+              documents.value[tab.path] = note.blocks
+              styles.value[tab.path] = note.style
+            }
           } catch (error) {
             fsError.value = `刷新「${fileName(tab.path)}」失败：${describeError(error)}`
           }
         } else {
           loadedPaths.value = withFlag(loadedPaths.value, tab.path, false)
-          delete documents.value[tab.path]
-          delete styles.value[tab.path]
+          if (markdown) {
+            delete markdowns.value[tab.path]
+          } else {
+            delete documents.value[tab.path]
+            delete styles.value[tab.path]
+          }
         }
       }
     } catch (error) {
@@ -506,6 +537,9 @@ function createWorkspace() {
    *
    * **数据表文件不走这里**：它不是块列表，解析成块没有意义。打开它由数据表编辑器
    * 自己读（`useTables.acquire`），工作区这边只负责把它记成一个已打开的标签。
+   *
+   * **Markdown 也不解析**：原文整段读进 `markdowns`，由预览界面渲染。它不回写盘，
+   * 与笔记的块模型没有交集。
    */
   async function loadDocument(path: string) {
     const driver = fs.value
@@ -520,6 +554,19 @@ function createWorkspace() {
     }
 
     loadingPaths.value = withFlag(loadingPaths.value, path, true)
+    if (isMarkdownFile(fileName(path))) {
+      try {
+        markdowns.value[path] = await driver.readNote(current, path)
+      } catch (error) {
+        markdowns.value[path] = ""
+        fsError.value = `打开「${fileName(path)}」失败：${describeError(error)}`
+      } finally {
+        loadedPaths.value = withFlag(loadedPaths.value, path, true)
+        loadingPaths.value = withFlag(loadingPaths.value, path, false)
+      }
+      return
+    }
+
     try {
       const note = parseNote(await driver.readNote(current, path))
       // 重新读盘 = 语境重开，旧历史对新内容是错位的，必须一并作废；基线随即定格 ——
@@ -1003,6 +1050,47 @@ function createWorkspace() {
     return createInto(parentPath, markdownTitleOf(picked.name), "note", blocks)
   }
 
+  /**
+   * 把浏览中的 Markdown 转成**同目录同名**的 HTML 笔记。
+   *
+   * 重名先按新建的拒绝口径（ADR-0002）查一次，让错误提示说「转换失败」而不是
+   * 「新建失败」—— 用户刚点的动作是转换，措辞得对得上。转换后原 `.md` 原样留在盘上。
+   */
+  async function convertMarkdownToNote(path: string): Promise<boolean> {
+    const driver = fs.value
+    const current = root.value
+    if (driver === null || current === null) return false
+
+    let source = markdowns.value[path]
+    if (source === undefined) {
+      try {
+        source = await driver.readNote(current, path)
+      } catch (error) {
+        fsError.value = `转换「${fileName(path)}」失败：${describeError(error)}`
+        return false
+      }
+    }
+
+    let blocks: Block[]
+    try {
+      const parsed = markdownToBlocks(source)
+      blocks = parsed.length === 0 ? [createBlock("text")] : parsed
+    } catch (error) {
+      fsError.value = `转换「${fileName(path)}」失败：${describeError(error)}`
+      return false
+    }
+
+    const parentPath = parentOfPath(path)
+    const name = markdownTitleOf(fileName(path))
+    const targetPath = joinPath(parentPath, `${name}${NOTE_EXTENSION}`)
+    if (await driver.exists(current, targetPath)) {
+      fsError.value = `转换失败：同目录下已存在「${fileName(targetPath)}」`
+      return false
+    }
+
+    return createInto(parentPath, name, "note", blocks)
+  }
+
   // ---- 移动（见 ADR-0003）----
 
 /** 取一个路径的父目录。根层节点返回空串。 */
@@ -1033,6 +1121,9 @@ function createWorkspace() {
     )
     styles.value = Object.fromEntries(
       Object.entries(styles.value).map(([path, css]) => [migratePath(path, from, to), css]),
+    )
+    markdowns.value = Object.fromEntries(
+      Object.entries(markdowns.value).map(([path, text]) => [migratePath(path, from, to), text]),
     )
   }
 
@@ -1079,7 +1170,7 @@ function createWorkspace() {
     if (destFolder !== "") expandedIds.value = withFlag(expandedIds.value, destFolder, true)
 
     /**
-     * 键迁移。五个以路径为键的状态必须一起换，否则会留下指向旧路径的悬空项：
+     * 键迁移。六个以路径为键的状态必须一起换，否则会留下指向旧路径的悬空项：
      * 标签还开着但文档取不到、已加载集判定「没读过」而重读、激活项指向不存在的标签。
      */
     migrateKeys(from, to)
@@ -1113,7 +1204,7 @@ function createWorkspace() {
    *
    * 名字没变视为成功 —— 对话框正常关闭，不动盘也不刷树。
    */
-  async function renameFile(path: string, name: string, kind: CreateTarget["kind"]): Promise<boolean> {
+  async function renameFile(path: string, name: string, kind: TreeTarget["kind"]): Promise<boolean> {
     const driver = fs.value
     const current = root.value
     if (driver === null || current === null) return false
@@ -1126,8 +1217,8 @@ function createWorkspace() {
 
     // 后缀补全与 `createInto` 同一条规则：文件夹名原样用，文件没写后缀补上。
     const isFolder = kind === "folder"
-    const extension = kind === "table" ? TABLE_EXTENSION : NOTE_EXTENSION
-    const hasKnownExtension = isNoteFile(name) || isTableFile(name)
+    const extension = kind === "table" ? TABLE_EXTENSION : kind === "markdown" ? MARKDOWN_EXTENSION : NOTE_EXTENSION
+    const hasKnownExtension = isNoteFile(name) || isTableFile(name) || isMarkdownFile(name)
     const finalName = isFolder || hasKnownExtension ? name : `${name}${extension}`
     const to = joinPath(parentOfPath(path), finalName)
     if (to === path) return true
@@ -1199,6 +1290,9 @@ function createWorkspace() {
     }
     for (const key of Object.keys(styles.value)) {
       if (isUnder(key, path)) delete styles.value[key]
+    }
+    for (const key of Object.keys(markdowns.value)) {
+      if (isUnder(key, path)) delete markdowns.value[key]
     }
     loadedPaths.value = new Set([...loadedPaths.value].filter((key) => !isUnder(key, path)))
     loadingPaths.value = new Set([...loadingPaths.value].filter((key) => !isUnder(key, path)))
@@ -2072,6 +2166,8 @@ function createWorkspace() {
     activeDocument,
     activeStyle,
     isActiveTable,
+    isActiveMarkdown,
+    activeMarkdown,
     charCount,
     isDirty,
     hasDirty,
@@ -2125,6 +2221,7 @@ function createWorkspace() {
     createTableIn,
     exportMarkdown,
     importMarkdownInto,
+    convertMarkdownToNote,
     moveFileTo,
     renameFile,
     deleteFile,

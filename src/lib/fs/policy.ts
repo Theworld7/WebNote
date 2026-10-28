@@ -22,6 +22,12 @@ const NOTE_EXTENSIONS = [".html", ".htm"]
  */
 const TABLE_EXTENSIONS = [".tbl"]
 
+/**
+ * 认作 Markdown 的后缀。只读浏览用的普通文本文件，与笔记同列在树里。
+ * 后缀集合仍只此一份：扫描过滤、改名补后缀、名字主干都读它。
+ */
+const MARKDOWN_EXTENSIONS = [".md", ".markdown"]
+
 /** 明确不进的目录。点开头的（`.git`、`.obsidian` 之类）由 `isBrowsableDir` 一并挡掉。 */
 const SKIP_DIRS = new Set(["node_modules"])
 
@@ -45,11 +51,25 @@ export function isTableFile(name: string): boolean {
   return TABLE_EXTENSIONS.some((extension) => lower.endsWith(extension))
 }
 
+/** 是否是 Markdown 文件。判定与 `isNoteFile` 同一口径：只看名字、大小写不敏感。 */
+export function isMarkdownFile(name: string): boolean {
+  const lower = name.toLowerCase()
+  return MARKDOWN_EXTENSIONS.some((extension) => lower.endsWith(extension))
+}
+
+/** 扫描时放行的文件：笔记、数据表、Markdown，其余一律不进树。 */
+export function isBrowsableFile(name: string): boolean {
+  return isNoteFile(name) || isTableFile(name) || isMarkdownFile(name)
+}
+
 /** 新建笔记时补上的后缀。用户输的名字里已经带后缀就不再补。 */
 export const NOTE_EXTENSION = ".html"
 
 /** 新建数据表时补上的后缀。 */
 export const TABLE_EXTENSION = ".tbl"
+
+/** 改名 Markdown 文件时补上的后缀。 */
+export const MARKDOWN_EXTENSION = ".md"
 
 /**
  * 名字主干：去掉已知后缀。`客户.tbl` → `客户`。
@@ -60,7 +80,7 @@ export const TABLE_EXTENSION = ".tbl"
  */
 export function fileStem(name: string): string {
   const lower = name.toLowerCase()
-  for (const extension of [...NOTE_EXTENSIONS, ...TABLE_EXTENSIONS]) {
+  for (const extension of [...NOTE_EXTENSIONS, ...TABLE_EXTENSIONS, ...MARKDOWN_EXTENSIONS]) {
     if (lower.endsWith(extension)) return name.slice(0, name.length - extension.length)
   }
   return name
@@ -106,7 +126,7 @@ export function isBrowsableDir(name: string): boolean {
 /**
  * 文件夹在前、同级按拼音。返回入参数组本身，调用方即可 `return sortNodes(list)`。
  *
- * 分组只看「是不是文件夹」—— `note` 与 `table` 都在文件这一组里一起按名字排，
+ * 分组只看「是不是文件夹」—— `note` / `table` / `markdown` 都在文件这一组里一起按名字排，
  * 因为把它们分成两组会让 `客户.tbl` 与 `客户.html` 被拆到两处，而它们是同一个名字。
  */
 export function sortNodes(nodes: FileNode[]): FileNode[] {
@@ -128,7 +148,8 @@ export function folderNode(parentPath: string, name: string, children: FileNode[
 }
 
 export function fileNode(parentPath: string, name: string): FileNode {
-  return { id: joinPath(parentPath, name), name, kind: isTableFile(name) ? "table" : "note" }
+  const kind = isTableFile(name) ? "table" : isMarkdownFile(name) ? "markdown" : "note"
+  return { id: joinPath(parentPath, name), name, kind }
 }
 
 /**

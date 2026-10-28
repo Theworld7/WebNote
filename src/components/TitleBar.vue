@@ -44,8 +44,14 @@ const themeActionLabel = computed(() => (theme.value === "dark" ? "切换到浅�
  * 而 HIG 的 macOS 条款明确反对把「控制与关键信息」放窗口底部：用户常把窗口移到底部，
  * 底边会被屏幕边缘裁掉。搬上来之后底部那一条整体撤掉，字数不再需要单独一条 32px。
  */
-const { tabs, activeTab, charCount, undo, redo, canUndo, canRedo } = useWorkspace()
+const { tabs, activeTab, charCount, isActiveMarkdown, undo, redo, canUndo, canRedo } = useWorkspace()
 const hasDocument = computed(() => activeTab.value !== null)
+
+/**
+ * 字数与页面样式只对「可编辑的笔记」有意义。Markdown 是只读预览：块数为零会显示
+ * 「0 字」，页面样式也没有落点 —— 两处都别露出来，免得看起来像坏了。
+ */
+const hasNoteDocument = computed(() => hasDocument.value && !isActiveMarkdown.value)
 
 /** 设置抽屉的开合。它是 chrome 上的一个动作，不是工作区状态。 */
 const settingsOpen = ref(false)
@@ -227,14 +233,14 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
       <!-- 字数每敲一字都变：定宽 + 等宽数字，变化只发生在自己这一格里，
            不会推着右边的页面样式按钮和窗口按钮来回动。 -->
       <span
-        v-if="hasDocument"
+        v-if="hasNoteDocument"
         class="w-[52px] flex-none text-right text-[11px] tabular-nums text-muted-foreground max-[820px]:hidden"
       >
         {{ charCount }} 字
       </span>
 
       <!-- 页面样式入口住在 chrome 右端，抽屉本身仍挂编辑区（见 PageStyleButton）。 -->
-      <PageStyleButton v-if="hasDocument" />
+      <PageStyleButton v-if="hasNoteDocument" />
     </div>
 
     <div v-if="inTauri" class="-mr-3 flex h-full flex-none items-center">

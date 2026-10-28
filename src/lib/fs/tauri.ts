@@ -11,8 +11,7 @@ import {
   fileNode,
   folderNode,
   isBrowsableDir,
-  isNoteFile,
-  isTableFile,
+  isBrowsableFile,
   sortNodes,
 } from "./policy"
 
@@ -93,7 +92,7 @@ async function walk(dir: string, parentPath: string, depth: number): Promise<Fil
       nodes.push(folderNode(parentPath, entry.name, await walk(joinNative(dir, entry.name), childPath, depth + 1)))
       continue
     }
-    if (entry.isFile && (isNoteFile(entry.name) || isTableFile(entry.name))) {
+    if (entry.isFile && isBrowsableFile(entry.name)) {
       nodes.push(fileNode(parentPath, entry.name))
     }
   }
@@ -145,7 +144,7 @@ export function createTauriFs(): WorkspaceFs {
           nodes.push(folderNode(path, entry.name, []))
           continue
         }
-        if (entry.isFile && (isNoteFile(entry.name) || isTableFile(entry.name))) nodes.push(fileNode(path, entry.name))
+        if (entry.isFile && isBrowsableFile(entry.name)) nodes.push(fileNode(path, entry.name))
       }
       return sortNodes(nodes)
     },
