@@ -22,6 +22,9 @@ import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
 import NewVersionButton from "../src/components/NewVersionButton.vue"
 import { useUpdateCheck } from "../src/composables/useUpdateCheck.ts"
 import { isNewer, parseLatestRelease, parseManifestVersion, parseVersion } from "../src/lib/update.ts"
+// 版本号直接读 package.json，而不是在这里抄一份：发版要改的四处里已经有它，
+// 再抄一次就多一个会忘记同步的地方。
+import pkg from "../package.json"
 
 const out = document.querySelector("#out")
 const lines = []
@@ -54,7 +57,7 @@ check("次版本号进位按数字比，不按字符串比", isNewer("0.10.0", "
 check("主版本号压过后面所有位", isNewer("1.0.0", "0.99.99"))
 check("一边带 v 也照样能比", isNewer("v0.8.3", "0.8.2"))
 check("读不懂的一边直接判「没有更新」", isNewer("latest", "0.8.2") === false)
-check("当前版本就是 package.json 的那个（注入生效）", __APP_VERSION__ === "0.8.2", __APP_VERSION__)
+check("注入的版本号就是 package.json 里的那个", __APP_VERSION__ === pkg.version, `${__APP_VERSION__} vs ${pkg.version}`)
 
 // ---------- 三、GitHub 的响应 ----------
 
