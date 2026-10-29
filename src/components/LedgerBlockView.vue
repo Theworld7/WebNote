@@ -118,10 +118,9 @@ const listedRows = computed(() => {
  *
  * **编辑期间冻结排序**：按日期倒序记一笔时，新行(日期还空)先落在末尾;用户刚输完
  * 日期一失焦,行就按日期飞到中间,而金额还没填 —— 眼前那行凭空换位,下一格落空。
- * 冻结到这次编辑结束(焦点离开表格 / 回车走到表尾)再重排,那时数据已填完,跳过去
- * 正好是它该在的位置。
- *
- * 冻结期间新落进表里的行(草稿行归位)不在快照里,按行序补在末尾,不会消失。
+ * 冻结到这次编辑结束(焦点离开这一行 / 回车走到最后一个格)再重排,那时数据已填完,
+ * 跳过去正好是它该在的位置。松手时快照一起作废(`releaseDraft`),所以冻结期间不会有
+ * 行落进表里;下面「补在末尾」那一支是防御,不是常态。
  */
 const displayRows = computed(() => {
   const sorted = listedRows.value
@@ -151,7 +150,8 @@ const listedSections = computed(() => {
       return { key: section.key, title: section.title, rows, totals: sumRows(rows, incomeColumn.value, expenseColumn.value) }
     }
     const sections = frozen.map(rebuild)
-    // 冻结期间新落进表里的行(草稿行归位):别让数据因为结构化快照而消失。
+    // 防御:快照之外的行(松手会连快照一起作废,所以理论上不会有)别让数据因为这个
+    // 结构化快照而消失。
     const known = new Set(frozen.flatMap((section) => section.rowIds))
     const extra = displayRows.value.filter((row) => !known.has(row.id))
     if (extra.length > 0) {
@@ -265,7 +265,15 @@ function commitOnEnter(row: DataRow, column: DataColumn, event: Event): void {
     // 草稿行是**横着**填的:一条记录从左往右走完,走到最后一个输入格就收工(退出编辑态,
     // 草稿行随之归位)。纵向跳格留给已经记过的账 —— 那儿「下一行同列」才是在录一列。
     const next = nextInputColumn(column)
-    editing.value = next === null ? "" : cellKey(row, next)
+    if (next !== null) {
+      editing.value = cellKey(row, next)
+      return
+    }
+    // 收工。松手放在退出编辑态之前:此刻焦点还在这一格里,靠焦点判「有没有离开这一行」
+    // 会判成没离开(输入框是拆掉之后才失焦的),而拆输入框那一瞬间的 focusout 落在渲染
+    // 过程中 —— 在那里改状态就会再触发一次渲染。
+    editing.value = ""
+    releaseDraft()
     return
   }
   const index = displayRows.value.findIndex((item) => item.id === row.id)
@@ -288,10 +296,27 @@ function nextInputColumn(column: DataColumn): DataColumn | null {
 
 const flashRow = ref("")
 let flashTimer: number | undefined
+/** `focusout` 那条路的定时器 —— 等渲染与焦点转移落定再判「走没走」。 */
+let draftFocusTimer: number | undefined
 /** 最后一次编辑的是哪一行 —— 退出编辑时拿它看有没有挪位置。 */
 let lastRowId = ""
 
+/** 焦点是否还落在某一行里(行在 DOM 上的身份是 `data-row-id`)。 */
+function focusInRow(rowId: string): boolean {
+  const active = document.activeElement
+  if (!(active instanceof Element)) return false
+  return active.closest("[data-row-id]")?.getAttribute("data-row-id") === rowId
+}
+
 watch(editing, (key) => {
+  const cellRowId = key === "" ? "" : key.slice(0, key.indexOf(":"))
+
+  // 开始编辑**别的行** = 草稿行这一笔记完了:松开它,按排序归位。
+  //
+  // 这一句必须赶在渲染前(watch 的 pre 冲刷)说出口 —— 等焦点真的挪过去才松,草稿行
+  // 会在渲染途中换位,顺带把刚聚焦的那个输入框一起抖掉。
+  if (draftRowId.value !== "" && cellRowId !== "" && cellRowId !== draftRowId.value) releaseDraft()
+
   if (key !== "") {
     if (frozenOrder.value === null) {
       // 先拍分节(此刻还没冻结,拿到的是实时结果),再钉行序。草稿行不在快照里 ——
@@ -303,16 +328,19 @@ watch(editing, (key) => {
       }))
       frozenOrder.value = listedRows.value.map((row) => row.id)
     }
-    lastRowId = key.slice(0, key.indexOf(":"))
-    // 焦点落到别的行上 = 这一笔记完了:草稿行松开,按排序归位。
-    if (draftRowId.value !== "" && lastRowId !== draftRowId.value) releaseDraft()
+    lastRowId = cellRowId
     return
   }
+
+  // 退出编辑态。焦点**还在草稿行里**就不算离开这一行 —— 同一行的选择格 / 勾选格没有
+  // 输入态,Tab 进去会让 `editing` 变空,可人还在填这一条;这时松手,行会在他手底下
+  // 按排序飞走,连焦点一起丢(自检里 Tab 进选择格就是这么露出来的)。
+  if (draftRowId.value !== "" && !focusInRow(draftRowId.value)) releaseDraft()
+
   const id = lastRowId
   const before = displayRows.value.findIndex((row) => row.id === id)
   frozenOrder.value = null
   frozenSections.value = null
-  if (draftRowId.value !== "") releaseDraft()
   const after = displayRows.value.findIndex((row) => row.id === id)
   if (id !== "" && before !== -1 && after !== -1 && before !== after) flash(id)
 })
@@ -321,10 +349,17 @@ watch(editing, (key) => {
  * 松开草稿行:一格都没填就把它删掉(误点一次「记一笔」不该在账里留一条空记录),
  * 填过的按排序归位并闪一下底纹 —— 它从顶端跳到日期该在的位置,不提示就等于
  * 「我刚填的行不见了」。
+ *
+ * **松手必须连冻结快照一起作废**:快照是草稿行还钉在顶端时拍的,里面没有这一行。
+ * 不解除的话,归位后的行会被当成「快照之外的行」塞进表尾那个临时节里 —— 眼前就是
+ * 一条凭空多出来的末行,要等整个编辑结束才挪回它该在的位置。作废之后,如果紧跟着
+ * 又进了别的格,`editing` 那个 watch 会按新状态重新拍照(见上面那一支)。
  */
 function releaseDraft(): void {
   const row = draftRow.value
   draftRowId.value = ""
+  frozenOrder.value = null
+  frozenSections.value = null
   if (row === null) return
   if (isBlankRow(row)) {
     void change((current) => dt.removeRow(current, row.id))
@@ -339,6 +374,32 @@ function isBlankRow(row: DataRow): boolean {
     const value = dt.cellValue(row, column)
     return value === null || value === "" || value === false
   })
+}
+
+/**
+ * 焦点离开草稿行 —— `editing` 那一层管不到的时候补位。
+ *
+ * 选择格 / 勾选格没有输入态:Tab 进去时 `editing` 早就空了,人却还在这一行里填。等他
+ * 从这些格子直接走掉(点正文 / Tab 到表外),`editing` 不会再有第二次变化,于是只能由
+ * `focusout` 说这一句「走了」。
+ *
+ * 判据不用 `relatedTarget`,而是**等这一轮落定再看焦点在哪**:回车跳到同一行的下一格时,
+ * 旧输入框被拆掉也会补一个 `relatedTarget` 为空的 focusout(而且那一刻它还在文档里,
+ * `isConnected` 也骗人),按事件判会把「换格」当成「走人」。焦点到底挪没挪走,等渲染与
+ * 焦点转移都完事之后才有定论。
+ */
+function onRowFocusOut(row: DataRow, event: FocusEvent): void {
+  if (row.id !== draftRowId.value) return
+  // 同一行内部挪焦点:直接跳过,连定时器都不用挂。
+  const next = event.relatedTarget
+  if (next instanceof Node && event.currentTarget instanceof Node && event.currentTarget.contains(next)) return
+  const id = row.id
+  window.clearTimeout(draftFocusTimer)
+  draftFocusTimer = window.setTimeout(() => {
+    if (draftRowId.value !== id) return
+    if (focusInRow(id)) return
+    releaseDraft()
+  }, 0)
 }
 
 /**
@@ -401,6 +462,7 @@ function pickOption(row: DataRow, column: DataColumn, value: string): void {
 
 onBeforeUnmount(() => {
   window.clearTimeout(flashTimer)
+  window.clearTimeout(draftFocusTimer)
 })
 
 /**
@@ -410,6 +472,9 @@ onBeforeUnmount(() => {
  * 会让新的一笔变成「第一笔」,整列余额都算错。顶端只是**展示**上的落点(见 `draftRowId`)。
  */
 async function addEntry(): Promise<void> {
+  // 草稿行同时只能有一条。再点一次「记一笔」时前一条得先松手(空的自删,填了的归位),
+  // 否则老的那条会留在表里当一条没人认领的空记录 —— 它的 `draftRowId` 已经被这一句覆盖。
+  if (draftRowId.value !== "") releaseDraft()
   await change((current) => dt.addRow(current))
   const added = rows.value[rows.value.length - 1]
   if (added === undefined) return
@@ -427,10 +492,19 @@ async function addEntry(): Promise<void> {
   editing.value = cellKey(added, first)
 }
 
-/** 删一行。正在编辑这一行时先把编辑态收掉,免得输入框跟着一个已消失的行。 */
+/**
+ * 删一行。正在编辑这一行时先把编辑态收掉,免得输入框跟着一个已消失的行。
+ *
+ * 删掉的正好是草稿行时,冻结快照也得一起作废(`releaseDraft` 里那一条是同一个理由):
+ * 快照是它还钉在顶端时拍的,不解除的话表就僵在这次拍照的顺序上,后面改别的行也不再归位。
+ */
 function removeEntry(row: DataRow): void {
   if (editing.value.startsWith(row.id + ":")) editing.value = ""
-  if (draftRowId.value === row.id) draftRowId.value = ""
+  if (draftRowId.value === row.id) {
+    draftRowId.value = ""
+    frozenOrder.value = null
+    frozenSections.value = null
+  }
   void change((current) => dt.removeRow(current, row.id))
 }
 
@@ -636,6 +710,7 @@ function openTable() {
               :data-row-id="row.id"
               class="group/lrow border-b border-line transition-colors last:border-b-0"
               :class="flashRow === row.id && 'bg-tint'"
+              @focusout="onRowFocusOut(row, $event)"
             >
               <!-- 行号 / 删除同占一格(与数据表编辑页同一手法):悬停换成 ✕,列宽不变、行不跳。 -->
               <th class="relative w-7 px-2 py-1 text-right align-top font-mono text-[11px] font-normal text-muted-foreground/60">

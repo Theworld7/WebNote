@@ -155,6 +155,12 @@ function cellInput(row, index) {
 }
 function rowNumber(row) { return (row?.querySelector("th")?.textContent ?? "").trim() }
 function focusIs(row, index) { return cellInput(row, index) !== null && document.activeElement === cellInput(row, index) }
+function cellButton(row, index) {
+  const button = cells(row)[index]?.querySelector("button")
+  return button instanceof HTMLButtonElement ? button : null
+}
+/** 模拟鼠标点一格（点进去即编辑态；`mousedown.prevent` 不给按钮焦点，所以只点 click）。 */
+function clickCell(row, index) { cellButton(row, index)?.click() }
 function addButton() {
   const root = ledgerRoot()
   if (root === null) return null
@@ -260,8 +266,105 @@ check("新增行的列键齐全（每列都有键）",
 check("盘上没有全空的行", saved.rows.every((row) => Object.values(row.values).some((value) => value !== null && value !== false)),
   JSON.stringify(saved.rows.map((row) => row.values)))
 
+// ---- 从草稿行直接走掉：Tab 进选择格不算走，跳去改旧账才算 ----
+step("leave")
+const beforeLeave = tableRows().length
+addButton()?.click()
+await settle()
+check("再记一笔仍在顶端插一条", tableRows().length === beforeLeave + 1, `实际 ${tableRows().length}`)
+
+// 日期填一个**比旧账更晚**的：按日期倒序它该落在第一位。不管排序的话它只会被追加到表尾
+// —— 这正是「松开草稿行却还冻着快照」时看得见的症状，位置一错就露馅。
+const leaveDate = cellInput(tableRows()[0], 0)
+type(leaveDate, "2026-11-01")
+await enter(leaveDate)
+type(cellInput(tableRows()[0], 1), "王二")
+// Tab 进同一行的选择格：选择格没有输入态，`editing` 当场变空。
+cellButton(tableRows()[0], 2)?.focus()
+await settle()
+const rows7 = tableRows()
+check("Tab 进同一行的选择格，草稿行仍钉在顶端（人还在填这一条）",
+  cellText(rows7[0], 1) === "王二" && rowNumber(rows7[0]) === "",
+  `${cellText(rows7[0], 1)} / 行号「${rowNumber(rows7[0])}」`)
+check("Tab 进选择格不丢焦点", document.activeElement === cellButton(rows7[0], 2),
+  String(document.activeElement?.tagName))
+
+// 焦点还在这一行里，人已经去点旧账的日期格 —— 这一笔算记完，新行必须立刻按排序归位。
+clickCell(rows7.find((row) => cellText(row, 1) === "赵赫"), 0)
+await settle()
+const rows8 = tableRows()
+check("跳去改旧账，新行立刻按排序归位（不是追加在表尾）",
+  cellText(rows8[0], 0) === "2026-11-01" && cellText(rows8[1], 1) === "赵赫",
+  rows8.map((row) => cellText(row, 0)).join(","))
+check("归位后行号重排，被点的旧账格进入编辑态并拿到焦点",
+  rowNumber(rows8[1]) === "2" && focusIs(rows8[1], 0),
+  `行号 ${rowNumber(rows8[1])} / 焦点 ${document.activeElement?.tagName ?? "无"}`)
+check("没有多出一条临时行", rows8.length === beforeLeave + 1, `实际 ${rows8.length}`)
+
+// 空行直接跳走：不留空记录。
+addButton()?.click()
+await settle()
+clickCell(tableRows().find((row) => cellText(row, 1) === "赵赫"), 0)
+await settle()
+const rows9 = tableRows()
+check("一格没填就跳去改旧账，空行被删掉", rows9.length === beforeLeave + 1, `实际 ${rows9.length}`)
+check("删掉空行后顺序没变", cellText(rows9[0], 0) === "2026-11-01" && cellText(rows9[1], 1) === "赵赫",
+  rows9.map((row) => cellText(row, 0)).join(","))
+
+// 焦点从选择格直接走掉：`editing` 早已是空，只能由 focusout 说「走了」。
+addButton()?.click()
+await settle()
+const lastDate = cellInput(tableRows()[0], 0)
+type(lastDate, "2026-07-01")
+await enter(lastDate)
+cellButton(tableRows()[0], 2)?.focus()
+await settle()
+check("焦点停在该行的选择格时，草稿行还在顶端", rowNumber(tableRows()[0]) === "", rowNumber(tableRows()[0]))
+if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+await settle()
+const rows10 = tableRows()
+check("焦点从选择格走掉后草稿行才归位（2026-07-01 落到末位）",
+  cellText(rows10[rows10.length - 1], 0) === "2026-07-01", rows10.map((row) => cellText(row, 0)).join(","))
+
+// 草稿行同时只能有一条：第二下「记一笔」必须先把前一条空草稿收掉。
+// 不收的话它留在数据里，成了一条没人认领的空记录（`draftRowId` 已被新的一条覆盖）。
+step("add-twice")
+const rowsBeforeTwice = tableRows().length
+addButton()?.click()
+await settle()
+addButton()?.click()
+await settle()
+const rowsTwice = tableRows()
+check("连点两次「记一笔」只多出一条", rowsTwice.length === rowsBeforeTwice + 1,
+  `实际 ${rowsTwice.length}（期望 ${rowsBeforeTwice + 1}）`)
+check("第二条仍在顶端且没有行号", rowNumber(rowsTwice[0]) === "", `「${rowNumber(rowsTwice[0])}」`)
+
+// ✕ 删掉草稿行：冻结快照要跟着作废，否则表就僵在删它那一刻的顺序上。
+step("delete-draft")
+const rowsBeforeDelete = tableRows().length
+const draftDelete = tableRows()[0].querySelector('[aria-label="删除本行"]')
+draftDelete?.click()
+await settle()
+check("✕ 删掉草稿行后不多不少", tableRows().length === rowsBeforeDelete - 1,
+  `实际 ${tableRows().length}（期望 ${rowsBeforeDelete - 1}）`)
+check("删掉草稿行后行号从 1 连续排", tableRows().map(rowNumber).join(",") === tableRows().map((_, i) => String(i + 1)).join(","),
+  tableRows().map(rowNumber).join(","))
+
+// 改一行旧账的日期，它该立刻按新日期归位 —— 这一步能验出快照到底解没解。
+const lastRow = tableRows()[tableRows().length - 1]
+clickCell(lastRow, 0)
+await settle()
+const retarget = tableRows()[tableRows().length - 1]
+const retargetDate = cellInput(retarget, 0)
+check("删掉草稿行后旧账仍能进编辑态", retargetDate !== null, "没有输入框")
+if (retargetDate !== null) {
+  type(retargetDate, "2026-12-31")
+  await enter(retargetDate)
+}
+check("删掉草稿行之后改旧账日期，行照样按新日期归位到首位",
+  cellText(tableRows()[0], 0) === "2026-12-31", tableRows().map((row) => cellText(row, 0)).join(","))
+
 lines.push(failed === 0 ? `自检 ${passed}/${passed}` : `自检 ${passed} 过 / ${failed} 败`)
-document.getElementById("out").textContent = lines.join("\n")
-</script>
+document.getElementById("out").textContent = lines.join("\n")</script>
 </body>
 </html>
