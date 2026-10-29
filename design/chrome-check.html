@@ -133,7 +133,9 @@ check("有激活标签时出现页面样式入口", styleEntry() !== undefined)
 // 量计算样式而不是 rect：窄视口下这一格整格隐藏（`max-[820px]:hidden`），rect 会是 0，
 // 但定宽本身仍然写在样式里 —— 断言要看的是「有没有钉住宽度」。
 const cellStyle = charCell() ? getComputedStyle(charCell()) : null
-check("字数格定宽 52px", cellStyle?.width === "52px", `实际 ${cellStyle?.width ?? "缺失"}`)
+// 60px 装得下六位数（`114564 字`）：52px 时 11px 字号下会折成两行。
+check("字数格定宽 60px", cellStyle?.width === "60px", `实际 ${cellStyle?.width ?? "缺失"}`)
+check("字数不换行", cellStyle?.whiteSpace === "nowrap", `实际 ${cellStyle?.whiteSpace ?? "缺失"}`)
 check(
   "字数是等宽数字（tabular-nums）",
   (charCell()?.className ?? "").includes("tabular-nums"),

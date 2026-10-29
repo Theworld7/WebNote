@@ -228,10 +228,12 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
          文件夹层级在文件树里高亮着，占着右端最值钱的位置只是重复。 -->
     <div class="flex min-w-0 flex-none items-center gap-3" :class="DOC_INFO">
       <!-- 字数每敲一字都变：定宽 + 等宽数字，变化只发生在自己这一格里，
-           不会推着右边的页面样式按钮和窗口按钮来回动。 -->
+           不会推着右边的页面样式按钮和窗口按钮来回动。
+           60px 是按六位数（`114564 字`）量的：52px 装不下，文字会折成两行。
+           `whitespace-nowrap` 是兜底 —— 真到了七位数，宁可撑宽也不换行。 -->
       <span
         v-if="hasNoteDocument"
-        class="w-[52px] flex-none text-right text-[11px] tabular-nums text-muted-foreground max-[820px]:hidden"
+        class="w-[60px] flex-none whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground max-[820px]:hidden"
       >
         {{ charCount }} 字
       </span>
