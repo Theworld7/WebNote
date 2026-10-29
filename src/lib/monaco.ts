@@ -18,6 +18,21 @@ function importMonaco() {
   return import("monaco-editor")
 }
 
+/**
+ * 查找框（Ctrl+F 那个）开着吗。
+ *
+ * 给绑了 Esc 的地方用：Monaco 自带的「关闭查找框」是一条权重 105 的编辑器命令，
+ * 而 `editor.addCommand` 注册的动态绑定权重 1000 —— 不主动让位的话 Esc 永远轮不到它。
+ * 它还要求焦点在编辑器本体上，焦点落在查找框输入框里时同样不触发，所以由调用方
+ * 自己查这个状态、用 `closeFindWidget` 命令把框关掉，再干自己的事。
+ */
+export function isFindWidgetVisible(editor: import("monaco-editor").editor.IStandaloneCodeEditor): boolean {
+  // 查找控制器里只有一份「框开着没」的状态，Monaco 没有公开的查询入口；`getState`
+  // 是它的内部形状，这里按结构声明补上，不写类型断言。
+  type FindController = import("monaco-editor").editor.IEditorContribution & { getState(): { isRevealed: boolean } }
+  return editor.getContribution<FindController>("editor.contrib.findController")?.getState().isRevealed ?? false
+}
+
 let cached: Promise<Monaco> | null = null
 
 export function loadMonaco(): Promise<Monaco> {

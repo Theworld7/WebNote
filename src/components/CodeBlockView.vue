@@ -11,6 +11,7 @@ import { runsText, textToRuns } from "@/lib/inline"
 import { applyMonacoTheme } from "@/lib/monaco-theme"
 import { closeCodeEditor, formatCodeEditor, openCodeEditor, prefetchCodeEditor } from "@/lib/monaco-code"
 import type { CodeEditorHandle } from "@/lib/monaco-code"
+import { isFindWidgetVisible } from "@/lib/monaco"
 import { supportsFormat } from "@/lib/source-format"
 
 /**
@@ -89,7 +90,15 @@ async function mountEditor(): Promise<void> {
   }
   handle = opened
   const { editor, monaco } = opened
-  editor.addCommand(monaco.KeyCode.Escape, () => cancelEdit())
+  // 查找框开着时 Esc 先关查找框（Monaco 自带的关闭命令权重更低、焦点在输入框里
+  // 还不触发，不主动让位就会被这条动态绑定抢走，块直接从编辑态退出）。
+  editor.addCommand(monaco.KeyCode.Escape, () => {
+    if (isFindWidgetVisible(editor)) {
+      editor.trigger("keyboard", "closeFindWidget", null)
+      return
+    }
+    cancelEdit()
+  })
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => commitEdit())
   editor.focus()
 }

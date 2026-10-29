@@ -5,7 +5,7 @@ import type { editor as monacoEditor } from "monaco-editor"
 import { compactCss, formatCss, formatHtml } from "@/lib/source-format"
 import { currentFontStack } from "@/lib/fonts"
 import { applyMonacoTheme, monacoThemeName } from "@/lib/monaco-theme"
-import { loadMonaco } from "@/lib/monaco"
+import { loadMonaco, isFindWidgetVisible } from "@/lib/monaco"
 import type { Monaco } from "@/lib/monaco"
 import { useTheme } from "@/composables/useTheme"
 
@@ -150,7 +150,17 @@ watch(
         padding: { top: 12 },
       })
       editor.addCommand(api.KeyMod.CtrlCmd | api.KeyCode.Enter, commit)
-      editor.addCommand(api.KeyCode.Escape, () => emit("close"))
+      // 查找框开着时 Esc 先关查找框。Monaco 自带的「关闭查找框」是权重更低的编辑器
+      // 命令（焦点在输入框里时干脆不触发），这条动态绑定一挂上去就永远轮不到它 ——
+      // 所以由这里让位：先替它关框，框收起了下一次 Esc 才关抽屉。
+      const instance = editor
+      editor.addCommand(api.KeyCode.Escape, () => {
+        if (isFindWidgetVisible(instance)) {
+          instance.trigger("keyboard", "closeFindWidget", null)
+          return
+        }
+        emit("close")
+      })
     }
     editor.updateOptions({ fontFamily: currentFontStack("code") })
     // 实例是复用的，语言得每次打开按 props 重设 —— 否则开过 HTML 块之后，
