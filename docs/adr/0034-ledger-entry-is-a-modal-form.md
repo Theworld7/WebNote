@@ -1,5 +1,11 @@
 # Recording an entry is a modal form
 
+**Superseded by [ADR-0035](0035-an-entry-is-an-inline-draft-row.md)**: "记一笔" is an inline draft
+row again — a form is a second editing surface over the same table, and a ledger is recorded in
+bursts. The reasoning below on *why the inline path was painful* still explains what 0035 had to
+solve (the freeze, the caret, the calendar on focus), and `components/ui/dialog/` was removed with
+this form.
+
 "记一笔" used to append a row and drop the caret into its first editable cell. Recording one
 transaction therefore meant tabbing across the whole row, watching the amount cell flip between
 `+1,234.00` (display) and `1234` (edit), having the date cell throw a calendar at you on focus, and

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { LedgerBlock } from "@/types/workspace"
-import type { DataCellValue, DataColumn, DataRow } from "@/types/data-table"
+import type { DataColumn, DataRow } from "@/types/data-table"
+import type { LedgerSection } from "@/lib/ledger"
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue"
 import { DatabaseIcon, PlusIcon, Settings2Icon, Trash2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
@@ -14,7 +15,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import TableRefNotice from "@/components/TableRefNotice.vue"
 import DateCalendar from "@/components/DateCalendar.vue"
-import LedgerEntryDialog from "@/components/LedgerEntryDialog.vue"
 import OptionCell from "@/components/OptionCell.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
@@ -35,10 +35,10 @@ import { balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledg
  * —— 纵向把一列金额录完最快;行号列悬停变 ✕ 删行。金额格显示的是格式化后的带符号金额,
  * 一进编辑态就换回**原始数字**,于是「看到的是账,改的是数」,来回一趟不会把显示串解析成空。
  *
- * 新增走**模态表单**(`LedgerEntryDialog`):「记一笔」一次填完整条记录再落盘,不再把
- * 光标塞进新行首格让人一路 Tab。理由是新增与改旧要的东西不一样 —— 改旧靠行内(就地、
- * 一格一改),新增是一条完整记录,在行内则要跟「编辑期钉住排序」那套机制搏斗(见
- * `frozenOrder`)。两条路径共用同一个解析器与同一个保存出口,手感不至于分叉。
+ * 新增也走行内(「记一笔」= 顶端插一条**草稿行**就地填):它与别的行同源,解析、提交、
+ * 余额、合计都走同一条路,不另起一套表单。唯一的分别是不参与排序 —— 空行的日期还空着,
+ * 让它按排序落位就会飞到末尾,所以先钉在列表顶端,焦点离开这一行才归位(见 `releaseDraft`)。
+ * 一条都没填就撒手的话把它删掉:误点一次不该在账里留一条空记录。
  *
  * 逐格编辑的输入框**绝对定位浮在格值按钮上**、不参与文档流 —— 表格是 auto 布局,列宽由内容
  * 算出,输入框自带的 intrinsic 宽度会把列撑宽,点一下整张表就横向抖一次(详见模板里的注释)。
@@ -74,7 +74,7 @@ const groupColumn = computed<DataColumn | null>(() =>
 /** 生效的排序:排序列被删后退化为不排序;月节序跟随方向(不排序时恒升序)。 */
 const sort = computed(() => ledgerSort(columns.value, props.block.sortColumnId, props.block.sortDirection))
 
-/** 展示序 = 表内行序按块的排序设置排过 —— 分节、行号、回车跳格都读它。 */
+/** 展示序 = 表内行序按块的排序设置排过。`listedRows` 在它之上摘掉草稿行。 */
 const orderedRows = computed(() => sortRows(rows.value, sort.value))
 
 /** 编辑开始时钉住的顺序快照。null = 没在编辑，跟着排序走。 */
@@ -91,6 +91,29 @@ const frozenOrder = ref<string[] | null>(null)
 const frozenSections = ref<{ key: string; title: string; rowIds: string[] }[] | null>(null)
 
 /**
+ * 正在记的那一笔(草稿行的 id)。空串 = 没有。
+ *
+ * 「记一笔」造出来的是一行**真的**行:解析、提交、余额、合计都跟别的行走同一条路,
+ * 它只是不参与排序 —— 日期还空着,一排序就飞到末尾(空格恒在末尾),而人还在往里填。
+ * 于是它钉在列表顶端(见 `allSections` 的第一节),焦点离开这一行才归位(`releaseDraft`)。
+ */
+const draftRowId = ref("")
+
+/** 草稿行。按 id 从当前表里取 —— 它可能刚被删掉,也可能还没写进去。 */
+const draftRow = computed<DataRow | null>(() => {
+  const id = draftRowId.value
+  if (id === "") return null
+  return rows.value.find((row) => row.id === id) ?? null
+})
+
+/** 参与排序的行:草稿行不在其中,于是行号列也不会先给它编一个还没定的号。 */
+const listedRows = computed(() => {
+  const draft = draftRow.value
+  const sorted = orderedRows.value
+  return draft === null ? sorted : sorted.filter((row) => row.id !== draft.id)
+})
+
+/**
  * 眼前这一份顺序。
  *
  * **编辑期间冻结排序**：按日期倒序记一笔时，新行(日期还空)先落在末尾;用户刚输完
@@ -98,10 +121,10 @@ const frozenSections = ref<{ key: string; title: string; rowIds: string[] }[] | 
  * 冻结到这次编辑结束(焦点离开表格 / 回车走到表尾)再重排,那时数据已填完,跳过去
  * 正好是它该在的位置。
  *
- * 冻结期间新增的行(「记一笔」)不在快照里,按当前排序追加在末尾,不会消失。
+ * 冻结期间新落进表里的行(草稿行归位)不在快照里,按行序补在末尾,不会消失。
  */
 const displayRows = computed(() => {
-  const sorted = orderedRows.value
+  const sorted = listedRows.value
   const order = frozenOrder.value
   if (order === null) return sorted
   const byId = new Map(sorted.map((row) => [row.id, row]))
@@ -116,7 +139,7 @@ const displayRows = computed(() => {
 })
 
 /** 分节(按月 / 按列 / 平铺)+ 节小计,含末尾的落空节。公式在 `ledgerSections`,与导出快照共用。 */
-const allSections = computed(() => {
+const listedSections = computed(() => {
   const frozen = frozenSections.value
   if (frozen !== null) {
     const byId = new Map(displayRows.value.map((row) => [row.id, row]))
@@ -128,7 +151,7 @@ const allSections = computed(() => {
       return { key: section.key, title: section.title, rows, totals: sumRows(rows, incomeColumn.value, expenseColumn.value) }
     }
     const sections = frozen.map(rebuild)
-    // 冻结期间新增的行(理论上「记一笔」前一定先失焦,但别让数据因为结构化快照而消失)。
+    // 冻结期间新落进表里的行(草稿行归位):别让数据因为结构化快照而消失。
     const known = new Set(frozen.flatMap((section) => section.rowIds))
     const extra = displayRows.value.filter((row) => !known.has(row.id))
     if (extra.length > 0) {
@@ -143,6 +166,22 @@ const allSections = computed(() => {
     monthOrder: sort.value.monthOrder,
   })
   return loose === null ? sections : [...sections, loose]
+})
+
+/**
+ * 渲染用的节:草稿行独自占第一节、标题为空 —— 于是它以一条裸行的样子钉在列表最上面,
+ * 不落进任何月的节里(它的日期还空着,归不进任何一节)。
+ */
+const DRAFT_SECTION_KEY = "__draft__"
+
+const allSections = computed<readonly LedgerSection[]>(() => {
+  const draft = draftRow.value
+  const sections = listedSections.value
+  if (draft === null) return sections
+  return [
+    { key: DRAFT_SECTION_KEY, title: "", rows: [draft], totals: sumRows([draft], incomeColumn.value, expenseColumn.value) },
+    ...sections,
+  ]
 })
 
 /** 逐行累计余额(键 = 行 id)。按**原始行序**算 —— 排序与分组只改展示顺序,不改发生序。 */
@@ -222,15 +261,30 @@ function commitOnEnter(row: DataRow, column: DataColumn, event: Event): void {
   const target = event.target
   if (!(target instanceof HTMLInputElement)) return
   commit(row, column, target.value)
+  if (row.id === draftRowId.value) {
+    // 草稿行是**横着**填的:一条记录从左往右走完,走到最后一个输入格就收工(退出编辑态,
+    // 草稿行随之归位)。纵向跳格留给已经记过的账 —— 那儿「下一行同列」才是在录一列。
+    const next = nextInputColumn(column)
+    editing.value = next === null ? "" : cellKey(row, next)
+    return
+  }
   const index = displayRows.value.findIndex((item) => item.id === row.id)
   const next = displayRows.value[index + 1]
   editing.value = next === undefined ? "" : cellKey(next, column)
 }
 
-// ---- 编辑期间钉住顺序 ----
+/** 能就地打字的列:图片列不给编辑,勾选 / 选择是别的控件(没有输入态)。 */
+function isInputColumn(column: DataColumn): boolean {
+  return column.type === "text" || column.type === "number" || column.type === "date"
+}
 
-/** 块的根节点。「记一笔」新增的行落在表尾,要按它找 DOM 滚进视口。 */
-const rootEl = ref<HTMLElement | null>(null)
+/** 某列之后的第一个输入列。草稿行靠它一格一格往右走。 */
+function nextInputColumn(column: DataColumn): DataColumn | null {
+  const start = columns.value.findIndex((item) => item.id === column.id)
+  return columns.value.slice(start + 1).find(isInputColumn) ?? null
+}
+
+// ---- 编辑期间钉住顺序 ----
 
 const flashRow = ref("")
 let flashTimer: number | undefined
@@ -240,24 +294,52 @@ let lastRowId = ""
 watch(editing, (key) => {
   if (key !== "") {
     if (frozenOrder.value === null) {
-      // 先拍分节(此刻还没冻结,拿到的是实时结果),再钉行序。
-      frozenSections.value = allSections.value.map((section) => ({
+      // 先拍分节(此刻还没冻结,拿到的是实时结果),再钉行序。草稿行不在快照里 ——
+      // 它归 `allSections` 的第一节管,不跟旧账的先后比。
+      frozenSections.value = listedSections.value.map((section) => ({
         key: section.key,
         title: section.title,
         rowIds: section.rows.map((row) => row.id),
       }))
-      frozenOrder.value = orderedRows.value.map((row) => row.id)
+      frozenOrder.value = listedRows.value.map((row) => row.id)
     }
     lastRowId = key.slice(0, key.indexOf(":"))
+    // 焦点落到别的行上 = 这一笔记完了:草稿行松开,按排序归位。
+    if (draftRowId.value !== "" && lastRowId !== draftRowId.value) releaseDraft()
     return
   }
   const id = lastRowId
   const before = displayRows.value.findIndex((row) => row.id === id)
   frozenOrder.value = null
   frozenSections.value = null
+  if (draftRowId.value !== "") releaseDraft()
   const after = displayRows.value.findIndex((row) => row.id === id)
   if (id !== "" && before !== -1 && after !== -1 && before !== after) flash(id)
 })
+
+/**
+ * 松开草稿行:一格都没填就把它删掉(误点一次「记一笔」不该在账里留一条空记录),
+ * 填过的按排序归位并闪一下底纹 —— 它从顶端跳到日期该在的位置,不提示就等于
+ * 「我刚填的行不见了」。
+ */
+function releaseDraft(): void {
+  const row = draftRow.value
+  draftRowId.value = ""
+  if (row === null) return
+  if (isBlankRow(row)) {
+    void change((current) => dt.removeRow(current, row.id))
+    return
+  }
+  flash(row.id)
+}
+
+/** 一条全空的记录:每一格都是该列的空值(`false` 也算空 —— 没勾就是没勾)。 */
+function isBlankRow(row: DataRow): boolean {
+  return columns.value.every((column) => {
+    const value = dt.cellValue(row, column)
+    return value === null || value === "" || value === false
+  })
+}
 
 /**
  * 行被重排到别处时给一段短暂底纹。
@@ -322,54 +404,33 @@ onBeforeUnmount(() => {
 })
 
 /**
- * 记一笔:打开模态表单。表单自己管草稿与校验,这里只管「打开」。
+ * 记一笔:在**列表顶端**插一条空行就地填,光标落在第一个能打字的格上。
  *
- * 没有包一层触发器 —— 那颗按钮坐在悬停浮现的动作组里,再包一层会让它的键盘可达性
- * 变得含糊。开与关都由这里的 `entryOpen` 说,提交之后焦点再手动还给按钮
- * (见 `focusAddButton`)。
+ * 数据行本身仍追加在表尾 —— 余额按记账发生序累计(`balanceMap` 读原始行序),插到行首
+ * 会让新的一笔变成「第一笔」,整列余额都算错。顶端只是**展示**上的落点(见 `draftRowId`)。
  */
-const entryOpen = ref(false)
-
-function openEntry(): void {
-  entryOpen.value = true
-}
-
-/**
- * 表单提交:先 `addRow` 造一行空值,再把表单里填过的列一次写完 —— 只走一次 `change`,
- * 盘上不会出现「只填了一半」的中间态。新行追加到表尾:流水账的末位就是最新一笔,落点
- * 没有歧义。然后把它滚到眼前并闪一下底纹。
- *
- * 新行可能按排序落在表中间(日期倒序时它就是第一行),所以必须闪一下 —— 否则用户只看到
- * 「对话框关了,表好像没变化」,其实那一行在他没看的地方。`nearest` 而不是 `center`:
- * 新行本来就在视野里时(短表)不动,免得整页跟着跳一下。
- */
-async function submitEntry(values: Record<string, DataCellValue>): Promise<void> {
-  entryOpen.value = false
-  await change((current) => {
-    const withRow = dt.addRow(current)
-    const blank = withRow.rows[withRow.rows.length - 1]
-    if (blank === undefined) return withRow
-    let filled = blank
-    for (const [columnId, value] of Object.entries(values)) filled = dt.setCell(filled, columnId, value)
-    return dt.replaceRow(withRow, filled)
-  })
+async function addEntry(): Promise<void> {
+  await change((current) => dt.addRow(current))
   const added = rows.value[rows.value.length - 1]
   if (added === undefined) return
-  flash(added.id)
+  draftRowId.value = added.id
+  // 等这一帧先把行画出来,再进编辑态:草稿行换了个节渲染(它原来在末尾那一节里),
+  // 这一次渲染会造一个新的 `<tr>` —— 输入框在同一帧里挂上去时它还没接进文档,
+  // `focusOnMount` 打在游离节点上就丢了焦点。分成两帧,第二帧只是往已连通的格子里塞输入框。
   await nextTick()
-  rootEl.value?.querySelector(`[data-row-id="${added.id}"]`)?.scrollIntoView({ block: "nearest" })
-  focusAddButton()
-}
-
-/** 焦点还给「记一笔」:纯键盘用户接着记下一条,不必重新找入口(动作组靠 focus-within 显形)。 */
-function focusAddButton(): void {
-  const button = rootEl.value?.querySelector("[data-ledger-add]")
-  if (button instanceof HTMLElement) button.focus()
+  const first = columns.value.find(isInputColumn)
+  // 一列能打字的都没有(全是图片 / 勾选 / 选择):不留一条只能靠鼠标一格一格点的行。
+  if (first === undefined) {
+    releaseDraft()
+    return
+  }
+  editing.value = cellKey(added, first)
 }
 
 /** 删一行。正在编辑这一行时先把编辑态收掉,免得输入框跟着一个已消失的行。 */
 function removeEntry(row: DataRow): void {
   if (editing.value.startsWith(row.id + ":")) editing.value = ""
+  if (draftRowId.value === row.id) draftRowId.value = ""
   void change((current) => dt.removeRow(current, row.id))
 }
 
@@ -451,7 +512,7 @@ function openTable() {
   <!-- 还没读完。 -->
   <TableRefNotice v-else-if="table === null" kind="loading" label="账目" />
 
-  <div ref="rootEl" v-else class="group/ledger relative my-4">
+  <div v-else class="group/ledger relative my-4">
     <!-- 块操作入口:右上角,悬停浮现。「记一笔」排在最前 —— 它是这块的主要动作;
          表底那条常驻行撤掉之后,这是唯一入口。 -->
     <div class="absolute -top-2 right-0 z-20 flex items-center gap-1 opacity-0 transition-opacity group-hover/ledger:opacity-100 focus-within:opacity-100">
@@ -459,8 +520,7 @@ function openTable() {
         variant="ghost"
         size="sm"
         class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground"
-        data-ledger-add
-        @click="openEntry"
+        @click="addEntry"
       >
         <PlusIcon class="size-3" />记一笔
       </Button>
@@ -704,17 +764,6 @@ function openTable() {
         </tfoot>
       </table>
     </div>
-
-    <!-- 记一笔的表单。挂在块的根节点里而不是 `table !== null` 的那一支:表还没读完时
-         对话框本来就不会开,但把它放在同一层能让「打开 / 提交 / 关闭」的状态只有一处。 -->
-    <LedgerEntryDialog
-      :open="entryOpen"
-      :columns="columns"
-      :income-column-id="props.block.incomeColumnId"
-      :expense-column-id="props.block.expenseColumnId"
-      @submit="submitEntry"
-      @close="entryOpen = false"
-    />
   </div>
 
   <!-- 日期浮层:挂到 body 上、fixed 定位 —— 账目表外面是横向滚动容器,格内浮层会被裁掉。

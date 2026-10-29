@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>账目块「记一笔」模态表单自检</title>
+<title>账目块「记一笔」行内新增自检</title>
 <style>
   body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
   h1 { font-size: 15px; margin: 0 0 12px; }
@@ -11,7 +11,7 @@
 </style>
 </head>
 <body>
-<h1>账目块「记一笔」模态表单自检（只靠键盘填完，末了读盘核对类型）</h1>
+<h1>账目块「记一笔」行内新增自检（顶端插草稿行、横着填完、归位排序，末了读盘核对类型）</h1>
 <!-- 脚本里有顶层 await（真实读盘、真实写盘），--dump-dom 抓不到结果，用 CDP 驱动跑：
      node design/cdp-dump.mjs http://localhost:1420/design/ledger-entry-check.html -->
 <div id="app"></div>
@@ -28,7 +28,6 @@ import { provideTables } from "../src/composables/useTables.ts"
 import { createBlock, createLedgerBlock } from "../src/lib/blocks.ts"
 import { blocksToHtml } from "../src/lib/html/serialize.ts"
 import { tableFromJson } from "../src/lib/data-table.ts"
-import { todayKey } from "../src/lib/date-key.ts"
 
 const lines = []
 let passed = 0
@@ -48,8 +47,9 @@ function check(name, ok, detail = "") {
 }
 
 /**
- * 夹具：一张六种控件里挑出五种（日期 / 文本 / 选择 / 数字×2）的礼账，外加一行旧账。
- * 表单字段按列现生成，所以列的形状就是这一页要验的东西。
+ * 夹具：一张五种控件的礼账，**按日期倒序**排，只有一行旧账（2026-10-20）。
+ * 新记的那笔故意填更早的日期（2026-09-01）—— 它若参与排序就该排到旧账后面，
+ * 而草稿行必须钉在顶端，两者放一起才验得出来「编辑期间不排序、填完才排序」。
  */
 const TABLE = {
   version: 1,
@@ -61,12 +61,12 @@ const TABLE = {
     { id: "c5", name: "支出", type: "number", options: [] },
   ],
   rows: [
-    { id: "r1", values: { c1: "2026-10-01", c2: "赵赫", c3: "o1", c4: 200, c5: null } },
+    { id: "r1", values: { c1: "2026-10-20", c2: "赵赫", c3: "o1", c4: 200, c5: null } },
   ],
 }
 const TABLE_JSON = JSON.stringify(TABLE, null, 2) + "\n"
 const NOTE_HTML = blocksToHtml(
-  [createBlock("text"), createLedgerBlock("礼账.tbl", "c4", "c5", true, "none", "")],
+  [createBlock("text"), createLedgerBlock("礼账.tbl", "c4", "c5", true, "none", "", "c1", "desc")],
   (path) => (path === "礼账.tbl" ? tableFromJson(TABLE_JSON) : null),
 )
 
@@ -141,341 +141,124 @@ if (note !== null) {
 function ledgerRoot() {
   return [...document.querySelectorAll("[data-block-id]")].find((el) => el.querySelector("table") !== null) ?? null
 }
-function bodyRows() {
+/** 数据行 = 带删除钮的行（节标题行与空表提示行没有钮）。草稿行同样带钮，所以也在其中。 */
+function tableRows() {
   const root = ledgerRoot()
   if (root === null) return []
   return [...root.querySelectorAll("tbody tr")].filter((tr) => tr.querySelector('[aria-label="删除本行"]') !== null)
 }
 function cells(row) { return [...row.querySelectorAll("td")] }
 function cellText(row, index) { return (cells(row)[index]?.textContent ?? "").trim() }
+function cellInput(row, index) {
+  const input = cells(row)[index]?.querySelector("input")
+  return input instanceof HTMLInputElement ? input : null
+}
+function rowNumber(row) { return (row?.querySelector("th")?.textContent ?? "").trim() }
+function focusIs(row, index) { return cellInput(row, index) !== null && document.activeElement === cellInput(row, index) }
 function addButton() {
   const root = ledgerRoot()
   if (root === null) return null
   return [...root.querySelectorAll("button")].find((button) => (button.textContent ?? "").includes("记一笔")) ?? null
 }
-/** 对话框本体（reka 把 portal 挂到 body 上，不在账目块的子树里）。 */
-function dialog() { return document.querySelector('[data-slot="dialog-content"]') }
-/**
- * 等对话框真的从 DOM 里消失。关掉时会走 100ms 的淡出动画，`settle()` 那 100ms
- * 正好卡在动画中途 —— 断言「关没关」必须等元素被移走，不能只等一拍。
- */
-async function waitClosed() {
-  for (let i = 0; i < 60 && dialog() !== null; i += 1) await new Promise((resolve) => setTimeout(resolve, 20))
-  return dialog() === null
-}
-function fields() { return [...(dialog()?.querySelectorAll("[data-field]") ?? [])] }
-function field(id) { return dialog()?.querySelector(`[data-field="${id}"]`) ?? null }
-/** 字段下方浮出的面板：月历与选项共用同一种外壳（`data-entry-panel`）。 */
-function entryPanel() { return dialog()?.querySelector("[data-entry-panel]") ?? null }
-/** 某个字段控件的视口顶部 —— 用来证明浮层不挪动别的字段。 */
-function topOf(id) {
-  const el = field(id)
-  return el === null ? NaN : el.getBoundingClientRect().top
-}
-function calendarPanel() { return dialog()?.querySelector("[data-date-calendar]") ?? null }
-function optionPanel() { return dialog()?.querySelector("[role='listbox']") ?? null }
-/** 面板里的键盘高亮（选项项 / 日历格各有自己的标记，这里只取选项那一套）。 */
-function activeOption() { return dialog()?.querySelector("[role='option'][aria-selected='true']") ?? null }
-/** 日历格的高亮是描边而不是选中态，只能看类名。 */
-function ringDay(key) {
-  const cell = dialog()?.querySelector(`[data-day="${key}"]`) ?? null
-  return cell !== null && (cell.className ?? "").includes("ring-2")
-}
-/** 往某个日期上加减天数 —— 与 `lib/date-key` 的 `shiftDays` 同一口径，这里只为了写期望值。 */
-function shiftDate(key, days) {
-  const [year, month, day] = key.split("-").map(Number)
-  const date = new Date(year, month - 1, day + days)
-  const pad = (n) => String(n).padStart(2, "0")
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-}
-function submitButton() {
-  return [...(dialog()?.querySelectorAll("button") ?? [])].find((button) => (button.textContent ?? "").trim() === "记下") ?? null
-}
-function labelTextOf(column) {
-  const label = dialog()?.querySelector(`label[for="ledger-entry-${column}"]`)
-  return (label?.textContent ?? "").trim()
-}
 function type(input, value) {
   input.value = value
   input.dispatchEvent(new Event("input", { bubbles: true }))
 }
-function press(target, init) {
-  target.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }))
-}
-async function openDialog() {
-  addButton()?.click()
+async function enter(input) {
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
   await settle()
 }
 
-step("open")
-const rows0 = bodyRows()
+step("add")
+const rows0 = tableRows()
 check("账目块渲染出 1 行旧账", rows0.length === 1, `实际 ${rows0.length}`)
-check("打开前没有对话框", dialog() === null)
+check("旧账钉在第一位、行号 1", cellText(rows0[0], 1) === "赵赫" && rowNumber(rows0[0]) === "1",
+  `${cellText(rows0[0], 1)} / ${rowNumber(rows0[0])}`)
 
-await openDialog()
-check("点「记一笔」打开模态框", dialog() !== null)
-check("表单字段数 = 表的列数（图片列除外，这里没有图片列）", fields().length === 5, `实际 ${fields().length}`)
-check(
-  "字段顺序跟着表的列序走（日期 / 人员 / 分类 / 收入 / 支出）",
-  ["c1", "c2", "c3", "c4", "c5"].every((id, index) => fields()[index]?.dataset.field === id),
-  fields().map((el) => el.dataset.field).join(","),
-)
-check("字段标签用的是列名", ["日期", "人员", "分类", "收入", "支出"].every((name, index) => labelTextOf(`c${index + 1}`) === name),
-  ["c1", "c2", "c3", "c4", "c5"].map(labelTextOf).join(","))
+addButton()?.click()
+await settle()
+const rows1 = tableRows()
+check("点「记一笔」在列表里多出一条", rows1.length === 2, `实际 ${rows1.length}`)
+check("新行插在**顶端**（旧账被挤到第二条）",
+  cellText(rows1[0], 1) === "" && cellText(rows1[1], 1) === "赵赫",
+  `${cellText(rows1[0], 1)} / ${cellText(rows1[1], 1)}`)
+check("草稿行还没有行号（它还没排进列表）", rowNumber(rows1[0]) === "", `「${rowNumber(rows1[0])}」`)
+check("光标落在草稿行的第一个输入格（日期）", focusIs(rows1[0], 0),
+  `焦点在 ${document.activeElement?.tagName ?? "无"} / 输入框 ${cellInput(rows1[0], 0) === null ? "无" : "有"}`)
 
-// ---- 焦点：打开就落在第一个字段，且只预填了今天 ----
-const first = field("c1")
-check("打开后焦点落在第一个字段（日期）", document.activeElement === first, String(document.activeElement?.tagName))
-check("日期列预填今天", first instanceof HTMLInputElement && first.value === todayKey(), String(first?.value))
-check("其余列都是空的",
-  [field("c2"), field("c4"), field("c5")].every((el) => el instanceof HTMLInputElement && el.value === ""),
-  [field("c2"), field("c4"), field("c5")].map((el) => `${el?.dataset.field}=${el?.value}`).join(","))
-check("分类是自绘按钮（不用原生 select），收起态显示「（空）」",
-  field("c3") instanceof HTMLButtonElement && (field("c3")?.textContent ?? "").trim() === "（空）",
-  `${field("c3")?.tagName} / ${(field("c3")?.textContent ?? "").trim()}`)
-check("刚打开时不弹面板（一开门就被一块 250px 的月历顶住太重）", entryPanel() === null,
-  entryPanel() === null ? "" : "面板开了")
-// 离开再回来 = 真的「切换」到这个字段，这时才展开。
-// 展开前记一个「后面的字段」的位置：面板若是内联展开，它会被推下去。
-const beforeTop = topOf("c2")
-if (field("c2") instanceof HTMLInputElement) field("c2").focus()
-if (first instanceof HTMLInputElement) first.focus()
-await settle()
-check("切回日期字段时自动展开月历（Tab 进来就有面板，不用先点那颗钮）",
-  calendarPanel() !== null, entryPanel() === null ? "没有面板" : "面板在但不是月历")
-check("面板不占布局：展开前后「人员」字段一动不动",
-  Math.abs(topOf("c2") - beforeTop) < 0.5, `${beforeTop.toFixed(1)} → ${topOf("c2").toFixed(1)}`)
-check("面板是绝对定位的浮层（不参与表单的排版）",
-  entryPanel() !== null && getComputedStyle(entryPanel()).position === "absolute",
-  entryPanel() === null ? "没有面板" : getComputedStyle(entryPanel()).position)
-check("月历高亮落在预填的今天（回车确认的就是它）", ringDay(todayKey()), todayKey())
-check("只预填了日期不算「填过」，提交键是禁用的", submitButton()?.disabled === true, String(submitButton()?.disabled))
+step("fill")
+// 草稿行是横着填的：回车确认这一格，走到同一行的下一个输入格。
+const dateInput = cellInput(rows1[0], 0)
+type(dateInput, "2026-09-01")
+await enter(dateInput)
+const rows2 = tableRows()
+check("回车挪到同一行的下一格（人员），没跳到别的行", focusIs(rows2[0], 1),
+  `焦点在 ${document.activeElement?.tagName ?? "无"}`)
+check("填完日期仍钉在顶端（旧账日期更近，排序还轮不到它）",
+  cellText(rows2[0], 0) === "2026-09-01" && cellText(rows2[1], 0) === "2026-10-20",
+  `${cellText(rows2[0], 0)} / ${cellText(rows2[1], 0)}`)
 
-// ---- 控制类型跟着列类型走 ----
-check("收入 / 支出格是文本框 + 数字键盘提示（不用 number，免得千分位被吞掉）",
-  field("c4") instanceof HTMLInputElement && field("c4").getAttribute("inputmode") === "decimal",
-  field("c4")?.getAttribute("inputmode") ?? "缺")
-check("金额格右对齐（跟表里那一列同一副样子）",
-  getComputedStyle(field("c4")).textAlign === "right", getComputedStyle(field("c4")).textAlign)
+const nameInput = cellInput(rows2[0], 1)
+type(nameInput, "新客")
+await enter(nameInput)
+const rows3 = tableRows()
+check("回车跳过选择格，落到收入格（选择不是一个输入态）",
+  cellInput(rows3[0], 2) === null && focusIs(rows3[0], 3),
+  `分类格 ${cellInput(rows3[0], 2) === null ? "没有输入框" : "有输入框"}，焦点 ${document.activeElement?.tagName ?? "无"}`)
 
-// ---- 只靠键盘把表填完 ----
-step("keyboard-fill")
-let typed = 0
-for (const [id, value] of [["c2", "新客"], ["c4", "1234.5"]]) {
-  const input = field(id)
-  if (input instanceof HTMLInputElement) {
-    type(input, value)
-    typed += 1
-  }
-}
-await settle()
-check("文本与数字都能录入", typed === 2, `实际 ${typed}`)
-check("填了东西之后提交键解禁", submitButton()?.disabled === false, String(submitButton()?.disabled))
+const moneyInput = cellInput(rows3[0], 3)
+type(moneyInput, "1234.5")
+await enter(moneyInput)
+const rows4 = tableRows()
+check("再一个回车落到支出格", focusIs(rows4[0], 4), `焦点在 ${document.activeElement?.tagName ?? "无"}`)
+check("金额格显示带符号金额 +1,234.50", cellText(rows4[0], 3) === "+1,234.50", cellText(rows4[0], 3))
 
-// ---- 选项面板：Tab 进来就展开，方向键移高亮，回车确认 ----
-step("option-panel")
-const optionButton = field("c3")
-if (optionButton instanceof HTMLButtonElement) optionButton.focus()
-await settle()
-check("选项字段一获得焦点就展开面板（不用先按一次回车）", optionPanel() !== null)
-check("高亮落在当前值「（空）」上", (activeOption()?.textContent ?? "").trim() === "（空）",
-  (activeOption()?.textContent ?? "无").trim())
-if (optionButton !== null) press(optionButton, { key: "ArrowDown" })
-await settle()
-check("↓ 把高亮挪到第一个真选项", (activeOption()?.textContent ?? "").trim() === "礼金",
-  (activeOption()?.textContent ?? "无").trim())
-if (optionButton !== null) press(optionButton, { key: "ArrowDown" })
-await settle()
-if (optionButton !== null) press(optionButton, { key: "Enter" })
-await settle()
-check("回车确认并把选项名写回按钮", (field("c3")?.textContent ?? "").trim() === "礼品",
-  (field("c3")?.textContent ?? "").trim())
-check("确认后面板收起", optionPanel() === null)
-
-// Esc 只收面板，不关对话框。
-// 对一个已经聚焦的元素再 `focus()` 不会触发 focus 事件，所以要真的离开再回来。
-if (field("c2") instanceof HTMLInputElement) field("c2").focus()
-if (optionButton instanceof HTMLButtonElement) optionButton.focus()
-await settle()
-check("离开再回到选项字段，面板又开", optionPanel() !== null)
-if (optionButton !== null) press(optionButton, { key: "Escape" })
-await settle()
-check("面板开着时 Esc 只收面板", optionPanel() === null && dialog() !== null,
-  `面板 ${optionPanel() === null ? "已收" : "还在"}，对话框 ${dialog() === null ? "已关" : "还在"}`)
-// 收了之后方向键还能把它叫回来 —— 不然 Esc 一按就只剩鼠标一条路。
-if (optionButton !== null) press(optionButton, { key: "ArrowDown" })
-await settle()
-check("面板收着时按方向键把它叫回来", optionPanel() !== null)
-// 再收一次，免得影响后面按回车提交。
-if (optionButton !== null) press(optionButton, { key: "Escape" })
-await settle()
-
-// 最后在备注式的文本列里回车 = 提交（表单里回车不换行，它没有多行字段）。
-const lastInput = field("c2")
-check("回车前对话框还开着", dialog() !== null)
-if (lastInput !== null) press(lastInput, { key: "Enter" })
-await settle()
-
-check("回车提交后对话框关闭", await waitClosed())
-const rows1 = bodyRows()
-check("表里多出一行", rows1.length === 2, `实际 ${rows1.length}`)
-const added = rows1[1]
-check("新行人员落值", cellText(added, 1) === "新客", cellText(added, 1))
-check("新行收入显示带符号金额 +1,234.50", cellText(added, 3) === "+1,234.50", cellText(added, 3))
-check("新行日期是今天", cellText(added, 0) === todayKey(), cellText(added, 0))
-check("分类显示的是选项名（礼金 / 礼品 里的「礼品」）", cellText(added, 2) === "礼品", cellText(added, 2))
-check("新行闪一下底纹（列被排序挪走时也能看见）", added?.className.includes("bg-tint") === true, added?.className ?? "缺行")
-check("提交后焦点回到「记一笔」", document.activeElement === addButton(), String(document.activeElement?.textContent ?? document.activeElement?.tagName))
+step("settle")
+// 最后一个输入格上回车 = 这一笔记完：退出编辑态，草稿行归位。
+await enter(cellInput(rows4[0], 4))
+const rows5 = tableRows()
+check("最后一个输入格上回车退出编辑态", rows5.every((row) => cells(row).every((td) => td.querySelector("input") === null)),
+  JSON.stringify(rows5.map((row) => cells(row).filter((td) => td.querySelector("input") !== null).length)))
+check("归位后按日期倒序落位（2026-09-01 排到 2026-10-20 之后）",
+  cellText(rows5[0], 0) === "2026-10-20" && cellText(rows5[1], 0) === "2026-09-01",
+  `${cellText(rows5[0], 0)} / ${cellText(rows5[1], 0)}`)
+check("归位后行号重排（1、2）", rows5.map(rowNumber).join(",") === "1,2", rows5.map(rowNumber).join(","))
+check("新行人员 / 收入落值", cellText(rows5[1], 1) === "新客" && cellText(rows5[1], 3) === "+1,234.50",
+  `${cellText(rows5[1], 1)} / ${cellText(rows5[1], 3)}`)
+check("归位时闪一下底纹（它从顶端跳到了它该在的位置）", (rows5[1]?.className ?? "").includes("bg-tint"),
+  rows5[1]?.className ?? "缺行")
+check("余额按记账发生序累计（新行 1,434.50，即使它显示在旧账后面）",
+  cellText(rows5[0], 5) === "200.00" && cellText(rows5[1], 5) === "1,434.50",
+  `${cellText(rows5[0], 5)} / ${cellText(rows5[1], 5)}`)
 check("合计跟着重算（+1,434.50）", (ledgerRoot()?.querySelector("tfoot")?.textContent ?? "").includes("+1,434.50"),
   ledgerRoot()?.querySelector("tfoot")?.textContent ?? "缺 tfoot")
 
-// ---- Esc 取消：不落盘，草稿清空 ----
-step("escape")
-await openDialog()
-const escort = field("c2")
-if (escort instanceof HTMLInputElement) type(escort, "别记我")
+// ---- 一格都没填就撒手：空行删掉，不留一条空记录 ----
+step("blank")
+addButton()?.click()
 await settle()
-if (escort !== null) press(escort, { key: "Escape" })
+check("再点一次「记一笔」又插一条", tableRows().length === 3, `实际 ${tableRows().length}`)
+cellInput(tableRows()[0], 0)?.blur()
 await settle()
-check("Esc 关掉对话框", await waitClosed())
-check("Esc 不往表里加行", bodyRows().length === 2, `实际 ${bodyRows().length}`)
-
-await openDialog()
-check("重开后草稿是空的（上次取消的内容没留下来）",
-  field("c2") instanceof HTMLInputElement && field("c2").value === "",
-  String(field("c2")?.value))
-check("重开时日期仍预填今天", field("c1")?.value === todayKey(), String(field("c1")?.value))
-
-// ---- 日期面板：方向键移高亮、回车确认、Esc 只收面板 ----
-step("date-panel")
-const dateField = field("c1")
-check("重开后焦点仍在日期字段，但面板不展开", calendarPanel() === null)
-const tomorrow = shiftDate(todayKey(), 1)
-if (dateField !== null) press(dateField, { key: "ArrowDown" })
-await settle()
-check("↓ 把面板叫回来（← → 在输入框里是挪光标，不抢）", calendarPanel() !== null)
-if (dateField !== null) press(dateField, { key: "ArrowRight" })
-await settle()
-check("→ 把月历高亮挪到明天", ringDay(tomorrow), tomorrow)
-check("挪高亮不改输入框里的字（改的是「还没确认」的那一格）",
-  dateField?.value === todayKey(), String(dateField?.value))
-if (dateField !== null) press(dateField, { key: "Enter" })
-await settle()
-check("回车确认高亮那天，写进输入框", dateField?.value === tomorrow, String(dateField?.value))
-check("确认后面板收起", calendarPanel() === null)
-check("回车确认日期不顺手提交表单", dialog() !== null && bodyRows().length === 2,
-  `对话框 ${dialog() === null ? "已关" : "还在"}`)
-
-// 鼠标也没丢：面板的 `mousedown.prevent` 只挡聚焦，不挡 click。
-if (dateField !== null) press(dateField, { key: "ArrowDown" })
-await settle()
-const dayAfter = shiftDate(todayKey(), 2)
-const dayCell = dialog()?.querySelector(`[data-day="${dayAfter}"]`)
-dayCell?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }))
-dayCell?.click()
-await settle()
-check("鼠标点某一天照样选得上", dateField?.value === dayAfter, String(dateField?.value))
-check("点完就收面板", calendarPanel() === null)
-
-// 面板开着时按 Esc 只收面板 —— 外层那道 Esc 是关对话框的，不能一起触发。
-if (field("c2") instanceof HTMLInputElement) field("c2").focus()
-if (dateField instanceof HTMLInputElement) dateField.focus()
-await settle()
-check("离开再回到日期字段，面板又开", calendarPanel() !== null)
-if (dateField !== null) press(dateField, { key: "Escape" })
-await settle()
-check("面板开着时 Esc 只收面板，对话框还在", calendarPanel() === null && dialog() !== null,
-  `面板 ${calendarPanel() === null ? "已收" : "还在"}，对话框 ${dialog() === null ? "已关" : "还在"}`)
-// 收了之后 ↓ 还能把它叫回来（← → 留给光标，不抢）。
-if (dateField !== null) press(dateField, { key: "ArrowDown" })
-await settle()
-check("面板收着时按 ↓ 把它叫回来", calendarPanel() !== null)
-if (dateField !== null) press(dateField, { key: "Escape" })
-await settle()
-// 手动拨回今天，后面的校验一节拿它当合法值。
-if (dateField instanceof HTMLInputElement) type(dateField, todayKey())
-await settle()
-
-// ---- 输入法合成中的回车不算提交（中文选词就按回车） ----
-step("ime")
-const imeInput = field("c2")
-if (imeInput instanceof HTMLInputElement) {
-  type(imeInput, "张")
-  press(imeInput, { key: "Enter", isComposing: true })
-}
-await settle()
-check("合成中的回车不提交", dialog() !== null && bodyRows().length === 2,
-  `对话框 ${dialog() === null ? "已关" : "还在"}，行数 ${bodyRows().length}`)
-
-// ---- 校验：日期格式不对就指回那一格，别关窗 ----
-step("validate")
-const badDate = field("c1")
-if (badDate instanceof HTMLInputElement) type(badDate, "10/28")
-await settle()
-if (imeInput !== null) press(imeInput, { key: "Enter" })
-await settle()
-check("日期格式不对时对话框不关", dialog() !== null)
-check("错误信息指着日期那一格", (dialog()?.textContent ?? "").includes("写成 2026-10-28 这样"), dialog()?.textContent ?? "无对话框")
-check("焦点回到出错的那一格", document.activeElement === field("c1"), String(document.activeElement?.dataset?.field ?? document.activeElement?.tagName))
-check("行数没变", bodyRows().length === 2, `实际 ${bodyRows().length}`)
-
-// 改对再提交，顺带验证金额里的千分位会被拒绝而不是被解析成空。
-const money = field("c4")
-if (money instanceof HTMLInputElement) type(money, "1,000")
-if (badDate instanceof HTMLInputElement) type(badDate, todayKey())
-await settle()
-if (imeInput !== null) press(imeInput, { key: "Enter" })
-await settle()
-check("金额写了千分位就拦下来（不静默解析成空）",
-  dialog() !== null && (dialog()?.textContent ?? "").includes("只收数字"), dialog()?.textContent ?? "无对话框")
-
-if (money instanceof HTMLInputElement) type(money, "300")
-await settle()
-if (imeInput !== null) press(imeInput, { key: "Enter" })
-await settle()
-check("改对之后提交成功", await waitClosed() && bodyRows().length === 3, `行数 ${bodyRows().length}`)
+const rows6 = tableRows()
+check("一格都没填就撒手，空行被删掉", rows6.length === 2, `实际 ${rows6.length}`)
+check("剩下的顺序没被这条空行打乱", cellText(rows6[0], 0) === "2026-10-20", cellText(rows6[0], 0))
 
 // ---- 保存：真写盘，读回来核对类型 ----
 step("save")
 await workspace.save()
 await settle()
 const saved = JSON.parse(await readFile("礼账.tbl"))
-check("盘上行数 = 3", saved.rows.length === 3, `实际 ${saved.rows.length}`)
-const keyboardRow = saved.rows.find((row) => row.values.c2 === "新客")
-check("键盘录的那一行落盘了", keyboardRow !== undefined, JSON.stringify(saved.rows.map((row) => row.values.c2)))
-check("收入以数字落盘（1234.5）", keyboardRow?.values.c4 === 1234.5 && typeof keyboardRow.values.c4 === "number",
-  JSON.stringify(keyboardRow?.values.c4))
-check("日期以 YYYY-MM-DD 字符串落盘", keyboardRow?.values.c1 === todayKey(), JSON.stringify(keyboardRow?.values.c1))
-check("分类存的是选项 id", keyboardRow?.values.c3 === "o2", JSON.stringify(keyboardRow?.values.c3))
-check("被取消的那条没有落盘", !saved.rows.some((row) => row.values.c2 === "别记我"),
-  JSON.stringify(saved.rows.map((row) => row.values.c2)))
+check("盘上行数 = 2（空行没有落盘）", saved.rows.length === 2, `实际 ${saved.rows.length}`)
+const added = saved.rows.find((row) => row.values.c2 === "新客")
+check("行内记的那一笔落盘了", added !== undefined, JSON.stringify(saved.rows.map((row) => row.values.c2)))
+check("日期以 YYYY-MM-DD 字符串落盘", added?.values.c1 === "2026-09-01", JSON.stringify(added?.values.c1))
+check("收入以数字落盘（1234.5）", added?.values.c4 === 1234.5 && typeof added.values.c4 === "number",
+  JSON.stringify(added?.values.c4))
 check("新增行的列键齐全（每列都有键）",
   saved.rows.every((row) => saved.columns.every((column) => column.id in row.values)))
-
-// ---- 浮层定位：占的是「浮」的那一层，不该把字段推走，也不该被滚动容器裁掉 ----
-step("panel-placement")
-await openDialog()
-if (field("c2") instanceof HTMLInputElement) field("c2").focus()
-if (field("c1") instanceof HTMLInputElement) field("c1").focus()
-await settle()
-const formEl = dialog()?.querySelector('[data-field-wrap="c1"]')?.parentElement ?? null
-const panelBox = entryPanel()?.getBoundingClientRect() ?? null
-const formBox = formEl?.getBoundingClientRect() ?? null
-check("浮层整块落在表单可视区内（不被 overflow 裁掉半块）",
-  panelBox !== null && formBox !== null && panelBox.bottom <= formBox.bottom + 0.5,
-  panelBox === null || formBox === null ? "缺失" : `面板底 ${panelBox.bottom.toFixed(1)} vs 表单底 ${formBox.bottom.toFixed(1)}`)
-
-// 把表单区压到 200px：整块月历放不下，面板该自己收窄、内部滚动，而不是被裁。
-if (formEl instanceof HTMLElement) formEl.style.height = "200px"
-if (field("c2") instanceof HTMLInputElement) field("c2").focus()
-if (field("c1") instanceof HTMLInputElement) field("c1").focus()
-await settle()
-const tightPanel = entryPanel()?.getBoundingClientRect() ?? null
-const tightForm = formEl?.getBoundingClientRect() ?? null
-check("矮窗口里月历自己收窄（不被裁掉半块，面板内部滚）",
-  tightPanel !== null && tightForm !== null && tightPanel.bottom <= tightForm.bottom + 0.5,
-  tightPanel === null || tightForm === null ? "缺失" : `面板底 ${tightPanel.bottom.toFixed(1)} vs 表单底 ${tightForm.bottom.toFixed(1)}`)
-if (formEl instanceof HTMLElement) formEl.style.height = ""
+check("盘上没有全空的行", saved.rows.every((row) => Object.values(row.values).some((value) => value !== null && value !== false)),
+  JSON.stringify(saved.rows.map((row) => row.values)))
 
 lines.push(failed === 0 ? `自检 ${passed}/${passed}` : `自检 ${passed} 过 / ${failed} 败`)
 document.getElementById("out").textContent = lines.join("\n")

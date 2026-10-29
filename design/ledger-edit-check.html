@@ -164,24 +164,23 @@ function addButton() {
   return [...root.querySelectorAll("button")].find((button) => (button.textContent ?? "").includes("记一笔")) ?? null
 }
 /**
- * 记一笔现在走模态表单（`LedgerEntryDialog`）：打开、往某一格里打值、回车提交。
- * 返回 true = 对话框确实关掉了（提交成功）。表单自身的键盘模型在 `ledger-entry-check`，
+ * 记一笔是行内新增：点按钮 → 列表顶端插一条草稿行、光标落在第一个输入格 → 往目标格里打值
+ * → 失焦提交（草稿行随之归位排序）。顶端插行与「填完才排序」的细节在 `ledger-entry-check`，
  * 这里只是借它造出一行新账，好继续验「分组下新行落在哪」这类块级行为。
+ *
+ * `index` 是目标格在数据列里的下标（不含行号列）。
  */
-async function addRowViaForm(fieldId, value) {
-  const dialog = () => document.querySelector('[data-slot="dialog-content"]')
+async function addRowInline(index, value) {
   addButton()?.click()
   await settle()
-  const input = dialog()?.querySelector(`[data-field="${fieldId}"]`) ?? null
-  if (input instanceof HTMLInputElement) {
-    input.value = value
-    input.dispatchEvent(new Event("input", { bubbles: true }))
-    await settle()
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
-  }
-  // 关掉时有 100ms 淡出，元素要等动画结束才移走。
-  for (let i = 0; i < 60 && dialog() !== null; i += 1) await new Promise((resolve) => setTimeout(resolve, 20))
-  return dialog() === null
+  const draft = bodyRows()[0]
+  if (draft === undefined) return false
+  const input = await openCell(draft, index)
+  if (input === null) return false
+  type(input, value)
+  input.blur()
+  await settle()
+  return true
 }
 function headings() {
   const root = ledgerRoot()
@@ -303,15 +302,13 @@ if (rows0.length === 3) {
     idleBox !== null && backBox !== null && JSON.stringify(rectOf(backBox)) === JSON.stringify(rectOf(idleBox)),
     `${idleBox === null ? "无按钮" : JSON.stringify(rectOf(idleBox))} vs ${backBox === null ? "无按钮" : JSON.stringify(rectOf(backBox))}`)
 
-  // ---- 增：块顶「记一笔」—— 现在走模态表单，填一格回车就落行 ----
-  const addedByForm = await addRowViaForm("c1", "新客")
+  // ---- 增：块顶「记一笔」= 顶端插一条草稿行，填完归位 ----
+  const addedByEntry = await addRowInline(0, "新客")
   const rows1 = bodyRows()
-  check("记一笔后多出一行", addedByForm && rows1.length === 4, `实际 ${rows1.length}`)
+  check("记一笔后多出一行", addedByEntry && rows1.length === 4, `实际 ${rows1.length}`)
   const added = rows1[3]
-  check("新行落在末位且行号是 4", added?.querySelector("th")?.textContent.trim() === "4", added?.querySelector("th")?.textContent.trim())
-  check("新行首格是表单里填的值", added !== undefined && cellText(added, 0) === "新客", added === undefined ? "无新行" : cellText(added, 0))
-  check("提交后焦点回到「记一笔」（接着记下一条不用重新找入口）", document.activeElement === addButton(),
-    String(document.activeElement?.textContent ?? document.activeElement?.tagName))
+  check("填完归位到行序末位、行号 4", added?.querySelector("th")?.textContent.trim() === "4", added?.querySelector("th")?.textContent.trim())
+  check("新行首格是就地填进去的值", cellText(added, 0) === "新客", added === undefined ? "无新行" : cellText(added, 0))
 
   // ---- 删：行号列悬停那颗钮 ----
   const doomed = bodyRows()[1]
@@ -341,7 +338,7 @@ if (rows0.length === 3) {
       sections[2] === "新客",
     JSON.stringify(sections))
   // 这一行故意不填分组列（c1），只填备注 —— 它该落进「未分组」节。
-  await addRowViaForm("c4", "没写人")
+  await addRowInline(3, "没写人")
   const looseTitle = [...(root?.querySelectorAll("tbody tr") ?? [])]
     .find((tr) => tr.querySelector("th[colspan]")?.textContent.trim().startsWith("未分组"))
   check("分组下新行落进「未分组」节（不会凭空消失）",
