@@ -310,13 +310,32 @@ if (rows0.length === 3) {
   check("填完归位到行序末位、行号 4", added?.querySelector("th")?.textContent.trim() === "4", added?.querySelector("th")?.textContent.trim())
   check("新行首格是就地填进去的值", cellText(added, 0) === "新客", added === undefined ? "无新行" : cellText(added, 0))
 
-  // ---- 删：行号列悬停那颗钮 ----
+  // ---- 删：行号列悬停那颗钮 —— 先问一句，再动手 ----
   const doomed = bodyRows()[1]
   const wasName = cellText(doomed, 0)
   doomed.querySelector('[aria-label="删除本行"]')?.click()
   await settle()
+  const ask = document.querySelector('[role="alertdialog"], [role="dialog"]')
+  check("点删除先弹确认框", ask !== null)
+  check("确认框里说清删的是哪一条", ask?.textContent.includes(wasName) === true, ask?.textContent ?? "")
+  const dialogBtn = (label) => [...(ask?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === label)
+  check("确认框有「取消」「删除」两个钮", dialogBtn("取消") !== undefined && dialogBtn("删除") !== undefined)
+  dialogBtn("取消")?.click()
+  await settle()
+  check("取消后行还在", bodyRows().length === 4 && bodyRows().some((row) => cellText(row, 0) === wasName),
+    `实际 ${bodyRows().length} 行`)
+  // 退出动画 duration-100：一次 settle 正好卡在动画结束那一帧，等它走完再看 DOM。
+  await settle()
+  await settle()
+  check("取消后确认框收起", document.querySelector('[role="alertdialog"], [role="dialog"]') === null)
+
+  bodyRows()[1].querySelector('[aria-label="删除本行"]')?.click()
+  await settle()
+  const ask2 = document.querySelector('[role="alertdialog"], [role="dialog"]')
+  ;[...(ask2?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "删除")?.click()
+  await settle()
   const rows2 = bodyRows()
-  check("删行后只剩 3 行", rows2.length === 3, `实际 ${rows2.length}`)
+  check("确认后删掉一行，只剩 3 行", rows2.length === 3, `实际 ${rows2.length}`)
   check("被删的那行真的没了", !rows2.some((row) => cellText(row, 0) === wasName), `删的是「${wasName}」`)
   check("剩下行号重排为（1、2、3）", rows2.map((row) => row.querySelector("th")?.textContent.trim()).join(",") === "1,2,3",
     rows2.map((row) => row.querySelector("th")?.textContent.trim()).join(","))

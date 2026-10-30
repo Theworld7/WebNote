@@ -36,7 +36,7 @@
   jsDelivr 上的 `package.json`、镜像只往「有更新」下结论且链接退回列表页(0032)、标签住在编辑
   卡片的第一行、chrome 只剩一条标题栏(0033)、记一笔曾是模态表单(0034)、记一笔是行内草稿行:
   插在列表顶端、焦点离开这一行才按排序归位、一格没填就自动删掉(0035)、切标签 / 窗口失焦 /
-  关窗这三个「离开」的时机才落盘、不按时间轮询(0036)。
+  关窗这三个「离开」的时机才落盘、不按时间轮询(0036)、删一行先弹确认而空行不弹(0037)。
   改对应行为前先读那篇。(0029 的标签位置已被 0033 取代,0034 的模态表单已被 0035 取代)
 
 ## 验证
@@ -82,6 +82,8 @@
 `option-cell-check`(组件级,不借账目夹具);动账目块的财务口径 → `ledger-check`,动它的就地增删改 →
 `ledger-edit-check`,动记一笔的草稿行(顶端落位 / 横着填 / 归位排序 / 空行自动删)→
 `ledger-entry-check`,动日期面板 / 编辑期钉住排序 → `ledger-date-check`(都挂真实编辑器,走 CDP 驱动);
+动删行的确认框(账目块 / 数据表编辑页同一套,`requestDelete` 与 `lib/data-table` 的 `isBlankRow`)→
+`ledger-edit-check` 与 `data-table-check` 都跑;
 动日期格的月历浮层本身(`composables/useDateCellPanel.ts`,账目行与看板卡共用)、
 它的键盘导航(`lib/date-key.ts` 的日期算术、`DateCalendar.vue` 的高亮环)→ 两页都跑;
 动看板卡的逐格编辑 → `kanban-date-check`(挂真实编辑器,走 CDP 驱动);动歌单块的字段识别 / 在线封面 / 多表绑定的落盘形态(`lib/playlist.ts`)→

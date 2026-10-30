@@ -7,6 +7,14 @@ import { ImagePlusIcon, PlusIcon, Trash2Icon, XIcon } from "@lucide/vue"
 import { isFileDrag, isImageFile, pickImageFile, readImageFile } from "@/lib/image"
 import { Button } from "@/components/ui/button"
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -199,6 +207,52 @@ function removeRow(rowId: string): void {
   void change((current) => dt.removeRow(current, rowId))
 }
 
+// ---- 删除确认 ----
+
+/**
+ * 待确认删除的行 id;空串 = 没有确认框。删的是盘上 `.tbl` 里的一行,没有撤销 ——
+ * ✕ 只在悬停时出现在行号那一格里,紧贴着数据,划过去就点到了。与账目块同一口径
+ * (ADR-0037):空行不问,有内容的先问一句。
+ */
+const deletingId = ref("")
+
+/**
+ * 确认框里那一行的人话摘要:前两个非空格。数据表的行没有固定「名字」列,所以按列顺序取,
+ * 图片格跳过(`[图片]` 指认不了任何东西)。
+ */
+const deletingSummary = computed(() => {
+  const row = rows.value.find((item) => item.id === deletingId.value)
+  if (row === undefined) return ""
+  return columns.value
+    .filter((column) => column.type !== "image")
+    .map((column) => displayOf(row, column).trim())
+    .filter((text) => text !== "")
+    .slice(0, 2)
+    .join(" · ")
+})
+
+/**
+ * 点行号格里的 ✕。空行直接删:刚点「加一行」又反悔是常态,为一条什么都没有的记录
+ * 弹框只是多一次点击。
+ */
+function requestDelete(row: DataRow): void {
+  if (dt.isBlankRow(row, columns.value)) {
+    removeRow(row.id)
+    return
+  }
+  deletingId.value = row.id
+}
+
+function closeDelete(): void {
+  deletingId.value = ""
+}
+
+function confirmDelete(): void {
+  const row = rows.value.find((item) => item.id === deletingId.value)
+  deletingId.value = ""
+  if (row !== undefined) removeRow(row.id)
+}
+
 function removeColumn(columnId: string): void {
   void change((current) => dt.removeColumn(current, columnId))
 }
@@ -378,7 +432,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
                 type="button"
                 class="absolute inset-y-0 right-2 hidden items-center text-muted-foreground hover:text-destructive group-hover/drow:flex"
                 aria-label="删除本行"
-                @click="removeRow(row.id)"
+                @click="requestDelete(row)"
               >
                 <Trash2Icon class="size-3" />
               </button>
@@ -484,6 +538,24 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
         </tbody>
       </table>
     </div>
+
+    <!-- 删除确认:删的是盘上 `.tbl` 里的一行,没有撤销;表被多篇笔记共用时,
+         别处也会跟着少一行,得先说清楚。与账目块同一个框(ADR-0037)。 -->
+    <AlertDialog :open="deletingId !== ''" @update:open="(open: boolean) => !open && closeDelete()">
+      <AlertDialogContent class="w-[300px] rounded-[18px] p-5 shadow-pop ring-1 ring-line/70">
+        <AlertDialogHeader>
+          <AlertDialogTitle>删除这一行</AlertDialogTitle>
+          <AlertDialogDescription class="text-[12px]">
+            「{{ deletingSummary === "" ? "这一行" : deletingSummary }}」将从数据表中删除，此操作不可恢复。
+            表被多篇笔记共用时，别处也会跟着少一行。
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter class="mx-0 mb-0 gap-2 rounded-none border-t-0 bg-transparent p-0 pt-3">
+          <Button variant="ghost" class="h-7 px-3 text-[13px]" @click="closeDelete">取消</Button>
+          <Button variant="destructive" class="h-7 px-3 text-[13px]" @click="confirmDelete">删除</Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 
   <!-- 读盘 + 解析的等待期（state 停在 loading）：给一句提示而不是空白，

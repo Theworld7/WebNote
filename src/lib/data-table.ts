@@ -327,6 +327,19 @@ export function replaceRow(table: DataTable, row: DataRow): DataTable {
   }
 }
 
+/**
+ * 一行的每一格都是该列的空值（`false` 也算空 —— 没勾就是没勾）。
+ *
+ * 两处用它：账目块的草稿行松手时据此自动删掉（ADR-0035），两处删除确认据此不对空行发问
+ * （ADR-0037）—— 问「要删掉一条什么都没有的记录吗」没有决策含量。
+ */
+export function isBlankRow(row: DataRow, columns: readonly DataColumn[]): boolean {
+  return columns.every((column) => {
+    const value = cellValue(row, column)
+    return value === null || value === "" || value === false
+  })
+}
+
 /** 一列数值的合计。非数字(文本 / 勾选 / 空)按空跳过 —— 统计块的视图与导出快照共用这一份口径。 */
 export function sumColumn(rows: readonly DataRow[], column: DataColumn): number {
   let total = 0

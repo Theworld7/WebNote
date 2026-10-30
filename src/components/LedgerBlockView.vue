@@ -6,6 +6,14 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue"
 import { DatabaseIcon, PlusIcon, Settings2Icon, Trash2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
@@ -368,12 +376,9 @@ function releaseDraft(): void {
   flash(row.id)
 }
 
-/** 一条全空的记录:每一格都是该列的空值(`false` 也算空 —— 没勾就是没勾)。 */
+/** 一条全空的记录。判据在 `lib/data-table`(删除确认也用它),这里只补上当前列。 */
 function isBlankRow(row: DataRow): boolean {
-  return columns.value.every((column) => {
-    const value = dt.cellValue(row, column)
-    return value === null || value === "" || value === false
-  })
+  return dt.isBlankRow(row, columns.value)
 }
 
 /**
@@ -493,7 +498,63 @@ async function addEntry(): Promise<void> {
 }
 
 /**
- * 删一行。正在编辑这一行时先把编辑态收掉,免得输入框跟着一个已消失的行。
+ * 待确认删除的行 id;空串 = 没有确认框。删的是盘上数据表里的一行,没有撤销 ——
+ * 悬停按钮就在行号那一格里,鼠标划过去就点到了,直接删太危险。
+ */
+const deletingId = ref("")
+
+/**
+ * 一格的「认人」文本。文本 / 日期照原样;数字列带上货币符号 —— 裸的 `5000` 认不出是钱,
+ * 而金额正是账目行最要紧的那一栏;图片格跳过,`[图片]` 指认不了任何东西。
+ */
+function summaryText(row: DataRow, column: DataColumn): string {
+  if (column.type === "image") return ""
+  if (!isNumberish(column)) return cellText(row, column).trim()
+  const value = moneyAt(row, column)
+  return value === null ? "" : formatYuan(value)
+}
+
+/**
+ * 确认框里那一行的人话摘要:前两个非空格。账目行没有「名字」字段,单说「一行」用户
+ * 对不上号;日期 + 事项(或人名 + 金额)通常正好能把这一条认出来。
+ */
+const deletingSummary = computed(() => {
+  const row = rows.value.find((item) => item.id === deletingId.value)
+  if (row === undefined) return ""
+  return columns.value
+    .map((column) => summaryText(row, column))
+    .filter((text) => text !== "")
+    .slice(0, 2)
+    .join(" · ")
+})
+
+/**
+ * 点行尾的删除钮。
+ *
+ * 空行不问:草稿行 / 被清空的记录本来就会在失焦时自己消失(ADR-0035),为一条什么都没有的
+ * 记录弹框只是多一次点击。有内容的才停下来问一句。
+ */
+function requestDelete(row: DataRow): void {
+  if (editing.value.startsWith(row.id + ":")) editing.value = ""
+  if (isBlankRow(row)) {
+    removeEntry(row)
+    return
+  }
+  deletingId.value = row.id
+}
+
+function closeDelete(): void {
+  deletingId.value = ""
+}
+
+function confirmDelete(): void {
+  const row = rows.value.find((item) => item.id === deletingId.value)
+  deletingId.value = ""
+  if (row !== undefined) removeEntry(row)
+}
+
+/**
+ * 真删。正在编辑这一行时先把编辑态收掉,免得输入框跟着一个已消失的行。
  *
  * 删掉的正好是草稿行时,冻结快照也得一起作废(`releaseDraft` 里那一条是同一个理由):
  * 快照是它还钉在顶端时拍的,不解除的话表就僵在这次拍照的顺序上,后面改别的行也不再归位。
@@ -719,7 +780,7 @@ function openTable() {
                   type="button"
                   class="absolute inset-y-0 right-1 hidden items-center text-muted-foreground hover:text-destructive group-hover/lrow:flex"
                   aria-label="删除本行"
-                  @click="removeEntry(row)"
+                  @click="requestDelete(row)"
                 >
                   <Trash2Icon class="size-3" />
                 </button>
@@ -839,6 +900,24 @@ function openTable() {
         </tfoot>
       </table>
     </div>
+
+    <!-- 删除确认:删的是盘上数据表里的一行,没有撤销;表被多篇笔记共用时,
+         别处也会跟着少一行,得先说清楚。 -->
+    <AlertDialog :open="deletingId !== ''" @update:open="(open: boolean) => !open && closeDelete()">
+      <AlertDialogContent class="w-[300px] rounded-[18px] p-5 shadow-pop ring-1 ring-line/70">
+        <AlertDialogHeader>
+          <AlertDialogTitle>删除这一笔</AlertDialogTitle>
+          <AlertDialogDescription class="text-[12px]">
+            「{{ deletingSummary === "" ? "这一行" : deletingSummary }}」将从数据表中删除，此操作不可恢复。
+            表被多篇笔记共用时，别处也会跟着少一行。
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter class="mx-0 mb-0 gap-2 rounded-none border-t-0 bg-transparent p-0 pt-3">
+          <Button variant="ghost" class="h-7 px-3 text-[13px]" @click="closeDelete">取消</Button>
+          <Button variant="destructive" class="h-7 px-3 text-[13px]" @click="confirmDelete">删除</Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 
   <!-- 日期浮层:挂到 body 上、fixed 定位 —— 账目表外面是横向滚动容器,格内浮层会被裁掉。

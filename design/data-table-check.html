@@ -732,6 +732,57 @@ check(
 )
 check("保存后标签干净", editorProbe.hasDirty.value === false)
 
+// ---- 删行：先问一句（与账目块同一口径，ADR-0037） ----
+// 数据行 = 带删除钮的行；末尾那行「新记录」没有钮，自然被排除。
+const editorRows = () =>
+  [...editorHost.querySelectorAll("tbody tr")].filter((tr) => tr.querySelector('[aria-label="删除本行"]') !== null)
+const settleEditor = async () => {
+  await nextTick()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  await nextTick()
+}
+const dialogEl = () => document.querySelector('[role="alertdialog"], [role="dialog"]')
+const dialogBtn = (el, label) => [...(el?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === label)
+/** 关框有 100ms 退出动画：等它真的从 DOM 上撤走，否则下一段会摸到正在淡出的旧框。 */
+const dialogGone = async () => {
+  for (let i = 0; i < 24; i += 1) {
+    if (dialogEl() === null) return true
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  return false
+}
+
+const rowsBeforeDelete = editorRows().length
+editorRows()[0]?.querySelector('[aria-label="删除本行"]')?.click()
+await settleEditor()
+const asRow = dialogEl()
+check("编辑器里点 ✕ 先弹确认框", asRow !== null)
+check("确认框说清删的是哪一行", asRow?.textContent.includes("进行中") === true, asRow?.textContent ?? "")
+check("确认框有「取消」「删除」两个钮", dialogBtn(asRow, "取消") !== undefined && dialogBtn(asRow, "删除") !== undefined)
+dialogBtn(asRow, "取消")?.click()
+await settleEditor()
+check("取消后这一行还在", editorRows().length === rowsBeforeDelete, `实际 ${editorRows().length}`)
+check("取消后确认框收起", await dialogGone())
+
+editorRows()[0]?.querySelector('[aria-label="删除本行"]')?.click()
+await settleEditor()
+const asRow2 = dialogEl()
+dialogBtn(asRow2, "删除")?.click()
+await settleEditor()
+check("确认后行被删掉", editorRows().length === rowsBeforeDelete - 1, `实际 ${editorRows().length}`)
+await dialogGone()
+
+// 空行不问：刚点「新记录」又反悔是常态，为一条什么都没有的记录弹框只是多一次点击。
+const addEntryBtn = [...editorHost.querySelectorAll("button")].find((b) => b.textContent.trim() === "新记录")
+addEntryBtn?.click()
+await settleEditor()
+const rowsAfterAdd = editorRows().length
+check("「新记录」加出来的行是空的", rowsAfterAdd === rowsBeforeDelete, `实际 ${rowsAfterAdd}`)
+editorRows()[rowsAfterAdd - 1]?.querySelector('[aria-label="删除本行"]')?.click()
+await settleEditor()
+check("删空行不弹框", dialogEl() === null)
+check("空行直接消失", editorRows().length === rowsAfterAdd - 1, `实际 ${editorRows().length}`)
+
 // ---------- 收尾 ----------
 
 const summary = `自检 ${passed}/${passed + failed} 通过`
