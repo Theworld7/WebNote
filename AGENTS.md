@@ -35,7 +35,8 @@
   `If-None-Match`（304 不占限额）、每次按下都以一条瞬态提示收尾(0031)、主路没给出结论就问
   jsDelivr 上的 `package.json`、镜像只往「有更新」下结论且链接退回列表页(0032)、标签住在编辑
   卡片的第一行、chrome 只剩一条标题栏(0033)、记一笔曾是模态表单(0034)、记一笔是行内草稿行:
-  插在列表顶端、焦点离开这一行才按排序归位、一格没填就自动删掉(0035)。
+  插在列表顶端、焦点离开这一行才按排序归位、一格没填就自动删掉(0035)、切标签 / 窗口失焦 /
+  关窗这三个「离开」的时机才落盘、不按时间轮询(0036)。
   改对应行为前先读那篇。(0029 的标签位置已被 0033 取代,0034 的模态表单已被 0035 取代)
 
 ## 验证
@@ -64,6 +65,8 @@
 `markdown-view-check`(挂真实编辑器，排版 / 消毒 / 转笔记)、
 `create-check`(扫描 / 打开 / 同目录转换)、`tree-integration-check`(整合视图保留 `.md`);
 动设置 → `settings-check`;动布局块 → `layout-check`;
+动保存时机(`saveOnLeave` / `attachAutoSave` / `requestWindowClose` 的前置保存、`useSettings`
+的 `autoSave`) → `autosave-check`(真实工作区 + 假盘),设置面板里那颗开关 → `settings-check`;
 动新版本检测(`lib/update.ts`、`composables/useUpdateCheck.ts`、`components/NewVersionButton.vue`)
 → `update-check`(版本号比较 / release 解析 / 手动检查的三种结论 / 按钮行为),按钮在标题栏里的
 落位 → `chrome-check`,设置里的入口 → `settings-check`;

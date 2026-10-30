@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>离开即保存自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>离开即保存：切标签 / 失焦 / 关窗</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+
+const out = document.getElementById("out")
+const lines = []
+let passed = 0
+let failed = 0
+
+addEventListener("error", (event) => {
+  out.textContent = `ERROR ${event.message}\n${lines.join("\n")}`
+})
+addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason
+  out.textContent = `REJECT ${reason instanceof Error ? reason.message : String(reason)}\n${lines.join("\n")}`
+})
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  out.textContent = `running: ${lines.join("\n")}`
+}
+
+/** 等一次异步写盘。OPFS 的写入是 promise，没有事件可等。 */
+const tick = () => new Promise((resolve) => setTimeout(resolve, 80))
+
+// ---------- 伪造一个工作区：两篇笔记，走真实的浏览器文件系统实现 ----------
+
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("autosave-probe", { create: true })
+
+async function seed(name, text) {
+  const file = await dir.getFileHandle(name, { create: true })
+  const writable = await file.createWritable()
+  await writable.write(`<p>${text}</p>`)
+  await writable.close()
+}
+await seed("a.html", "甲")
+await seed("b.html", "乙")
+window.showDirectoryPicker = async () => dir
+
+/**
+ * 焦点桩。`document.hasFocus()` 是「blur 算不算离开应用」的判据 ——
+ * 无头浏览器里它恒为 false，所以这里直接接管，让两种情形都能摆出来。
+ */
+let focused = false
+Object.defineProperty(document, "hasFocus", { configurable: true, value: () => focused })
+
+let workspace = null
+let settings = null
+
+const Root = defineComponent({
+  setup() {
+    try {
+      settings = provideSettings()
+      provideTheme(settings)
+      workspace = provideWorkspace()
+      // 与 App.vue 同一处接线：开关由设置递进去。
+      workspace.attachAutoSave(settings.autoSave)
+    } catch (error) {
+      out.textContent = `SETUP ${error instanceof Error ? error.message : String(error)}`
+      throw error
+    }
+    return () => h("div")
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+const notes = workspace.tree.value.filter((node) => node.kind === "note")
+const pathOf = (label) => {
+  const note = notes.find((node) => node.name === label)
+  return note === undefined ? "" : note.id
+}
+const aPath = pathOf("a.html")
+const bPath = pathOf("b.html")
+check("扫到了两篇预置笔记", aPath !== "" && bPath !== "", JSON.stringify(notes.map((n) => n.name)))
+
+/**
+ * 打开一条路径并等文档读进内存。
+ *
+ * 第一次要用 `openFile`（它会往标签栏里推一条，`markDirty` 认的正是那条 tab）；
+ * 之后再进来才是纯粹的「切标签」。直接用 `activateTab` 会让 activeTab 落空，
+ * 脏标记无处可挂 —— 那是探针自己的 bug，不是被测行为的 bug。
+ */
+async function openAt(path) {
+  if (workspace.tabs.value.some((tab) => tab.path === path)) workspace.activateTab(path)
+  else workspace.openFile(path)
+  for (let i = 0; i < 40 && workspace.activeDocument.value.length === 0; i += 1) await tick()
+  await nextTick()
+}
+
+/** 盘上那一篇的原文。断言「到底写没写」只看这个，不看内存。 */
+async function diskText(name) {
+  const handle = await dir.getFileHandle(name)
+  return await (await handle.getFile()).text()
+}
+
+function activeText() {
+  return workspace.activeDocument.value.map((block) => block.runs.map((run) => run.text).join("")).join("")
+}
+
+/** 改当前这一篇的首块正文并标脏 —— 与 BlockEditor 走的是同一个出口。 */
+function rewrite(text) {
+  const block = workspace.activeDocument.value[0]
+  if (block === undefined) return
+  block.runs = [{ text, marks: [] }]
+  workspace.markDirty()
+}
+
+function tabOf(path) {
+  return workspace.tabs.value.find((tab) => tab.path === path)
+}
+
+// ---------- 一、默认值 ----------
+
+check("自动保存默认开着", settings.autoSave.value === true)
+check("默认值不落 localStorage（没存过就没有这条键）", window.localStorage.getItem("webnote:auto-save") === null)
+
+// ---------- 二、开关关：切标签一个字节都不写 ----------
+
+settings.setAutoSave(false)
+await openAt(aPath)
+rewrite("甲改")
+check("改完是脏的", workspace.isDirty.value === true)
+
+workspace.activateTab(bPath)
+await tick()
+await tick()
+check("开关关：切走后仍脏", tabOf(aPath)?.dirty === true, JSON.stringify(workspace.tabs.value))
+check("开关关：盘上还是旧的", (await diskText("a.html")).includes("甲") && !(await diskText("a.html")).includes("甲改"))
+
+// ---------- 三、开关开：切标签把离开的那一篇落盘 ----------
+
+settings.setAutoSave(true)
+workspace.activateTab(aPath)
+for (let i = 0; i < 40 && workspace.activeDocument.value.length === 0; i += 1) await tick()
+await tick()
+check("切回脏标签时内容还在内存里（没有被重读盘盖掉）", activeText() === "甲改", activeText())
+check("切成开关时它仍脏", tabOf(aPath)?.dirty === true)
+
+workspace.activateTab(bPath)
+await tick()
+await tick()
+check("开关开：切走后那篇干净了", tabOf(aPath)?.dirty === false, JSON.stringify(workspace.tabs.value))
+check("开关开：盘上已是新内容", (await diskText("a.html")).includes("甲改"), await diskText("a.html"))
+
+// ---------- 三·补、两条都脏时，只存离开的那一条 ----------
+
+settings.setAutoSave(false)
+await openAt(aPath)
+rewrite("甲叁")
+await openAt(bPath)
+rewrite("乙贰")
+check("两条标签都脏", tabOf(aPath)?.dirty === true && tabOf(bPath)?.dirty === true, JSON.stringify(workspace.tabs.value))
+
+settings.setAutoSave(true)
+await openAt(aPath)
+await tick()
+await tick()
+check("只存离开的那一条：b 干净了", tabOf(bPath)?.dirty === false, JSON.stringify(workspace.tabs.value))
+check("只存离开的那一条：a 仍脏", tabOf(aPath)?.dirty === true)
+
+// ---------- 四、失焦 ----------
+
+await openAt(bPath)
+rewrite("乙改")
+check("b 改动是脏的", tabOf(bPath)?.dirty === true)
+
+focused = true
+window.dispatchEvent(new Event("blur"))
+await tick()
+await tick()
+check("窗口仍在本应用里（iframe 抢焦点）不写盘", tabOf(bPath)?.dirty === true, JSON.stringify(workspace.tabs.value))
+check("那时盘上还是旧的", !(await diskText("b.html")).includes("乙改"))
+
+focused = false
+window.dispatchEvent(new Event("blur"))
+await tick()
+await tick()
+check("真的离开应用 → 落盘", tabOf(bPath)?.dirty === false, JSON.stringify(workspace.tabs.value))
+check("落盘内容对得上", (await diskText("b.html")).includes("乙改"), await diskText("b.html"))
+
+// ---------- 五、关窗 ----------
+
+await openAt(aPath)
+rewrite("甲再改")
+check("a 又脏了", tabOf(aPath)?.dirty === true)
+await workspace.requestWindowClose()
+await tick()
+await tick()
+check("开关开时关窗先存，存干净就不弹框", workspace.windowClosePending.value === false)
+check("关窗前的内容已落盘", (await diskText("a.html")).includes("甲再改"), await diskText("a.html"))
+check("关窗后没有脏标签", workspace.hasDirty.value === false)
+
+// 开关关掉之后，同一个入口回到旧行为：拦住并等用户选。
+settings.setAutoSave(false)
+workspace.activateTab(bPath)
+for (let i = 0; i < 40 && workspace.activeDocument.value.length === 0; i += 1) await tick()
+rewrite("乙再改")
+await workspace.requestWindowClose()
+await tick()
+check("开关关时关窗照旧挂起确认框", workspace.windowClosePending.value === true)
+check("那时没有写盘", !(await diskText("b.html")).includes("乙再改"))
+workspace.cancelWindowClose()
+
+// ---------- 六、可见性（最小化 / 锁屏） ----------
+
+settings.setAutoSave(true)
+await openAt(bPath)
+rewrite("乙三改")
+Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" })
+document.dispatchEvent(new Event("visibilitychange"))
+await tick()
+await tick()
+check("页面转入后台也落盘", tabOf(bPath)?.dirty === false, JSON.stringify(workspace.tabs.value))
+check("后台落盘内容对得上", (await diskText("b.html")).includes("乙三改"))
+
+// ---------- 收尾 ----------
+
+lines.push(`自检 ${passed}/${passed + failed}`)
+out.textContent = `${failed === 0 ? "ALL OK" : "HAS FAILURES"}\n${lines.join("\n")}`
+</script>
+</body>
+</html>

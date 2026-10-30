@@ -15,7 +15,7 @@ import TitleBar from "@/components/TitleBar.vue"
 import ToastStack from "@/components/ToastStack.vue"
 import { isTauriRuntime } from "@/lib/fs"
 
-const { hasDirty, bootstrap, fs, root, attachTableRegistry, attachIntegrateTables, save, attachCloseGuard, requestWindowClose } =
+const { hasDirty, bootstrap, fs, root, attachTableRegistry, attachIntegrateTables, attachAutoSave, save, attachCloseGuard, requestWindowClose } =
   provideWorkspace()
 // 数据表注册表与工作区**共用同一对 driver / root**：切目录时两者必须一起换语境，
 // 各持一份引用迟早对不齐（见 useTables 的注释）。
@@ -47,6 +47,8 @@ attachIntegrateTables(settings.integrateTables)
 provideTheme(settings)
 // 关窗守卫：桌面端 Rust 层要凭这个开关决定拦不拦关窗，所以脏态一变就同步过去。
 attachCloseGuard(hasDirty)
+// 离开即保存：开关同样由设置递进工作区（切标签 / 失焦 / 关窗时写盘）。
+attachAutoSave(settings.autoSave)
 
 const { width: sidebarWidth, dragging, startDrag } = useResizableWidth()
 
@@ -138,7 +140,7 @@ onMounted(() => {
   if (!isTauriRuntime()) return
   void (async () => {
     const { listen } = await import("@tauri-apps/api/event")
-    const unlisten = await listen("webnote-close-blocked", () => requestWindowClose())
+    const unlisten = await listen("webnote-close-blocked", () => void requestWindowClose())
     // 监听还没装上组件就卸载了（热更新时常见）：立刻退订，否则会往一个死掉的实例里发。
     if (disposed) unlisten()
     else unlistenCloseBlocked = unlisten

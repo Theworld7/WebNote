@@ -589,6 +589,10 @@ function createWorkspace() {
   }
 
   function activateTab(path: string) {
+    // 切走的这一篇先存掉（自动保存开着才真写盘）。旧路径要当场抓在手里：下一行
+    // `activePath` 就指向新标签了，`saveOnLeave` 再去读就成了别人。
+    const leaving = activePath.value
+    if (path !== leaving) void saveOnLeave(leaving)
     activePath.value = path
     void loadDocument(path)
   }
@@ -651,6 +655,8 @@ function createWorkspace() {
    * 关标签入口。干净的标签直接关；脏标签挂起，等 `resolveClose()` 拿到用户选择再关。
    *
    * 拦截策略选定为「只在关标签时拦」：切标签属于高频动作，静默保留脏态不打断。
+   * 自动保存开着时这条只剩半句 —— 切标签那一路已经先把离开的那篇存掉了
+   * （`saveOnLeave`），所以这个框通常只在「刚改完立刻点关闭」或上次写盘失败时出现。
    */
   function requestCloseTab(path: string) {
     const tab = tabs.value.find((item) => item.path === path)
@@ -721,10 +727,14 @@ function createWorkspace() {
    *
    * 后一个分支不是多余的：原生那边的脏标志是异步同步过去的，用户刚存完就点关闭，
    * 事件仍可能到 —— 这时不该弹一个「0 个文件未保存」的框。
+   *
+   * 问之前先按自动保存的规矩把当前这一篇写掉（开关开着才动）：写成功了 dirty 就
+   * 挂了零，框根本不弹 —— 这正是自动保存要买的那个结果。写失败则照旧问，理由同上。
    */
-  function requestWindowClose() {
+  async function requestWindowClose() {
+    await saveOnLeave(activePath.value)
     if (!hasDirty.value) {
-      void confirmWindowClose()
+      await confirmWindowClose()
       return
     }
     windowClosePending.value = true
@@ -787,6 +797,53 @@ function createWorkspace() {
       },
       { immediate: true },
     )
+  }
+
+  // ---- 离开即保存 ----
+
+  /**
+   * 自动保存是不是开着。由根组件把设置递进来（`attachAutoSave`）—— 工作区不认识
+   * 设置模块，与 `attachIntegrateTables` 同一个模式。没接线时按**关**处理：自检页
+   * 与浏览器调试里不该出现悄悄写盘的行为。
+   */
+  let autoSaveEnabled: Ref<boolean> | null = null
+
+  /**
+   * 离开一篇笔记时把它存掉。
+   *
+   * 只存传进来的那一条：切走 / 关掉的那一篇才叫「离开」，别的脏标签还留在原地等着
+   * 被访问，替它们预写盘等于替用户决定什么时候落，也会让它们的引用块快照提前定格。
+   *
+   * 存不存得进去交给 `saveTab`：它已经按路径定位、管在途重复、把失败写进 `fsError`。
+   * 这里失败了不做补救 —— 脏态还在，关标签 / 关窗的确认框照样会拦。
+   */
+  async function saveOnLeave(path: string) {
+    if (autoSaveEnabled?.value !== true) return
+    if (path === "") return
+    const tab = tabs.value.find((item) => item.path === path)
+    if (tab === undefined || !tab.dirty) return
+    await saveTab(path)
+  }
+
+  /**
+   * 接上「离开即保存」的三个触发点：切标签（`activateTab`）、窗口失焦、关窗
+   * （`requestWindowClose`）。没有定时器 —— 「停下来就写盘」会在一句长句中间落一次
+   * 半成品，还会连带重算引用块快照。
+   *
+   * `blur` 要配合 `document.hasFocus()`：HTML 块的沙箱 iframe 拿到焦点也会让父窗口
+   * blur，那不是「离开应用」，不拦掉的话每点一次 iframe 就写一次盘。
+   * `visibilitychange` 兜的是最小化、切虚拟桌面、锁屏 —— 这几种窗口并不失焦。
+   */
+  function attachAutoSave(enabled: Ref<boolean>) {
+    autoSaveEnabled = enabled
+    window.addEventListener("blur", () => {
+      if (document.hasFocus()) return
+      void saveOnLeave(activePath.value)
+    })
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState !== "hidden") return
+      void saveOnLeave(activePath.value)
+    })
   }
 
   /** 折叠 / 展开一个节点。文件夹与「整合视图里挂了引用的笔记」共用这一个集合。 */
@@ -2245,6 +2302,8 @@ function createWorkspace() {
     attachTableRegistry,
     // 整合数据表视图：偏好由 `App.vue` 递进来，工作区自己不认识设置模块。
     attachIntegrateTables,
+    // 离开即保存：同一个理由，开关也由 `App.vue` 递进来。
+    attachAutoSave,
     // file actions
     openFile,
     followLink,

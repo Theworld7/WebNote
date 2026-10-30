@@ -62,8 +62,10 @@ const WIDTH_KEY = "webnote:content-width"
 window.localStorage.removeItem(WIDTH_KEY)
 const FONT_KEY = "webnote:content-font"
 const CODE_FONT_KEY = "webnote:code-font"
+const AUTO_SAVE_KEY = "webnote:auto-save"
 window.localStorage.removeItem(FONT_KEY)
 window.localStorage.removeItem(CODE_FONT_KEY)
+window.localStorage.removeItem(AUTO_SAVE_KEY)
 
 // ---------- 挂真实组件：设置面板 + 一个宽表格 ----------
 
@@ -78,10 +80,13 @@ rows = rows.map((row) => row.map((cell) => ({ ...cell, runs: textToRuns(WIDE_TEX
 const block = reactive(createTableBlock(rows))
 
 const open = ref(true)
+/** 面板自己读写 `useSettings()`，把实例留一份用来断言读取值（渲染之外的那一半）。 */
+let settings = null
 
 const Root = defineComponent({
   setup() {
-    provideTheme(provideSettings())
+    settings = provideSettings()
+    provideTheme(settings)
     provideWorkspace()
     // BlockEditor 也挂上：内容宽度偏好的几何断言量的是它那层 [data-doc] 容器
     // （computed maxWidth），比只验数据落盘多走一整段「设置 → 渲染」链路。
@@ -165,6 +170,37 @@ check(
 )
 const nav = panelRoot() === null ? null : panelRoot().querySelector("nav")
 check("分区栏出现「显示」", nav !== null && nav.textContent.includes("显示"))
+
+// ---------- 二点二、保存 ----------
+//
+// 这一项只有开关本身可验（行为在 `autosave-check` 里跑真盘），所以钉两件事：
+// 默认是开的，点一下会落到 localStorage —— 拒绝「界面上点了但没存」这种半截状态。
+
+note("保存")
+
+/** 开关按钮按文案找：面板里 `role="switch"` 有好几颗，位置会随分区调整而变。 */
+function findSwitch(label) {
+  return [...document.querySelectorAll('[role="switch"]')].find((el) => el.textContent.includes(label)) ?? null
+}
+
+const autoSaveSwitch = findSwitch("离开时自动保存")
+check("默认开着（没存过任何值时）", settings !== null && settings.autoSave.value === true)
+check("面板里有这颗开关", autoSaveSwitch !== null)
+
+await autoSaveSwitch?.click()
+await nextTick()
+check(
+  "点一下变关并落盘（键 webnote:auto-save）",
+  settings.autoSave.value === false && window.localStorage.getItem(AUTO_SAVE_KEY) === "false",
+  `值=${settings?.autoSave.value} 存=${window.localStorage.getItem(AUTO_SAVE_KEY)}`,
+)
+
+await findSwitch("离开时自动保存")?.click()
+await nextTick()
+check(
+  "再点一下回到开",
+  settings.autoSave.value === true && window.localStorage.getItem(AUTO_SAVE_KEY) === "true",
+)
 
 // ---------- 二点五、内容宽度 ----------
 //

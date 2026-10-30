@@ -15,6 +15,7 @@ import {
   MoonIcon,
   MoveHorizontalIcon,
   RotateCcwIcon,
+  SaveIcon,
   SunIcon,
   SunriseIcon,
   WrapTextIcon,
@@ -51,7 +52,7 @@ import NewVersionButton from "./NewVersionButton.vue"
  */
 const open = defineModel<boolean>("open", { required: true })
 
-const { tableEffect, setTableEffect, contentWidth, setContentWidth, menuGroupLayout, setMenuGroupLayout, integrateTables, setIntegrateTables, headingNav, setHeadingNav, headingNavMin, setHeadingNavMin, contentFont, setContentFont, codeFont, setCodeFont, theme, setTheme } = useSettings()
+const { tableEffect, setTableEffect, contentWidth, setContentWidth, menuGroupLayout, setMenuGroupLayout, integrateTables, setIntegrateTables, autoSave, setAutoSave, headingNav, setHeadingNav, headingNavMin, setHeadingNavMin, contentFont, setContentFont, codeFont, setCodeFont, theme, setTheme } = useSettings()
 
 /**
  * 本机字体列表。打开面板时才去取（桌面端要扫一遍系统字体），拿到之前选择框里
@@ -503,6 +504,32 @@ function optionClass(isActive: boolean): string {
                   @change="commitHeadingNavMin"
                 />
               </label>
+            </section>
+
+            <section class="flex flex-col gap-2">
+              <h3 class="text-[13px] font-medium text-foreground">保存</h3>
+              <SheetDescription>离开当前这一篇时把它写盘，不必记着按 Ctrl+S。</SheetDescription>
+
+              <!-- 默认开：不按快捷键也不丢东西本来就是编辑器的预期，关掉才是选择。 -->
+              <button
+                type="button"
+                role="switch"
+                :aria-checked="autoSave"
+                :class="[
+                  'mt-0.5 flex items-start gap-2.5 rounded-[9px] border p-2.5 text-left transition-colors',
+                  optionClass(autoSave),
+                ]"
+                @click="setAutoSave(!autoSave)"
+              >
+                <SaveIcon class="mt-0.5 size-4 flex-none text-muted-foreground" />
+                <span class="flex min-w-0 flex-col gap-0.5">
+                  <span class="text-[13px] leading-[1.4] text-foreground">离开时自动保存</span>
+                  <span class="text-[12px] leading-[1.45] text-muted-foreground">
+                    切标签、切到别的应用、关窗时落盘；不按时间轮询，只在真的离开时写
+                  </span>
+                </span>
+                <CheckIcon v-if="autoSave" class="ml-auto mt-0.5 size-3.5 flex-none text-foreground" />
+              </button>
             </section>
 
             <section class="flex flex-col gap-2">

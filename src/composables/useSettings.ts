@@ -116,6 +116,18 @@ function readHeadingNav(): boolean {
 }
 
 /**
+ * 离开即保存 —— 切标签、窗口失焦、关窗时把当前这一篇写盘。
+ *
+ * 默认**开**，与 `headingNav` 同一判据：编辑器本来就该「不按 Ctrl+S 也不丢东西」，
+ * 关掉才是选择，所以认的是「存过 false」。
+ */
+const AUTO_SAVE_KEY = "webnote:auto-save"
+
+function readAutoSave(): boolean {
+  return window.localStorage.getItem(AUTO_SAVE_KEY) !== "false"
+}
+
+/**
  * 标题导航的出现门槛：笔记里的标题数**达到**这个数才显示。
  *
  * 一两节的短笔记不需要目录 —— 屏幕上一眼看得完，多一列刻度只是噪音。所以它不是
@@ -239,6 +251,7 @@ interface PreferenceFile {
   contentWidth?: ContentWidth
   menuGroupLayout?: MenuGroupLayout
   integrateTables?: boolean
+  autoSave?: boolean
   headingNav?: boolean
   headingNavMin?: number
   contentFont?: string
@@ -270,6 +283,7 @@ function parsePreferenceFile(text: string): PreferenceFile {
     menuGroupLayout: pick(MENU_GROUP_LAYOUTS, source["menuGroupLayout"]),
     // 布尔偏好没有候选表可收窄，类型对得上才认。
     integrateTables: typeof source["integrateTables"] === "boolean" ? source["integrateTables"] : undefined,
+    autoSave: typeof source["autoSave"] === "boolean" ? source["autoSave"] : undefined,
     headingNav: typeof source["headingNav"] === "boolean" ? source["headingNav"] : undefined,
     headingNavMin: pickCount(source["headingNavMin"]),
     contentFont: pickFont(source["contentFont"]),
@@ -299,6 +313,9 @@ interface Settings {
   /** 文件树是否把被引用的数据表收进笔记名下（整合数据表视图）。同上，只经 setter 写。 */
   integrateTables: Ref<boolean>
   setIntegrateTables: (value: boolean) => void
+  /** 离开（切标签 / 失焦 / 关窗）时是否把当前笔记写盘。同上，只经 setter 写。 */
+  autoSave: Ref<boolean>
+  setAutoSave: (value: boolean) => void
   /** 笔记页右端的标题导航是否显示。同上，只经 setter 写。 */
   headingNav: Ref<boolean>
   setHeadingNav: (value: boolean) => void
@@ -354,6 +371,14 @@ function createSettings(): Settings {
   function setIntegrateTables(value: boolean) {
     integrateTables.value = value
     window.localStorage.setItem(INTEGRATE_TABLES_KEY, String(value))
+    void persistToStore()
+  }
+
+  const autoSave = ref(readAutoSave())
+
+  function setAutoSave(value: boolean) {
+    autoSave.value = value
+    window.localStorage.setItem(AUTO_SAVE_KEY, String(value))
     void persistToStore()
   }
 
@@ -431,6 +456,7 @@ function createSettings(): Settings {
       contentWidth: contentWidth.value,
       menuGroupLayout: menuGroupLayout.value,
       integrateTables: integrateTables.value,
+      autoSave: autoSave.value,
       headingNav: headingNav.value,
       headingNavMin: headingNavMin.value,
       contentFont: contentFont.value,
@@ -475,6 +501,11 @@ function createSettings(): Settings {
     if (prefs.integrateTables !== undefined && prefs.integrateTables !== integrateTables.value) {
       integrateTables.value = prefs.integrateTables
       window.localStorage.setItem(INTEGRATE_TABLES_KEY, String(prefs.integrateTables))
+      changed = true
+    }
+    if (prefs.autoSave !== undefined && prefs.autoSave !== autoSave.value) {
+      autoSave.value = prefs.autoSave
+      window.localStorage.setItem(AUTO_SAVE_KEY, String(prefs.autoSave))
       changed = true
     }
     if (prefs.headingNav !== undefined && prefs.headingNav !== headingNav.value) {
@@ -548,6 +579,8 @@ function createSettings(): Settings {
     setMenuGroupLayout,
     integrateTables,
     setIntegrateTables,
+    autoSave,
+    setAutoSave,
     headingNav,
     setHeadingNav,
     headingNavMin,
