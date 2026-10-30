@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>滚动记忆自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  /* 编辑区要有确定高度，正文才真的滚得动。 */
+  #app { height: 560px; display: flex; flex-direction: column; border: 1px solid #e5e5e5; }
+  pre { margin: 12px 0 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>滚动位置记忆：实时进内存 / 切回原处 / 没记过落顶部</h1>
+<!-- 有顶层 await，--dump-dom 抓不到结果：
+     node design/cdp-dump.mjs http://localhost:1420/design/scroll-memory-check.html -->
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { scrollTopOf, scrollTopsSnapshot } from "../src/composables/useSession.ts"
+
+const out = document.getElementById("out")
+const lines = []
+let passed = 0
+let failed = 0
+
+addEventListener("error", (event) => { out.textContent = `ERROR ${event.message}\n${lines.join("\n")}` })
+addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason
+  out.textContent = `REJECT ${reason?.stack ?? String(reason)}\n${lines.join("\n")}`
+})
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  out.textContent = `running: ${lines.join("\n")}`
+}
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+// ---------- 两篇够长的笔记（滚动要真的发生才有得量） ----------
+
+const PARA = "这一段是垫在标题之间的正文，用来把页面撑长，好让滚动真的发生、位置真的有得记。"
+const NOTE_HTML = Array.from({ length: 12 }, (_, i) => `<h2>第 ${i + 1} 节</h2>` + `<p>${PARA}</p>`.repeat(3)).join("")
+
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("scroll-memory-probe", { create: true })
+for (const name of ["a.html", "b.html"]) {
+  const file = await dir.getFileHandle(name, { create: true })
+  const writable = await file.createWritable()
+  await writable.write(NOTE_HTML)
+  await writable.close()
+}
+window.showDirectoryPicker = async () => dir
+
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    provideTheme(provideSettings())
+    return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+function notePath(name) {
+  const walk = (list) => {
+    for (const node of list) {
+      if (node.kind !== "folder" && node.name === name) return node.id
+      const hit = node.children === undefined ? "" : walk(node.children)
+      if (hit !== "") return hit
+    }
+    return ""
+  }
+  return walk(workspace.tree.value)
+}
+const aPath = notePath("a.html")
+const bPath = notePath("b.html")
+check("扫到两篇预置笔记", aPath !== "" && bPath !== "", JSON.stringify(workspace.tree.value.map((n) => n.name)))
+
+/** 与 BlockEditor 同一个查找口径：ScrollArea 的 viewport 就是正文的滚动容器。 */
+function viewportEl() {
+  return document.querySelector("[data-doc]")?.closest('[data-slot="scroll-area-viewport"]') ?? null
+}
+
+async function openAt(path) {
+  workspace.openFile(path)
+  for (let i = 0; i < 80 && workspace.activeDocument.value.length === 0; i += 1) await wait(50)
+  await nextTick()
+  await wait(80)
+}
+
+async function scrollTo(top) {
+  const viewport = viewportEl()
+  if (viewport === null) return -1
+  viewport.scrollTop = top
+  // scroll 事件在下一次事件循环才派发；记录逻辑挂的就是它。
+  await wait(80)
+  return viewport.scrollTop
+}
+
+// ---------- 一、实时记录 ----------
+
+await openAt(aPath)
+const viewport = viewportEl()
+check("正文的滚动容器找得到", viewport !== null)
+check("这一篇能滚起来", viewport !== null && viewport.scrollHeight > viewport.clientHeight + 100,
+  viewport === null ? "" : `scrollHeight=${viewport.scrollHeight} clientHeight=${viewport.clientHeight}`)
+
+const landed = await scrollTo(320)
+check("滚动到位（scrollTop 真停在 320）", landed === 320, String(landed))
+check("滚动位置当场进了记忆（不等离开）", scrollTopOf(aPath) === 320, String(scrollTopOf(aPath)))
+
+// ---------- 二、切走再回来：位置还在 ----------
+
+await openAt(bPath)
+check("切到另一篇时它没有记忆，落回顶部", scrollTopOf(bPath) === 0, String(scrollTopOf(bPath)))
+check("切换不会把上一篇的位置抹掉", scrollTopOf(aPath) === 320, String(scrollTopOf(aPath)))
+
+await scrollTo(140)
+await openAt(aPath)
+const back = viewportEl()
+check("切回来停在原处", back !== null && back.scrollTop === 320, back === null ? "" : String(back.scrollTop))
+
+// ---------- 三、快照里就是这两条 ----------
+
+const snapshot = scrollTopsSnapshot()
+check("记忆里同时有两条", Object.keys(snapshot).length === 2, JSON.stringify(snapshot))
+check("a 的位置对得上", snapshot[aPath] === 320, JSON.stringify(snapshot))
+check("b 的位置对得上", snapshot[bPath] === 140, JSON.stringify(snapshot))
+
+// ---------- 收尾 ----------
+
+lines.push(`自检 ${passed}/${passed + failed}`)
+out.textContent = `${failed === 0 ? "ALL OK" : "HAS FAILURES"}\n${lines.join("\n")}`
+</script>
+</body>
+</html>

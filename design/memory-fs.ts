@@ -116,6 +116,11 @@ export function createMemoryFs(): MemoryFs {
       return "stub"
     },
 
+    /** 会话快照按根路径分键（`useSession`），stub 也给一个稳定的假路径。 */
+    absolutePath(_root: FsRoot, path: string): string {
+      return path === "" ? "/stub" : `/stub/${path}`
+    },
+
     async scanTree(): Promise<FileNode[]> {
       return scan("", true)
     },

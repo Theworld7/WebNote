@@ -1,14 +1,3 @@
-<script lang="ts">
-/**
- * 每篇笔记离开时的滚动位置。
- *
- * 切到未缓存的笔记时,加载态会把 BlockEditor 整个卸下再挂回(EditorSurface 的
- * `v-if`),scrollTop 随实例一起没了。按路径记住、挂回时送回去。Map 放模块层 ——
- * 组件实例随切换生灭,记忆要活得比实例久。
- */
-const scrollTops = new Map<string, number>()
-</script>
-
 <script setup lang="ts">
 import type { BlockDropEdge, BlockType, InlineRun } from "@/types/workspace"
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue"
@@ -20,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { rememberScrollTop, scrollTopOf } from "@/composables/useSession"
 import { useSettings, CONTENT_WIDTH_PX } from "@/composables/useSettings"
 import { useTheme } from "@/composables/useTheme"
 import { useToast } from "@/composables/useToast"
@@ -1197,7 +1187,7 @@ function scrollViewport(): HTMLElement | null {
 
 function rememberScroll(path: string) {
   const viewport = scrollViewport()
-  if (path !== "" && viewport !== null) scrollTops.set(path, viewport.scrollTop)
+  if (viewport !== null) rememberScrollTop(path, viewport.scrollTop)
 }
 
 /** 恢复要等新文档渲染落地，所以包一层 `nextTick`；没记忆的路径落回顶部。 */
@@ -1205,8 +1195,20 @@ function restoreScroll(path: string) {
   if (path === "") return
   void nextTick(() => {
     const viewport = scrollViewport()
-    if (viewport !== null) viewport.scrollTop = scrollTops.get(path) ?? 0
+    if (viewport !== null) viewport.scrollTop = scrollTopOf(path)
   })
+}
+
+/**
+ * 滚动位置实时记（只进内存，不写盘）。
+ *
+ * 只在离开时拍一次不够：关窗时没有「离开这一篇」这一步 —— 应用直接退，那条路
+ * 拍不到最后的读数，恢复出来就是打开时的位置。记的是激活路径而不是 `docRef`：
+ * 切文档时 viewport 是同一个（ScrollArea 常驻），路径才是主语。
+ */
+function recordScroll() {
+  const viewport = navViewport.value
+  if (viewport !== null) rememberScrollTop(activePath.value, viewport.scrollTop)
 }
 
 // 缓存命中的切换不经历卸载，靠这条 watcher 换存取；卸载重挂的路由 `onMounted` 兜住。
@@ -1222,8 +1224,10 @@ watch(activePath, (next, prev) => {
 onMounted(() => {
   restoreScroll(activePath.value)
   navViewport.value = scrollViewport()
+  navViewport.value?.addEventListener("scroll", recordScroll)
 })
 onBeforeUnmount(() => {
+  navViewport.value?.removeEventListener("scroll", recordScroll)
   rememberScroll(activePath.value)
   clearCrossSelection()
   clearBlockSelection()

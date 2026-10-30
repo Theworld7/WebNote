@@ -2,6 +2,7 @@ import type { InjectionKey, Ref } from "vue"
 import type { Block, BlockSettingsPatch, BlockType, ChatMessage, CloseStrategy, CreateTarget, FileNode, InlineRun, LayoutMode, OpenTab, PlaylistSource, TableAlign, TableCell, TreeTarget } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref, watch } from "vue"
+import { adoptScrollTops, readSession, scrollTopsSnapshot, sessionKeyOf, writeSession } from "@/composables/useSession"
 import { CELL_EXCLUDED_TYPES, REFERENCE_INSERT_SPEC, cloneBlock, countChars, createBlock, createBlockId, isReferenceBlock, isTextualBlock, refPathsOf, retypeBlock } from "@/lib/blocks"
 import type { ReferenceBlock, ReferenceBlockType } from "@/lib/blocks"
 import type { DataTable } from "@/types/data-table"
@@ -442,13 +443,71 @@ function createWorkspace() {
     try {
       const nodes = await driver.scanTree(next)
       tree.value = nodes
-      expandedIds.value = new Set(defaultExpanded(nodes))
+      restoreSession(driver, next, nodes)
     } catch (error) {
       tree.value = []
       fsError.value = `读取目录失败：${describeError(error)}`
     } finally {
       scanning.value = false
     }
+  }
+
+  /** 树里所有磁盘节点的路径。恢复会话拿它当「还在盘上」的判据 —— 树是刚扫的，
+   *  比逐个 `exists` 问盘省掉 N 次 IPC。`refs` 不算：那是整合视图挂的引用，不是树。 */
+  function diskPathsOf(nodes: readonly FileNode[]): Set<string> {
+    const paths = new Set<string>()
+    const walk = (list: readonly FileNode[]): void => {
+      for (const node of list) {
+        paths.add(node.id)
+        if (node.children !== undefined) walk(node.children)
+      }
+    }
+    walk(nodes)
+    return paths
+  }
+
+  /**
+   * 接上上次关掉应用时的样子。
+   *
+   * 没有快照 → 默认只展开根层。有快照但里面某些路径已经不在了（应用外删了文件）→
+   * 丢掉那几条，剩下的照旧：**不因为少了一个文件就把整排标签扔回空态**。
+   * 标签一律按「干净」还原 —— 盘上那份才是真的，上次有没有没存完的改动不归这里管
+   * （自动保存已经把离开时的内容写下去了，见 ADR-0036）。
+   */
+  function restoreSession(driver: WorkspaceFs, current: FsRoot, nodes: readonly FileNode[]) {
+    const snapshot = readSession(sessionKeyOf(driver.absolutePath(current, "")))
+    if (snapshot === null) {
+      expandedIds.value = new Set(defaultExpanded(nodes))
+      return
+    }
+    const alive = diskPathsOf(nodes)
+    expandedIds.value = new Set(snapshot.expandedIds.filter((id) => alive.has(id)))
+    adoptScrollTops(snapshot.scrollTops)
+
+    const restorable = snapshot.tabs.filter((path) => alive.has(path))
+    tabs.value = restorable.map((path) => ({ path, dirty: false, dirtyTables: [] }))
+    const next = restorable.includes(snapshot.activePath) ? snapshot.activePath : restorable[0]
+    // 只剩「树展开到哪层」也该还原：标签全关掉、只看树也是合法的一次下班状态。
+    if (next !== undefined) activateTab(next)
+  }
+
+  /**
+   * 把「现在这个样子」写进会话快照。
+   *
+   * 只在关窗那一刻调一次（`confirmWindowClose`）—— 切标签、展开折叠都不写。一次
+   * `localStorage` 写是微秒级，但为「下次打开」而每点一下就写一次没有对应的收益，
+   * 而关窗那一刻正好是「这次会话定格了」的那一刻。
+   */
+  function persistSession() {
+    const driver = fs.value
+    const current = root.value
+    if (driver === null || current === null) return
+    writeSession(sessionKeyOf(driver.absolutePath(current, "")), {
+      tabs: tabs.value.map((tab) => tab.path),
+      activePath: activePath.value,
+      expandedIds: [...expandedIds.value],
+      scrollTops: scrollTopsSnapshot(),
+    })
   }
 
   /** 「打开文件夹」/「换目录」按钮。用户取消则什么都不做。 */
@@ -763,8 +822,15 @@ function createWorkspace() {
     await confirmWindowClose()
   }
 
-  /** 真正交给原生关窗。放行票由 Rust 侧那张 `allow` 管，这里只发一次调用。 */
+  /**
+   * 真正交给原生关窗。放行票由 Rust 侧那张 `allow` 管，这里只发一次调用。
+   *
+   * 会话快照在这里写而不是在 `requestWindowClose`：那是「有人想关」的入口，用户
+   * 还可能点取消 —— 关了又取消不该把当时的样子定格下来。这里是所有关窗路径
+   * （无脏直接放、确认后保存、确认后丢弃）的汇合点，写一次就全覆盖。
+   */
   async function confirmWindowClose() {
+    persistSession()
     if (!isTauriRuntime()) return
     try {
       const { invoke } = await import("@tauri-apps/api/core")
@@ -2316,6 +2382,9 @@ function createWorkspace() {
     windowClosePending,
     dirtyTabs,
     requestWindowClose,
+    // 会话快照的写入时机由根组件决定：桌面端在 `confirmWindowClose` 里自己写，
+    // 浏览器端没有原生关窗事件，只能靠 `beforeunload` 补一次。
+    persistSession,
     resolveWindowClose,
     cancelWindowClose,
     toggleExpanded,

@@ -15,7 +15,7 @@ import TitleBar from "@/components/TitleBar.vue"
 import ToastStack from "@/components/ToastStack.vue"
 import { isTauriRuntime } from "@/lib/fs"
 
-const { hasDirty, bootstrap, fs, root, attachTableRegistry, attachIntegrateTables, attachAutoSave, save, attachCloseGuard, requestWindowClose } =
+const { hasDirty, bootstrap, fs, root, attachTableRegistry, attachIntegrateTables, attachAutoSave, save, attachCloseGuard, requestWindowClose, persistSession } =
   provideWorkspace()
 // 数据表注册表与工作区**共用同一对 driver / root**：切目录时两者必须一起换语境，
 // 各持一份引用迟早对不齐（见 useTables 的注释）。
@@ -105,7 +105,13 @@ function toggleSidebar() {
 let unlistenCloseBlocked: (() => void) | null = null
 let disposed = false
 
+/**
+ * 浏览器端的「要关了」。会话快照在这里定格 —— 桌面端走的是 `confirmWindowClose`
+ * 那条路，两边不重叠：那边 Rust 拦在前面，压根走不到这里。Tauri 里 webview 卸载
+ * 也会派发一次 `beforeunload`，重写一次同值，无害。
+ */
 function onBeforeUnload(event: BeforeUnloadEvent) {
+  persistSession()
   if (!hasDirty.value) return
   event.preventDefault()
   event.returnValue = ""

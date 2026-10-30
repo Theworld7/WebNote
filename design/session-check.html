@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>会话快照自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>会话快照：标签 / 激活项 / 树展开 / 滚动位置</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { rememberScrollTop, scrollTopOf, scrollTopsSnapshot } from "../src/composables/useSession.ts"
+
+const out = document.getElementById("out")
+const lines = []
+let passed = 0
+let failed = 0
+
+addEventListener("error", (event) => {
+  out.textContent = `ERROR ${event.message}\n${lines.join("\n")}`
+})
+addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason
+  out.textContent = `REJECT ${reason instanceof Error ? reason.message : String(reason)}\n${lines.join("\n")}`
+})
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  out.textContent = `running: ${lines.join("\n")}`
+}
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 80))
+
+// ---------- 伪造一个工作区：两篇笔记 + 一个子目录，走真实的浏览器文件系统实现 ----------
+
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("session-probe", { create: true })
+
+async function writeRaw(parent, name, text) {
+  const file = await parent.getFileHandle(name, { create: true })
+  const writable = await file.createWritable()
+  await writable.write(text)
+  await writable.close()
+}
+const seedNote = (parent, name, text) => writeRaw(parent, name, `<p>${text}</p>`)
+await seedNote(dir, "a.html", "甲")
+await seedNote(dir, "b.html", "乙")
+const sub = await dir.getDirectoryHandle("册子", { create: true })
+await seedNote(sub, "c.html", "丙")
+window.showDirectoryPicker = async () => dir
+
+/** 浏览器端 `absolutePath` 返回 `null`，会话键因此是固定那一条（`useSession` 的 `BROWSER_KEY`）。 */
+const SESSION_KEY = "webnote:session:browser"
+
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    try {
+      workspace = provideWorkspace()
+    } catch (error) {
+      out.textContent = `SETUP ${error instanceof Error ? error.message : String(error)}`
+      throw error
+    }
+    return () => h("div")
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+
+/** 一次「启动」：等树扫完、等恢复落地。 */
+async function launch() {
+  await workspace.bootstrap()
+  await workspace.openRoot()
+  await nextTick()
+  await tick()
+}
+
+function notePath(name) {
+  const walk = (list) => {
+    for (const node of list) {
+      if (node.kind !== "folder" && node.name === name) return node.id
+      const hit = node.children === undefined ? "" : walk(node.children)
+      if (hit !== "") return hit
+    }
+    return ""
+  }
+  return walk(workspace.tree.value)
+}
+
+function folderPath(name) {
+  const node = workspace.tree.value.find((item) => item.kind === "folder" && item.name === name)
+  return node === undefined ? "" : node.id
+}
+
+/** 打开一条路径并等文档读进内存。 */
+async function openAt(path) {
+  workspace.openFile(path)
+  for (let i = 0; i < 40 && workspace.activeDocument.value.length === 0; i += 1) await tick()
+  await nextTick()
+}
+
+/** 关一次窗：没有脏标签就会一路走到 `confirmWindowClose`，快照在那儿写。 */
+async function closeApp() {
+  await workspace.requestWindowClose()
+  await tick()
+}
+
+// ---------- 一、没有快照：默认只展开根层 ----------
+
+window.localStorage.removeItem(SESSION_KEY)
+await launch()
+
+const aPath = notePath("a.html")
+const bPath = notePath("b.html")
+const subPath = folderPath("册子")
+check("扫到了两篇笔记与子目录", aPath !== "" && bPath !== "" && subPath !== "", JSON.stringify(workspace.tree.value.map((n) => n.name)))
+check("没存过就没有会话键", window.localStorage.getItem(SESSION_KEY) === null)
+check("无快照时只展开根层", workspace.expandedIds.value.has(subPath) === true)
+check("无快照时没有标签", workspace.tabs.value.length === 0)
+
+// ---------- 二、关窗写下这一次的样子 ----------
+
+rememberScrollTop(aPath, 420)
+await openAt(aPath)
+await openAt(bPath)
+workspace.toggleExpanded(subPath)
+await tick()
+check("两个标签都开着，激活的是 b", workspace.tabs.value.length === 2 && workspace.activePath.value === bPath,
+  JSON.stringify(workspace.tabs.value.map((t) => t.path)))
+check("子目录已折叠", workspace.expandedIds.value.has(subPath) === false)
+
+await closeApp()
+
+const raw = window.localStorage.getItem(SESSION_KEY)
+const saved = raw === null ? null : JSON.parse(raw)
+check("关窗后会话键写下了", saved !== null)
+check("快照里是两条标签", saved !== null && saved.tabs.length === 2, raw ?? "")
+check("快照里的激活项是 b", saved !== null && saved.activePath === bPath, raw ?? "")
+check("快照里的展开集不含子目录", saved !== null && !saved.expandedIds.includes(subPath), raw ?? "")
+check("快照里带着 a 的滚动位置", saved !== null && saved.scrollTops[aPath] === 420, raw ?? "")
+
+// ---------- 三、重启：原样接上 ----------
+
+await launch()
+check("重启后标签还在（顺序不变）",
+  workspace.tabs.value.map((t) => t.path).join("|") === [aPath, bPath].join("|"),
+  JSON.stringify(workspace.tabs.value.map((t) => t.path)))
+check("重启后激活的还是 b", workspace.activePath.value === bPath)
+check("重启后子目录仍是折叠的", workspace.expandedIds.value.has(subPath) === false)
+check("重启后 a 的滚动位置回来了", scrollTopOf(aPath) === 420, String(scrollTopOf(aPath)))
+check("重启后的标签都是干净的", workspace.tabs.value.every((tab) => tab.dirty === false))
+
+// ---------- 四、盘上少了文件：只丢那一条，不整排清空 ----------
+
+await dir.removeEntry("b.html")
+await launch()
+check("被删的那篇不恢复，其余照旧",
+  workspace.tabs.value.map((t) => t.path).join("|") === aPath,
+  JSON.stringify(workspace.tabs.value.map((t) => t.path)))
+check("激活项落到还活着的那篇", workspace.activePath.value === aPath)
+await seedNote(dir, "b.html", "乙")
+
+// ---------- 五、标签全关掉也是一次合法的下班状态 ----------
+
+await launch()
+for (const tab of [...workspace.tabs.value]) workspace.closeTab(tab.path)
+await tick()
+check("关光之后没有标签", workspace.tabs.value.length === 0)
+await closeApp()
+await launch()
+check("关光了标签，重启还是空标签栏", workspace.tabs.value.length === 0, JSON.stringify(workspace.tabs.value))
+check("但树的展开状态仍被记住", workspace.expandedIds.value.has(subPath) === false)
+
+// ---------- 五·补、数据表标签也要能接回来 ----------
+
+// 内容不重要：`loadDocument` 对 `.tbl` 只记账不解析，正文由数据表编辑器自己读。
+const tableName = "账.tbl"
+await writeRaw(dir, tableName, JSON.stringify({ version: 1, columns: [], rows: [] }))
+await launch()
+const tablePath = notePath(tableName)
+check("扫到了数据表", tablePath !== "", JSON.stringify(workspace.tree.value.map((n) => n.name)))
+await openAt(tablePath)
+await closeApp()
+await launch()
+check("数据表标签也接回来了", workspace.tabs.value.some((tab) => tab.path === tablePath),
+  JSON.stringify(workspace.tabs.value.map((t) => t.path)))
+check("激活项落在数据表上", workspace.activePath.value === tablePath, workspace.activePath.value)
+
+// ---------- 六、快照坏了：退回第一次打开的默认 ----------
+
+window.localStorage.setItem(SESSION_KEY, "{不是 JSON")
+await launch()
+check("坏 JSON 不炸，退回默认展开", workspace.expandedIds.value.has(subPath) === true)
+check("坏 JSON 时没有标签", workspace.tabs.value.length === 0)
+
+window.localStorage.setItem(SESSION_KEY, JSON.stringify({ tabs: "x", activePath: 7, expandedIds: 3, scrollTops: [] }))
+await launch()
+check("字段类型全错也不炸", workspace.tabs.value.length === 0 && workspace.expandedIds.value.has(subPath) === true,
+  JSON.stringify({ tabs: workspace.tabs.value.length, expanded: [...workspace.expandedIds.value] }))
+
+// ---------- 七、滚动记忆本身 ----------
+
+rememberScrollTop(aPath, 128)
+rememberScrollTop(aPath, Number.NaN)
+check("非有限值不进记忆", scrollTopOf(aPath) === 128, String(scrollTopOf(aPath)))
+check("没记过的路径落回顶部", scrollTopOf("不存在.html") === 0)
+check("快照里带的就是记忆里那份", scrollTopsSnapshot()[aPath] === 128, JSON.stringify(scrollTopsSnapshot()))
+
+// ---------- 收尾 ----------
+
+window.localStorage.removeItem(SESSION_KEY)
+lines.push(`自检 ${passed}/${passed + failed}`)
+out.textContent = `${failed === 0 ? "ALL OK" : "HAS FAILURES"}\n${lines.join("\n")}`
+</script>
+</body>
+</html>
