@@ -9,7 +9,7 @@ import { tableHtml } from "@/lib/html/serialize"
 import { linkHrefOf, requestEditableFocus } from "@/lib/dom"
 import { runsFromNode } from "@/lib/html"
 import { runsText, runsToHtml } from "@/lib/inline"
-import { caretOffsetIn, shortcutMark, splitRunsAt } from "@/lib/marks"
+import { caretOffsetIn, contentLength, rangeForOffsets, shortcutMark, splitRunsAt } from "@/lib/marks"
 import {
   BODY_TEXT_CLASS,
   BODY_TYPE_CLASS,
@@ -52,6 +52,13 @@ const props = defineProps<{
   dropEdge: BlockDropEdge
   /** 是否渲染在布局格子里：菜单滤掉容器/引用块、手柄贴内容左缘、行首留出手柄位。 */
   inCell?: boolean
+  /**
+   * 正文按数据重画的信号（撤销 / 重做）。每撤销一次加一。
+   *
+   * 只对承载 runs 的正文块有意义：它们的 contenteditable 是非受控的，数据换了 DOM
+   * 不会自己跟上。别的块视图都是 props 驱动，收到新数据自己会画，不看这个数。
+   */
+  repaint: number
 }>()
 
 const emit = defineEmits<{
@@ -136,6 +143,38 @@ watch(
     })
   },
 )
+
+/**
+ * 撤销 / 重做：按数据重画本块正文。
+ *
+ * 早先这件事是编辑器干的 —— 把 `restoreTick` 拼进 `:key`，一次撤销让整篇的块全部
+ * 销毁重建。对一篇长文来说那与刷新页面无从分辨：所有 DOM 换新、焦点丢、滚动锚点丢。
+ * 现在信号传到这里，每块只对自己负责。
+ *
+ * `innerHTML` 相同就不动：一次撤销通常只改了一个块，剩下九十几个块连赋值都不该有。
+ *
+ * 光标还在这块里就记下偏移再放回去 —— 撤销之后人往往要接着改刚才那句话，被甩到
+ * 块首等于让用户自己再点一次。偏移按新内容长度夹紧：撤掉的那段可能比留下的还长。
+ */
+function repaintFromData(): void {
+  const element = bodyRef.value
+  const block = textual.value
+  if (element === null || block === null) return
+  const html = runsToHtml(block.runs)
+  if (element.innerHTML === html) return
+  const caret = document.activeElement === element ? caretOffsetIn(element) : null
+  element.innerHTML = html
+  if (caret === null) return
+  const at = Math.min(caret, contentLength(element))
+  const range = rangeForOffsets(element, { start: at, end: at })
+  if (range === null) return
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+}
+
+// `post`：等这次渲染把新 props 铺完再画，`textual` 里才是撤销后的那份 runs。
+watch(() => props.repaint, repaintFromData, { flush: "post" })
 
 function onInput() {
   const element = bodyRef.value
@@ -496,7 +535,7 @@ const bodyClass = computed(() => {
 
     <ChatBlockView v-else-if="block.type === 'chat'" :block="block" />
 
-    <LayoutBlockView v-else-if="block.type === 'layout'" :block="block">
+    <LayoutBlockView v-else-if="block.type === 'layout'" :block="block" :repaint="repaint">
       <!--
         布局块手柄的第二个落位。它与上面那份是同一条组件、同一套处理函数，只是外壳位置不同：
         停靠时由悬浮条排布（底条最左侧），空布局时回到块左缘外挂。改动时两处一起改。

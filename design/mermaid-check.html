@@ -227,7 +227,7 @@ const item = ref({ id: "bi1", type: "mermaid", source: SOURCE })
 const ItemRoot = defineComponent({
   setup() {
     provideWorkspace()
-    return () => h(BlockItem, { block: item.value, orderedIndex: 0, dragging: false, dropEdge: "none" })
+    return () => h(BlockItem, { block: item.value, orderedIndex: 0, dragging: false, dropEdge: "none", repaint: 0 })
   },
 })
 

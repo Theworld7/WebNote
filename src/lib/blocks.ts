@@ -651,6 +651,21 @@ export function cloneBlock(block: Block, id: string): Block {
 }
 
 /**
+ * 深拷一块，**保留 id**（布局格子里的子块也保留）。
+ *
+ * 与 `cloneBlock(block, id)` 是两种语义，别混。那个是「复制出一个新东西」，所以换 id；
+ * 这个是「拍一张快照」—— 撤销栈要的是同一批块在另一个时刻的样子。id 一换，快照与现状
+ * 就对不上号：两份快照永远比不相等（于是每敲一个字都定格成一步、按一次 Ctrl+Z 只退到
+ * 一个内容相同 id 不同的世界），恢复时格子里的子块还会被当成新块整批重挂。
+ */
+export function snapshotBlock(block: Block): Block {
+  if (block.type === "layout") {
+    return { ...block, cells: block.cells.map((cell) => cell.map(snapshotBlock)) }
+  }
+  return cloneBlock(block, block.id)
+}
+
+/**
  * 块的纯文本投影。
  *
  * 图片取 alt、表格把单元格拼起来、mermaid 取图源码 —— 至少字数统计与检索不必对这

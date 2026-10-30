@@ -37,7 +37,8 @@
   卡片的第一行、chrome 只剩一条标题栏(0033)、记一笔曾是模态表单(0034)、记一笔是行内草稿行:
   插在列表顶端、焦点离开这一行才按排序归位、一格没填就自动删掉(0035)、切标签 / 窗口失焦 /
   关窗这三个「离开」的时机才落盘、不按时间轮询(0036)、删一行先弹确认而空行不弹(0037)、
-  关窗那一刻把标签 / 激活项 / 展开的层 / 每篇停在哪记进 `localStorage`、下次打开原样接上(0038)。
+  关窗那一刻把标签 / 激活项 / 展开的层 / 每篇停在哪记进 `localStorage`、下次打开原样接上(0038)、
+  撤销 / 重做只重画数据真变了的那块而其余块连赋值都不做、代码块仍整块重挂(0039)。
   改对应行为前先读那篇。(0029 的标签位置已被 0033 取代,0034 的模态表单已被 0035 取代)
 
 ## 验证
@@ -48,7 +49,7 @@
    用类型收窄和类型守卫表达。
 2. **自检页**:`design/*.html` 是能直接跑的回归页,每个用例输出 `OK` / `FAIL` 行。
    `pnpm dev` 后访问 `/design/<名字>.html`;其中 `drag-check`、`typography-check`、
-   `data-table-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-date-check`、`kanban-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check`、`tab-housing-check` 含顶层 `await`,要抓结果用
+   `data-table-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-date-check`、`kanban-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check`、`tab-housing-check`、`undo-paint-check` 含顶层 `await`,要抓结果用
    `node design/cdp-dump.mjs http://localhost:1420/design/<名字>.html`。
 
 改哪层跑哪页:动 `lib/html` → `parse-check`;动块拖拽 / 标签栏 → `drag-check` / `tab-check`;
@@ -78,6 +79,10 @@
 `style.css` 里的 `--color-code-*`)→ `code-edit-check`(挂真实编辑器,走 CDP 驱动);
 动对比度 / 配色 token → `theme-check`、`code-edit-check` 的第十节;
 动落块 / 转换之后的焦点(菜单插入、`/` 转换、`转为…` 子菜单、Esc 关菜单)→ `focus-check`;
+动撤销 / 重做的行为(`useWorkspace` 的 `undo` / `redo` / `snapshotOf`、`lib/blocks` 的
+`snapshotBlock`、`BlockItem` 的 `repaintFromData`、`BlockEditor` 的 `blockKey`)→ `undo-check`
+(合并、块级操作、输入框放行)与 `undo-paint-check`(挂真实编辑器,走 CDP:没有整篇重挂、滚动与
+焦点留住、布局格子里的正文同样重画);
 动块框选(空白处起的矩形、`lib/block-select.ts`、`retypeBlocks` / `removeBlocks`、选区浮条)→
 `block-select-check`(挂真实编辑器,走 CDP 驱动);
 动格子的增删行为 → `cell-check`(挂真实编辑器,走 CDP);动行内链接的样式 / 单击跳转

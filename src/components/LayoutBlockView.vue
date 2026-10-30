@@ -25,7 +25,11 @@ import BlockItem from "@/components/BlockItem.vue"
  *
  * 格子内不支持拖拽排序（+/- 格子与回车增删够用），块手柄在这里只承担菜单。
  */
-const props = defineProps<{ block: LayoutBlock }>()
+const props = defineProps<{
+  block: LayoutBlock
+  /** 撤销 / 重做让正文按数据重画。格子里也是普通的 BlockItem，信号要穿过这一层。 */
+  repaint: number
+}>()
 
 const { setLayoutMode, setLayoutColumns, addLayoutCell, removeLayoutCell, insertBlockAfter, insertBlockBefore, changeBlockType, duplicateBlock, removeBlock } =
   useWorkspace()
@@ -153,6 +157,7 @@ function isDropTarget(cellIndex: number): boolean {
           v-for="child in cell"
           :key="child.id"
           :block="child"
+          :repaint="repaint"
           :ordered-index="orderedIndexesOf(cell).get(child.id) ?? 0"
           :dragging="false"
           drop-edge="none"

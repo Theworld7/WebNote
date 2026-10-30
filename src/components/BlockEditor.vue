@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { BlockDropEdge, BlockType, InlineRun } from "@/types/workspace"
+import type { Block, BlockDropEdge, BlockType, InlineRun } from "@/types/workspace"
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue"
 import { RefreshCwIcon, Trash2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
@@ -1234,6 +1234,22 @@ onBeforeUnmount(() => {
   endBlockDrag()
 })
 
+/**
+ * 块在列表里的 key。
+ *
+ * 正文层是非受控的（BlockItem 只在挂载与类型变化时写 DOM），撤销 / 重做把整篇换成
+ * 旧快照时需要一个强制重画的入口。早先的做法是把 `restoreTick` 直接拼进 key：一次
+ * 撤销让整篇的块全部销毁重建 —— 六十个块全换新 DOM，看起来与刷新了一次页面没两样，
+ * 焦点、滚动锚点、图片解码都跟着重来。现在正文块自己听 `repaint` 信号就地重画，
+ * 没被这次撤销碰到的块一个字节都不动。
+ *
+ * 只有代码块还得靠重挂：它的 Monaco 拿的是挂载那一刻的文本，外部改数据不会回流到
+ * 已打开的那个编辑器实例里（见 CodeBlockView）。
+ */
+function blockKey(block: Block): string {
+  return block.type === "code" ? `${restoreTick.value}:${block.id}` : block.id
+}
+
 /** 每个块的落点标记。同一时刻只画一条线：先判 before，末尾再特判 after。 */
 function dropEdgeAt(index: number): BlockDropEdge {
   // 文件拖入不存在「拖回原处」这种空操作，落点永远有效。
@@ -1276,8 +1292,9 @@ function edgeOf(index: number, to: number): BlockDropEdge {
       >
         <BlockItem
           v-for="(block, index) in activeDocument"
-          :key="`${restoreTick}:${block.id}`"
+          :key="blockKey(block)"
           :block="block"
+          :repaint="restoreTick"
           :ordered-index="orderedIndexes.get(block.id) ?? 0"
           :dragging="draggingBlockId === block.id"
           :drop-edge="dropEdgeAt(index)"

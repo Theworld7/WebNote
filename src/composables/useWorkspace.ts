@@ -3,7 +3,7 @@ import type { Block, BlockSettingsPatch, BlockType, ChatMessage, CloseStrategy, 
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref, watch } from "vue"
 import { adoptScrollTops, readSession, scrollTopsSnapshot, sessionKeyOf, writeSession } from "@/composables/useSession"
-import { CELL_EXCLUDED_TYPES, REFERENCE_INSERT_SPEC, cloneBlock, countChars, createBlock, createBlockId, isReferenceBlock, isTextualBlock, refPathsOf, retypeBlock } from "@/lib/blocks"
+import { CELL_EXCLUDED_TYPES, REFERENCE_INSERT_SPEC, cloneBlock, countChars, createBlock, createBlockId, isReferenceBlock, isTextualBlock, refPathsOf, retypeBlock, snapshotBlock } from "@/lib/blocks"
 import type { ReferenceBlock, ReferenceBlockType } from "@/lib/blocks"
 import type { DataTable } from "@/types/data-table"
 import { describeError } from "@/lib/errors"
@@ -1499,8 +1499,10 @@ function createWorkspace() {
    * 拖拽 / 转换）各自落在自己的静默段里，天然各成一步。上限 100 步，够回溯一段工作流。
    *
    * 撤销 / 重做把块整体换回旧快照，但块 id 不变 —— BlockItem 的 contenteditable 是
-   * 非受控的，props 原地换对象不会重画 DOM。`restoreTick` 供编辑器拼进 `:key`，
-   * 撤销后整表重挂，强制按数据重画。
+   * 非受控的，props 原地换对象不会重画 DOM。`restoreTick` 是那个「按数据重画一次」的
+   * 信号：编辑器把它递给每个块，块自己比对再写回正文（只有内容真变了的块会动）。
+   * 早先它是拼进 `:key` 用的 —— 一次撤销整篇重挂，看起来与刷新页面无异，见 BlockEditor
+   * 的 `blockKey`。
    */
   type DocHistory = { past: Block[][]; future: Block[][]; baseline: Block[] }
 
@@ -1517,9 +1519,9 @@ function createWorkspace() {
   const HISTORY_LIMIT = 100
   let historyTimer: number | undefined
 
-  /** 当前文档的独立深拷。 */
+  /** 当前文档的独立深拷。id 原样保留 —— 见 `snapshotBlock` 的注释。 */
   function snapshotOf(path: string): Block[] {
-    return (documents.value[path] ?? []).map((block) => cloneBlock(block, block.id))
+    return (documents.value[path] ?? []).map(snapshotBlock)
   }
 
   /**
@@ -1531,8 +1533,8 @@ function createWorkspace() {
    * 恢复后按恢复前的当前值补回去(撤销别的改动不会顺手换掉你正在看的那张)。
    *
    * 按块 id 对齐。补不上的照快照里那份走(`playlistActivePath` 会兜底到第一张):
-   * 块被转换过就换过 id,布局格子里的子块每次拷贝也换新 id —— 那两种情形本来
-   * 就没有稳定的 id 可对。
+   * 块被转换过就换过 id,那一条对不上 —— 快照是按 `snapshotBlock` 拍的,其余情形的
+   * id 都是稳定的。
    */
   type ViewState = Map<string, string>
 
@@ -1632,7 +1634,7 @@ function createWorkspace() {
     entry.future.push(snapshotOf(path))
     // 视图态不随撤销走:补回当前正在看的那张歌单,再让快照成为文档。
     applyViewState(previous, viewStateOf(documents.value[path] ?? []))
-    entry.baseline = previous.map((block) => cloneBlock(block, block.id))
+    entry.baseline = previous.map(snapshotBlock)
     documents.value[path] = previous
     markDirty()
     restoreTick.value += 1
@@ -1651,7 +1653,7 @@ function createWorkspace() {
     if (next === undefined) return
     entry.past.push(snapshotOf(path))
     applyViewState(next, viewStateOf(documents.value[path] ?? []))
-    entry.baseline = next.map((block) => cloneBlock(block, block.id))
+    entry.baseline = next.map(snapshotBlock)
     documents.value[path] = next
     markDirty()
     restoreTick.value += 1

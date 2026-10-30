@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>撤销重画自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { margin: 0 0 16px; display: flex; height: 520px; }
+  pre { margin: 0 0 8px; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>撤销 / 重做：就地重画，不整篇重挂</h1>
+<!-- 脚本里有顶层 await（要等真实读盘），抓结果用 CDP 驱动跑：
+     node design/cdp-dump.mjs http://localhost:1420/design/undo-paint-check.html -->
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+
+const out = document.querySelector("#out")
+const lines = []
+let passed = 0
+let failed = 0
+
+addEventListener("error", (event) => {
+  out.textContent = `ERROR ${event.message}\n${lines.join("\n")}`
+})
+addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason
+  out.textContent = `REJECT ${reason instanceof Error ? reason.message : String(reason)}\n${lines.join("\n")}`
+})
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  out.textContent = `running: ${lines.join("\n")}`
+}
+
+/** 等历史记账的静默窗口过去。 */
+const quiet = () => new Promise((resolve) => setTimeout(resolve, 650))
+
+// 六十段，够把视口滚出中段；改字与撤销都发生在看不见全篇的地方。
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("undo-paint-probe", { create: true })
+const file = await dir.getFileHandle("long.html", { create: true })
+const writable = await file.createWritable()
+await writable.write(Array.from({ length: 60 }, (_, i) => `<p>第 ${i + 1} 段</p>`).join(""))
+await writable.close()
+window.showDirectoryPicker = async () => dir
+
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    provideTheme(provideSettings())
+    return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+const note = workspace.tree.value.find((node) => node.kind === "note")
+workspace.openFile(note.id)
+for (let i = 0; i < 80 && workspace.activeDocument.value.length < 1; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 50))
+}
+await nextTick()
+
+const viewport = () => document.querySelector('[data-slot="scroll-area-viewport"]')
+const rows = () => [...document.querySelectorAll("[data-block-id]")].filter((row) => row.closest("[data-layout-cell]") === null)
+const bodyOf = (row) => row?.querySelector("[contenteditable]")
+const press = (key, opts = {}) => {
+  const event = new KeyboardEvent("keydown", { key, cancelable: true, bubbles: true, ...opts })
+  document.dispatchEvent(event)
+  return event
+}
+const undoKey = async () => { press("z", { ctrlKey: true }); await nextTick(); await new Promise((r) => setTimeout(r, 120)) }
+const redoKey = async () => { press("z", { ctrlKey: true, shiftKey: true }); await nextTick(); await new Promise((r) => setTimeout(r, 120)) }
+
+/** 往正文里写一段文字，走真实的 input 事件链路。 */
+async function typeInto(body, text) {
+  body.focus()
+  body.innerText = text
+  body.dispatchEvent(new Event("input", { bubbles: true }))
+  await nextTick()
+}
+
+// ---------- 一、长文撤销：只重画改了的那块 ----------
+
+check("渲染出 60 个块", rows().length === 60, `实际 ${rows().length}`)
+
+const vp = viewport()
+vp.scrollTop = 1200
+await nextTick()
+await new Promise((resolve) => setTimeout(resolve, 80))
+const scrollBefore = vp.scrollTop
+
+const tenth = rows()[10]
+const twentieth = rows()[20]
+const box = vp.getBoundingClientRect()
+const midY = box.top + box.height / 2
+// 取正中那一块：它在视野里，focus 不会引发滚动，量出来的前后差值才是撤销本身造成的。
+const target = rows().reduce((best, row) => {
+  const rect = row.getBoundingClientRect()
+  const distance = Math.abs((rect.top + rect.bottom) / 2 - midY)
+  return best.distance <= distance ? best : { row, distance }
+}, { row: rows()[0], distance: Infinity }).row
+const targetBody = bodyOf(target)
+const originalText = targetBody.innerText
+
+await typeInto(targetBody, `${originalText}改了`)
+await quiet()
+check("改字后 store 跟上", workspace.activeDocument.value[rows().indexOf(target)].runs.map((r) => r.text).join("") === `${originalText}改了`)
+const scrollAfterTyping = viewport().scrollTop
+
+await undoKey()
+check("撤销后正文回到原样", targetBody.innerText === originalText, targetBody.innerText)
+check("撤销后块数不变", rows().length === 60, `实际 ${rows().length}`)
+check("撤销后没碰过的块没被换掉（第 11 段）", rows()[10] === tenth)
+check("撤销后没碰过的块没被换掉（第 21 段）", rows()[20] === twentieth)
+check("撤销后改了的那块也是同一个节点", rows().includes(target))
+check("撤销后滚动位置不动", viewport().scrollTop === scrollAfterTyping, `改字后 ${scrollAfterTyping} → 撤销后 ${viewport().scrollTop}`)
+check("滚动试验确实在页面中段", scrollBefore > 0 && viewport().scrollTop > 0, `scrollTop=${viewport().scrollTop}`)
+check("撤销后焦点还在这块正文里", document.activeElement === targetBody, String(document.activeElement?.tagName))
+
+// ---------- 二、重做同样是就地重画 ----------
+
+await redoKey()
+check("重做后正文回到改过的内容", targetBody.innerText === `${originalText}改了`, targetBody.innerText)
+check("重做也没换节点", rows().includes(target) && rows()[10] === tenth)
+await undoKey()
+check("再撤销一次回到原样", targetBody.innerText === originalText, targetBody.innerText)
+
+// ---------- 三、布局格子里的正文也会重画 ----------
+
+// 旧实现把重画信号拼进顶层列表的 `:key`,格子里的块压根不在那张列表上 ——
+// 撤销改了格子里的文字,数据回去了、DOM 还留着新的。这一节守的就是这个。
+const layoutId = workspace.appendBlock("layout")
+workspace.setLayoutMode(layoutId, "grid")
+await nextTick()
+const layout = workspace.activeDocument.value.find((block) => block.id === layoutId)
+const cellId = layout.cells[0][0].id
+await nextTick()
+
+const cellBlock = document.querySelector(`[data-layout-cell] [data-block-id="${cellId}"]`)
+const cellBody = bodyOf(cellBlock)
+check("格子里的块渲染出来了", cellBlock !== null && cellBody !== null)
+
+// 正文只认 DOM 为源：起底块是空的，字得敲进去（setBlockRuns 不改已挂载的 contenteditable）。
+await typeInto(cellBody, "格子里的字")
+await quiet()
+check("格子里的块记下了字", workspace.activeDocument.value
+  .find((block) => block.id === layoutId).cells[0][0].runs.map((run) => run.text).join("") === "格子里的字")
+
+await typeInto(cellBody, "格子里的字改了")
+await quiet()
+await undoKey()
+check("格子里的撤销回到数据里的文字", cellBody?.innerText === "格子里的字", cellBody?.innerText ?? "null")
+check("格子里的块也没被换掉", document.querySelector(`[data-layout-cell] [data-block-id="${cellId}"]`) === cellBlock)
+
+lines.push(`自检 ${passed}/${passed + failed}`)
+out.textContent = lines.join("\n")
+</script>
+</body>
+</html>
