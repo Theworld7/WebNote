@@ -39,7 +39,7 @@ import { tableEffectClasses } from "@/lib/typography"
  */
 const props = defineProps<{ block: DataTableBlock }>()
 
-const { openFile } = useWorkspace()
+const { openFile, rebindTable, tablePaths } = useWorkspace()
 const { tableEffect } = useSettings()
 
 /** 表格效果对引用块生效（它是笔记里的一张表），数据表**编辑视图**则不受它影响。 */
@@ -152,13 +152,14 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
     label="引用块"
   />
 
-  <!-- 引用的文件读不到：提示态，不是错误态。给「重新指定」的入口（下一轮做，
-       现在先给「打开」——文件若还在树下，点开它自己就能确认）。 -->
+  <!-- 引用的文件读不到：提示态，不是错误态 —— 提示条自带一条重新指向的出路。 -->
   <TableRefNotice
     v-else-if="state === 'missing' || state === 'failed'"
     kind="missing"
     label="引用块"
     :path="props.block.path"
+    :tables="tablePaths"
+    @reselect="(path: string) => rebindTable(props.block.id, path)"
   />
 
   <!-- 还没读完。 -->

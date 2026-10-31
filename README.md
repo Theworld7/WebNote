@@ -282,7 +282,7 @@ pnpm icon           # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | :-- | :-- |
 | 解析与往返 | `parse-check`、`inline-check` |
 | 编辑器交互 | `chrome-check`、`tab-check`、`tab-housing-check`、`toolbar-check`、`sidebar-check`、`tree-integration-check`、`drag-check`、`split-check`、`cell-check`、`undo-check`、`undo-paint-check`、`autosave-check`、`session-check`、`scroll-memory-check`、`menu-nav-check`、`focus-check`、`link-check`、`heading-nav-check`、`block-select-check` |
-| 块类型 | `table-check`、`table-align-check`、`data-table-check`、`gallery-check`、`kanban-check`、`kanban-date-check`、`ledger-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-date-check`、`option-cell-check`、`subscription-check`、`playlist-check`、`playlist-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check` |
+| 块类型 | `table-check`、`table-align-check`、`data-table-check`、`table-ref-check`、`gallery-check`、`kanban-check`、`kanban-date-check`、`ledger-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-date-check`、`option-cell-check`、`subscription-check`、`playlist-check`、`playlist-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check` |
 | 样式与外观 | `typography-check`、`theme-check`、`theme-mode-check`、`page-style-check`、`settings-check` |
 | 文件操作 | `create-check`、`move-check`、`markdown-check`、`markdown-view-check` |
 | 其它 | `update-check`（新版本检测）、`drawer-jitter-probe`（抽屉抖动守卫）、`icon-check`（图标观感） |

@@ -24,7 +24,7 @@ import * as dt from "@/lib/data-table"
  */
 const props = defineProps<{ block: StatBlock }>()
 
-const { openFile, updateBlockSettings, bindStatTable, tablePaths } = useWorkspace()
+const { openFile, updateBlockSettings, rebindTable, tablePaths } = useWorkspace()
 
 const { state, table, columns, rows } = useTableEntry(() => props.block.path)
 
@@ -98,7 +98,8 @@ const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
   <!--
     统一容器:操作行(右上角,悬停浮现)对**空指针**与正常态都要在 —— 格子内直接创建的
     统计卡就是空指针起步的,设置入口要是只挂在「已指向」分支上,这一态就永远没有补指向的路。
-    读不到 / 读取中仍是纯提示:指针对着不存在的表,先如实报告。
+    读不到 / 读取中仍是纯提示:指针对着不存在的表,先如实报告 —— 换表的出路在提示条
+    自己身上(见 TableRefNotice 的 reselect)。
   -->
   <div class="group/stat relative my-4">
     <div
@@ -128,7 +129,7 @@ const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
             <select
               :value="props.block.path"
               class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
-              @change="bindStatTable(props.block.id, ($event.target as HTMLSelectElement).value)"
+              @change="rebindTable(props.block.id, ($event.target as HTMLSelectElement).value)"
             >
               <option value="">未选择</option>
               <option v-for="path in tablePaths" :key="path" :value="path">
@@ -212,12 +213,14 @@ const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
       </span>
     </div>
 
-    <!-- 引用的文件读不到:提示态,不是错误态。 -->
+    <!-- 引用的文件读不到:提示态,不是错误态 —— 提示条自带一条重新指向的出路。 -->
     <TableRefNotice
       v-else-if="state === 'missing' || state === 'failed'"
       kind="missing"
       label="统计卡"
       :path="props.block.path"
+      :tables="tablePaths"
+      @reselect="(path: string) => rebindTable(props.block.id, path)"
     />
 
     <TableRefNotice v-else-if="table === null" kind="loading" label="统计卡" />

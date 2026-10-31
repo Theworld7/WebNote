@@ -45,7 +45,7 @@ import * as dt from "@/lib/data-table"
  */
 const props = defineProps<{ block: BookmarkBlock }>()
 
-const { openFile, updateBlockSettings } = useWorkspace()
+const { openFile, updateBlockSettings, rebindTable, tablePaths } = useWorkspace()
 
 const { state, table, columns, rows, change } = useTableEntry(() => props.block.path)
 
@@ -406,12 +406,14 @@ const columnsSelection = computed({
   <!-- 空指针:如实说没指定,而不是永远转圈。 -->
   <TableRefNotice v-if="props.block.path === ''" kind="unset" label="书签" />
 
-  <!-- 引用的文件读不到:提示态,不是错误态。 -->
+  <!-- 引用的文件读不到:提示态,不是错误态 —— 提示条自带一条重新指向的出路。 -->
   <TableRefNotice
     v-else-if="state === 'missing' || state === 'failed'"
     kind="missing"
     label="书签"
     :path="props.block.path"
+    :tables="tablePaths"
+    @reselect="(path: string) => rebindTable(props.block.id, path)"
   />
 
   <!-- 还没读完。 -->

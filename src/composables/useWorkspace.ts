@@ -17,6 +17,7 @@ import { blocksToMarkdown, markdownTitleOf, markdownToBlocks } from "@/lib/markd
 import { bytesToBlob, imageDataUriOf, imageMimeOf } from "@/lib/image"
 import { openExternalUrl } from "@/lib/open-external"
 import { createPlaylistPreset, createPlaylistSource } from "@/lib/playlist"
+import { rebindBlock } from "@/lib/rebind"
 import { MARKDOWN_EXTENSION, NOTE_EXTENSION, TABLE_EXTENSION, checkName, defaultExpanded, fileStem, isMarkdownFile, isNoteFile, isTableFile } from "@/lib/fs/policy"
 import * as table from "@/lib/table"
 import { fileName, fromSegments, isUnder, joinPath, migratePath, titleOf, toSegments } from "@/lib/paths"
@@ -2047,16 +2048,20 @@ function createWorkspace() {
   }
 
   /**
-   * 给统计块换指向的数据表。列 id 属于旧表 —— 换表必须一并清掉求和列，
-   * 让视图退回「未选择」，而不是拿旧表的列 id 去新表里碰运气。
+   * 给引用块重新指向一张数据表 —— Missing Data table 的恢复出路（提示条上的
+   * 「重新选择数据表」）。
+   *
+   * 「换表该清哪些设置」整条规则在 `lib/rebind.ts` 里，那是纯的；这里只负责把算出来的
+   * 新块放回文档。不走 `updateBlockSettings`：那条路按设计不带 path（见
+   * `BlockSettingsPatch`）。
    */
-  function bindStatTable(id: string, path: string) {
-    const block = activeBlock(id)
-    if (block === undefined || block.type !== "stat") return
-    block.path = path
-    block.columnId = ""
-    delete block.filterColumnId
-    delete block.filterValue
+  function rebindTable(id: string, path: string) {
+    const at = locateBlock(id)
+    const current = at === null ? undefined : at.list[at.index]
+    if (at === null || current === undefined) return
+    const next = rebindBlock(current, path)
+    if (next === null) return
+    at.list[at.index] = next
     markDirty()
   }
 
@@ -2427,7 +2432,7 @@ function createWorkspace() {
     removeBlocks,
     moveBlock,
     moveBlockIntoCell,
-    bindStatTable,
+    rebindTable,
     // playlist actions
     setPlaylistSources,
     setPlaylistActive,

@@ -49,7 +49,7 @@
    用类型收窄和类型守卫表达。
 2. **自检页**:`design/*.html` 是能直接跑的回归页,每个用例输出 `OK` / `FAIL` 行。
    `pnpm dev` 后访问 `/design/<名字>.html`;其中 `drag-check`、`typography-check`、
-   `data-table-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-date-check`、`kanban-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check`、`tab-housing-check`、`undo-paint-check` 含顶层 `await`,要抓结果用
+   `data-table-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-date-check`、`kanban-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check`、`tab-housing-check`、`undo-paint-check`、`table-ref-check` 含顶层 `await`,要抓结果用
    `node design/cdp-dump.mjs http://localhost:1420/design/<名字>.html`。
 
 改哪层跑哪页:动 `lib/html` → `parse-check`;动块拖拽 / 标签栏 → `drag-check` / `tab-check`;
@@ -88,7 +88,9 @@
 动格子的增删行为 → `cell-check`(挂真实编辑器,走 CDP);动行内链接的样式 / 单击跳转
 (`lib/link.ts`、`lib/open-external.ts`、`linkHrefOf`)→ `link-check`(挂真实编辑器,走 CDP);
 动选择格的键盘模型 / 浮层落位(`components/OptionCell.vue`、`lib/floating.ts`)→
-`option-cell-check`(组件级,不借账目夹具);动账目块的财务口径 → `ledger-check`,动它的就地增删改 →
+`option-cell-check`(组件级,不借账目夹具);动引用块的提示态(空指针 / 读不到 / 读取中,以及
+读不到时「重新选择数据表」的出路,`components/TableRefNotice.vue`、换表该清什么的规则在
+`lib/rebind.ts`)→ `table-ref-check`(组件级 + 纯函数,不借任何一个引用块的夹具);动账目块的财务口径 → `ledger-check`,动它的就地增删改 →
 `ledger-edit-check`,动记一笔的草稿行(顶端落位 / 横着填 / 归位排序 / 空行自动删)→
 `ledger-entry-check`,动日期面板 / 编辑期钉住排序 → `ledger-date-check`(都挂真实编辑器,走 CDP 驱动);
 动删行的确认框(账目块 / 数据表编辑页同一套,`requestDelete` 与 `lib/data-table` 的 `isBlankRow`)→

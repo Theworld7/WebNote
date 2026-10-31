@@ -43,7 +43,7 @@ import { markImageBroken, usableImage } from "@/lib/broken-images"
  */
 const props = defineProps<{ block: GalleryBlock }>()
 
-const { openFile, updateBlockSettings } = useWorkspace()
+const { openFile, updateBlockSettings, rebindTable, tablePaths } = useWorkspace()
 
 const { state, table, columns, rows, change } = useTableEntry(() => props.block.path)
 
@@ -375,12 +375,14 @@ function openTable() {
   <!-- 空指针(转换流程修好前的遗留块 / 手工编辑):如实说没指定,而不是永远转圈。 -->
   <TableRefNotice v-if="props.block.path === ''" kind="unset" label="画册" />
 
-  <!-- 引用的文件读不到:提示态,不是错误态。 -->
+  <!-- 引用的文件读不到:提示态,不是错误态 —— 提示条自带一条重新指向的出路。 -->
   <TableRefNotice
     v-else-if="state === 'missing' || state === 'failed'"
     kind="missing"
     label="画册"
     :path="props.block.path"
+    :tables="tablePaths"
+    @reselect="(path: string) => rebindTable(props.block.id, path)"
   />
 
   <!-- 还没读完。 -->

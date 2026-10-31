@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>引用块提示态自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  p.lead { margin: 0 0 16px; color: #6b7280; }
+  #app { margin: 0 0 16px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>引用块的提示态（`TableRefNotice`）：读不到表时能重新选一张</h1>
+<p class="lead">
+  八个引用块（数据表 / 画册 / 书签 / 看板 / 账目 / 统计卡 / 订阅 / 歌单）共用这一个提示条，
+  所以在这里单独立一页 —— 只看它自己的契约，不借任何一个块的夹具。后半节验换表规则
+  （`lib/rebind.ts`），那是纯函数，不碰工作区。
+</p>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick, reactive } from "vue"
+import TableRefNotice from "../src/components/TableRefNotice.vue"
+import { createBlock } from "../src/lib/blocks"
+import { rebindBlock } from "../src/lib/rebind"
+
+const out = document.querySelector("#out")
+const lines = []
+let passed = 0
+let failed = 0
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  out.textContent = lines.join("\n")
+}
+
+const TABLE_A = "笔记/客户.tbl"
+const TABLE_B = "笔记/项目.tbl"
+/** 换表请求按序记下 —— emit 出去的是路径，选中与否不归提示条管（与 `updateBlockSettings` 同一立场）。 */
+const picks = []
+
+const state = reactive({
+  kind: "missing",
+  path: "笔记/已删掉的.tbl",
+  tables: [TABLE_A, TABLE_B],
+})
+
+const Harness = defineComponent({
+  setup() {
+    return () =>
+      h(TableRefNotice, {
+        kind: state.kind,
+        label: "书签",
+        path: state.path,
+        tables: state.tables,
+        onReselect: (path) => picks.push(path),
+      })
+  },
+})
+
+createApp(Harness).mount("#app")
+
+const root = () => document.querySelector("#app > div")
+const select = () => document.querySelector("#app select")
+const text = () => document.querySelector("#app > div > span")?.textContent ?? ""
+const options = () => [...document.querySelectorAll("#app select option")]
+
+// ---- 读不到（missing）:文案如实说路径,并给一条重新指向的出路 ----
+
+await nextTick()
+check("missing 态点明是哪一块、哪个路径", text().includes("书签引用的数据表不存在") && text().includes("笔记/已删掉的.tbl"), text())
+check("missing 态给出重新选择的下拉", select() !== null)
+check("提示条是虚线框（可恢复的正常态,不是错误态）", root()?.className.includes("border-dashed") === true, root()?.className ?? "")
+
+const items = options()
+check("下拉 = 一个占位项 + 全部候选表", items.length === 3, `实际 ${items.length} 项`)
+check("占位项文案是「重新选择数据表…」", items[0]?.textContent?.trim() === "重新选择数据表…", items[0]?.textContent ?? "")
+check("候选表去掉 .tbl 扩展名", items[1]?.textContent?.trim() === "笔记/客户" && items[2]?.textContent?.trim() === "笔记/项目", items.map((item) => item.textContent).join(" | "))
+check("候选表的 value 是完整工作区路径", items[1]?.value === TABLE_A, items[1]?.value ?? "")
+
+// ---- 选中即请求换表 ----
+
+const el = select()
+el.value = TABLE_B
+el.dispatchEvent(new Event("change"))
+await nextTick()
+check("选中一项就 emit 那条完整路径", picks.length === 1 && picks[0] === TABLE_B, JSON.stringify(picks))
+check("选完下拉复位到占位项（不假装已经选好）", el.value === "", `value=${el.value}`)
+
+// ---- 没有候选表时不给一个点不动的下拉 ----
+
+state.tables = undefined
+await nextTick()
+check("视图没传候选表 = 只有文案", select() === null && text().includes("笔记/已删掉的.tbl"))
+
+state.tables = []
+await nextTick()
+check("候选表为空数组 = 同样只有文案", select() === null)
+
+// ---- 另外两态一成不变:文案照旧,下拉不该冒出来 ----
+
+state.tables = [TABLE_A, TABLE_B]
+state.kind = "unset"
+state.path = ""
+await nextTick()
+check("unset 态文案照旧（删掉重插那一条）", text().includes("书签未指定数据表") && text().includes("用 / 菜单重新插入"), text())
+check("unset 态没有下拉", select() === null)
+
+state.kind = "loading"
+await nextTick()
+check("loading 态文案照旧", text().includes("正在读取数据表"), text())
+check("loading 态没有下拉", select() === null)
+
+// ---- 换表该清什么（纯函数 `lib/rebind.ts`，脱离工作区单独验）----
+
+const OLD = "笔记/已删掉的.tbl"
+
+const missPath = ["datatable", "gallery", "bookmark", "kanban", "ledger", "stat", "subscription", "playlist"]
+  .filter((type) => rebindBlock({ ...createBlock(type), path: OLD }, TABLE_A)?.path !== TABLE_A)
+check("八种引用块都换得动 path", missPath.length === 0, missPath.join(","))
+check("非引用块不接（返回 null，调用方据此不落脏）", rebindBlock(createBlock("text"), TABLE_A) === null)
+
+const bookmark = { ...createBlock("bookmark"), path: OLD, nameColumn: "c1", urlColumn: "c2", iconColumn: "c3", groupBy: "c4", columns: 3 }
+const bookmarkNext = rebindBlock(bookmark, TABLE_A)
+check("书签：名称列 / 链接列清空", bookmarkNext.nameColumn === "" && bookmarkNext.urlColumn === "")
+check("书签：可选的图标列 / 分组列整个删掉（不是置空串）", !("iconColumn" in bookmarkNext) && !("groupBy" in bookmarkNext))
+check("书签：列数这类跟表无关的偏好保留", bookmarkNext.columns === 3)
+check("原块一个字段都没动（纯函数）", bookmark.nameColumn === "c1" && bookmark.iconColumn === "c3")
+
+// 账目的分组方式 / 排序方向是「我按什么读这本账」，与列 id 无关，留着。
+const ledger = { ...createBlock("ledger"), path: OLD, incomeColumnId: "i", expenseColumnId: "e", groupColumnId: "g", sortColumnId: "s", groupMode: "month", sortDirection: "asc", showBalance: false }
+const ledgerNext = rebindBlock(ledger, TABLE_A)
+check("账目：四个列 id 全清", ledgerNext.incomeColumnId === "" && ledgerNext.expenseColumnId === "" && ledgerNext.groupColumnId === "" && ledgerNext.sortColumnId === "")
+check("账目：分组方式 / 排序方向 / 余额开关保留", ledgerNext.groupMode === "month" && ledgerNext.sortDirection === "asc" && ledgerNext.showBalance === false)
+
+const gallery = { ...createBlock("gallery"), path: OLD, hiddenFields: ["a", "b"], group: "x", groupBy: "y", groupOrder: ["1", "2"], ratio: "1:1", columns: 4 }
+const galleryNext = rebindBlock(gallery, TABLE_A)
+check("画册：隐藏列 / 聚合 / 分组 / 手排顺序全清", galleryNext.hiddenFields.length === 0 && galleryNext.group === "" && galleryNext.groupBy === "" && galleryNext.groupOrder.length === 0)
+check("画册：比例与列数保留", galleryNext.ratio === "1:1" && galleryNext.columns === 4)
+
+const kanban = { ...createBlock("kanban"), path: OLD, groupColumnId: "g", displayColumnIds: ["a", "b"], groupOrder: ["1"], showEmptyGroups: true }
+const kanbanNext = rebindBlock(kanban, TABLE_A)
+check("看板：分组列 / 显示列 / 手排顺序全清", kanbanNext.groupColumnId === "" && kanbanNext.displayColumnIds.length === 0 && kanbanNext.groupOrder.length === 0)
+check("看板：空分组开关保留", kanbanNext.showEmptyGroups === true)
+
+const sub = { ...createBlock("subscription"), path: OLD, nameColumnId: "n", iconColumnId: "i", amountColumnId: "a", cycleColumnId: "c", autoRenewColumnId: "r", trialEndColumnId: "t", startColumnId: "s", endColumnId: "e", cancelledColumnId: "x", paidColumnId: "p" }
+const subNext = rebindBlock(sub, TABLE_A)
+check("订阅：十个列 id 全清（空串 = 回到自动识别）", ["nameColumnId", "iconColumnId", "amountColumnId", "cycleColumnId", "autoRenewColumnId", "trialEndColumnId", "startColumnId", "endColumnId", "cancelledColumnId", "paidColumnId"].every((key) => subNext[key] === ""))
+
+const stat = { ...createBlock("stat"), path: OLD, columnId: "c", filterColumnId: "f", filterValue: "工作" }
+const statNext = rebindBlock(stat, TABLE_A)
+check("统计卡：求和列清空、筛选整个删掉", statNext.columnId === "" && !("filterColumnId" in statNext) && !("filterValue" in statNext))
+
+// 歌单有两套分支：换到一张新表，或换到一张已经绑在别处的表。
+const slot = (path, title) => ({ path, titleColumnId: title, subtitleColumnId: "", coverColumnId: "", durationColumnId: "" })
+const playlist = { ...createBlock("playlist"), path: OLD, sources: [slot(OLD, "t1"), slot(TABLE_A, "ta")] }
+
+const toNewTable = rebindBlock(playlist, TABLE_B)
+check("歌单：换到新表时位次不动", toNewTable.sources.length === 2 && toNewTable.sources[0].path === TABLE_B)
+check("歌单：换过去那一项的映射作废", toNewTable.sources[0].titleColumnId === "")
+check("歌单：其它绑定项原样", toNewTable.sources[1].path === TABLE_A && toNewTable.sources[1].titleColumnId === "ta")
+
+const toBoundTable = rebindBlock(playlist, TABLE_A)
+check("歌单：换到已绑的表就丢掉失效项（不冒出两个同名标签）", toBoundTable.sources.length === 1 && toBoundTable.sources[0].path === TABLE_A)
+check("歌单：切到已绑的表不动它的映射", toBoundTable.sources[0].titleColumnId === "ta")
+check("歌单：原块的绑定没被改动（纯函数）", playlist.sources.length === 2 && playlist.sources[0].path === OLD)
+
+lines.push(`\n${failed === 0 ? "全部通过" : "有失败"}：${passed} 通过 / ${failed} 失败`)
+out.textContent = lines.join("\n")
+</script>
+</body>
+</html>

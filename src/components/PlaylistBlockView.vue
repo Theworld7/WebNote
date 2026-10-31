@@ -66,7 +66,7 @@ import {
  */
 const props = defineProps<{ block: PlaylistBlock }>()
 
-const { openFile, setPlaylistSources, setPlaylistActive, createPlaylistTable, tablePaths } = useWorkspace()
+const { openFile, setPlaylistSources, setPlaylistActive, createPlaylistTable, rebindTable, tablePaths } = useWorkspace()
 
 /** 当前激活的绑定项。盘上数据被手改过时 `playlistActiveSource` 兜底成第一项。 */
 const active = computed<PlaylistSource | null>(() => playlistActiveSource(props.block))
@@ -451,11 +451,15 @@ const SEARCH =
          换掉会把用户困在那张表上。空指针同理:那里正是「绑定一张表」要出现的地方。 -->
     <TableRefNotice v-if="activePath === ''" kind="unset" label="歌单" />
 
+    <!-- 读不到那张表:提示条带一条换表的出路。候选只列**还没绑定**的表 —— 已绑的
+         在标签条上点一下就切,不用挤进这个下拉。 -->
     <TableRefNotice
       v-else-if="state === 'missing' || state === 'failed'"
       kind="missing"
       label="歌单"
       :path="activePath"
+      :tables="unboundTables"
+      @reselect="(path: string) => rebindTable(props.block.id, path)"
     />
 
     <TableRefNotice v-else-if="table === null" kind="loading" label="歌单" />
