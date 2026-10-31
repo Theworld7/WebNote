@@ -62,7 +62,11 @@
 `components/HeadingNav.vue`)→ `heading-nav-check`(挂真实编辑器,走 CDP);
 动数据表 → `data-table-check`;动排版样式 → `typography-check`;动新建 / 移动 →
 `create-check` / `move-check`;动 Markdown 导入 / 导出(`lib/markdown/*`、`lib/fs/transfer.ts`)→
-`markdown-check`;动 Markdown 浏览 / 转笔记(`lib/markdown/render.ts`、`components/MarkdownView.vue`、
+`markdown-check`;动**批量**导入 / 导出(哪些笔记、落到哪个相对路径、结果那句话,都在
+`lib/markdown/batch.ts`;落点怎么取、每篇怎么写,在 `lib/fs/transfer.ts` 的
+`pickExportSink` / `writeMarkdownTree`)→ `markdown-batch-check`(纯函数 + 两条落点分支:
+浏览器走真 OPFS,桌面端把 `__TAURI_INTERNALS__.invoke` 换成记录器,钉住
+`recursive: true` 与逐层 `mkdir`);动 Markdown 浏览 / 转笔记(`lib/markdown/render.ts`、`components/MarkdownView.vue`、
 树上 `.md` 节点、`convertMarkdownToNote`)→ `markdown-check`(预览 HTML 与消毒)、
 `markdown-view-check`(挂真实编辑器，排版 / 消毒 / 转笔记)、
 `create-check`(扫描 / 打开 / 同目录转换)、`tree-integration-check`(整合视图保留 `.md`);

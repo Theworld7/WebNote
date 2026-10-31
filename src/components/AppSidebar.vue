@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import type { CreateTarget, TreeTarget } from "@/types/workspace"
-import { FolderIcon, FolderOpenIcon, PlusIcon, RefreshCwIcon, SearchIcon } from "@lucide/vue"
+import { EllipsisIcon, FileDownIcon, FolderIcon, FolderOpenIcon, PlusIcon, RefreshCwIcon, SearchIcon } from "@lucide/vue"
 import { computed, ref } from "vue"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useToast } from "@/composables/useToast"
 import { useWorkspace } from "@/composables/useWorkspace"
+import { exportSummaryText, importSummaryText } from "@/lib/markdown"
 import CreateDialog from "./CreateDialog.vue"
 import DeleteDialog from "./DeleteDialog.vue"
 import FileTree from "./FileTree.vue"
@@ -14,7 +15,7 @@ import RenameDialog from "./RenameDialog.vue"
 
 defineProps<{ width: number }>()
 
-const { query, rootName, hasRoot, scanning, fsHint, openRoot, refreshTree, importMarkdownInto } = useWorkspace()
+const { query, rootName, hasRoot, scanning, fsHint, openRoot, refreshTree, importMarkdownInto, exportMarkdownTree } = useWorkspace()
 const { notify } = useToast()
 
 /** 挂起的命名对话框目标。null 表示关着。 */
@@ -30,10 +31,25 @@ function requestCreate(kind: CreateTarget["kind"]) {
   createTarget.value = { parentPath: "", kind }
 }
 
-/** 根层导入 Markdown：和根层新建一样落在工作区根目录。 */
+/** 根层导入 Markdown：和根层新建一样落在工作区根目录。可以一次选多篇。 */
 async function requestImport() {
   if (!hasRoot.value) return
-  if (await importMarkdownInto("")) notify("已导入 Markdown")
+  const summary = await importMarkdownInto("")
+  if (summary === null) return
+  notify(importSummaryText(summary), summary.failed.length > 0 ? "error" : "success")
+}
+
+/**
+ * 整个工作区导出成 Markdown。
+ *
+ * 没有「导出全部」的节点可右键 —— 工作区根在树上没有自己的行，所以入口放在侧栏头部
+ * 的 `⋯` 菜单里。文件夹级别的批量导出在文件树的文件夹菜单上（导出的是那一层的子树）。
+ */
+async function requestExport() {
+  if (!hasRoot.value) return
+  const summary = await exportMarkdownTree("")
+  if (summary === null) return
+  notify(exportSummaryText(summary), summary.failed.length > 0 ? "error" : "success")
 }
 
 /**
@@ -113,7 +129,7 @@ function setQuery(value: string | number) {
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem class="gap-2 text-[13px]" @select="requestImport">
-              <span>从 Markdown 导入</span>
+              <span>从 Markdown 导入…</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -131,6 +147,25 @@ function setQuery(value: string | number) {
           </TooltipTrigger>
           <TooltipContent>刷新目录</TooltipContent>
         </Tooltip>
+        <!-- 工作区级别的动作。根部在树上没有自己的行，所以「整批导出」只能挂在这里 ——
+             文件夹级别的同款动作在文件夹行的菜单上。 -->
+        <DropdownMenu v-if="hasRoot">
+          <DropdownMenuTrigger as-child>
+            <button
+              type="button"
+              class="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label="更多操作"
+            >
+              <EllipsisIcon class="size-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem class="gap-2 text-[13px]" @select="requestExport">
+              <FileDownIcon class="size-3.5 text-muted-foreground" />
+              <span>导出整个工作区为 Markdown…</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
 

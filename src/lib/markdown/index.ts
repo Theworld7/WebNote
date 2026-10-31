@@ -1,3 +1,5 @@
 export { blocksToMarkdown } from "./export"
+export { noteExportsUnder, importSummaryText, exportSummaryText } from "./batch"
+export type { ExportSummary, ImportSummary, NoteExport } from "./batch"
 export { markdownToBlocks, markdownTitleOf } from "./import"
 export { markdownToHtml } from "./render"

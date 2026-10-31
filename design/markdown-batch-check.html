@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>批量 Markdown 自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  .ok { color: #1c7a3e; }
+  .fail { color: #b42318; }
+  .sum { margin-top: 12px; font-weight: 600; display: block; }
+</style>
+</head>
+<body>
+<h1>批量导入 / 导出，自检</h1>
+<pre id="out">running…</pre>
+
+<script type="module">
+import {
+  noteExportsUnder,
+  importSummaryText,
+  exportSummaryText,
+} from "../src/lib/markdown/batch.ts"
+import { pickExportSink, writeMarkdownTree } from "../src/lib/fs/transfer.ts"
+
+const out = document.getElementById("out")
+const lines = []
+let passed = 0
+let failed = 0
+let finished = false
+
+/** 顶层 await 抛错时把原因写到 #out，否则 CDP 只会看到停在最后一步。 */
+addEventListener("error", (event) => {
+  finished = true
+  out.textContent = `ERROR ${event.message}\n${lines.join("\n")}`
+})
+addEventListener("unhandledrejection", (event) => {
+  finished = true
+  const reason = event.reason
+  out.textContent = `REJECT ${reason instanceof Error ? reason.message : String(reason)}\n${lines.join("\n")}`
+})
+
+/** 未跑完前给个 `running:` 前缀，让 CDP 继续等。 */
+function flush() {
+  out.textContent = finished ? lines.join("\n") : `running:\n${lines.join("\n")}`
+}
+
+function check(name, ok, detail = "") {
+  if (ok) {
+    passed += 1
+    lines.push(`OK   ${name}`)
+  } else {
+    failed += 1
+    lines.push(`FAIL ${name} —— ${detail}`)
+  }
+  flush()
+}
+
+/**
+ * 一棵够用的假树：只关心路径与 kind，不碰 `refs`（那是展示层才填的字段）。
+ *
+ * 里面特意放了四个容易算错的邻居：`日记本 / a.html`（字符串前缀相同但不在 `日记` 之下）、
+ * `客户.tbl`（在子文件夹里，但不是笔记）、`说明.md`（本来就是 Markdown）、
+ * `旧.htm`（老后缀，同样要换成 `.md`）。
+ */
+const tree = [
+  {
+    id: "日记", name: "日记", kind: "folder", children: [
+      { id: "日记 / 2026-10-08.html", name: "2026-10-08.html", kind: "note" },
+      {
+        id: "日记 / 2026", name: "2026", kind: "folder", children: [
+          { id: "日记 / 2026 / 十月.html", name: "十月.html", kind: "note" },
+          { id: "日记 / 2026 / 客户.tbl", name: "客户.tbl", kind: "table" },
+        ],
+      },
+    ],
+  },
+  { id: "日记本 / a.html", name: "a.html", kind: "note" },
+  { id: "索引.html", name: "索引.html", kind: "note" },
+  { id: "旧.htm", name: "旧.htm", kind: "note" },
+  { id: "说明.md", name: "说明.md", kind: "markdown" },
+]
+
+const paths = (list) => list.map((item) => item.relativePath).join(" | ")
+
+// ---------- 一、清单：整棵树 ----------
+
+const all = noteExportsUnder(tree, "")
+check("根层导出：只认笔记（数据表 / .md 都不算）", all.length === 5, paths(all))
+check(
+  "根层导出：顺序与树一致，后缀换成 .md",
+  paths(all) === "日记/2026-10-08.md | 日记/2026/十月.md | 日记本/a.md | 索引.md | 旧.md",
+  paths(all),
+)
+check("`.htm` 也换成 `.md`", all.some((item) => item.relativePath === "旧.md"), paths(all))
+check(
+  "工作区路径原样留着（读盘要用它）",
+  all.some((item) => item.path === "日记 / 2026 / 十月.html"),
+  paths(all.map((i) => i.path)),
+)
+
+// ---------- 二、清单：只导出某个文件夹 ----------
+
+const diary = noteExportsUnder(tree, "日记")
+check("文件夹导出：含子文件夹里的笔记", diary.length === 2, paths(diary))
+check(
+  "文件夹导出：相对路径已经剪掉这一层",
+  paths(diary) === "2026-10-08.md | 2026/十月.md",
+  paths(diary),
+)
+check(
+  "文件夹导出：前缀相同的邻居不算在内（日记 ≠ 日记本）",
+  !diary.some((item) => item.path.startsWith("日记本")),
+  paths(diary.map((i) => i.path)),
+)
+
+const deeper = noteExportsUnder(tree, "日记 / 2026")
+check("二级文件夹导出：只剩这一篇", paths(deeper) === "十月.md", paths(deeper))
+
+check("空文件夹导出：空清单，不是全部", noteExportsUnder(tree, "不存在").length === 0)
+check("导出清单不会重复（同一篇只出现一次）", new Set(all.map((i) => i.path)).size === all.length)
+
+// ---------- 三、说法：一句交代结果 ----------
+
+check(
+  "导入：全部成功",
+  importSummaryText({ imported: 3, skipped: [], failed: [] }) === "已导入 3 篇",
+  importSummaryText({ imported: 3, skipped: [], failed: [] }),
+)
+check(
+  "导入：有重名",
+  importSummaryText({ imported: 3, skipped: ["a.md", "b.md"], failed: [] }) === "已导入 3 篇，2 篇重名未导入",
+  importSummaryText({ imported: 3, skipped: ["a.md", "b.md"], failed: [] }),
+)
+check(
+  "导入：一篇都没进来时不以「已导入 0 篇」开头",
+  importSummaryText({ imported: 0, skipped: ["a.md"], failed: [] }) === "1 篇重名未导入",
+  importSummaryText({ imported: 0, skipped: ["a.md"], failed: [] }),
+)
+check(
+  "导入：成功与失败同时发生",
+  importSummaryText({ imported: 2, skipped: [], failed: ["x.md"] }) === "已导入 2 篇，1 篇失败",
+  importSummaryText({ imported: 2, skipped: [], failed: ["x.md"] }),
+)
+check(
+  "导入：空清单",
+  importSummaryText({ imported: 0, skipped: [], failed: [] }) === "没有可导入的文件",
+  importSummaryText({ imported: 0, skipped: [], failed: [] }),
+)
+
+check(
+  "导出：全部成功",
+  exportSummaryText({ written: 12, failed: [] }) === "已导出 12 篇 Markdown",
+  exportSummaryText({ written: 12, failed: [] }),
+)
+check(
+  "导出：有没写出去的",
+  exportSummaryText({ written: 10, failed: ["日记 / a.html"] }) === "已导出 10 篇 Markdown，1 篇未导出",
+  exportSummaryText({ written: 10, failed: ["日记 / a.html"] }),
+)
+check(
+  "导出：一篇都没写出去时说「没有可导出的笔记」",
+  exportSummaryText({ written: 0, failed: [] }) === "没有可导出的笔记",
+  exportSummaryText({ written: 0, failed: [] }),
+)
+check(
+  "导出：一篇都没成时也如实说",
+  exportSummaryText({ written: 0, failed: ["a"] }) === "1 篇未导出",
+  exportSummaryText({ written: 0, failed: ["a"] }),
+)
+
+// ---------- 四、真落盘：浏览器分支写进 OPFS ----------
+
+/**
+ * 这一段验证 `pickExportSink` / `writeMarkdownTree` 的**浏览器分支**：目录选择器用
+ * OPFS 顶替，但分层建目录、按相对路径写文件这套流程跑的是真代码。
+ */
+const opfs = await navigator.storage.getDirectory()
+window.showDirectoryPicker = async () => opfs
+
+const sink = await pickExportSink()
+check("浏览器：挑中目录返回 handle 落点", sink !== null && sink.kind === "handle", String(sink?.kind))
+
+const wrote = await writeMarkdownTree(sink, [
+  { relativePath: "日记/2026/十月.md", text: "# 十月" },
+  { relativePath: "索引.md", text: "# 索引" },
+])
+check("批量写入：两篇都写出去，没有失败项", wrote.written === 2 && wrote.failed.length === 0, JSON.stringify(wrote))
+
+async function readOpfs(...segments) {
+  let dir = opfs
+  for (const segment of segments.slice(0, -1)) dir = await dir.getDirectoryHandle(segment)
+  const file = await (await dir.getFileHandle(segments[segments.length - 1])).getFile()
+  return file.text()
+}
+
+check(
+  "批量写入：两层的目录真的建出来了",
+  (await readOpfs("日记", "2026", "十月.md")) === "# 十月",
+)
+check("批量写入：根层那篇也落了盘", (await readOpfs("索引.md")) === "# 索引")
+
+// 一篇写不进去，不该连累其余那几篇 —— 这正是「导到一半就整批报失败」的防线。
+const memory = []
+const brokenSink = {
+  kind: "handle",
+  directory: {
+    async getDirectoryHandle() {
+      throw new Error("子目录建不出来")
+    },
+    async getFileHandle(name) {
+      return {
+        async createWritable() {
+          return {
+            async write(text) {
+              memory.push(`${name}=${text}`)
+            },
+            async close() {},
+          }
+        },
+      }
+    },
+  },
+}
+const partial = await writeMarkdownTree(brokenSink, [
+  { relativePath: "根.md", text: "ok" },
+  { relativePath: "只读/深层.md", text: "boom" },
+])
+check(
+  "批量写入：一篇失败只算那一篇，其余照写",
+  partial.written === 1 && partial.failed.join("|") === "只读/深层.md",
+  JSON.stringify(partial),
+)
+check("批量写入：成功那篇确实写进去了", memory.length === 1 && memory[0] === "根.md=ok", memory.join("|"))
+
+window.showDirectoryPicker = async () => {
+  throw new DOMException("用户取消", "AbortError")
+}
+check("浏览器：取消返回 null，不是空结果", (await pickExportSink()) === null)
+
+window.showDirectoryPicker = undefined
+check(
+  "浏览器：没有目录选择器时退回逐个下载（落点还在，不算取消）",
+  (await pickExportSink())?.kind === "download",
+)
+
+// ---------- 五、桌面分支：recursive 决定能不能往子目录里写 ----------
+
+/**
+ * `plugin:dialog|open` 把选中的目录加进 fs scope，`recursive` 缺省 false 只加
+ * `<目录>\*`，而 Tauri 的 scope 匹配开了 `require_literal_separator`（`*` 不跨
+ * 分隔符）—— 于是「导出父目录」这种必然有下一层的批量写会被判 forbidden path。
+ * 这一节把 invoke 换成记录器，钉住「必须传 recursive: true」和逐层建目录的写法。
+ */
+const calls = []
+let pickReturn = "D:\\导出"
+window.__TAURI_INTERNALS__ = {
+  invoke: async (cmd, args, options) => {
+    calls.push({ cmd, args, options })
+    if (cmd === "plugin:dialog|open") return pickReturn
+    if (cmd === "plugin:fs|mkdir") return null
+    if (cmd === "plugin:fs|write_text_file") {
+      if (decodeURIComponent(options.headers.path).includes("坏")) throw new Error("磁盘满")
+      return null
+    }
+    throw new Error(`没料到的命令：${cmd}`)
+  },
+}
+
+const pathSink = await pickExportSink()
+check(
+  "桌面：挑中目录返回磁盘落点",
+  pathSink !== null && pathSink.kind === "path" && pathSink.directory === "D:\\导出",
+  JSON.stringify(pathSink),
+)
+
+const openCall = calls.find((call) => call.cmd === "plugin:dialog|open")
+const openOptions = openCall?.args.options ?? {}
+check("桌面：要的是目录、单选", openOptions.directory === true && openOptions.multiple === false, JSON.stringify(openOptions))
+check(
+  "桌面：目录对话框带 recursive:true（缺了它，子目录里的写入全被拒）",
+  openOptions.recursive === true,
+  JSON.stringify(openOptions),
+)
+
+calls.length = 0
+const treeResult = await writeMarkdownTree(pathSink, [
+  { relativePath: "日记/2026-10-08.md", text: "x" },
+  { relativePath: "索引.md", text: "y" },
+])
+check(
+  "桌面：父目录 + 子目录里的两篇都写出去",
+  treeResult.written === 2 && treeResult.failed.length === 0,
+  JSON.stringify(treeResult),
+)
+
+const mkdirs = calls.filter((call) => call.cmd === "plugin:fs|mkdir").map((call) => call.args.path)
+check(
+  "桌面：按层级建父目录，分隔符跟选中的目录一致",
+  mkdirs.join(" | ") === "D:\\导出\\日记",
+  mkdirs.join(" | "),
+)
+const targets = calls
+  .filter((call) => call.cmd === "plugin:fs|write_text_file")
+  .map((call) => decodeURIComponent(call.options.headers.path))
+check(
+  "桌面：写入路径是「目录 + 完整相对路径」",
+  targets.join(" | ") === "D:\\导出\\日记\\2026-10-08.md | D:\\导出\\索引.md",
+  targets.join(" | "),
+)
+
+calls.length = 0
+const partialPath = await writeMarkdownTree(pathSink, [
+  { relativePath: "好.md", text: "ok" },
+  { relativePath: "坏.md", text: "boom" },
+])
+check(
+  "桌面：一篇写失败不影响其余（不再整批中断）",
+  partialPath.written === 1 && partialPath.failed.join("|") === "坏.md",
+  JSON.stringify(partialPath),
+)
+
+pickReturn = null
+check("桌面：取消返回 null", (await pickExportSink()) === null)
+
+delete window.__TAURI_INTERNALS__
+
+// ---------- 输出 ----------
+
+finished = true
+flush()
+const summary = `自检 ${passed}/${passed + failed} 通过`
+document.title = summary
+out.insertAdjacentHTML(
+  "beforeend",
+  `\n\n<span class="sum ${failed > 0 ? "fail" : "ok"}">${summary}</span>`,
+)
+</script>
+</body>
+</html>

@@ -8,6 +8,7 @@ import { useToast } from "@/composables/useToast"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { describeError } from "@/lib/errors"
 import { fileStem } from "@/lib/fs/policy"
+import { exportSummaryText, importSummaryText } from "@/lib/markdown"
 import { cn } from "@/lib/utils"
 
 const props = defineProps<{
@@ -34,6 +35,7 @@ const {
   fs,
   root,
   exportMarkdown,
+  exportMarkdownTree,
   importMarkdownInto,
 } = useWorkspace()
 const { notify } = useToast()
@@ -130,9 +132,23 @@ async function exportAsMarkdown() {
   if (await exportMarkdown(fullPath.value)) notify("已导出为 Markdown")
 }
 
-/** 从这个文件夹导入 Markdown 文件，作为一篇新笔记。 */
+/**
+ * 把这个文件夹（含子文件夹）整批导出成 Markdown。
+ *
+ * 与单篇导出不同，这里选的是**目标文件夹**而不是文件名：一篇一个「另存为」没人受得了。
+ * 目录结构照搬，所以同名笔记各在各的层级里。
+ */
+async function exportFolderAsMarkdown() {
+  const summary = await exportMarkdownTree(fullPath.value)
+  if (summary === null) return
+  notify(exportSummaryText(summary), summary.failed.length > 0 ? "error" : "success")
+}
+
+/** 从这个文件夹导入 Markdown 文件，可以一次选多篇；重名的按 ADR-0002 跳过。 */
 async function importMarkdown() {
-  if (await importMarkdownInto(fullPath.value)) notify("已导入 Markdown")
+  const summary = await importMarkdownInto(fullPath.value)
+  if (summary === null) return
+  notify(importSummaryText(summary), summary.failed.length > 0 ? "error" : "success")
 }
 
 /** 文件行可拖，且拖的是「这个文件」。路径作为 `dataTransfer` 载荷由 FileTree 写。 */
@@ -194,7 +210,7 @@ function startDrag(event: DragEvent) {
             <DropdownMenuSeparator />
             <DropdownMenuItem class="gap-2 text-[13px]" @select="importMarkdown">
               <FileUpIcon class="size-3.5 text-muted-foreground" />
-              <span>从 Markdown 导入</span>
+              <span>从 Markdown 导入…</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -223,6 +239,11 @@ function startDrag(event: DragEvent) {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
             </template>
+            <DropdownMenuItem class="gap-2 text-[13px]" @select="exportFolderAsMarkdown">
+              <FileDownIcon class="size-3.5 text-muted-foreground" />
+              <span>导出为 Markdown…</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('rename', fullPath, 'folder')">
               <PencilIcon class="size-3.5 text-muted-foreground" />
               <span>重命名</span>
