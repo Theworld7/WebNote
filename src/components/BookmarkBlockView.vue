@@ -593,7 +593,7 @@ const columnsSelection = computed({
          回调会先清状态,保存逻辑需要自己掌控关框时机(与关标签确认框同一手法)。
          Esc 走 onOpenChange(false)。 -->
     <AlertDialog :open="editingId !== ''" @update:open="(open: boolean) => !open && closeEdit()">
-      <AlertDialogContent class="w-[360px] max-w-[calc(100vw-2rem)] rounded-[18px] p-5 shadow-pop ring-1 ring-line/70">
+      <AlertDialogContent class="w-[360px] max-w-[calc(100vw-2rem)] rounded-block p-5 shadow-pop ring-1 ring-line/70">
         <AlertDialogHeader>
           <AlertDialogTitle>{{ isAdding ? "添加书签" : "编辑书签" }}</AlertDialogTitle>
         </AlertDialogHeader>
@@ -665,7 +665,7 @@ const columnsSelection = computed({
     <!-- 删除确认:删的是盘上数据表里的一行,没有撤销;表被多篇笔记共用时,
          别处也会跟着少一行,得先说清楚。 -->
     <AlertDialog :open="deletingId !== ''" @update:open="(open: boolean) => !open && closeDelete()">
-      <AlertDialogContent class="w-[300px] rounded-[18px] p-5 shadow-pop ring-1 ring-line/70">
+      <AlertDialogContent class="w-[300px] rounded-block p-5 shadow-pop ring-1 ring-line/70">
         <AlertDialogHeader>
           <AlertDialogTitle>删除书签</AlertDialogTitle>
           <AlertDialogDescription class="text-[12px]">

@@ -94,6 +94,29 @@ function readMenuGroupLayout(): MenuGroupLayout {
 }
 
 /**
+ * 界面圆角 —— 四档。
+ *
+ * 与 `ContentWidth` 同一判据：存**档位 id** 而不是像素。像素是各档的属性，落在
+ * `style.css` 的 `:root[data-corners=…]` 里（七个数一档），改像素不用动存储格式，
+ * 旧值也永远合法。
+ *
+ * 类型留在本文件而不是 `@/types/workspace`：只有组件与这份设置消费它，没有 lib 依赖。
+ */
+export type CornerStyle = "square" | "small" | "medium" | "large"
+
+const CORNER_STYLE_KEY = "webnote:corners"
+const DEFAULT_CORNER_STYLE: CornerStyle = "medium"
+
+const CORNER_STYLES: readonly CornerStyle[] = ["square", "small", "medium", "large"]
+
+function readCornerStyle(): CornerStyle {
+  const raw = window.localStorage.getItem(CORNER_STYLE_KEY)
+  if (raw === null) return DEFAULT_CORNER_STYLE
+  const found = CORNER_STYLES.find((value) => value === raw)
+  return found ?? DEFAULT_CORNER_STYLE
+}
+
+/**
  * 文件树是否整合数据表视图。
  *
  * 只是**看法的开关**：被笔记引用的 `.tbl` 从原位置收进引用它的笔记名下，笔记名隐去
@@ -250,6 +273,7 @@ interface PreferenceFile {
   tableEffect?: TableEffect
   contentWidth?: ContentWidth
   menuGroupLayout?: MenuGroupLayout
+  corners?: CornerStyle
   integrateTables?: boolean
   autoSave?: boolean
   headingNav?: boolean
@@ -281,6 +305,7 @@ function parsePreferenceFile(text: string): PreferenceFile {
     tableEffect: pick(TABLE_EFFECTS, source["tableEffect"]),
     contentWidth: pick(CONTENT_WIDTHS, source["contentWidth"]),
     menuGroupLayout: pick(MENU_GROUP_LAYOUTS, source["menuGroupLayout"]),
+    corners: pick(CORNER_STYLES, source["corners"]),
     // 布尔偏好没有候选表可收窄，类型对得上才认。
     integrateTables: typeof source["integrateTables"] === "boolean" ? source["integrateTables"] : undefined,
     autoSave: typeof source["autoSave"] === "boolean" ? source["autoSave"] : undefined,
@@ -310,6 +335,9 @@ interface Settings {
   /** 块菜单分组的排布方向。同上，`ref` 且只经 setter 写。 */
   menuGroupLayout: Ref<MenuGroupLayout>
   setMenuGroupLayout: (value: MenuGroupLayout) => void
+  /** 界面圆角档位。同上，`ref` 且只经 setter 写。 */
+  corners: Ref<CornerStyle>
+  setCorners: (value: CornerStyle) => void
   /** 文件树是否把被引用的数据表收进笔记名下（整合数据表视图）。同上，只经 setter 写。 */
   integrateTables: Ref<boolean>
   setIntegrateTables: (value: boolean) => void
@@ -363,6 +391,14 @@ function createSettings(): Settings {
   function setMenuGroupLayout(value: MenuGroupLayout) {
     menuGroupLayout.value = value
     window.localStorage.setItem(MENU_GROUP_LAYOUT_KEY, value)
+    void persistToStore()
+  }
+
+  const corners = ref<CornerStyle>(readCornerStyle())
+
+  function setCorners(value: CornerStyle) {
+    corners.value = value
+    window.localStorage.setItem(CORNER_STYLE_KEY, value)
     void persistToStore()
   }
 
@@ -443,6 +479,21 @@ function createSettings(): Settings {
   watch(codeFont, (name) => applyFontName(name, "code"), { immediate: true })
 
   /**
+   * 圆角偏好 → `<html data-corners>`。
+   *
+   * 走属性而不是把七个 `--rad-*` 内联到 `<html>`：档位是**一组**数，在样式表里按档名
+   * 列一次，比在 TS 里再铺一张七列的映射表省事 —— 那种表迟早和 `style.css` 各说一遍。
+   * 默认档不写属性：`:root` 上那组值就是默认，少一个能被改动的状态。
+   */
+  function applyCornerStyle(value: CornerStyle) {
+    if (value === DEFAULT_CORNER_STYLE) delete document.documentElement.dataset.corners
+    else document.documentElement.dataset.corners = value
+  }
+
+  // immediate：存过的档位同样要首帧生效，否则打开应用先闪一下默认圆角。
+  watch(corners, applyCornerStyle, { immediate: true })
+
+  /**
    * 工作区侧的读写。`attachStore` 接上前是 null —— 那时偏好只走 localStorage，
    * 这是「没打开目录也想能设置」的退化路径，不是缺功能。
    */
@@ -455,6 +506,7 @@ function createSettings(): Settings {
       tableEffect: tableEffect.value,
       contentWidth: contentWidth.value,
       menuGroupLayout: menuGroupLayout.value,
+      corners: corners.value,
       integrateTables: integrateTables.value,
       autoSave: autoSave.value,
       headingNav: headingNav.value,
@@ -496,6 +548,11 @@ function createSettings(): Settings {
     if (prefs.menuGroupLayout !== undefined && prefs.menuGroupLayout !== menuGroupLayout.value) {
       menuGroupLayout.value = prefs.menuGroupLayout
       window.localStorage.setItem(MENU_GROUP_LAYOUT_KEY, prefs.menuGroupLayout)
+      changed = true
+    }
+    if (prefs.corners !== undefined && prefs.corners !== corners.value) {
+      corners.value = prefs.corners
+      window.localStorage.setItem(CORNER_STYLE_KEY, prefs.corners)
       changed = true
     }
     if (prefs.integrateTables !== undefined && prefs.integrateTables !== integrateTables.value) {
@@ -577,6 +634,8 @@ function createSettings(): Settings {
     setContentWidth,
     menuGroupLayout,
     setMenuGroupLayout,
+    corners,
+    setCorners,
     integrateTables,
     setIntegrateTables,
     autoSave,

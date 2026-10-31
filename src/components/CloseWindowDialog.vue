@@ -32,7 +32,7 @@ const count = computed(() => dirtyTabs.value.length)
 
 <template>
   <AlertDialog :open="windowClosePending" @update:open="(open: boolean) => !open && cancelWindowClose()">
-    <AlertDialogContent class="max-w-sm rounded-[18px] p-5 shadow-pop ring-1 ring-line/70">
+    <AlertDialogContent class="max-w-sm rounded-block p-5 shadow-pop ring-1 ring-line/70">
       <AlertDialogHeader>
         <AlertDialogTitle>{{ count }} 个文件有未保存的修改</AlertDialogTitle>
         <AlertDialogDescription>关闭窗口后这些修改将会丢失。</AlertDialogDescription>

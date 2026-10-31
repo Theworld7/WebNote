@@ -66,6 +66,8 @@ const AUTO_SAVE_KEY = "webnote:auto-save"
 window.localStorage.removeItem(FONT_KEY)
 window.localStorage.removeItem(CODE_FONT_KEY)
 window.localStorage.removeItem(AUTO_SAVE_KEY)
+const CORNER_KEY = "webnote:corners"
+window.localStorage.removeItem(CORNER_KEY)
 
 // ---------- 挂真实组件：设置面板 + 一个宽表格 ----------
 
@@ -233,10 +235,20 @@ check(
   "默认勾选在「标准」上",
   standardOption !== undefined && standardOption.getAttribute("aria-checked") === "true",
 )
+
+/**
+ * 量宽度的口径：左右 gutter 是 `clamp(16px, 10.3cqw, 96px)` + `clamp(12px, 4.3cqw, 40px)`，
+ * 随容器宽走，所以 maxWidth 只能卡**区间**（版心 .. 版心 + 两个上限），钉死像素会假红
+ * —— 版心从 800 收到 720 那一次（ADR-0027）这三条就这么红了一个版本。
+ */
+const docMaxWidth = () => (docEl() === null ? 0 : parseFloat(getComputedStyle(docEl()).maxWidth))
+const withinMeasure = (width, measure) => width >= measure && width <= measure + 136
+
+const standardWidth = docMaxWidth()
 check(
-  "默认下正文列 maxWidth 是 800px（standard 档）",
-  docEl() !== null && getComputedStyle(docEl()).maxWidth === "800px",
-  docEl() === null ? "（没渲染）" : getComputedStyle(docEl()).maxWidth,
+  "默认下正文列宽度落在标准版心区间（720 + gutter）",
+  withinMeasure(standardWidth, DOC_MEASURE_PX),
+  `${standardWidth}px`,
 )
 
 if (wideOption !== undefined) {
@@ -247,10 +259,11 @@ if (wideOption !== undefined) {
 }
 check("切到宽后落盘（键 webnote:content-width）", window.localStorage.getItem(WIDTH_KEY) === "wide",
   String(window.localStorage.getItem(WIDTH_KEY)))
+const wideWidth = docMaxWidth()
 check(
-  "切到宽后正文列 maxWidth 变 1000px",
-  docEl() !== null && getComputedStyle(docEl()).maxWidth === "1000px",
-  docEl() === null ? "（没渲染）" : getComputedStyle(docEl()).maxWidth,
+  "切到宽后正文列比标准档宽",
+  wideWidth > standardWidth,
+  `标准 ${standardWidth}px → 宽 ${wideWidth}px`,
 )
 
 // 切回标准，别把宽档状态漏给后面的用例。
@@ -261,9 +274,9 @@ if (standardOption !== undefined) {
   await nextTick()
 }
 check(
-  "切回标准后正文列 maxWidth 回到 800px",
-  docEl() !== null && getComputedStyle(docEl()).maxWidth === "800px",
-  docEl() === null ? "（没渲染）" : getComputedStyle(docEl()).maxWidth,
+  "切回标准后正文列回到原来的宽度",
+  Math.abs(docMaxWidth() - standardWidth) < 0.5,
+  `${standardWidth}px → ${docMaxWidth()}px`,
 )
 
 // ---------- 三、切到「表格滚动」 ----------
@@ -755,6 +768,104 @@ check(
   badDoc !== null && badMaxWidth >= DOC_MEASURE_PX && badMaxWidth <= DOC_MEASURE_PX + 136,
   badDoc === null ? "（没渲染）" : String(getComputedStyle(badDoc).maxWidth),
 )
+
+// ---------- 二点七、界面圆角 ----------
+//
+// 验整条链路：面板档位 → <html data-corners> → style.css 那组 --rad-* → 工具类算出的
+// 实际圆角。刻意量 getComputedStyle 而不是读变量值：变量对不代表类用上了它 ——
+// Tailwind 的 rounded-md 曾经把 calc 表达式内联进产物，那时候改 --radius 根本不动。
+
+note("界面圆角")
+
+/**
+ * 面板只渲染当前分区 —— 圆角在「外观」里，不切过去连 radiogroup 都不在 DOM 上。
+ * 本节结束时切回「显示」，别把分区状态漏给后面的用例。
+ */
+function openSection(name) {
+  const button = [...document.querySelectorAll("nav button")].find((node) => node.textContent.trim() === name)
+  if (button !== undefined) button.click()
+}
+openSection("外观")
+await nextTick()
+
+function cornerOptionByLabel(text) {
+  const root = panelRoot()
+  if (root === null) return undefined
+  const group = root.querySelector('[role="radiogroup"][aria-label="界面圆角"]')
+  if (group === null) return undefined
+  return [...group.querySelectorAll('[role="radio"]')].find((el) => el.textContent.includes(text))
+}
+
+/**
+ * 三个探针各取一档：rounded-lg（卡片）/ rounded（控件，原来由 Tailwind 写死 .25rem，
+ * 靠 utilities 层那条覆盖接进来）/ rounded-island（浮岛）。三档一起量，才说明这是
+ * **一张刻度**带着全部工具类走，而不是只改了一条。
+ */
+const probeEls = {}
+for (const [key, cls] of Object.entries({ card: "rounded-lg", control: "rounded", island: "rounded-island" })) {
+  const el = document.createElement("div")
+  el.className = cls
+  document.body.appendChild(el)
+  probeEls[key] = el
+}
+const radiusOf = (key) => getComputedStyle(probeEls[key]).borderTopLeftRadius
+const radiusReport = () => ["card", "control", "island"].map((key) => `${key}=${radiusOf(key)}`).join(" ")
+
+const squareOption = cornerOptionByLabel("直角")
+const smallOption = cornerOptionByLabel("小")
+const mediumOption = cornerOptionByLabel("中")
+const largeOption = cornerOptionByLabel("大")
+check(
+  "面板里有四档界面圆角（直角 / 小 / 中 / 大）",
+  squareOption !== undefined && smallOption !== undefined && mediumOption !== undefined && largeOption !== undefined,
+)
+check("默认勾选在「中」上", mediumOption !== undefined && mediumOption.getAttribute("aria-checked") === "true")
+check(
+  "默认档不往 html 上写 data-corners（中档就是 :root 那组值）",
+  document.documentElement.dataset.corners === undefined,
+  String(document.documentElement.dataset.corners),
+)
+check(
+  "默认档：卡片 10px / 控件 4px / 浮岛 14px",
+  radiusOf("card") === "10px" && radiusOf("control") === "4px" && radiusOf("island") === "14px",
+  radiusReport(),
+)
+
+async function clickCorner(option) {
+  if (option === undefined) return
+  option.click()
+  await nextTick()
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  await nextTick()
+}
+
+await clickCorner(squareOption)
+check("切「直角」后 html 带 data-corners=square", document.documentElement.dataset.corners === "square",
+  String(document.documentElement.dataset.corners))
+check(
+  "切「直角」后三档全归零",
+  radiusOf("card") === "0px" && radiusOf("control") === "0px" && radiusOf("island") === "0px",
+  radiusReport(),
+)
+check("切「直角」后落盘（键 webnote:corners）", window.localStorage.getItem(CORNER_KEY) === "square",
+  String(window.localStorage.getItem(CORNER_KEY)))
+
+await clickCorner(largeOption)
+check("切「大」后：卡片 16px / 控件 8px / 浮岛 22px",
+  radiusOf("card") === "16px" && radiusOf("control") === "8px" && radiusOf("island") === "22px",
+  radiusReport())
+
+await clickCorner(mediumOption)
+check(
+  "切回「中」后属性被撤掉（不留一个与默认同值的属性）",
+  document.documentElement.dataset.corners === undefined,
+  String(document.documentElement.dataset.corners),
+)
+check("切回「中」后卡片圆角回到 10px", radiusOf("card") === "10px", radiusReport())
+check("设置实例里的档位跟着回到 medium", settings !== null && settings.corners.value === "medium",
+  settings === null ? "（没拿到实例）" : settings.corners.value)
+
+for (const el of Object.values(probeEls)) el.remove()
 
 // ---------- 输出 ----------
 

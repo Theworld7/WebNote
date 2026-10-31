@@ -542,7 +542,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
     <!-- 删除确认:删的是盘上 `.tbl` 里的一行,没有撤销;表被多篇笔记共用时,
          别处也会跟着少一行,得先说清楚。与账目块同一个框(ADR-0037)。 -->
     <AlertDialog :open="deletingId !== ''" @update:open="(open: boolean) => !open && closeDelete()">
-      <AlertDialogContent class="w-[300px] rounded-[18px] p-5 shadow-pop ring-1 ring-line/70">
+      <AlertDialogContent class="w-[300px] rounded-block p-5 shadow-pop ring-1 ring-line/70">
         <AlertDialogHeader>
           <AlertDialogTitle>删除这一行</AlertDialogTitle>
           <AlertDialogDescription class="text-[12px]">

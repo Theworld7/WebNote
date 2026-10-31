@@ -81,8 +81,20 @@
     --color-code-added: #22863a;
     --color-code-deleted: #b31d28;
 
-    --radius-block: 18px;
-    --radius-island: 14px;
+    /* 界面圆角：七个数各自指向 `--rad-*`，档位由 `:root[data-corners]` 决定
+       （四档见下方 `:root`）。
+       走一层间接的理由与下面的阴影（`--elev-*`）完全一样：`@theme` 的值会被内联进
+       工具类，按档位改写 `--radius-*` 不会生效 —— 指向真正的 CSS 变量后，每档在
+       `:root` 里各给一次值就够，`rounded-lg` / `rounded-island` 这些类一行都不用动。
+       这七个数原来分散成两组（shadcn 的 --radius 派生四档 + 写死的 block/island），
+       现在同一张刻度表，加档位只改 `:root`。 */
+    --radius-sm: var(--rad-sm);
+    --radius-md: var(--rad-md);
+    --radius-lg: var(--rad-lg);
+    --radius-xl: var(--rad-xl);
+    --radius-block: var(--rad-block);
+    --radius-island: var(--rad-island);
+    --radius-control: var(--rad-control);
 
     /* 阴影走一层间接（`--elev-*`），因为 @theme 的值会被**内联进工具类**
        （产物里是 `.shadow-pop{--tw-shadow:0 1px 2px …}`），直接在 `.dark` 里改写
@@ -135,10 +147,6 @@
     --color-card: var(--card);
     --color-foreground: var(--foreground);
     --color-background: var(--background);
-    --radius-sm: calc(var(--radius) - 4px);
-    --radius-md: calc(var(--radius) - 2px);
-    --radius-lg: var(--radius);
-    --radius-xl: calc(var(--radius) + 4px);
 }
 
 :root {
@@ -176,7 +184,18 @@
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
-    --radius: 0.625rem;
+    /* 界面圆角刻度 —— 七个数一档，默认 medium 与引入设置项之前逐像素一致
+       （6 / 8 / 10 / 14 / 18 / 14 / 4）。`data-corners` 只换数值，工具类不参与。
+       control 是输入框 / 菜单项那一档：原来它由 Tailwind 裸 `rounded`（写死 .25rem）
+       提供，见下面 `@layer utilities` 里那条覆盖。
+       各档之间不是等比缩放 —— 直角档归零之后，再按比例缩一个 0 还是 0，档位就废了。 */
+    --rad-sm: 6px;
+    --rad-md: 8px;
+    --rad-lg: 10px;
+    --rad-xl: 14px;
+    --rad-block: 18px;
+    --rad-island: 14px;
+    --rad-control: 4px;
     /* 动效时长只有这三档，别落第四档。数值就是既有取值（浮层 100 / Tailwind 默认
        150 / 大面板 200），这里只给它们名字：让「该用哪一档」变成可查的档位，而不是
        每次现猜一个毫秒数。工具类照旧写 duration-100 / 150 / 200，取的是同一批数字；
@@ -218,6 +237,59 @@
     --elev-block: 0 1px 2px oklch(0 0 0 / 4%), 0 6px 18px oklch(0 0 0 / 6%);
     --elev-island: 0 1px 2px oklch(0 0 0 / 5%), 0 3px 10px oklch(0 0 0 / 7%);
     --elev-pop: 0 1px 2px oklch(0 0 0 / 5%), 0 3px 10px oklch(0 0 0 / 7%), 0 12px 32px oklch(0 0 0 / 10%);
+}
+
+/*
+ * 圆角档位（设置 → 外观 → 界面圆角）。
+ *
+ * 除了这四档还有一个隐含的第五档：**没有 `data-corners` 属性**就是 `:root` 里那组
+ * medium —— 默认档不写属性，少一个能被改动的状态，也让「从没设置过」和「明确选了中」
+ * 在 DOM 上无从分辨（两者本来就该一样）。
+ *
+ * 换档只换 `--rad-*` 这七个数，`rounded-lg` / `rounded-island` / `rounded-block` 这些
+ * 工具类一行都不用动 —— 它们引的是 `--radius-*`，而后者指向这里（见 `@theme`）。
+ * 直角档把七个数一起归零，而不是「按比例缩到 0」：等比缩放遇到 0 就再也放不回来。
+ */
+:root[data-corners="square"] {
+    --rad-sm: 0px;
+    --rad-md: 0px;
+    --rad-lg: 0px;
+    --rad-xl: 0px;
+    --rad-block: 0px;
+    --rad-island: 0px;
+    --rad-control: 0px;
+}
+
+:root[data-corners="small"] {
+    --rad-sm: 3px;
+    --rad-md: 4px;
+    --rad-lg: 6px;
+    --rad-xl: 8px;
+    --rad-block: 10px;
+    --rad-island: 8px;
+    --rad-control: 2px;
+}
+
+:root[data-corners="large"] {
+    --rad-sm: 8px;
+    --rad-md: 12px;
+    --rad-lg: 16px;
+    --rad-xl: 20px;
+    --rad-block: 26px;
+    --rad-island: 22px;
+    --rad-control: 8px;
+}
+
+/*
+ * Tailwind 的裸 `rounded` 是写死的 `.25rem`，不参与上面那张刻度 —— 而全项目有六十几处
+ * 拿它当「输入框 / 菜单项那一档」。在这里覆盖一次，比把六十多处类名逐个改掉更不容易漂
+ * （也不会漏掉以后新增的那一处）。与 Tailwind 的 utility 同层同特异性，后写者赢。
+ *
+ * `rounded-t` / `rounded-b` 那几个方向类同样是写死的 .25rem，但它们只出现在标签页顶端，
+ * 跟着档位走反而会把「标签贴着内容区」那条缝撑开，保持原样。
+ */
+@layer utilities {
+    .rounded { border-radius: var(--rad-control); }
 }
 
 .dark {

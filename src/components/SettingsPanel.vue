@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ContentWidth, MenuGroupLayout, TableEffect } from "@/composables/useSettings"
+import type { ContentWidth, CornerStyle, MenuGroupLayout, TableEffect } from "@/composables/useSettings"
 import type { UpdateOutcome } from "@/composables/useUpdateCheck"
 import type { ThemeMode } from "@/types/workspace"
 import type { Component } from "vue"
@@ -52,7 +52,7 @@ import NewVersionButton from "./NewVersionButton.vue"
  */
 const open = defineModel<boolean>("open", { required: true })
 
-const { tableEffect, setTableEffect, contentWidth, setContentWidth, menuGroupLayout, setMenuGroupLayout, integrateTables, setIntegrateTables, autoSave, setAutoSave, headingNav, setHeadingNav, headingNavMin, setHeadingNavMin, contentFont, setContentFont, codeFont, setCodeFont, theme, setTheme } = useSettings()
+const { tableEffect, setTableEffect, contentWidth, setContentWidth, menuGroupLayout, setMenuGroupLayout, corners, setCorners, integrateTables, setIntegrateTables, autoSave, setAutoSave, headingNav, setHeadingNav, headingNavMin, setHeadingNavMin, contentFont, setContentFont, codeFont, setCodeFont, theme, setTheme } = useSettings()
 
 /**
  * 本机字体列表。打开面板时才去取（桌面端要扫一遍系统字体），拿到之前选择框里
@@ -162,6 +162,24 @@ const CONTENT_WIDTH_BAR: Readonly<Record<ContentWidth, string>> = {
   standard: "w-5",
   wide: "w-7",
 }
+
+interface CornerStyleOption {
+  value: CornerStyle
+  label: string
+  /** 示意方块自己的圆角类。**只是示意**，取值的真源在 `style.css` 的 `--rad-*`。 */
+  preview: string
+}
+
+/**
+ * 四档界面圆角。按钮里那颗方块按档位画出弧度：圆角这个量没有单位可言，
+ * 画出来比文字更直白。默认档是 `medium`（引入这项设置之前的取值）。
+ */
+const CORNER_STYLE_OPTIONS: readonly CornerStyleOption[] = [
+  { value: "square", label: "直角", preview: "rounded-none" },
+  { value: "small", label: "小", preview: "rounded-[3px]" },
+  { value: "medium", label: "中", preview: "rounded-[8px]" },
+  { value: "large", label: "大", preview: "rounded-[13px]" },
+]
 
 interface MenuGroupLayoutOption {
   value: MenuGroupLayout
@@ -598,6 +616,31 @@ function optionClass(isActive: boolean): string {
                     v-if="theme.mode === option.value"
                     class="ml-auto mt-0.5 size-3.5 flex-none text-foreground"
                   />
+                </button>
+              </div>
+            </section>
+
+            <section class="flex flex-col gap-2">
+              <h3 class="text-[13px] font-medium text-foreground">界面圆角</h3>
+              <SheetDescription>卡片、菜单与输入框的圆角档位。</SheetDescription>
+
+              <!-- 四档横排：方块的弧度随档位递增，一排看过去就是这条刻度。 -->
+              <div class="mt-0.5 grid grid-cols-4 gap-1.5" role="radiogroup" aria-label="界面圆角">
+                <button
+                  v-for="option in CORNER_STYLE_OPTIONS"
+                  :key="option.value"
+                  type="button"
+                  role="radio"
+                  :aria-checked="corners === option.value"
+                  :class="[
+                    'flex flex-col items-center gap-1.5 rounded-[9px] border p-2.5 transition-colors',
+                    optionClass(corners === option.value),
+                  ]"
+                  @click="setCorners(option.value)"
+                >
+                  <!-- 示意方块：弧度只是「这一档大概长什么样」，七个真值在 style.css 的 --rad-*。 -->
+                  <span :class="['size-4 border border-muted-foreground', option.preview]" />
+                  <span class="text-[13px] leading-[1.4] text-foreground">{{ option.label }}</span>
                 </button>
               </div>
             </section>

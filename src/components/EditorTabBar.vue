@@ -116,7 +116,7 @@ watch(() => tabs.value.length, () => nextTick(updateOverflow))
          Esc 仍然有效：走 reka 的 onOpenChange(false) → cancelPendingClose，等同「取消」。
          放在根节点内部是为了让本组件保持单根 —— 否则父级给它的 class 传不进来。 -->
     <AlertDialog :open="isClosePending" @update:open="(open: boolean) => !open && cancelPendingClose()">
-      <AlertDialogContent class="rounded-[18px] p-5 shadow-pop ring-1 ring-line/70">
+      <AlertDialogContent class="rounded-block p-5 shadow-pop ring-1 ring-line/70">
         <AlertDialogHeader>
           <AlertDialogTitle>保存对「{{ pendingCloseLabel }}」的修改？</AlertDialogTitle>
           <AlertDialogDescription>这个文件有未保存的修改，关闭后将会丢失。</AlertDialogDescription>
