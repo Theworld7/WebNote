@@ -232,7 +232,7 @@ function tickClass(active: boolean): string {
  * 宽度一次性跳到位、只有 `opacity` 淡入，观感几乎没差，重排只剩末尾那一帧。
  */
 const LABEL =
-  "max-w-0 overflow-hidden truncate text-12 leading-[1.35] whitespace-nowrap opacity-0 transition-opacity duration-150 group-hover/nav:max-w-[220px] group-hover/nav:opacity-100 group-focus-within/nav:max-w-[220px] group-focus-within/nav:opacity-100"
+  "max-w-0 overflow-hidden truncate text-12 leading-[1.35] whitespace-nowrap opacity-0 transition-opacity duration-150 group-hover/nav:max-w-[13.75rem] group-hover/nav:opacity-100 group-focus-within/nav:max-w-[13.75rem] group-focus-within/nav:opacity-100"
 </script>
 
 <template>
@@ -250,7 +250,7 @@ const LABEL =
           :data-active="item.id === activeId ? 'true' : 'false'"
           :aria-current="item.id === activeId ? 'true' : undefined"
           :title="item.text"
-          class="group/row flex w-full items-center justify-end gap-2.5 rounded-[6px] px-1 py-[5px] transition-colors hover:bg-muted"
+          class="group/row flex w-full items-center justify-end gap-2.5 rounded-[6px] px-1 py-[0.3125rem] transition-colors hover:bg-muted"
           @click="jumpTo(item.id, $event)"
         >
           <span

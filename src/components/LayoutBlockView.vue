@@ -42,7 +42,7 @@ const gridStyle = computed(() =>
 )
 
 /** 菜单外框，与块手柄菜单同一套参数。 */
-const MENU = "w-[148px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
+const MENU = "w-[9.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const TOOL_BUTTON =
   "h-6 gap-1 rounded-full px-2 text-12 text-muted-foreground hover:text-foreground"
 

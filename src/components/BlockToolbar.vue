@@ -97,7 +97,7 @@ const GRIP = `${TOOL} cursor-grab active:cursor-grabbing`
 const MENU = computed(() =>
   menuGroupLayout.value === "horizontal"
     ? "w-max rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
-    : "w-[244px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70",
+    : "w-[15.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70",
 )
 
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
@@ -317,7 +317,7 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
             <BlockTypeMenuItems :query="typeQuery" :exclude="excludeTypes" @pick="(type: BlockType) => emit('insert', type, insertAbove ? 'above' : 'below')" />
           </template>
           <div v-else class="flex items-start gap-x-3">
-            <div class="flex min-w-[104px] shrink-0 flex-col">
+            <div class="flex min-w-[6.5rem] shrink-0 flex-col">
               <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">位置</DropdownMenuLabel>
               <DropdownMenuItem
                 v-for="position in POSITIONS"

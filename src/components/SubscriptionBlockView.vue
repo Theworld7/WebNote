@@ -241,7 +241,7 @@ function setRole(role: SubscriptionRole, event: Event): void {
   }
 }
 
-const MENU = "w-[224px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
+const MENU = "w-[14rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
 
 function openTable() {

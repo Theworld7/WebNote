@@ -58,7 +58,7 @@ const hasDocument = computed(() => activeTab.value !== null && !isLoadingDocumen
     <div
       v-if="fsError !== ''"
       role="alert"
-      class="flex flex-none items-center gap-2 bg-destructive/8 px-[22px] py-1.5 text-12 text-destructive"
+      class="flex flex-none items-center gap-2 bg-destructive/8 px-[1.375rem] py-1.5 text-12 text-destructive"
     >
       <TriangleAlertIcon class="size-3.5 shrink-0" />
       <span class="min-w-0 flex-1 truncate">{{ fsError }}</span>
@@ -78,7 +78,7 @@ const hasDocument = computed(() => activeTab.value !== null && !isLoadingDocumen
     <div
       v-if="busyLabel !== ''"
       role="status"
-      class="flex flex-none items-center gap-2 bg-muted/60 px-[22px] py-1.5 text-12 text-muted-foreground"
+      class="flex flex-none items-center gap-2 bg-muted/60 px-[1.375rem] py-1.5 text-12 text-muted-foreground"
     >
       <LoaderCircleIcon class="size-3.5 shrink-0 animate-spin" />
       <span class="min-w-0 flex-1 truncate">{{ busyLabel }}</span>

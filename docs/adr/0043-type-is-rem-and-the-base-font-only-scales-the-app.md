@@ -49,6 +49,34 @@ the step changes — it is already keyed on the appearance for the same reason).
 takes the same number and scales font size, line height and the padding it uses for layout, so
 "static layer and editor break lines identically" survives a non-default step.
 
+## Container sizes came later, in the same spirit
+
+The first pass converted `text-*` only. The base font scaled type while every menu, popover and
+sidebar kept its pixel width, which at 20 reads as "the words got bigger and the box did not" — a
+244px command menu that is roomy at 16 is cramped at 20.
+
+The remaining `[Npx]` arbitrary values in the width / height / spacing / line-height families are
+now rem (`w-[244px]` → `w-[15.25rem]`, `leading-[21px]` → `leading-[1.3125rem]`). Same rule as the
+type scale: change the unit, keep the number, so the default step stays pixel-identical and only a
+non-default step can tell the difference. `design/px-to-rem.py` is the converter, kept in the repo
+so the decision is reproducible rather than a one-off sweep.
+
+Three families deliberately stay in pixels:
+
+- **Hairlines, 3px and under** (`h-[2px]` selection edge, `h-[3px]` scroll indicator, `w-[2px]`
+  caret). A 1.25× caret is not a bigger caret, it is a blurry one.
+- **Radii.** They already have their own scale — seven `--rad-*` values switched by the four-step
+  corners setting — so a radius has to follow *that* preference, not the font size. (The stray
+  `rounded-[7px]` literals scattered through the menus are a leftover from the corners work and are
+  still unregistered; that is a separate fix.)
+- **The page column and export geometry**, unchanged from the earlier decision.
+
+Since rem and px are equal at the default step, every existing check page passes whether or not this
+conversion happened — the conversion is invisible to them. The only proof is a non-default step, so
+`settings-check` also measures the settings panel's section rail at three steps: 76px at 16, 95px at
+20, 76px again on the way back. Reverting that one `w-[4.75rem]` to `w-[76px]` fails exactly that one
+assertion and nothing else — which is how we know it measures something.
+
 ## The trap worth remembering
 
 `cn()` merges classes with tailwind-merge, and tailwind-merge only knows Tailwind's own font-size

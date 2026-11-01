@@ -46,7 +46,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
       v-bind="{ ...$attrs, ...forwarded }"
       :class="
         cn(
-          'bg-card text-card-foreground fixed inset-y-0 right-0 z-50 flex h-full w-[360px] flex-col border-l border-line shadow-pop outline-none',
+          'bg-card text-card-foreground fixed inset-y-0 right-0 z-50 flex h-full w-[22.5rem] flex-col border-l border-line shadow-pop outline-none',
           'data-open:animate-in data-closed:animate-out data-closed:slide-out-to-right data-open:slide-in-from-right duration-200',
           props.class,
         )

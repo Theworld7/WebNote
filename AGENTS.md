@@ -80,6 +80,11 @@
 `settings-check`(切档后量 computed 字号,不看存储值)与 `typography-check`(默认档下编辑器与
 导出仍逐像素一致)。**给 Tailwind 加自定义字号刻度必须同时扩 `lib/utils.ts` 的
 `classGroups`** —— 否则 `cn()` 会把档位名当成文字颜色吃掉,标题静默掉回正文大小;
+动**尺寸**(改宽度 / 弹层 / 侧栏这类 px 时)→ 一律写 rem(`w-[244px]` 写成 `w-[15.25rem]`,
+换算脚本 `design/px-to-rem.py`),**除了 3px 以内的细线、圆角、版心与导出几何** —— 前两者各有
+自己的刻度(细线是物理像素,圆角跟四档设置走),后两者按 ADR-0043 刻意不跟。默认档下 rem 与 px
+等价,所以任何既有自检都验不出这类改动;**只有非默认档才分得出来**,`settings-check` 量分区栏
+在三档下的宽度(76 / 95 / 76)就是为此;
 动保存时机(`saveOnLeave` / `attachAutoSave` / `requestWindowClose` 的前置保存、`useSettings`
 的 `autoSave`) → `autosave-check`(真实工作区 + 假盘),设置面板里那颗开关 → `settings-check`;
 动会话快照(`composables/useSession.ts`、`adoptRoot` 里的 `restoreSession`、`confirmWindowClose`

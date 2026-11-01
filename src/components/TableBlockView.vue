@@ -184,8 +184,8 @@ function alignColumn(align: TableAlign) {
 }
 
 /** 菜单外框与菜单项，与块手柄的两套菜单同一套参数。 */
-const MENU = "w-[244px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
-const SUB_MENU = "w-[148px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
+const MENU = "w-[15.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
+const SUB_MENU = "w-[9.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
 const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foreground"
 </script>

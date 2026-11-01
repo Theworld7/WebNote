@@ -227,7 +227,7 @@ onBeforeUnmount(() => {
           role="option"
           :aria-selected="item.id === active"
           :data-active="item.id === active"
-          class="flex cursor-pointer items-center gap-1.5 rounded-[6px] px-1.5 py-[5px] text-12"
+          class="flex cursor-pointer items-center gap-1.5 rounded-[6px] px-1.5 py-[0.3125rem] text-12"
           :class="[item.id === active ? 'bg-selection' : 'hover:bg-muted/60', item.id === '' && 'text-muted-foreground']"
           @mouseenter="hover(item.id)"
           @click="pick(item.id)"

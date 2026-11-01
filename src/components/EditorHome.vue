@@ -34,7 +34,7 @@ const { hasRoot, scanning, isLoadingDocument, tabs, fsHint, openRoot } = useWork
         <FolderOpenIcon class="size-4" />
         <span>打开文件夹</span>
       </Button>
-      <p class="max-w-[300px] text-12 leading-relaxed text-muted-foreground/70">
+      <p class="max-w-[18.75rem] text-12 leading-relaxed text-muted-foreground/70">
         {{ fsHint }}
       </p>
     </template>

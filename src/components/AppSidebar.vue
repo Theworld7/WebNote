@@ -171,7 +171,7 @@ function setQuery(value: string | number) {
 
     <div class="flex-none px-2.5 pb-2">
       <div
-        class="flex h-[30px] items-center gap-1.5 rounded-[10px] bg-muted px-2.5 transition-colors focus-within:bg-muted-strong"
+        class="flex h-[1.875rem] items-center gap-1.5 rounded-[10px] bg-muted px-2.5 transition-colors focus-within:bg-muted-strong"
       >
         <SearchIcon class="size-3.5 shrink-0 text-muted-foreground" />
         <Input

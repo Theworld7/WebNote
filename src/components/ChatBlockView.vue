@@ -67,7 +67,7 @@ function onBlur(index: number, event: FocusEvent) {
 </script>
 
 <template>
-  <div class="group/chat my-1 flex flex-col gap-1.5 rounded-lg bg-muted/50 px-2.5 pb-2.5 pt-[34px]">
+  <div class="group/chat my-1 flex flex-col gap-1.5 rounded-lg bg-muted/50 px-2.5 pb-2.5 pt-[2.125rem]">
     <!-- 顶部 34px 与底部留白（10px 内边距 + 24px 按钮高）等高：按钮常驻占位、
          hover 才显形，上下因此对称，块高度不随 hover 跳动。 -->
     <div

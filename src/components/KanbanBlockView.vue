@@ -242,7 +242,7 @@ function toggleField(column: DataColumn, checked: boolean): void {
   updateBlockSettings(props.block.id, { displayColumnIds: collapsesToAll ? [] : next })
 }
 
-const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
+const MENU = "w-[12.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
 
 function openTable() {

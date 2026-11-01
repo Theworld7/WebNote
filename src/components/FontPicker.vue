@@ -85,7 +85,7 @@ function preview(name: string): Record<string, string> {
 
     <!-- 焦点交给我们自己的搜索框：Popover 默认把焦点给内容容器，那样打开后直接打字没反应。 -->
     <PopoverContent
-      class="w-[248px] gap-0 p-0"
+      class="w-[15.5rem] gap-0 p-0"
       align="start"
       @open-auto-focus="(event: Event) => event.preventDefault()"
     >
@@ -101,7 +101,7 @@ function preview(name: string): Record<string, string> {
         >
       </div>
 
-      <div class="max-h-[260px] overflow-y-auto p-1">
+      <div class="max-h-[16.25rem] overflow-y-auto p-1">
         <button
           type="button"
           class="flex w-full items-center gap-2 rounded-[7px] px-2 py-1.5 text-left text-13 transition-colors"

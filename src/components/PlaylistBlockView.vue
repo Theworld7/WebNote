@@ -324,8 +324,8 @@ function setRole(role: PlaylistRole, event: Event): void {
   setPlaylistSources(props.block.id, next, activePath.value)
 }
 
-const MENU = "w-[224px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
-const BIND_MENU = "max-h-[280px] w-[240px] overflow-y-auto rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
+const MENU = "w-[14rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
+const BIND_MENU = "max-h-[17.5rem] w-[15rem] overflow-y-auto rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
 
 function openTable() {
@@ -337,7 +337,7 @@ function openTable() {
 const TOOL = "h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground"
 
 /** 标签胶囊:未选中是灰字,选中是浅底 + 深字 —— 换主题时靠 token 自动跟着走。 */
-const TAB = "flex h-[26px] max-w-[11rem] items-center gap-1 rounded-full px-2.5 text-12 transition-colors"
+const TAB = "flex h-[1.625rem] max-w-[11rem] items-center gap-1 rounded-full px-2.5 text-12 transition-colors"
 const TAB_ON = "bg-foreground/8 font-medium text-foreground"
 const TAB_OFF = "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
 
@@ -417,7 +417,7 @@ const SEARCH =
           <DropdownMenuTrigger as-child>
             <button
               type="button"
-              class="flex size-[26px] shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+              class="flex size-[1.625rem] shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
               aria-label="绑定歌单"
             >
               <PlusIcon class="size-3.5" />
@@ -549,9 +549,9 @@ const SEARCH =
           :key="row.id"
           class="group/track flex items-center gap-2.5 rounded-md px-1 py-1.5 transition-colors hover:bg-muted/40"
         >
-          <span class="w-[18px] shrink-0 text-right text-11 tabular-nums text-muted-foreground">{{ index + 1 }}</span>
+          <span class="w-[1.125rem] shrink-0 text-right text-11 tabular-nums text-muted-foreground">{{ index + 1 }}</span>
 
-          <span class="flex size-[34px] shrink-0 items-center justify-center overflow-hidden rounded-[6px] bg-muted/60 text-muted-foreground">
+          <span class="flex size-[2.125rem] shrink-0 items-center justify-center overflow-hidden rounded-[6px] bg-muted/60 text-muted-foreground">
             <img
               v-if="coverOf(row)"
               :src="coverOf(row)"

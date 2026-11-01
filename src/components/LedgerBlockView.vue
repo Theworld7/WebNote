@@ -622,7 +622,7 @@ const dateColumns = computed(() => columns.value.filter((column) => column.type 
 /** 可排序列:图片列除外(data URI 排序没有意义,投影也是空串)。 */
 const sortableColumns = computed(() => columns.value.filter((column) => column.type !== "image"))
 
-const MENU = "w-[210px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
+const MENU = "w-[13.125rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
 const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
 
@@ -707,7 +707,7 @@ function openTable() {
               <option v-for="column in sortableColumns" :key="column.id" :value="column.id">{{ column.name }}</option>
             </select>
             <select
-              class="w-[62px] cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none disabled:opacity-40"
+              class="w-[3.875rem] cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none disabled:opacity-40"
               :value="props.block.sortDirection"
               :disabled="props.block.sortColumnId === ''"
               @change="setSortDirection"
@@ -826,7 +826,7 @@ function openTable() {
                   输入框定在按钮的框上(inset-0),顺带同一条对齐线 —— input 的 text-align 计算值
                   是 UA 的 start(不继承 td 的 right),不显式声明的话数字一进编辑态就跳到左边。
                 -->
-                <span v-else class="relative block min-h-[18px] w-full min-w-0">
+                <span v-else class="relative block min-h-[1.125rem] w-full min-w-0">
                   <!--
                     平时是格值,点进去才编辑;空格按钮撑满格子,保证点哪都能进编辑态。
                     `mousedown.prevent` 让鼠标点击不把焦点给按钮(点击照旧走 click 进编辑),
@@ -835,7 +835,7 @@ function openTable() {
                   -->
                   <button
                     type="button"
-                    class="block min-h-[18px] w-full min-w-0 rounded px-0.5 hover:bg-muted/60"
+                    class="block min-h-[1.125rem] w-full min-w-0 rounded px-0.5 hover:bg-muted/60"
                     :class="[isNumberish(column) ? 'text-right' : 'cursor-text text-left', editing === cellKey(row, column) && 'invisible']"
                     @mousedown.prevent
                     @click="editing = cellKey(row, column)"
@@ -906,7 +906,7 @@ function openTable() {
     <!-- 删除确认:删的是盘上数据表里的一行,没有撤销;表被多篇笔记共用时,
          别处也会跟着少一行,得先说清楚。 -->
     <AlertDialog :open="deletingId !== ''" @update:open="(open: boolean) => !open && closeDelete()">
-      <AlertDialogContent class="w-[300px] rounded-block p-5 shadow-pop ring-1 ring-line/70">
+      <AlertDialogContent class="w-[18.75rem] rounded-block p-5 shadow-pop ring-1 ring-line/70">
         <AlertDialogHeader>
           <AlertDialogTitle>删除这一笔</AlertDialogTitle>
           <AlertDialogDescription class="text-12">

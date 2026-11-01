@@ -91,7 +91,7 @@ function openTable() {
   openFile(props.block.path)
 }
 
-const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
+const MENU = "w-[12.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 </script>
 
 <template>

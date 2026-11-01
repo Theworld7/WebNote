@@ -233,7 +233,7 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
            `whitespace-nowrap` 是兜底 —— 真到了七位数，宁可撑宽也不换行。 -->
       <span
         v-if="hasNoteDocument"
-        class="w-[60px] flex-none whitespace-nowrap text-right text-11 tabular-nums text-muted-foreground max-[820px]:hidden"
+        class="w-[3.75rem] flex-none whitespace-nowrap text-right text-11 tabular-nums text-muted-foreground max-[820px]:hidden"
       >
         {{ charCount }} 字
       </span>

@@ -65,7 +65,7 @@ const FOOT = "rounded px-1.5 py-0.5 text-12 text-muted-foreground transition-col
 <template>
   <!-- `mousedown.prevent` 由外层浮层统一处理：点面板不把焦点从输入框抢走，
        否则输入框一失焦就提交并退出编辑态，面板跟着消失，日期根本点不到。 -->
-  <div class="w-[216px] select-none p-2" data-date-calendar>
+  <div class="w-[13.5rem] select-none p-2" data-date-calendar>
     <div class="mb-1 flex items-center justify-between">
       <button type="button" :class="NAV" tabindex="-1" aria-label="上个月" @click="shift(-1)">
         <ChevronLeftIcon class="size-3.5" />

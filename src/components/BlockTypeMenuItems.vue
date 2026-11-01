@@ -77,7 +77,7 @@ const empty = computed(() => groups.value.length === 0)
 
   <!-- 横向：组并排，每组一列（标题在列顶、条目竖排在列内），菜单宽度交给内容撑。 -->
   <div v-else class="flex items-start gap-x-3">
-    <div v-for="section in groups" :key="section.title" class="flex min-w-[104px] flex-col">
+    <div v-for="section in groups" :key="section.title" class="flex min-w-[6.5rem] flex-col">
       <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
         {{ section.title }}
       </DropdownMenuLabel>

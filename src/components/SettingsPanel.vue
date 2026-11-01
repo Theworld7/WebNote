@@ -348,7 +348,7 @@ function optionClass(isActive: boolean): string {
 
       <div class="flex min-h-0 flex-1">
         <!-- 分区栏。窄（76px）是有意的：分区名都是两三个字，宽了只会挤掉右边的选项宽度。 -->
-        <nav class="flex w-[76px] flex-none flex-col gap-0.5 border-r border-line p-2">
+        <nav class="flex w-[4.75rem] flex-none flex-col gap-0.5 border-r border-line p-2">
           <button
             v-for="section in SECTIONS"
             :key="section.id"

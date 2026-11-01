@@ -911,6 +911,15 @@ check("默认档：11 / 12 / 正文分别是 11 / 12 / 14px",
   fontSizeOf(probe11) === "11px" && fontSizeOf(probe12) === "12px" && fontSizeOf(probeSm) === "14px",
   fontSizeReport())
 
+// 容器尺寸也得跟着走。分区栏是 `w-[4.75rem]`：16 档下 76px、20 档下 95px。
+// **只量字号会漏掉这一整类** —— 字全对了、菜单和侧栏还停在老宽度，正是这次要治的病；
+// 而默认档下 rem 与 px 完全等价，所以非默认档的这几条才是唯一的证据。
+const navWidth = () => {
+  const nav = panelRoot()?.querySelector("nav")
+  return nav === undefined || nav === null ? "（没找到分区栏）" : getComputedStyle(nav).width
+}
+check("默认档：分区栏宽 76px（4.75rem × 16）", navWidth() === "76px", navWidth())
+
 async function clickBaseFont(option) {
   if (option === undefined) return
   option.click()
@@ -931,11 +940,13 @@ check("切到 18 后三档一起放大（12.375 / 13.5 / 15.75px）",
 await clickBaseFont(f20)
 check("切到 20 后正文 17.5px、12 档 15px",
   fontSizeOf(probeSm) === "17.5px" && fontSizeOf(probe12) === "15px", fontSizeReport())
+check("切到 20 后分区栏跟着变宽（95px，不是还停在 76px）", navWidth() === "95px", navWidth())
 
 await clickBaseFont(f16)
 check("切回 16 后内联样式被撤掉（不留一个与默认同值的覆盖）",
   document.documentElement.style.fontSize === "", document.documentElement.style.fontSize)
 check("切回 16 后三档回到原值", fontSizeOf(probe12) === "12px" && fontSizeOf(probeSm) === "14px", fontSizeReport())
+check("切回 16 后分区栏回到 76px", navWidth() === "76px", navWidth())
 check("设置实例里的档位跟着回到 16", settings !== null && settings.baseFont.value === 16,
   settings === null ? "（没拿到实例）" : String(settings.baseFont.value))
 

@@ -334,7 +334,7 @@ function commitColumnCount(event: Event): void {
 }
 
 /** 菜单外框与菜单项,与块手柄的两套菜单同一套参数。 */
-const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
+const MENU = "w-[12.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
 
 const FIT_ITEMS = [

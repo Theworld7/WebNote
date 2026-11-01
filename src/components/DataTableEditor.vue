@@ -281,7 +281,7 @@ const COLUMN_TYPE_ITEMS = [
 ] satisfies readonly { type: DataColumnType; label: string }[]
 
 /** 菜单外框与菜单项，与块手柄的两套菜单同一套参数。 */
-const MENU = "w-[176px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
+const MENU = "w-[11rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
 const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foreground"
 </script>
@@ -542,7 +542,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
     <!-- 删除确认:删的是盘上 `.tbl` 里的一行,没有撤销;表被多篇笔记共用时,
          别处也会跟着少一行,得先说清楚。与账目块同一个框(ADR-0037)。 -->
     <AlertDialog :open="deletingId !== ''" @update:open="(open: boolean) => !open && closeDelete()">
-      <AlertDialogContent class="w-[300px] rounded-block p-5 shadow-pop ring-1 ring-line/70">
+      <AlertDialogContent class="w-[18.75rem] rounded-block p-5 shadow-pop ring-1 ring-line/70">
         <AlertDialogHeader>
           <AlertDialogTitle>删除这一行</AlertDialogTitle>
           <AlertDialogDescription class="text-12">
