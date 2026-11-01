@@ -66,6 +66,14 @@ const emit = defineEmits<{
 /** 当前色的色盘位次（0 = 默认色）。色块与按钮下划线都引用 CSS 变量，深色下自动换一套。 */
 const colorSlot = computed(() => textColorSlot(props.color ?? ""))
 
+/**
+ * 选区起点是否带非默认色 —— 颜色按钮的激活态。
+ *
+ * 用 `!= null` 而不是 `!== null`：`color` 是可选 prop，不传时是 `undefined`，
+ * 而 `undefined !== null` 为真 —— 那样默认色下颜色按钮也会一直亮着。
+ */
+const hasColor = computed(() => props.color !== null && props.color !== undefined && props.color !== "")
+
 /** 色板开合。点色应用后即收；点浮条外（正文等）由 document 监听收起，选区还在。 */
 const colorOpen = ref(false)
 const toolbarRoot = ref<HTMLElement | null>(null)
@@ -132,7 +140,7 @@ function keepSelection(event: MouseEvent) {
         <TooltipTrigger as-child>
           <Button
             variant="ghost"
-            :class="cn(TOOL, props.color !== null && ACTIVE)"
+            :class="cn(TOOL, hasColor && ACTIVE)"
             aria-label="颜色"
             :aria-pressed="colorOpen"
             @click="colorOpen = !colorOpen"

@@ -136,13 +136,13 @@ function onKeydown(event: KeyboardEvent) {
         :placeholder="PLACEHOLDER"
         spellcheck="false"
         rows="2"
-        class="w-full resize-none bg-transparent font-mono text-[12px] leading-[1.7] text-code-foreground outline-none placeholder:text-muted-foreground/60"
+        class="w-full resize-none bg-transparent font-mono text-12 leading-[1.7] text-code-foreground outline-none placeholder:text-muted-foreground/60"
         @input="autosize"
         @keydown="onKeydown"
       />
-      <div class="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
+      <div class="mt-2 flex items-center justify-between text-11 text-muted-foreground">
         <span>Esc 取消 · ⌘/Ctrl + Enter 完成</span>
-        <Button size="sm" variant="ghost" class="h-6 px-2 text-[11px]" @click="commitEdit">完成</Button>
+        <Button size="sm" variant="ghost" class="h-6 px-2 text-11" @click="commitEdit">完成</Button>
       </div>
     </div>
 
@@ -161,9 +161,9 @@ function onKeydown(event: KeyboardEvent) {
         v-else-if="error !== ''"
         class="my-1 rounded-lg border border-destructive/30 bg-destructive/5 px-3.5 py-2.5"
       >
-        <p class="text-[12px] font-medium text-destructive">图渲染失败</p>
-        <pre class="mt-1 whitespace-pre-wrap font-mono text-[12px] leading-[1.6] text-destructive/80">{{ error }}</pre>
-        <Button size="sm" variant="outline" class="mt-2 h-7 gap-1.5 text-[12px]" @click="startEdit">
+        <p class="text-12 font-medium text-destructive">图渲染失败</p>
+        <pre class="mt-1 whitespace-pre-wrap font-mono text-12 leading-[1.6] text-destructive/80">{{ error }}</pre>
+        <Button size="sm" variant="outline" class="mt-2 h-7 gap-1.5 text-12" @click="startEdit">
           <PencilIcon class="size-3" />
           改源码
         </Button>
@@ -171,7 +171,7 @@ function onKeydown(event: KeyboardEvent) {
 
       <div
         v-else
-        class="my-1 flex h-16 items-center justify-center rounded-lg bg-muted text-[12px] text-muted-foreground"
+        class="my-1 flex h-16 items-center justify-center rounded-lg bg-muted text-12 text-muted-foreground"
       >
         正在渲染图…
       </div>
@@ -180,7 +180,7 @@ function onKeydown(event: KeyboardEvent) {
         v-if="svg !== ''"
         size="sm"
         variant="ghost"
-        class="absolute right-0 top-2 h-7 gap-1.5 px-2.5 text-[12px] opacity-0 transition-opacity group-hover/mm:opacity-100 focus-visible:opacity-100"
+        class="absolute right-0 top-2 h-7 gap-1.5 px-2.5 text-12 opacity-0 transition-opacity group-hover/mm:opacity-100 focus-visible:opacity-100"
         @click="startEdit"
       >
         <PencilIcon class="size-3.5" />

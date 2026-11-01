@@ -326,7 +326,7 @@ function setRole(role: PlaylistRole, event: Event): void {
 
 const MENU = "w-[224px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const BIND_MENU = "max-h-[280px] w-[240px] overflow-y-auto rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
-const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
+const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
 
 function openTable() {
   if (activePath.value === "") return
@@ -334,10 +334,10 @@ function openTable() {
 }
 
 /** 工具条上的小胶囊按钮:与订阅 / 账目块同一套体量。 */
-const TOOL = "h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground"
+const TOOL = "h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground"
 
 /** 标签胶囊:未选中是灰字,选中是浅底 + 深字 —— 换主题时靠 token 自动跟着走。 */
-const TAB = "flex h-[26px] max-w-[11rem] items-center gap-1 rounded-full px-2.5 text-[12px] transition-colors"
+const TAB = "flex h-[26px] max-w-[11rem] items-center gap-1 rounded-full px-2.5 text-12 transition-colors"
 const TAB_ON = "bg-foreground/8 font-medium text-foreground"
 const TAB_OFF = "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
 
@@ -347,7 +347,7 @@ const ICON_BTN =
 
 /** 搜索输入框:胶囊形,和标签条站在同一套体量上。 */
 const SEARCH =
-  "h-6 w-[9.5rem] shrink-0 rounded-full border border-line bg-transparent px-2.5 text-[12px] outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-foreground/25"
+  "h-6 w-[9.5rem] shrink-0 rounded-full border border-line bg-transparent px-2.5 text-12 outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-foreground/25"
 </script>
 
 <template>
@@ -370,18 +370,18 @@ const SEARCH =
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent :class="MENU" align="end">
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
             字段映射 · {{ activeName }}
           </DropdownMenuLabel>
           <div v-for="item in ROLE_ITEMS" :key="item.role" class="px-2 pb-1.5">
-            <div class="mb-0.5 text-[11px] text-muted-foreground">{{ item.label }}</div>
+            <div class="mb-0.5 text-11 text-muted-foreground">{{ item.label }}</div>
             <select :class="SELECT" :value="roleValue(item.role)" @change="setRole(item.role, $event)">
               <option value="">自动识别</option>
               <option v-for="column in columns" :key="column.id" :value="column.id">{{ column.name }}</option>
             </select>
           </div>
           <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <div class="px-2 py-1 text-[11px] leading-relaxed text-muted-foreground">
+          <div class="px-2 py-1 text-11 leading-relaxed text-muted-foreground">
             每张歌单各存一份映射；留「自动识别」时按列名与列类型找，列改名或删除后也会自动退让。
           </div>
         </DropdownMenuContent>
@@ -424,21 +424,21 @@ const SEARCH =
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent :class="BIND_MENU" align="start">
-            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">绑定已有数据表</DropdownMenuLabel>
+            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">绑定已有数据表</DropdownMenuLabel>
             <template v-if="unboundTables.length > 0">
               <DropdownMenuItem
                 v-for="path in unboundTables"
                 :key="path"
-                class="gap-2 text-[12px]"
+                class="gap-2 text-12"
                 @select="bind(path)"
               >
                 <MusicIcon class="size-3.5 shrink-0 text-muted-foreground" />
                 <span class="truncate">{{ fileStem(fileName(path)) }}</span>
               </DropdownMenuItem>
             </template>
-            <div v-else class="px-2 py-1.5 text-[11px] text-muted-foreground">工作区里的表都已绑定</div>
+            <div v-else class="px-2 py-1.5 text-11 text-muted-foreground">工作区里的表都已绑定</div>
             <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-            <DropdownMenuItem class="gap-2 text-[12px]" @select="openCreate">
+            <DropdownMenuItem class="gap-2 text-12" @select="openCreate">
               <PlusIcon class="size-3.5 shrink-0 text-muted-foreground" />
               新建歌单表…
             </DropdownMenuItem>
@@ -468,12 +468,12 @@ const SEARCH =
       <!-- 头部(曲目数 / 总时长 / 搜索 / 复制)只在表里有歌时出现:空表上摆一个
            「0 首」和一颗禁用的复制键,只是噪音。 -->
       <div v-if="tracks.length > 0" class="mb-1.5 flex items-center gap-3.5 px-1">
-        <span class="text-[12px] font-medium">{{ shown.length }} 首</span>
-        <span v-if="totalText !== ''" class="text-[12px] text-muted-foreground">总时长 {{ totalText }}</span>
-        <span v-if="filtering" class="text-[12px] text-muted-foreground">筛选自 {{ tracks.length }} 首</span>
+        <span class="text-12 font-medium">{{ shown.length }} 首</span>
+        <span v-if="totalText !== ''" class="text-12 text-muted-foreground">总时长 {{ totalText }}</span>
+        <span v-if="filtering" class="text-12 text-muted-foreground">筛选自 {{ tracks.length }} 首</span>
 
         <!-- 复制反馈:短暂出现,不占位很久,也不弹 toast。 -->
-        <span v-if="copied" class="ml-auto shrink-0 text-[11px] text-muted-foreground">已复制</span>
+        <span v-if="copied" class="ml-auto shrink-0 text-11 text-muted-foreground">已复制</span>
 
         <div :class="['flex shrink-0 items-center gap-0.5', copied ? '' : 'ml-auto']">
           <!-- 搜索:平时只是一颗图标,点开才展开输入框。 -->
@@ -527,7 +527,7 @@ const SEARCH =
       <!-- 空表:与账目 / 订阅同一句引导。 -->
       <div
         v-if="tracks.length === 0"
-        class="rounded-xl border border-dashed border-line px-4 py-8 text-center text-[12px] text-muted-foreground"
+        class="rounded-xl border border-dashed border-line px-4 py-8 text-center text-12 text-muted-foreground"
       >
         这张表还没有曲目 —— 点右上角「添加歌曲」加一首。
       </div>
@@ -537,7 +537,7 @@ const SEARCH =
            输入框自己消失,用户连删一个字都做不到。 -->
       <div
         v-else-if="shown.length === 0"
-        class="rounded-xl border border-dashed border-line px-4 py-7 text-center text-[12px] text-muted-foreground"
+        class="rounded-xl border border-dashed border-line px-4 py-7 text-center text-12 text-muted-foreground"
       >
         没有匹配「{{ query.trim() }}」的曲目
         <button type="button" class="ml-1 text-foreground hover:underline" @click="clearQuery">清空搜索</button>
@@ -549,7 +549,7 @@ const SEARCH =
           :key="row.id"
           class="group/track flex items-center gap-2.5 rounded-md px-1 py-1.5 transition-colors hover:bg-muted/40"
         >
-          <span class="w-[18px] shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">{{ index + 1 }}</span>
+          <span class="w-[18px] shrink-0 text-right text-11 tabular-nums text-muted-foreground">{{ index + 1 }}</span>
 
           <span class="flex size-[34px] shrink-0 items-center justify-center overflow-hidden rounded-[6px] bg-muted/60 text-muted-foreground">
             <img
@@ -566,11 +566,11 @@ const SEARCH =
           </span>
 
           <span class="flex min-w-0 flex-1 flex-col">
-            <span class="truncate text-[13px] leading-snug">{{ playlistTitle(row, roles) }}</span>
-            <span v-if="subtitleOf(row)" class="truncate text-[12px] text-muted-foreground">{{ subtitleOf(row) }}</span>
+            <span class="truncate text-13 leading-snug">{{ playlistTitle(row, roles) }}</span>
+            <span v-if="subtitleOf(row)" class="truncate text-12 text-muted-foreground">{{ subtitleOf(row) }}</span>
           </span>
 
-          <span v-if="durationOf(row)" class="shrink-0 text-[12px] tabular-nums text-muted-foreground">{{ durationOf(row) }}</span>
+          <span v-if="durationOf(row)" class="shrink-0 text-12 tabular-nums text-muted-foreground">{{ durationOf(row) }}</span>
 
           <!-- 删除:悬停该行才出现,挪走就消失 —— 曲目列表里不该常驻一排叉。 -->
           <Button
@@ -597,24 +597,24 @@ const SEARCH =
   <AlertDialog :open="creating" @update:open="creating = false">
     <AlertDialogContent class="max-w-sm">
       <AlertDialogHeader>
-        <AlertDialogTitle class="text-[14px]">新建歌单表</AlertDialogTitle>
+        <AlertDialogTitle class="text-14">新建歌单表</AlertDialogTitle>
       </AlertDialogHeader>
       <div>
         <Input
           v-model="newName"
-          class="h-8 text-[13px]"
+          class="h-8 text-13"
           placeholder="歌单名"
           @keydown.enter.prevent="confirmCreate"
         />
-        <p class="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+        <p class="mt-1.5 text-11 leading-relaxed text-muted-foreground">
           表建在这篇笔记旁边，带上「歌名 / 歌手 / 专辑 / 时长 / 封面」五列；同名表已存在时直接用它。
         </p>
       </div>
       <AlertDialogFooter>
         <AlertDialogCancel as-child>
-          <Button variant="ghost" size="sm" class="text-[13px]">取消</Button>
+          <Button variant="ghost" size="sm" class="text-13">取消</Button>
         </AlertDialogCancel>
-        <Button size="sm" class="text-[13px]" :disabled="newName.trim() === ''" @click="confirmCreate">新建</Button>
+        <Button size="sm" class="text-13" :disabled="newName.trim() === ''" @click="confirmCreate">新建</Button>
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>

@@ -227,7 +227,7 @@ onBeforeUnmount(() => {
           role="option"
           :aria-selected="item.id === active"
           :data-active="item.id === active"
-          class="flex cursor-pointer items-center gap-1.5 rounded-[6px] px-1.5 py-[5px] text-[12px]"
+          class="flex cursor-pointer items-center gap-1.5 rounded-[6px] px-1.5 py-[5px] text-12"
           :class="[item.id === active ? 'bg-selection' : 'hover:bg-muted/60', item.id === '' && 'text-muted-foreground']"
           @mouseenter="hover(item.id)"
           @click="pick(item.id)"
@@ -235,7 +235,7 @@ onBeforeUnmount(() => {
           <span class="truncate">{{ item.label }}</span>
           <CheckIcon v-if="item.id === active" class="ml-auto size-3 shrink-0 opacity-70" />
         </div>
-        <div v-if="options.length === 0 && emptyHint !== ''" class="px-1.5 py-1 text-[11px] text-muted-foreground">
+        <div v-if="options.length === 0 && emptyHint !== ''" class="px-1.5 py-1 text-11 text-muted-foreground">
           {{ emptyHint }}
         </div>
       </div>

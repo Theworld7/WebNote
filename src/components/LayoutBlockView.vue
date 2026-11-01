@@ -44,7 +44,7 @@ const gridStyle = computed(() =>
 /** 菜单外框，与块手柄菜单同一套参数。 */
 const MENU = "w-[148px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const TOOL_BUTTON =
-  "h-6 gap-1 rounded-full px-2 text-[12px] text-muted-foreground hover:text-foreground"
+  "h-6 gap-1 rounded-full px-2 text-12 text-muted-foreground hover:text-foreground"
 
 /** 格子内回车/+ 菜单新增块,上方(0)/下方(1)共用。菜单已在格子内滤掉引用块/容器块,落到这里的都是普通类型。 */
 function onInsertAt(id: string, type: BlockType, offset: 0 | 1) {
@@ -118,7 +118,7 @@ function isDropTarget(cellIndex: number): boolean {
   <div v-if="block.cells.length === 0" class="my-1 rounded-lg bg-muted p-3">
     <!-- 还没有悬浮条可停靠，手柄照旧贴块左缘（定位祖先仍是 BlockItem 的 relative 根）。 -->
     <slot name="toolbar" />
-    <div class="mb-2 text-[11px] text-muted-foreground">选择布局方式</div>
+    <div class="mb-2 text-11 text-muted-foreground">选择布局方式</div>
     <div class="flex gap-2">
       <Button
         variant="outline"
@@ -126,7 +126,7 @@ function isDropTarget(cellIndex: number): boolean {
         @click="setLayoutMode(block.id, 'grid')"
       >
         <span class="text-sm font-medium">网格</span>
-        <span class="text-[11px] font-normal text-muted-foreground">按行列均分，规整对齐</span>
+        <span class="text-11 font-normal text-muted-foreground">按行列均分，规整对齐</span>
       </Button>
       <Button
         variant="outline"
@@ -134,7 +134,7 @@ function isDropTarget(cellIndex: number): boolean {
         @click="setLayoutMode(block.id, 'flex')"
       >
         <span class="text-sm font-medium">弹性</span>
-        <span class="text-[11px] font-normal text-muted-foreground">横向排开、自动换行</span>
+        <span class="text-11 font-normal text-muted-foreground">横向排开、自动换行</span>
       </Button>
     </div>
   </div>
@@ -220,7 +220,7 @@ function isDropTarget(cellIndex: number): boolean {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent :class="MENU" :side-offset="6">
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
             布局方式
           </DropdownMenuLabel>
           <DropdownMenuCheckboxItem
@@ -246,7 +246,7 @@ function isDropTarget(cellIndex: number): boolean {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent :class="MENU" :side-offset="6">
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
             每行列数
           </DropdownMenuLabel>
           <DropdownMenuCheckboxItem

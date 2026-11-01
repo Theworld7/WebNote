@@ -19,6 +19,7 @@ import {
   firstLineCenter,
   headingClass,
   indentStyle,
+  remOf,
   spacingClass,
 } from "@/lib/typography"
 import { cn } from "@/lib/utils"
@@ -354,7 +355,8 @@ const blockClass = computed(() => spacingClass(props.block.type))
 const rowStyle = computed(() => {
   const block = textual.value
   return {
-    "--tools-top": `${firstLineCenter(props.block.type) - HANDLE_SIZE / 2}px`,
+    // 手柄跟首行中心对齐，而首行中心是字号算出来的 —— 用 rem，基础字号一改跟着走。
+    "--tools-top": remOf(firstLineCenter(props.block.type) - HANDLE_SIZE / 2),
     "margin-left": indentStyle(block === null ? 0 : block.depth),
   }
 })
@@ -424,7 +426,7 @@ const DROP_AFTER =
 
 /** 空块占位。divider 没有正文，不参与。格子内空间窄，占位再降一号。 */
 const PLACEHOLDER = "empty:before:content-['输入内容，或按_/_唤起块类型'] empty:before:text-muted-foreground"
-const PLACEHOLDER_IN_CELL = "empty:before:text-[11px]"
+const PLACEHOLDER_IN_CELL = "empty:before:text-11"
 
 const bodyClass = computed(() => {
   const block = textual.value
@@ -496,7 +498,7 @@ const bodyClass = computed(() => {
 
     <span
       v-if="isListType(block.type)"
-      class="pointer-events-none absolute left-0.5 w-5 text-center text-[13px] leading-[1.6] text-muted-foreground"
+      class="pointer-events-none absolute left-0.5 w-5 text-center text-13 leading-[1.6] text-muted-foreground"
       :style="{ top: MARKER_TOP }"
     >
       {{ markerText }}
@@ -584,6 +586,7 @@ const bodyClass = computed(() => {
       <InlineToolbar
         v-if="toolbar !== null && linkEdit === null"
         :marks="toolbar.marks"
+        :color="toolbar.color"
         :link="toolbar.link"
         :anchor="{ top: toolbar.top, left: toolbar.left }"
         @toggle="applyMark"

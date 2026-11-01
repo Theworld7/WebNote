@@ -297,8 +297,8 @@ export const BLOCK_SPACING: Readonly<Record<BlockType, BlockSpacing>> = {
  * 键是 `"上/下"` 的 px 值。
  */
 const SPACING_CLASS: Readonly<Record<string, string>> = {
-  "28/20": "mt-[28px] mb-[20px]",
-  "28/18": "mt-[28px] mb-[18px]",
+  "28/20": "mt-[1.75rem] mb-[1.25rem]",
+  "28/18": "mt-[1.75rem] mb-[1.125rem]",
   "16/16": "my-4",
   "12/12": "my-3",
 }
@@ -323,7 +323,7 @@ export function spacingClass(type: BlockType): string {
 }
 
 /**
- * 标题类名表。字面量理由同 `SPACING_CLASS`：运行时拼接的 `text-[${size}px]`
+ * 标题类名表。字面量理由同 `SPACING_CLASS`：运行时拼接的 `text-${size}`
  * Tailwind 扫不到。
  *
  * 键是**块类型**而不是字号：h4 / h5 / h6 字号相同（16px），三者靠字重与颜色分，
@@ -331,12 +331,12 @@ export function spacingClass(type: BlockType): string {
  * `HEADING_FONT_SIZES` 校验，改规格漏改这里会当场抛错。
  */
 const HEADING_CLASS: Readonly<Record<string, string>> = {
-  h1: "text-[30px] font-medium leading-[1.6] text-foreground/90",
-  h2: "text-[22px] font-medium leading-[1.6] text-foreground/90",
-  h3: "text-[18px] font-medium leading-[1.6] text-foreground/90",
-  h4: "text-[16px] font-semibold leading-[1.6] text-foreground/90",
-  h5: "text-[16px] font-semibold leading-[1.6] text-foreground/75",
-  h6: "text-[16px] font-medium leading-[1.6] text-muted-foreground",
+  h1: "text-30 font-medium leading-[1.6] text-foreground/90",
+  h2: "text-22 font-medium leading-[1.6] text-foreground/90",
+  h3: "text-18 font-medium leading-[1.6] text-foreground/90",
+  h4: "text-16 font-semibold leading-[1.6] text-foreground/90",
+  h5: "text-16 font-semibold leading-[1.6] text-foreground/75",
+  h6: "text-16 font-medium leading-[1.6] text-muted-foreground",
 }
 
 /** 标题 / 引用这类需要按类型区分的正文类名；非标题返回 null。 */
@@ -350,7 +350,8 @@ export function headingClass(type: BlockType): string | null {
     case "h6": {
       const size = HEADING_FONT_SIZES[Number(type.slice(1)) - 1]
       const cls = HEADING_CLASS[type]
-      if (cls === undefined || !cls.includes(`text-[${size}px]`)) {
+      // 按词比对而不是 `includes(\`text-${size}\`)`：后者会把 text-3 算进 text-30。
+      if (cls === undefined || !cls.split(" ").includes(`text-${size}`)) {
         throw new Error(`标题 ${type} 的类名与 HEADING_FONT_SIZES（${size}px）对不上 —— 请同步 HEADING_CLASS`)
       }
       return cls
@@ -398,11 +399,31 @@ export function firstLineCenter(type: BlockType): number {
   }
 }
 
+/**
+ * 由字号推导出的几何量 → rem。
+ *
+ * 这些值全都是「字号乘出来的」（标记居中、每级缩进），字号跟着基础字号的根值缩放，
+ * 它们就必须跟着缩放 —— 写死 px 的话，把基础字号调到 18 时圆点会浮在行盒上方、
+ * 复选框会贴住行顶。除以 16 是「1rem 在默认根字号下等于 16px」这条换算，不是新的
+ * 设计数值：`0.8px / 16 = 0.05rem` 在默认档下仍渲染成 0.8px。
+ */
+/**
+ * rem 的换算基准：标准档的根字号。
+ *
+ * `remOf` 与代码块的自适应缩放都读它 —— 改这个数等于改「1rem 当初是按多少 px 画的」，
+ * 全套 rem 值都要重算，不是随手能调的量。
+ */
+export const BASE_FONT_REFERENCE_PX = 16
+
+export function remOf(px: number): string {
+  return `${Number((px / BASE_FONT_REFERENCE_PX).toFixed(4))}rem`
+}
+
 /** 列表标记 13px / 1.6 行高，竖直居中于正文首行。 */
-export const MARKER_TOP = `${(BODY_LINE_BOX / 2 - (13 * LINE_HEIGHT) / 2).toFixed(1)}px`
+export const MARKER_TOP = remOf(BODY_LINE_BOX / 2 - (13 * LINE_HEIGHT) / 2)
 
 /** 复选框 14px 见方，同样居中于正文首行。 */
-export const CHECKBOX_TOP = `${(BODY_LINE_BOX / 2 - BODY_FONT_SIZE / 2).toFixed(1)}px`
+export const CHECKBOX_TOP = remOf(BODY_LINE_BOX / 2 - BODY_FONT_SIZE / 2)
 
 /** 正文的字号与行高（naive pFontSize / pLineHeight）。字面量理由同上。 */
 export const BODY_TYPE_CLASS = "text-sm leading-[1.6]"
@@ -414,7 +435,7 @@ export const BODY_TEXT_CLASS = `${BODY_TYPE_CLASS} text-foreground/90`
 /** 缩进用 margin-left 而不是 padding-left：手柄是绝对定位，padding 推不动它。 */
 export function indentStyle(depth: number): string {
   const clamped = Math.min(depth, 6)
-  return clamped === 0 ? "0px" : `${clamped * LIST_INDENT}px`
+  return clamped === 0 ? "0px" : remOf(clamped * LIST_INDENT)
 }
 
 // ───────────────────────────── 导出侧适配器 ─────────────────────────────

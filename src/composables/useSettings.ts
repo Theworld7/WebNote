@@ -3,6 +3,7 @@ import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import type { FontFaceKind } from "@/lib/fonts"
 import type { TableEffect, ThemeSettings } from "@/types/workspace"
 import { inject, provide, ref, watch } from "vue"
+import { setRootFontPx } from "@/lib/base-font"
 import { CODE_FONT_VAR, CONTENT_FONT_VAR, fontStack } from "@/lib/fonts"
 import { minutesOf, THEME_MODES } from "@/lib/theme-mode"
 import { DOC_MEASURE_PX } from "@/lib/typography"
@@ -114,6 +115,31 @@ function readCornerStyle(): CornerStyle {
   if (raw === null) return DEFAULT_CORNER_STYLE
   const found = CORNER_STYLES.find((value) => value === raw)
   return found ?? DEFAULT_CORNER_STYLE
+}
+
+/**
+ * 基础字号 —— 四档，单位 px，作用是把 `<html>` 的根字号换掉。
+ *
+ * 与圆角同一判据，但这里存的**就是**那四个数：rem 的换算只有一条公式
+ * （`1rem = 根字号`），中间再插一层档位 id 只是多一次反查。四个值全是整数，
+ * 存成数字比存成 `"large"` 更直接 —— 盘上的值一眼能看出多大。
+ *
+ * 16 是默认档，也是浏览器的缺省根字号：选它就把 `style.fontSize` 整个删掉，
+ * 让「从没设过」与「选了标准」在 DOM 上一致（同 `data-corners` 的立场）。
+ */
+export type BaseFont = 14 | 16 | 18 | 20
+
+const BASE_FONT_KEY = "webnote:base-font"
+const DEFAULT_BASE_FONT: BaseFont = 16
+
+/** 档位表，设置面板按它渲染。顺序即从小到大。 */
+export const BASE_FONT_STEPS: readonly BaseFont[] = [14, 16, 18, 20]
+
+function readBaseFont(): BaseFont {
+  const raw = window.localStorage.getItem(BASE_FONT_KEY)
+  const value = raw === null ? Number.NaN : Number(raw)
+  const found = BASE_FONT_STEPS.find((step) => step === value)
+  return found ?? DEFAULT_BASE_FONT
 }
 
 /**
@@ -274,6 +300,7 @@ interface PreferenceFile {
   contentWidth?: ContentWidth
   menuGroupLayout?: MenuGroupLayout
   corners?: CornerStyle
+  baseFont?: BaseFont
   integrateTables?: boolean
   autoSave?: boolean
   headingNav?: boolean
@@ -301,11 +328,15 @@ function parsePreferenceFile(text: string): PreferenceFile {
   // 门槛是整数下限，不是候选表：任何 ≥ 下限的整数都合法，坏值整项丢弃（保持内存现状）。
   const pickCount = (value: unknown): number | undefined =>
     typeof value === "number" && Number.isInteger(value) && value >= HEADING_NAV_MIN_FLOOR ? value : undefined
+  // 字号是数字候选表，`pick` 只收字符串，另写一条。
+  const pickBaseFont = (value: unknown): BaseFont | undefined =>
+    typeof value === "number" ? BASE_FONT_STEPS.find((step) => step === value) : undefined
   return {
     tableEffect: pick(TABLE_EFFECTS, source["tableEffect"]),
     contentWidth: pick(CONTENT_WIDTHS, source["contentWidth"]),
     menuGroupLayout: pick(MENU_GROUP_LAYOUTS, source["menuGroupLayout"]),
     corners: pick(CORNER_STYLES, source["corners"]),
+    baseFont: pickBaseFont(source["baseFont"]),
     // 布尔偏好没有候选表可收窄，类型对得上才认。
     integrateTables: typeof source["integrateTables"] === "boolean" ? source["integrateTables"] : undefined,
     autoSave: typeof source["autoSave"] === "boolean" ? source["autoSave"] : undefined,
@@ -338,6 +369,9 @@ interface Settings {
   /** 界面圆角档位。同上，`ref` 且只经 setter 写。 */
   corners: Ref<CornerStyle>
   setCorners: (value: CornerStyle) => void
+  /** 基础字号（px）。同上，只经 setter 写。 */
+  baseFont: Ref<BaseFont>
+  setBaseFont: (value: BaseFont) => void
   /** 文件树是否把被引用的数据表收进笔记名下（整合数据表视图）。同上，只经 setter 写。 */
   integrateTables: Ref<boolean>
   setIntegrateTables: (value: boolean) => void
@@ -399,6 +433,14 @@ function createSettings(): Settings {
   function setCorners(value: CornerStyle) {
     corners.value = value
     window.localStorage.setItem(CORNER_STYLE_KEY, value)
+    void persistToStore()
+  }
+
+  const baseFont = ref<BaseFont>(readBaseFont())
+
+  function setBaseFont(value: BaseFont) {
+    baseFont.value = value
+    window.localStorage.setItem(BASE_FONT_KEY, String(value))
     void persistToStore()
   }
 
@@ -494,6 +536,25 @@ function createSettings(): Settings {
   watch(corners, applyCornerStyle, { immediate: true })
 
   /**
+   * 基础字号 → `<html>` 的根字号。
+   *
+   * 改的是**根**，不是某个容器的字号：整套界面与正文的字号、间距、图标都写在 rem 上，
+   * 换根值就是整站等比缩放，不需要任何组件配合。默认档删掉这条内联样式而不是写
+   * `16px` —— 让「没设过」保持没有样式，别人（自检页、导出预览）算 1rem 时才不会被
+   * 一个多余的内联值影响。
+   */
+  function applyBaseFont(value: BaseFont) {
+    const style = document.documentElement.style
+    if (value === DEFAULT_BASE_FONT) style.removeProperty("font-size")
+    else style.fontSize = `${value}px`
+    // 子文档（HTML 块的 iframe、Monaco）读这个模块级 ref —— 它们跨文档看不到根字样，
+    // 也不该为了知道字号就被迫注入整个设置上下文。
+    setRootFontPx(value)
+  }
+
+  watch(baseFont, applyBaseFont, { immediate: true })
+
+  /**
    * 工作区侧的读写。`attachStore` 接上前是 null —— 那时偏好只走 localStorage，
    * 这是「没打开目录也想能设置」的退化路径，不是缺功能。
    */
@@ -507,6 +568,7 @@ function createSettings(): Settings {
       contentWidth: contentWidth.value,
       menuGroupLayout: menuGroupLayout.value,
       corners: corners.value,
+      baseFont: baseFont.value,
       integrateTables: integrateTables.value,
       autoSave: autoSave.value,
       headingNav: headingNav.value,
@@ -553,6 +615,11 @@ function createSettings(): Settings {
     if (prefs.corners !== undefined && prefs.corners !== corners.value) {
       corners.value = prefs.corners
       window.localStorage.setItem(CORNER_STYLE_KEY, prefs.corners)
+      changed = true
+    }
+    if (prefs.baseFont !== undefined && prefs.baseFont !== baseFont.value) {
+      baseFont.value = prefs.baseFont
+      window.localStorage.setItem(BASE_FONT_KEY, String(prefs.baseFont))
       changed = true
     }
     if (prefs.integrateTables !== undefined && prefs.integrateTables !== integrateTables.value) {
@@ -636,6 +703,8 @@ function createSettings(): Settings {
     setMenuGroupLayout,
     corners,
     setCorners,
+    baseFont,
+    setBaseFont,
     integrateTables,
     setIntegrateTables,
     autoSave,

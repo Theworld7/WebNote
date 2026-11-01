@@ -16,31 +16,31 @@ const { hasRoot, scanning, isLoadingDocument, tabs, fsHint, openRoot } = useWork
   <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-10 text-center">
     <template v-if="scanning">
       <LoaderCircleIcon class="size-4 animate-spin text-muted-foreground" />
-      <p class="text-[13px] text-muted-foreground">正在读取目录…</p>
+      <p class="text-13 text-muted-foreground">正在读取目录…</p>
     </template>
 
     <template v-else-if="isLoadingDocument">
       <LoaderCircleIcon class="size-4 animate-spin text-muted-foreground" />
-      <p class="text-[13px] text-muted-foreground">正在打开笔记…</p>
+      <p class="text-13 text-muted-foreground">正在打开笔记…</p>
     </template>
 
     <template v-else-if="!hasRoot">
-      <p class="text-[13px] text-muted-foreground">还没有打开笔记目录</p>
+      <p class="text-13 text-muted-foreground">还没有打开笔记目录</p>
       <Button
         variant="secondary"
-        class="h-8 gap-1.5 rounded-[10px] px-3.5 text-[13px]"
+        class="h-8 gap-1.5 rounded-[10px] px-3.5 text-13"
         @click="openRoot"
       >
         <FolderOpenIcon class="size-4" />
         <span>打开文件夹</span>
       </Button>
-      <p class="max-w-[300px] text-[12px] leading-relaxed text-muted-foreground/70">
+      <p class="max-w-[300px] text-12 leading-relaxed text-muted-foreground/70">
         {{ fsHint }}
       </p>
     </template>
 
     <template v-else>
-      <p class="text-[13px] text-muted-foreground">
+      <p class="text-13 text-muted-foreground">
         {{ tabs.length === 0 ? "开始你的想法" : "这篇笔记还是空的" }}
       </p>
     </template>

@@ -18,6 +18,10 @@
 import "../src/style.css"
 import { createApp, h, ref } from "vue"
 import InlineToolbar from "../src/components/InlineToolbar.vue"
+// 应用里 `App.vue` 把整棵树包在 TooltipProvider 里；悬浮工具条的按钮带 Tooltip，
+// 探针页少这一层就会抛 `Injection "Symbol(TooltipProviderContext)" not found`。
+import { TooltipProvider } from "../src/components/ui/tooltip"
+import { TEXT_COLORS } from "../src/lib/inline.ts"
 
 const lines = []
 let passed = 0
@@ -34,61 +38,93 @@ function settle() {
 }
 
 const marks = ref([])
+/** `undefined` = 调用点整个不传 color。先从这个态开始：`!== null` 的写法会在这里露出马脚。 */
+const color = ref(undefined)
+const link = ref(false)
+const noLink = ref(false)
 const toggled = []
+const colorsPicked = []
+const linksOpened = []
+
 const host = document.createElement("div")
 document.getElementById("app").append(host)
 
 createApp({
   setup() {
-    return () => h(InlineToolbar, {
-      marks: marks.value,
-      anchor: { top: 0, left: 0 },
-      onToggle: (mark) => toggled.push(mark),
-    })
+    return () =>
+      h(TooltipProvider, null, {
+        default: () =>
+          h(InlineToolbar, {
+            marks: marks.value,
+            color: color.value,
+            link: link.value,
+            noLink: noLink.value,
+            anchor: { top: 0, left: 0 },
+            onToggle: (mark) => toggled.push(mark),
+            onColor: (value) => colorsPicked.push(value),
+            onLink: () => linksOpened.push(true),
+          }),
+      })
   },
 }).mount(host)
 
+const buttons = () => [...host.querySelectorAll("[data-inline-toolbar] button")]
+const labels = () => buttons().map((button) => button.getAttribute("aria-label"))
+const pressed = () => buttons().map((button) => button.getAttribute("aria-pressed"))
+/** 视觉激活态。用 classList 精确 token 匹配 —— `hover:bg-accent` 是另一个串，不能靠 includes。 */
+const lit = () => buttons().map((button) => button.classList.contains("bg-accent"))
+
+const EXPECTED = ["加粗", "下划线", "删除线", "高亮", "行内代码", "颜色", "链接"]
+
 await settle()
 
-const buttons = [...host.querySelectorAll("button")]
-check("渲染出 3 个按钮", buttons.length === 3, `实际 ${buttons.length}`)
-
-const labels = buttons.map((button) => button.getAttribute("aria-label"))
-check(
-  "按钮依次为 加粗 / 高亮 / 行内代码",
-  JSON.stringify(labels) === JSON.stringify(["加粗", "高亮", "行内代码"]),
-  JSON.stringify(labels),
-)
-
-check(
-  "每个按钮都画出了图标 svg",
-  buttons.length === 3 && buttons.every((button) => button.querySelector("svg") !== null),
-  buttons.map((button) => button.querySelector("svg") !== null).join(","),
-)
+check("渲染出 7 个按钮", buttons().length === 7, `实际 ${buttons().length}`)
+check("按钮依次为 加粗 / 下划线 / 删除线 / 高亮 / 行内代码 / 颜色 / 链接", JSON.stringify(labels()) === JSON.stringify(EXPECTED), JSON.stringify(labels()))
+check("每个按钮都画出了图标 svg", buttons().length === 7 && buttons().every((button) => button.querySelector("svg") !== null), buttons().map((button) => button.querySelector("svg") !== null).join(","))
 
 // ---- 激活态跟着 marks 走 ----
+check("初始态（marks 空）没有任何按钮处于激活态", lit().every((value) => value === false), JSON.stringify(lit()))
+
 marks.value = ["code"]
 await settle()
-const pressed = [...host.querySelectorAll("button")].map((button) => button.getAttribute("aria-pressed"))
-check(
-  "marks=[code] → 只有行内代码为激活态",
-  JSON.stringify(pressed) === JSON.stringify(["false", "false", "true"]),
-  JSON.stringify(pressed),
-)
+check("marks=[code] → 只有行内代码为激活态", JSON.stringify(pressed()) === JSON.stringify(["false", "false", "false", "false", "true", "false", "false"]), JSON.stringify(pressed()))
+check("marks=[code] → 视觉上也只有第 5 个高亮", JSON.stringify(lit()) === JSON.stringify([false, false, false, false, true, false, false]), JSON.stringify(lit()))
 
 marks.value = ["bold", "highlight"]
 await settle()
-const pressedTwo = [...host.querySelectorAll("button")].map((button) => button.getAttribute("aria-pressed"))
-check(
-  "marks=[bold,highlight] → 前两个激活、行内代码不激活",
-  JSON.stringify(pressedTwo) === JSON.stringify(["true", "true", "false"]),
-  JSON.stringify(pressedTwo),
-)
+check("marks=[bold,highlight] → 加粗与高亮激活、行内代码不激活", JSON.stringify(pressed()) === JSON.stringify(["true", "false", "false", "true", "false", "false", "false"]), JSON.stringify(pressed()))
 
-// ---- 事件契约：点第 3 个按钮 ----
 marks.value = []
 await settle()
-const codeButton = [...host.querySelectorAll("button")][2]
+
+// ---- 颜色按钮的激活态：三态都要对 ----
+// 回归：`props.color !== null` 会把「没传」的 undefined 当成「有色」，颜色按钮永远亮着。
+check("不传 color（undefined）→ 颜色按钮不激活", lit()[5] === false, JSON.stringify(lit()))
+color.value = null
+await settle()
+check("color=null（默认色）→ 颜色按钮不激活", lit()[5] === false, JSON.stringify(lit()))
+color.value = TEXT_COLORS[1].value
+await settle()
+check(`color=${TEXT_COLORS[1].name} → 颜色按钮激活`, lit()[5] === true, JSON.stringify(lit()))
+
+// ---- 链接按钮 ----
+check("link=false → 链接按钮不激活", lit()[6] === false, JSON.stringify(lit()))
+link.value = true
+await settle()
+check("link=true → 链接按钮激活", lit()[6] === true && pressed()[6] === "true", JSON.stringify(lit()))
+link.value = false
+await settle()
+
+// ---- noLink：表格单元格里不放链接按钮 ----
+noLink.value = true
+await settle()
+check("noLink → 少一个按钮", buttons().length === 6, `实际 ${buttons().length}`)
+check("noLink → 没有链接按钮", labels().includes("链接") === false, JSON.stringify(labels()))
+noLink.value = false
+await settle()
+
+// ---- 事件契约 ----
+const codeButton = buttons()[4]
 codeButton.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }))
 codeButton.dispatchEvent(new MouseEvent("click", { bubbles: true }))
 check("点行内代码按钮 → emit('toggle', 'code')", JSON.stringify(toggled) === JSON.stringify(["code"]), JSON.stringify(toggled))
@@ -97,8 +133,30 @@ check("点行内代码按钮 → emit('toggle', 'code')", JSON.stringify(toggled
 const keptSelection = codeButton.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }))
 check("mousedown 被 preventDefault（保住选区）", keptSelection === false, String(keptSelection))
 
+// ---- 色盘 ----
+const colorButton = buttons()[5]
+colorButton.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }))
+colorButton.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+await settle()
+
+const swatches = TEXT_COLORS.map((item) => host.querySelector(`button[aria-label="${item.name}"]`)).filter((node) => node !== null)
+check(`点颜色按钮 → 展开色盘（${TEXT_COLORS.length} 个色块）`, swatches.length === TEXT_COLORS.length, `实际 ${swatches.length}`)
+check("色盘开着时按钮标 aria-pressed（展开态，不是选中态）", pressed()[5] === "true", JSON.stringify(pressed()))
+
+swatches[1].dispatchEvent(new MouseEvent("click", { bubbles: true }))
+await settle()
+check(`选「${TEXT_COLORS[1].name}」→ emit('color', '${TEXT_COLORS[1].value}')`, JSON.stringify(colorsPicked) === JSON.stringify([TEXT_COLORS[1].value]), JSON.stringify(colorsPicked))
+check("选完色盘收起", host.querySelector(`button[aria-label="${TEXT_COLORS[1].name}"]`) === null, "色块还在")
+
+// ---- 链接 ----
+const linkButton = buttons()[6]
+linkButton.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }))
+linkButton.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+check("点链接按钮 → emit('link')", linksOpened.length === 1, `实际 ${linksOpened.length}`)
+
 lines.push(`\n自检 ${passed}/${passed + failed} 通过`)
 document.getElementById("out").textContent = lines.join("\n")
+document.title = `自检 ${passed}/${passed + failed}`
 </script>
 </body>
 </html>

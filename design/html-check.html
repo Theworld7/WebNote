@@ -149,7 +149,7 @@ function probeFrame(source, css, theme = "light") {
     const frame = document.createElement("iframe")
     frame.setAttribute("sandbox", "allow-same-origin allow-scripts")
     frame.style.cssText = "width:600px;height:120px;border:0"
-    frame.srcdoc = buildHtmlFrameDoc(source, css, theme)
+    frame.srcdoc = buildHtmlFrameDoc(source, css, theme, 16)
     frame.addEventListener("load", () => {
       const doc = frame.contentDocument
       const body = doc?.body
@@ -191,8 +191,8 @@ check("没有页面样式时类不生效", plain.background !== "rgb(1, 2, 3)", 
 check(
   "没有页面样式时不注入任何样式标签",
   plain.hasStyleTag === false &&
-    !buildHtmlFrameDoc("x", "", "light").includes("data-note-style") &&
-    !buildHtmlFrameDoc("x", "", "light").includes("max-width:none!important"),
+    !buildHtmlFrameDoc("x", "", "light", 16).includes("data-note-style") &&
+    !buildHtmlFrameDoc("x", "", "light", 16).includes("max-width:none!important"),
   "",
 )
 
@@ -255,7 +255,7 @@ async function probeAppearance(theme, css = "", source = '<div class="bg-demo-bl
     const element = document.createElement("iframe")
     element.setAttribute("sandbox", "allow-same-origin allow-scripts")
     element.style.cssText = "width:600px;height:120px;border:0"
-    element.srcdoc = buildHtmlFrameDoc(source, css, theme)
+    element.srcdoc = buildHtmlFrameDoc(source, css, theme, 16)
     element.addEventListener("load", () => resolve(element))
     document.body.appendChild(element)
   })
@@ -335,20 +335,23 @@ function measureFrame(initialHeight) {
     const frame = document.createElement("iframe")
     frame.setAttribute("sandbox", "allow-scripts")
     frame.style.cssText = `width:600px;height:${initialHeight}px;border:0`
-    frame.srcdoc = buildHtmlFrameDoc('<div style="height:230px;background:#000"></div>', "", "light")
+    frame.srcdoc = buildHtmlFrameDoc('<div style="height:230px;background:#000"></div>', "", "light", 16)
+    /**
+     * 首次 `send()` 可能早于布局 —— body 还没量出高度，报 0；随后 ResizeObserver 补一次
+     * 真值。所以收一小段时间内的**最后一次**上报，只看第一条会读到一个与被测行为无关的 0。
+     */
+    let last = null
     const onMessage = (event) => {
       if (event.source !== frame.contentWindow) return
-      window.removeEventListener("message", onMessage)
-      frame.remove()
-      resolve(typeof event.data?.height === "number" ? event.data.height : null)
+      last = typeof event.data?.height === "number" ? event.data.height : null
     }
     window.addEventListener("message", onMessage)
     document.body.appendChild(frame)
     setTimeout(() => {
       window.removeEventListener("message", onMessage)
       frame.remove()
-      resolve(null)
-    }, 3000)
+      resolve(last)
+    }, 400)
   })
 }
 

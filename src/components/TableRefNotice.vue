@@ -54,7 +54,7 @@ function onReselect(event: Event): void {
     class="my-4 flex items-center gap-2.5 rounded-lg border border-line bg-muted/30 px-3 py-2.5"
   >
     <DatabaseIcon class="size-3.5 shrink-0 animate-pulse text-muted-foreground" />
-    <span class="text-[12px] text-muted-foreground">正在读取数据表…</span>
+    <span class="text-12 text-muted-foreground">正在读取数据表…</span>
   </div>
 
   <div
@@ -62,7 +62,7 @@ function onReselect(event: Event): void {
     class="my-4 flex items-center gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
   >
     <DatabaseIcon class="size-3.5 shrink-0 text-muted-foreground" />
-    <span class="min-w-0 flex-1 text-[12px] text-muted-foreground">
+    <span class="min-w-0 flex-1 text-12 text-muted-foreground">
       <!-- 空指针(转换流程修好前的遗留块 / 手工编辑):如实说没指定,而不是永远转圈。 -->
       <template v-if="kind === 'unset'">{{ label }}未指定数据表 —— 删掉这个块,用 / 菜单重新插入。</template>
       <!-- 引用的文件读不到:提示态,不是错误态。 -->
@@ -72,7 +72,7 @@ function onReselect(event: Event): void {
     <select
       v-if="kind === 'missing' && props.tables !== undefined && props.tables.length > 0"
       :value="''"
-      class="shrink-0 cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
+      class="shrink-0 cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
       @change="onReselect"
     >
       <option value="" disabled>重新选择数据表…</option>

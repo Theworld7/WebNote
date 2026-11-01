@@ -88,10 +88,10 @@ async function confirm() {
   <AlertDialog :open="open" @update:open="emit('close')">
     <AlertDialogContent class="max-w-sm" @open-auto-focus.prevent>
       <AlertDialogHeader>
-        <AlertDialogTitle class="text-[14px]">
+        <AlertDialogTitle class="text-14">
           选择数据表
         </AlertDialogTitle>
-        <AlertDialogDescription class="text-[12px]">
+        <AlertDialogDescription class="text-12">
           {{ KIND_LABEL[kind] }}展示一张数据表的数据 —— 挑工作区里已有的,或新建一张。
         </AlertDialogDescription>
       </AlertDialogHeader>
@@ -100,7 +100,7 @@ async function confirm() {
         <label
           v-for="option in tableOptions"
           :key="option.path"
-          class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-[13px] hover:bg-muted"
+          class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-13 hover:bg-muted"
           :class="selection === option.path && 'bg-muted'"
           @click="selection = option.path"
         >
@@ -110,7 +110,7 @@ async function confirm() {
         </label>
 
         <label
-          class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-[13px] hover:bg-muted"
+          class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-13 hover:bg-muted"
           :class="selection === NEW && 'bg-muted'"
           @click="selection = NEW"
         >
@@ -125,15 +125,15 @@ async function confirm() {
         ref="nameInput"
         v-model="newName"
         placeholder="数据表名(不必写 .tbl)"
-        class="h-8 text-[13px]"
+        class="h-8 text-13"
         @keydown.enter.prevent="confirm"
       />
 
       <AlertDialogFooter>
         <AlertDialogCancel as-child>
-          <Button variant="ghost" size="sm" class="text-[13px]">取消</Button>
+          <Button variant="ghost" size="sm" class="text-13">取消</Button>
         </AlertDialogCancel>
-        <Button size="sm" class="text-[13px]" @click="confirm">插入</Button>
+        <Button size="sm" class="text-13" @click="confirm">插入</Button>
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>

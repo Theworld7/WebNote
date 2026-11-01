@@ -142,32 +142,32 @@ function submit(): void {
   <AlertDialog :open="props.open" @update:open="emit('close')">
     <AlertDialogContent class="max-w-md">
       <AlertDialogHeader>
-        <AlertDialogTitle class="text-[14px]">添加歌曲</AlertDialogTitle>
-        <AlertDialogDescription class="text-[12px]">
+        <AlertDialogTitle class="text-14">添加歌曲</AlertDialogTitle>
+        <AlertDialogDescription class="text-12">
           字段跟这张表的列走 —— 只填想填的，其余留空。
         </AlertDialogDescription>
       </AlertDialogHeader>
 
       <div class="max-h-[52vh] space-y-2.5 overflow-y-auto pr-1">
         <div v-for="column in props.columns" :key="column.id">
-          <label class="mb-1 block text-[11px] text-muted-foreground">{{ column.name }}</label>
+          <label class="mb-1 block text-11 text-muted-foreground">{{ column.name }}</label>
 
           <Input
             v-if="column.type === 'text' || column.type === 'number' || column.type === 'date'"
             :type="column.type === 'number' ? 'number' : column.type === 'date' ? 'date' : 'text'"
-            class="h-8 text-[13px]"
+            class="h-8 text-13"
             :model-value="textOf(column)"
             @input="onText(column, $event)"
           />
 
-          <label v-else-if="column.type === 'checkbox'" class="flex cursor-pointer items-center gap-2 text-[13px]">
+          <label v-else-if="column.type === 'checkbox'" class="flex cursor-pointer items-center gap-2 text-13">
             <input type="checkbox" class="size-3.5 accent-brand" :checked="boolOf(column)" @change="onToggle(column, $event)">
             <span class="text-muted-foreground">勾选</span>
           </label>
 
           <select
             v-else-if="column.type === 'select'"
-            class="h-8 w-full cursor-pointer rounded-md border border-line bg-transparent px-2 text-[13px] outline-none"
+            class="h-8 w-full cursor-pointer rounded-md border border-line bg-transparent px-2 text-13 outline-none"
             :value="textOf(column)"
             @change="onSelect(column, $event)"
           >
@@ -190,7 +190,7 @@ function submit(): void {
                   <ImageIcon class="size-4" />
                 </div>
               </div>
-              <label class="cursor-pointer rounded-md border border-line px-2 py-1 text-[12px] text-muted-foreground hover:text-foreground">
+              <label class="cursor-pointer rounded-md border border-line px-2 py-1 text-12 text-muted-foreground hover:text-foreground">
                 选择图片
                 <input type="file" accept="image/*" class="hidden" @change="onPickImage(column, $event)">
               </label>
@@ -207,7 +207,7 @@ function submit(): void {
             </div>
             <Input
               type="url"
-              class="h-8 text-[12px]"
+              class="h-8 text-12"
               placeholder="或粘贴图片链接 https://…"
               :model-value="imageUrlOf(column)"
               @input="onImageUrl(column, $event)"
@@ -218,9 +218,9 @@ function submit(): void {
 
       <AlertDialogFooter>
         <AlertDialogCancel as-child>
-          <Button variant="ghost" size="sm" class="text-[13px]">取消</Button>
+          <Button variant="ghost" size="sm" class="text-13">取消</Button>
         </AlertDialogCancel>
-        <Button size="sm" class="text-[13px]" :disabled="!hasInput" @click="submit">添加</Button>
+        <Button size="sm" class="text-13" :disabled="!hasInput" @click="submit">添加</Button>
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>

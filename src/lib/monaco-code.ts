@@ -4,6 +4,7 @@ import { loadMonaco } from "./monaco"
 import type { Monaco } from "./monaco"
 import { applyMonacoTheme, monacoThemeName } from "./monaco-theme"
 import { formatCode } from "./source-format"
+import { BASE_FONT_REFERENCE_PX } from "./typography"
 
 /**
  * 代码块的就地编辑器：**整个应用同一时刻只有一个 Monaco 实例**。
@@ -31,6 +32,8 @@ export interface CodeEditorOptions {
   theme: Theme
   /** 代码字体栈（`--font-code` 的当前值）。Monaco 不认 CSS 变量，只能喂字符串。 */
   fontFamily: string
+  /** 当前基础字号（px）。静态层是 rem，Monaco 只认数字，两边按同一个比例换算。 */
+  baseFontPx: number
 }
 
 export interface CodeEditorHandle {
@@ -47,7 +50,7 @@ export interface CodeEditorHandle {
  * （`px-3.5 py-2.5`，与静态层同一个类）。这里的数值是给 layout 算可用宽高用的，
  * 改 CSS 时两边一起改，否则文字会横向漂几像素。
  *
- * 字号跟着静态层的 `text-[12px]` 走：ADR-0027 把界面字号收成九档且不留半像素，
+ * 字号跟着静态层的 `text-12` 走：ADR-0027 把界面字号收成九档且不留半像素，
  * 代码块也在这条线上。这三处（静态层 class、这里的常量、`firstLineCenter` 的行盒
  * 估算）没有共享常量，改一处必须同时改另外两处，`code-edit-check` 的
  * 「文字宽度一致」「字体栈同源」就是钉这个的。
@@ -91,6 +94,14 @@ export async function openCodeEditor(options: CodeEditorOptions): Promise<CodeEd
   }
   applyMonacoTheme(monaco, options.theme)
 
+  // 静态层那一侧是 rem（`text-12`），跟着基础字号走；Monaco 只认 px 数字。
+  // 同一个比例换算过去，两边才继续「文字宽度一致」（`code-edit-check` 钉的就是这个）。
+  const scale = options.baseFontPx / BASE_FONT_REFERENCE_PX
+  const fontSize = FONT_SIZE * scale
+  const lineHeight = LINE_HEIGHT * scale
+  const padX = PADDING_X * scale
+  const padY = PADDING_Y * scale
+
   const { host } = options
   host.replaceChildren()
 
@@ -98,8 +109,8 @@ export async function openCodeEditor(options: CodeEditorOptions): Promise<CodeEd
     value: options.value,
     language: languageId(options.language),
     theme: monacoThemeName(options.theme),
-    fontSize: FONT_SIZE,
-    lineHeight: LINE_HEIGHT,
+    fontSize,
+    lineHeight,
     fontFamily: options.fontFamily,
     // 代码块里不需要行号 / 折叠槽 / 概览尺 —— 静态层没有这些东西，
     // 多出来一列会让「进入编辑」时整块文本横向跳一下。
@@ -154,7 +165,7 @@ export async function openCodeEditor(options: CodeEditorOptions): Promise<CodeEd
    * 所以要把上下内边距加回来 —— 那 20px 现在归 CSS，不归 Monaco。
    */
   function applyHeight() {
-    const height = Math.max(editor.getContentHeight(), LINE_HEIGHT) + PADDING_Y * 2
+    const height = Math.max(editor.getContentHeight(), lineHeight) + padY * 2
     if (host.style.height === `${height}px`) return
     host.style.height = `${height}px`
     editor.layout({ width: contentWidth(), height })
@@ -162,7 +173,7 @@ export async function openCodeEditor(options: CodeEditorOptions): Promise<CodeEd
 
   /** Monaco 可用的宽度 = host 内容盒宽度（去掉左右那 14px 内边距）。 */
   function contentWidth(): number {
-    return Math.max(host.clientWidth - PADDING_X * 2, 0)
+    return Math.max(host.clientWidth - padX * 2, 0)
   }
 
   // 内容变高/变矮（回车、折行）跟过去。
@@ -174,7 +185,7 @@ export async function openCodeEditor(options: CodeEditorOptions): Promise<CodeEd
     const next = contentWidth()
     if (next === 0 || next === width) return
     width = next
-    editor.layout({ width: next, height: host.clientHeight - PADDING_Y * 2 })
+    editor.layout({ width: next, height: host.clientHeight - padY * 2 })
   })
   observer.observe(host)
 

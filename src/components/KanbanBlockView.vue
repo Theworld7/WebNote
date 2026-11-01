@@ -274,25 +274,25 @@ function openTable() {
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground"
+        class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground"
         @click="openTable"
       >
         <DatabaseIcon class="size-3" />打开数据表
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground">
             <Settings2Icon class="size-3" />设置
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent :class="MENU" align="end">
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
             分组字段
           </DropdownMenuLabel>
           <div class="px-2 pb-1.5">
             <select
               v-model="groupSelection"
-              class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
+              class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
             >
               <option value="">未选择(看板未分组)</option>
               <option v-for="column in columns" :key="column.id" :value="column.id">
@@ -303,7 +303,7 @@ function openTable() {
                  ↑↓ 即时写回 groupOrder。mt 与 select 拉开间距,px-1.5 对齐 select 的边框内文字。 -->
             <div v-if="props.block.groupColumnId !== ''" class="mt-1.5 space-y-0.5 px-1.5">
               <div v-for="group in groups" v-show="group.value !== null" :key="group.key" class="flex items-center gap-1">
-                <span class="min-w-0 flex-1 truncate text-[12px]">{{ group.label }}</span>
+                <span class="min-w-0 flex-1 truncate text-12">{{ group.label }}</span>
                 <button
                   type="button"
                   aria-label="上移该组"
@@ -333,7 +333,7 @@ function openTable() {
             >
               <span class="truncate">显示空分组</span>
             </DropdownMenuCheckboxItem>
-            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
               卡片显示字段
             </DropdownMenuLabel>
             <DropdownMenuCheckboxItem
@@ -354,13 +354,13 @@ function openTable() {
     <!-- 未选分组列:引导去设。 -->
     <p
       v-if="props.block.groupColumnId === '' || groupColumn === null"
-      class="rounded-lg border border-dashed border-line bg-muted/30 px-3 py-2.5 text-[12px] text-muted-foreground"
+      class="rounded-lg border border-dashed border-line bg-muted/30 px-3 py-2.5 text-12 text-muted-foreground"
     >
       看板尚未选择分组字段 —— 点右上角「设置」选一列,卡片会按它的值分列。
     </p>
 
     <!-- 看板:横向几列,每列若干便签卡。空表给一句说明。 -->
-    <p v-else-if="rows.length === 0" class="py-6 text-center text-[12px] text-muted-foreground">
+    <p v-else-if="rows.length === 0" class="py-6 text-center text-12 text-muted-foreground">
       这张表还没有行 —— 到数据表里添加后,看板会自动出现。
     </p>
     <div v-else class="flex gap-3 overflow-x-auto pb-1">
@@ -372,9 +372,9 @@ function openTable() {
         @drop="onColumnDrop($event, group)"
       >
         <div class="mb-2 flex items-center justify-between px-0.5">
-          <span class="truncate text-[12px] font-medium text-foreground">{{ group.label }}</span>
+          <span class="truncate text-12 font-medium text-foreground">{{ group.label }}</span>
           <span class="flex shrink-0 items-center gap-0.5">
-            <span class="rounded-full bg-muted px-1.5 text-[11px] text-muted-foreground">{{ group.rows.length }}</span>
+            <span class="rounded-full bg-muted px-1.5 text-11 text-muted-foreground">{{ group.rows.length }}</span>
             <button
               type="button"
               aria-label="添加卡片"
@@ -396,9 +396,9 @@ function openTable() {
             @dragstart="onCardDragStart($event, row)"
           >
             <div v-for="column in displayColumns" :key="column.id" class="flex min-h-4 flex-col py-0.5">
-              <span class="text-[11px] leading-tight text-black/50">{{ column.name }}</span>
+              <span class="text-11 leading-tight text-black/50">{{ column.name }}</span>
               <!-- 图片格不就地编辑:data URI 在卡片上没处看,换图去数据表。 -->
-              <span v-if="column.type === 'image'" class="break-words text-[12px] leading-snug" :class="cellOf(row, column) === '' && 'text-black/30'">{{ cellOf(row, column) || "空" }}</span>
+              <span v-if="column.type === 'image'" class="break-words text-12 leading-snug" :class="cellOf(row, column) === '' && 'text-black/30'">{{ cellOf(row, column) || "空" }}</span>
 
               <input
                 v-else-if="column.type === 'checkbox'"
@@ -411,7 +411,7 @@ function openTable() {
               <!-- 单选格：键盘模型与账目格、数据表格同源（Tab 到就展开），走 `OptionCell`。 -->
               <OptionCell
                 v-else-if="column.type === 'select'"
-                class="rounded text-[12px] leading-snug hover:bg-black/5"
+                class="rounded text-12 leading-snug hover:bg-black/5"
                 :model-value="String(dt.cellValue(row, column) ?? '')"
                 :options="column.options"
                 :chevron="false"
@@ -424,7 +424,7 @@ function openTable() {
               <input
                 v-else-if="editing === cellKey(row, column)"
                 :ref="focusOnMount"
-                class="w-full min-w-0 rounded bg-transparent px-0.5 text-[12px] leading-snug outline-none"
+                class="w-full min-w-0 rounded bg-transparent px-0.5 text-12 leading-snug outline-none"
                 :value="cellOf(row, column)"
                 :placeholder="column.type === 'date' ? 'YYYY-MM-DD' : ''"
                 @focus="column.type === 'date' && openDatePanel(row, column, $event)"
@@ -437,7 +437,7 @@ function openTable() {
               <button
                 v-else
                 type="button"
-                class="w-full min-w-0 rounded px-0.5 text-left text-[12px] leading-snug hover:bg-black/5"
+                class="w-full min-w-0 rounded px-0.5 text-left text-12 leading-snug hover:bg-black/5"
                 @click="editing = cellKey(row, column)"
               >
                 <span class="break-words" :class="cellOf(row, column) === '' && 'text-black/30'">{{ cellOf(row, column) || "空" }}</span>

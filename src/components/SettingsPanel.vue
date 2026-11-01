@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ContentWidth, CornerStyle, MenuGroupLayout, TableEffect } from "@/composables/useSettings"
+import type { BaseFont, ContentWidth, CornerStyle, MenuGroupLayout, TableEffect } from "@/composables/useSettings"
 import type { UpdateOutcome } from "@/composables/useUpdateCheck"
 import type { ThemeMode } from "@/types/workspace"
 import type { Component } from "vue"
@@ -31,7 +31,7 @@ import {
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { CONTENT_WIDTH_PX, HEADING_NAV_MIN_FLOOR, useSettings } from "@/composables/useSettings"
+import { BASE_FONT_STEPS, CONTENT_WIDTH_PX, HEADING_NAV_MIN_FLOOR, useSettings } from "@/composables/useSettings"
 import { useToast } from "@/composables/useToast"
 import { useUpdateCheck } from "@/composables/useUpdateCheck"
 import { listSystemFonts } from "@/lib/fonts"
@@ -52,7 +52,7 @@ import NewVersionButton from "./NewVersionButton.vue"
  */
 const open = defineModel<boolean>("open", { required: true })
 
-const { tableEffect, setTableEffect, contentWidth, setContentWidth, menuGroupLayout, setMenuGroupLayout, corners, setCorners, integrateTables, setIntegrateTables, autoSave, setAutoSave, headingNav, setHeadingNav, headingNavMin, setHeadingNavMin, contentFont, setContentFont, codeFont, setCodeFont, theme, setTheme } = useSettings()
+const { tableEffect, setTableEffect, contentWidth, setContentWidth, menuGroupLayout, setMenuGroupLayout, corners, setCorners, baseFont, setBaseFont, integrateTables, setIntegrateTables, autoSave, setAutoSave, headingNav, setHeadingNav, headingNavMin, setHeadingNavMin, contentFont, setContentFont, codeFont, setCodeFont, theme, setTheme } = useSettings()
 
 /**
  * 本机字体列表。打开面板时才去取（桌面端要扫一遍系统字体），拿到之前选择框里
@@ -180,6 +180,20 @@ const CORNER_STYLE_OPTIONS: readonly CornerStyleOption[] = [
   { value: "medium", label: "中", preview: "rounded-[8px]" },
   { value: "large", label: "大", preview: "rounded-[13px]" },
 ]
+
+interface BaseFontOption {
+  value: BaseFont
+  label: string
+}
+
+/**
+ * 四档基础字号。按钮里直接把 px 数写上 —— 这一档调节的就是那个数，
+ * 画个示意字形反而让人以为字体会变。
+ */
+const BASE_FONT_OPTIONS: readonly BaseFontOption[] = BASE_FONT_STEPS.map((value) => ({
+  value,
+  label: value === 16 ? "标准" : value < 16 ? "小" : value === 18 ? "大" : "更大",
+}))
 
 interface MenuGroupLayoutOption {
   value: MenuGroupLayout
@@ -340,7 +354,7 @@ function optionClass(isActive: boolean): string {
             :key="section.id"
             type="button"
             :class="[
-              'rounded-[7px] px-2 py-1.5 text-left text-[13px] transition-colors',
+              'rounded-[7px] px-2 py-1.5 text-left text-13 transition-colors',
               sectionClass(section.id === activeSection),
             ]"
             @click="activeSection = section.id"
@@ -353,7 +367,7 @@ function optionClass(isActive: boolean): string {
         <ScrollArea class="min-h-0 flex-1">
           <div v-if="activeSection === 'display'" class="flex flex-col gap-4 p-3.5">
             <section class="flex flex-col gap-2">
-              <h3 class="text-[13px] font-medium text-foreground">表格效果</h3>
+              <h3 class="text-13 font-medium text-foreground">表格效果</h3>
               <SheetDescription>
                 宽表格超出正文宽度时如何排布。
               </SheetDescription>
@@ -376,10 +390,10 @@ function optionClass(isActive: boolean): string {
                     class="mt-0.5 size-4 flex-none text-muted-foreground"
                   />
                   <span class="flex min-w-0 flex-col gap-0.5">
-                    <span class="text-[13px] leading-[1.4] text-foreground">
+                    <span class="text-13 leading-[1.4] text-foreground">
                       {{ option.label }}
                     </span>
-                    <span class="text-[12px] leading-[1.45] text-muted-foreground">
+                    <span class="text-12 leading-[1.45] text-muted-foreground">
                       {{ option.hint }}
                     </span>
                   </span>
@@ -392,7 +406,7 @@ function optionClass(isActive: boolean): string {
             </section>
 
             <section class="flex flex-col gap-2">
-              <h3 class="text-[13px] font-medium text-foreground">内容宽度</h3>
+              <h3 class="text-13 font-medium text-foreground">内容宽度</h3>
               <SheetDescription>编辑器里正文内容的最大宽度。</SheetDescription>
 
               <!-- 三档横排:窄 → 宽本身是个一维刻度,横排比竖叠更读得出「档位」。 -->
@@ -415,10 +429,10 @@ function optionClass(isActive: boolean): string {
                       :class="['h-1 rounded-full bg-muted-foreground', CONTENT_WIDTH_BAR[option.value]]"
                     />
                   </span>
-                  <span class="text-[13px] leading-[1.4] text-foreground">
+                  <span class="text-13 leading-[1.4] text-foreground">
                     {{ option.label }}
                   </span>
-                  <span class="text-[12px] leading-[1.45] text-muted-foreground">
+                  <span class="text-12 leading-[1.45] text-muted-foreground">
                     {{ CONTENT_WIDTH_PX[option.value] }}px
                   </span>
                 </button>
@@ -426,7 +440,7 @@ function optionClass(isActive: boolean): string {
             </section>
 
             <section class="flex flex-col gap-2">
-              <h3 class="text-[13px] font-medium text-foreground">块菜单</h3>
+              <h3 class="text-13 font-medium text-foreground">块菜单</h3>
               <SheetDescription>插入块与「转为…」菜单里分组的排布方向。</SheetDescription>
 
               <!-- 两档横排:方向本身是二维的,用图标画出组的走向比文字更直白。 -->
@@ -444,14 +458,14 @@ function optionClass(isActive: boolean): string {
                   @click="setMenuGroupLayout(option.value)"
                 >
                   <component :is="option.icon" class="size-4 text-muted-foreground" />
-                  <span class="text-[13px] leading-[1.4] text-foreground">{{ option.label }}</span>
-                  <span class="text-[12px] leading-[1.45] text-muted-foreground">{{ option.hint }}</span>
+                  <span class="text-13 leading-[1.4] text-foreground">{{ option.label }}</span>
+                  <span class="text-12 leading-[1.45] text-muted-foreground">{{ option.hint }}</span>
                 </button>
               </div>
             </section>
 
             <section class="flex flex-col gap-2">
-              <h3 class="text-[13px] font-medium text-foreground">文件树</h3>
+              <h3 class="text-13 font-medium text-foreground">文件树</h3>
               <SheetDescription>开启后被笔记引用的数据表收进笔记名下，树更清爽。</SheetDescription>
 
               <!-- 单独一项布尔偏好：它不是「几选一」，所以不给它凑成两条互斥选项。 -->
@@ -467,8 +481,8 @@ function optionClass(isActive: boolean): string {
               >
                 <FolderTreeIcon class="mt-0.5 size-4 flex-none text-muted-foreground" />
                 <span class="flex min-w-0 flex-col gap-0.5">
-                  <span class="text-[13px] leading-[1.4] text-foreground">整合数据表视图</span>
-                  <span class="text-[12px] leading-[1.45] text-muted-foreground">
+                  <span class="text-13 leading-[1.4] text-foreground">整合数据表视图</span>
+                  <span class="text-12 leading-[1.45] text-muted-foreground">
                     被引用的数据表挂在引用它的笔记下，笔记名隐去 .html 后缀
                   </span>
                 </span>
@@ -477,7 +491,7 @@ function optionClass(isActive: boolean): string {
             </section>
 
             <section class="flex flex-col gap-2">
-              <h3 class="text-[13px] font-medium text-foreground">标题导航</h3>
+              <h3 class="text-13 font-medium text-foreground">标题导航</h3>
               <SheetDescription>笔记右端的标题刻度，hover 展开目录，点击跳到那一节。</SheetDescription>
 
               <!-- 开关默认是开的：这项功能本来就是默认在的，关掉才是选择。 -->
@@ -493,8 +507,8 @@ function optionClass(isActive: boolean): string {
               >
                 <ListTreeIcon class="mt-0.5 size-4 flex-none text-muted-foreground" />
                 <span class="flex min-w-0 flex-col gap-0.5">
-                  <span class="text-[13px] leading-[1.4] text-foreground">悬浮标题菜单</span>
-                  <span class="text-[12px] leading-[1.45] text-muted-foreground">
+                  <span class="text-13 leading-[1.4] text-foreground">悬浮标题菜单</span>
+                  <span class="text-12 leading-[1.45] text-muted-foreground">
                     静止时只有刻度，不占正文位置；鼠标移上去才展开标题
                   </span>
                 </span>
@@ -507,8 +521,8 @@ function optionClass(isActive: boolean): string {
                 :class="headingNav ? '' : 'opacity-40'"
               >
                 <span class="flex min-w-0 flex-col gap-0.5">
-                  <span class="text-[12px] leading-[1.4] text-foreground">出现门槛</span>
-                  <span class="text-[12px] leading-[1.45] text-muted-foreground">
+                  <span class="text-12 leading-[1.4] text-foreground">出现门槛</span>
+                  <span class="text-12 leading-[1.45] text-muted-foreground">
                     标题数达到这个数才显示，最少 {{ HEADING_NAV_MIN_FLOOR }} 条
                   </span>
                 </span>
@@ -525,7 +539,7 @@ function optionClass(isActive: boolean): string {
             </section>
 
             <section class="flex flex-col gap-2">
-              <h3 class="text-[13px] font-medium text-foreground">保存</h3>
+              <h3 class="text-13 font-medium text-foreground">保存</h3>
               <SheetDescription>离开当前这一篇时把它写盘，不必记着按 Ctrl+S。</SheetDescription>
 
               <!-- 默认开：不按快捷键也不丢东西本来就是编辑器的预期，关掉才是选择。 -->
@@ -541,8 +555,8 @@ function optionClass(isActive: boolean): string {
               >
                 <SaveIcon class="mt-0.5 size-4 flex-none text-muted-foreground" />
                 <span class="flex min-w-0 flex-col gap-0.5">
-                  <span class="text-[13px] leading-[1.4] text-foreground">离开时自动保存</span>
-                  <span class="text-[12px] leading-[1.45] text-muted-foreground">
+                  <span class="text-13 leading-[1.4] text-foreground">离开时自动保存</span>
+                  <span class="text-12 leading-[1.45] text-muted-foreground">
                     切标签、切到别的应用、关窗时落盘；不按时间轮询，只在真的离开时写
                   </span>
                 </span>
@@ -551,12 +565,12 @@ function optionClass(isActive: boolean): string {
             </section>
 
             <section class="flex flex-col gap-2">
-              <h3 class="text-[13px] font-medium text-foreground">字体</h3>
+              <h3 class="text-13 font-medium text-foreground">字体</h3>
               <SheetDescription>候选列表读自本机已安装的字体。</SheetDescription>
 
               <div class="mt-0.5 flex flex-col gap-2">
                 <div class="flex flex-col gap-1">
-                  <span class="text-[12px] leading-[1.4] text-muted-foreground">内容</span>
+                  <span class="text-12 leading-[1.4] text-muted-foreground">内容</span>
                   <FontPicker
                     :model-value="contentFont"
                     :options="fonts"
@@ -565,7 +579,7 @@ function optionClass(isActive: boolean): string {
                   />
                 </div>
                 <div class="flex flex-col gap-1">
-                  <span class="text-[12px] leading-[1.4] text-muted-foreground">代码</span>
+                  <span class="text-12 leading-[1.4] text-muted-foreground">代码</span>
                   <FontPicker
                     :model-value="codeFont"
                     :options="fonts"
@@ -577,14 +591,14 @@ function optionClass(isActive: boolean): string {
             </section>
 
             <!-- 说明这次设置的作用范围：只影响编辑器，不进导出文件。 -->
-            <p class="text-[12px] leading-[1.5] text-muted-foreground">
+            <p class="text-12 leading-[1.5] text-muted-foreground">
               此设置只影响编辑器里的显示。导出的 HTML 始终是规范形态，换台机器打开也不会变。
             </p>
           </div>
 
           <div v-else-if="activeSection === 'appearance'" class="flex flex-col gap-4 p-3.5">
             <section class="flex flex-col gap-2">
-              <h3 class="text-[13px] font-medium text-foreground">主题</h3>
+              <h3 class="text-13 font-medium text-foreground">主题</h3>
               <SheetDescription>界面配色。标签栏最右那颗按钮也能就地手动切。</SheetDescription>
 
               <div class="mt-0.5 flex flex-col gap-1.5" role="radiogroup" aria-label="主题">
@@ -605,10 +619,10 @@ function optionClass(isActive: boolean): string {
                     class="mt-0.5 size-4 flex-none text-muted-foreground"
                   />
                   <span class="flex min-w-0 flex-col gap-0.5">
-                    <span class="text-[13px] leading-[1.4] text-foreground">
+                    <span class="text-13 leading-[1.4] text-foreground">
                       {{ option.label }}
                     </span>
-                    <span class="text-[12px] leading-[1.45] text-muted-foreground">
+                    <span class="text-12 leading-[1.45] text-muted-foreground">
                       {{ option.hint }}
                     </span>
                   </span>
@@ -621,7 +635,7 @@ function optionClass(isActive: boolean): string {
             </section>
 
             <section class="flex flex-col gap-2">
-              <h3 class="text-[13px] font-medium text-foreground">界面圆角</h3>
+              <h3 class="text-13 font-medium text-foreground">界面圆角</h3>
               <SheetDescription>卡片、菜单与输入框的圆角档位。</SheetDescription>
 
               <!-- 四档横排：方块的弧度随档位递增，一排看过去就是这条刻度。 -->
@@ -640,19 +654,42 @@ function optionClass(isActive: boolean): string {
                 >
                   <!-- 示意方块：弧度只是「这一档大概长什么样」，七个真值在 style.css 的 --rad-*。 -->
                   <span :class="['size-4 border border-muted-foreground', option.preview]" />
-                  <span class="text-[13px] leading-[1.4] text-foreground">{{ option.label }}</span>
+                  <span class="text-13 leading-[1.4] text-foreground">{{ option.label }}</span>
+                </button>
+              </div>
+            </section>
+
+            <section class="flex flex-col gap-2">
+              <h3 class="text-13 font-medium text-foreground">基础字号</h3>
+              <SheetDescription>整套界面与正文一起缩放。导出文件不跟这一档走。</SheetDescription>
+
+              <div class="mt-0.5 grid grid-cols-4 gap-1.5" role="radiogroup" aria-label="基础字号">
+                <button
+                  v-for="option in BASE_FONT_OPTIONS"
+                  :key="option.value"
+                  type="button"
+                  role="radio"
+                  :aria-checked="baseFont === option.value"
+                  :class="[
+                    'flex flex-col items-center gap-0.5 rounded-[9px] border px-1 py-2 transition-colors',
+                    optionClass(baseFont === option.value),
+                  ]"
+                  @click="setBaseFont(option.value)"
+                >
+                  <span class="text-14 leading-[1.2] text-foreground">{{ option.value }}</span>
+                  <span class="text-11 leading-[1.3] text-muted-foreground">{{ option.label }}</span>
                 </button>
               </div>
             </section>
 
             <!-- 固定时间：只有两个时刻。先后顺序不限 —— 调度按时刻排序后取「最近一个已过」。 -->
             <section v-if="theme.mode === 'fixed'" class="flex flex-col gap-2">
-              <h3 class="text-[13px] font-medium text-foreground">切换时刻</h3>
+              <h3 class="text-13 font-medium text-foreground">切换时刻</h3>
               <SheetDescription>到点换配色。两个时刻谁先谁后都行，跨零点会对上。</SheetDescription>
 
               <div class="mt-0.5 grid grid-cols-2 gap-2">
                 <label class="flex flex-col gap-1">
-                  <span class="text-[12px] leading-[1.4] text-muted-foreground">切浅色</span>
+                  <span class="text-12 leading-[1.4] text-muted-foreground">切浅色</span>
                   <Input
                     type="time"
                     :model-value="theme.lightAt"
@@ -660,7 +697,7 @@ function optionClass(isActive: boolean): string {
                   />
                 </label>
                 <label class="flex flex-col gap-1">
-                  <span class="text-[12px] leading-[1.4] text-muted-foreground">切深色</span>
+                  <span class="text-12 leading-[1.4] text-muted-foreground">切深色</span>
                   <Input
                     type="time"
                     :model-value="theme.darkAt"
@@ -672,21 +709,21 @@ function optionClass(isActive: boolean): string {
 
             <!-- 日出日落：坐标 + 今日时刻。时刻是坐标填错时唯一的征兆，摆在输入框上面。 -->
             <section v-if="theme.mode === 'sun'" class="flex flex-col gap-2">
-              <h3 class="text-[13px] font-medium text-foreground">位置</h3>
+              <h3 class="text-13 font-medium text-foreground">位置</h3>
               <SheetDescription>日出日落按这个坐标算。不填就跟着系统时区走。</SheetDescription>
 
               <div class="mt-0.5 flex flex-col gap-2">
-                <div class="flex items-baseline justify-between gap-2 text-[12px] leading-[1.4]">
+                <div class="flex items-baseline justify-between gap-2 text-12 leading-[1.4]">
                   <span class="text-foreground">{{ place.label }}</span>
                   <span class="truncate text-muted-foreground">{{ place.zone }}</span>
                 </div>
-                <div class="text-[12px] leading-[1.4] text-muted-foreground">
+                <div class="text-12 leading-[1.4] text-muted-foreground">
                   今日 {{ sunTodayText }}
                 </div>
 
                 <div class="grid grid-cols-2 gap-2">
                   <label class="flex flex-col gap-1">
-                    <span class="text-[12px] leading-[1.4] text-muted-foreground">纬度</span>
+                    <span class="text-12 leading-[1.4] text-muted-foreground">纬度</span>
                     <Input
                       type="number"
                       step="0.0001"
@@ -695,7 +732,7 @@ function optionClass(isActive: boolean): string {
                     />
                   </label>
                   <label class="flex flex-col gap-1">
-                    <span class="text-[12px] leading-[1.4] text-muted-foreground">经度</span>
+                    <span class="text-12 leading-[1.4] text-muted-foreground">经度</span>
                     <Input
                       type="number"
                       step="0.0001"
@@ -709,7 +746,7 @@ function optionClass(isActive: boolean): string {
                   v-if="theme.latitude !== null"
                   variant="ghost"
                   size="sm"
-                  class="justify-start gap-1 self-start px-2 text-[12px] text-muted-foreground"
+                  class="justify-start gap-1 self-start px-2 text-12 text-muted-foreground"
                   @click="resetPlace"
                 >
                   <RotateCcwIcon class="size-3.5" />
@@ -719,7 +756,7 @@ function optionClass(isActive: boolean): string {
             </section>
 
             <!-- 自动模式下手动切换到底是什么语义，只说一句 —— 它是这颗按钮最容易被误解的地方。 -->
-            <p class="text-[12px] leading-[1.5] text-muted-foreground">
+            <p class="text-12 leading-[1.5] text-muted-foreground">
               自动模式下，标签栏那颗按钮只改当前这一段：到下一个切换点（日出、日落、固定时刻、
               系统外观翻转）就交回自动，设置里的选择不会被改掉。
             </p>
@@ -729,14 +766,14 @@ function optionClass(isActive: boolean): string {
                没有新版本时一行都不该占标题栏。 -->
           <div v-else-if="activeSection === 'about'" class="flex flex-col gap-4 p-3.5">
             <section class="flex flex-col gap-2">
-              <h3 class="text-[13px] font-medium text-foreground">版本</h3>
+              <h3 class="text-13 font-medium text-foreground">版本</h3>
               <SheetDescription>
                 启动时会自动查一次 GitHub 上的最新发布；查不到就算了，不打扰。
               </SheetDescription>
 
               <div class="mt-0.5 flex flex-col gap-2 rounded-[9px] border border-line p-2.5">
                 <div class="flex items-center justify-between gap-3">
-                  <span class="text-[13px] leading-[1.4] text-foreground">玉简 v{{ version }}</span>
+                  <span class="text-13 leading-[1.4] text-foreground">玉简 v{{ version }}</span>
                   <Button
                     variant="outline"
                     size="sm"
@@ -751,7 +788,7 @@ function optionClass(isActive: boolean): string {
                      与标题栏里那颗是同一个组件、同一个动作。 -->
                 <div
                   v-if="updateHint !== null"
-                  class="flex items-center gap-1.5 text-[12px] leading-[1.45] text-muted-foreground"
+                  class="flex items-center gap-1.5 text-12 leading-[1.45] text-muted-foreground"
                 >
                   <span>{{ updateHint }}</span>
                   <NewVersionButton v-if="outcome === 'newer'" />
@@ -759,7 +796,7 @@ function optionClass(isActive: boolean): string {
               </div>
             </section>
 
-            <p class="text-[12px] leading-[1.5] text-muted-foreground">
+            <p class="text-12 leading-[1.5] text-muted-foreground">
               应用不自己下载安装包：那颗按钮把发布页交给系统浏览器，下不下、装不装由你决定。
             </p>
           </div>

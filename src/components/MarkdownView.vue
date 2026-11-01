@@ -150,12 +150,12 @@ async function convert() {
       <div class="pointer-events-none sticky top-0 z-10 h-0">
         <div class="mx-auto flex justify-end pt-3" :style="ACTIONS_BOX">
           <div data-markdown-actions class="pointer-events-auto flex items-center gap-2">
-            <span class="text-[11px] text-muted-foreground">Markdown · 只读</span>
+            <span class="text-11 text-muted-foreground">Markdown · 只读</span>
             <Button
               variant="ghost"
               size="sm"
               :disabled="converting"
-              class="h-7 gap-1 rounded-full bg-popover px-2.5 text-[12px] shadow-sm"
+              class="h-7 gap-1 rounded-full bg-popover px-2.5 text-12 shadow-sm"
               @click="convert"
             >
               <FileTextIcon class="size-3.5" />

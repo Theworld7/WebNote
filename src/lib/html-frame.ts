@@ -1,6 +1,6 @@
 import type { Theme } from "@/types/workspace"
 import { pinScheme } from "./note-style"
-import { BODY_FONT_SIZE, LINE_HEIGHT, SYSTEM_FONT_STACK } from "./typography"
+import { BODY_FONT_SIZE, LINE_HEIGHT, SYSTEM_FONT_STACK, remOf } from "./typography"
 import { readThemeColor } from "./theme-color"
 
 /**
@@ -81,10 +81,14 @@ function canvasColor(theme: Theme): string {
  * 空样式不落任何标签：没有页面样式的笔记，生成的文档与加这个功能之前逐字节相同
  * （外观那条除外 —— 它是块能看清的前提，不是页面样式的一部分）。
  */
-export function buildHtmlFrameDoc(source: string, pageStyle: string, theme: Theme): string {
+// 基础字号是从外面传进来的：沙箱文档是独立文档，读不到父页面的根字号。
+export function buildHtmlFrameDoc(source: string, pageStyle: string, theme: Theme, baseFontPx: number): string {
   const probe =
     "<script>(function(){var send=function(){parent.postMessage({height:Math.ceil(document.body.getBoundingClientRect().height)},'*')};window.addEventListener('load',send);send();new ResizeObserver(send).observe(document.body)})()<\/script>"
-  const base = `<style>body{margin:0;display:flow-root;background:transparent;font:${BODY_FONT_SIZE}px/${LINE_HEIGHT} ${SYSTEM_FONT_STACK}}</style>`
+  // 根字号按偏好的档位给，body 用 rem 接 —— 这样块里的字与应用正文同样缩放。
+  // 用 rem 而不是「把 px 乘出来」：页面样式里若有 rem，也跟着这一档走，不会
+  // 出现「块里的字变大了、块自己的 rem 间距没变」。
+  const base = `<style>html{font-size:${baseFontPx}px}body{margin:0;display:flow-root;background:transparent;font:${remOf(BODY_FONT_SIZE)}/${LINE_HEIGHT} ${SYSTEM_FONT_STACK}}</style>`
   const appearance = `<style>html{color-scheme:${theme};background:${canvasColor(theme)}}</style>`
   const style =
     pageStyle.trim() === ""

@@ -98,7 +98,7 @@ async function onDrop(event: DragEvent) {
       @dragleave="onDragLeave"
       @drop="onDrop"
     >
-      <p v-if="message !== ''" class="px-2 py-3 text-[12px] leading-relaxed text-muted-foreground">
+      <p v-if="message !== ''" class="px-2 py-3 text-12 leading-relaxed text-muted-foreground">
         {{ message }}
       </p>
       <template v-else>

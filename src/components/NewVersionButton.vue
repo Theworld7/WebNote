@@ -20,7 +20,7 @@ const { latest, open } = useUpdateCheck()
     <TooltipTrigger as-child>
       <button
         type="button"
-        class="flex h-6 flex-none items-center gap-0.5 rounded-[5px] px-1.5 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10"
+        class="flex h-6 flex-none items-center gap-0.5 rounded-[5px] px-1.5 text-11 font-medium text-primary transition-colors hover:bg-primary/10"
         :aria-label="`新版本 ${latest.version}，打开下载页面`"
         @mousedown.prevent
         @click="open"

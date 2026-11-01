@@ -102,7 +102,7 @@ const MENU = computed(() =>
 
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
 
-const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-foreground"
+const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foreground"
 
 /** 位置两项的公共数据：方向、符号、文案一次定义，纵向横向两个排布共用。 */
 const POSITIONS = [
@@ -293,7 +293,7 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
       >
         <!-- 检索回显：菜单里没有输入框，敲的字母得在这儿看得见（空词时是提示语）。 -->
         <TypeQueryEcho :query="typeQuery" />
-        <DropdownMenuLabel v-if="typeMenuMode === 'convert'" class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+        <DropdownMenuLabel v-if="typeMenuMode === 'convert'" class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
           转换为
         </DropdownMenuLabel>
         <!-- 插入位置：方向已由 ↑/↓ 表明，不再放顶部提示。纵向竖叠在最上；横向并成
@@ -318,7 +318,7 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
           </template>
           <div v-else class="flex items-start gap-x-3">
             <div class="flex min-w-[104px] shrink-0 flex-col">
-              <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">位置</DropdownMenuLabel>
+              <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">位置</DropdownMenuLabel>
               <DropdownMenuItem
                 v-for="position in POSITIONS"
                 :key="position.marker"
@@ -353,7 +353,7 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
           data-drag-handle="true"
           :aria-label="`${meta.label}块操作菜单，拖动可重排`"
         >
-          <span class="text-center font-mono text-[12px] leading-none">{{ meta.marker }}</span>
+          <span class="text-center font-mono text-12 leading-none">{{ meta.marker }}</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent

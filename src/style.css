@@ -105,6 +105,21 @@
     --shadow-island: var(--elev-island);
     --shadow-pop: var(--elev-pop);
 
+    /* 字号阶梯：九档（ADR-0027 定的那九档），值用 rem。
+       档名保留原来的 px 数字 —— 它是刻度编号，不是单位；用 rem 是为了让「基础字号」
+       偏好（`html { font-size }`）能把整套字一起缩放。写死 px 的话，改根字号只会放大
+       正文（`text-sm` 本来就是 rem）与间距，11/12/13px 的界面字一动不动 —— 那正是
+       这个改动要治的病。导出文件不吃这套：它用 px，与打开它的浏览器无关。 */
+    --text-11: 0.6875rem;
+    --text-12: 0.75rem;
+    --text-13: 0.8125rem;
+    --text-14: 0.875rem;
+    --text-16: 1rem;
+    --text-18: 1.125rem;
+    --text-22: 1.375rem;
+    --text-26: 1.625rem;
+    --text-30: 1.875rem;
+
     /* 系统字体栈。不引远程字体：Tauri 离线可用，且不依赖 Google Fonts 可达性。
        **与 `lib/typography.ts` 的 `SYSTEM_FONT_STACK` / `MONO_FONT_STACK` 必须逐字相同** ——
        CSS 取不到 TS 常量，只能各写一份，`typography-check` 断言两边相等。Windows 上
@@ -512,7 +527,7 @@
     text-decoration: none;
     text-align: center;
     word-break: break-all;
-    font-size: 12px;
+    font-size: 0.75rem;
     line-height: 1.4;
     cursor: pointer;
     }
@@ -528,7 +543,7 @@
     background-color: var(--color-tint);
     color: var(--color-tint-foreground);
     font-weight: 600;
-    font-size: 14px;
+    font-size: 0.875rem;
     }
   /* 书签块的横向信息卡:左图标,右侧名称与域名。与导出侧 docStyle 的 .note-bm-card
      同一套几何,两边各用本侧的变量 —— 「编辑器里看着什么样,双击打开就是什么样」。
@@ -568,7 +583,7 @@
     background-color: var(--color-tint);
     color: var(--color-tint-foreground);
     font-weight: 600;
-    font-size: 14px;
+    font-size: 0.875rem;
     }
   .note-bm-card[data-icon-image]::before {
     display: none;
@@ -596,16 +611,16 @@
     flex: 1;
     }
   .note-bm-name {
-    font-size: 13px;
-    line-height: 17px;
+    font-size: 0.8125rem;
+    line-height: 1.0625rem;
     font-weight: 500;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
     }
   .note-bm-domain {
-    font-size: 11px;
-    line-height: 14px;
+    font-size: 0.6875rem;
+    line-height: 0.875rem;
     color: var(--color-muted-foreground);
     overflow: hidden;
     white-space: nowrap;

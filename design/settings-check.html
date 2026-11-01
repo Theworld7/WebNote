@@ -68,6 +68,8 @@ window.localStorage.removeItem(CODE_FONT_KEY)
 window.localStorage.removeItem(AUTO_SAVE_KEY)
 const CORNER_KEY = "webnote:corners"
 window.localStorage.removeItem(CORNER_KEY)
+const BASE_FONT_KEY = "webnote:base-font"
+window.localStorage.removeItem(BASE_FONT_KEY)
 
 // ---------- 挂真实组件：设置面板 + 一个宽表格 ----------
 
@@ -866,6 +868,80 @@ check("设置实例里的档位跟着回到 medium", settings !== null && settin
   settings === null ? "（没拿到实例）" : settings.corners.value)
 
 for (const el of Object.values(probeEls)) el.remove()
+
+// ---------- 二点八、基础字号 ----------
+//
+// 这一节要证明的不是「设置写进了 localStorage」，而是**根字号一换，界面真的一起变**。
+// 所以探针取三档最常用的字号类（text-11 / text-12 / text-sm）量 computed 值：
+// 只要有一处还写着 px，它就会在 18 档下不动，断言当场亮红。
+
+note("基础字号")
+
+function baseFontOptionByValue(value) {
+  const root = panelRoot()
+  if (root === null) return undefined
+  const group = root.querySelector('[role="radiogroup"][aria-label="基础字号"]')
+  if (group === null) return undefined
+  return [...group.querySelectorAll('[role="radio"]')].find((el) => el.textContent.trim().startsWith(String(value)))
+}
+
+const probeSpan = (cls) => {
+  const el = document.createElement("span")
+  el.className = cls
+  el.textContent = "字"
+  document.body.appendChild(el)
+  return el
+}
+const probe11 = probeSpan("text-11")
+const probe12 = probeSpan("text-12")
+const probeSm = probeSpan("text-sm")
+const fontSizeOf = (el) => getComputedStyle(el).fontSize
+const fontSizeReport = () => `11=${fontSizeOf(probe11)} 12=${fontSizeOf(probe12)} sm=${fontSizeOf(probeSm)}`
+
+const f14 = baseFontOptionByValue(14)
+const f16 = baseFontOptionByValue(16)
+const f18 = baseFontOptionByValue(18)
+const f20 = baseFontOptionByValue(20)
+check("面板里有四档基础字号（14 / 16 / 18 / 20）",
+  f14 !== undefined && f16 !== undefined && f18 !== undefined && f20 !== undefined)
+check("默认勾选在「16」上", f16 !== undefined && f16.getAttribute("aria-checked") === "true")
+check("默认档不往 html 上写内联 font-size（16 就是浏览器缺省）",
+  document.documentElement.style.fontSize === "", document.documentElement.style.fontSize)
+check("默认档：11 / 12 / 正文分别是 11 / 12 / 14px",
+  fontSizeOf(probe11) === "11px" && fontSizeOf(probe12) === "12px" && fontSizeOf(probeSm) === "14px",
+  fontSizeReport())
+
+async function clickBaseFont(option) {
+  if (option === undefined) return
+  option.click()
+  await nextTick()
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  await nextTick()
+}
+
+await clickBaseFont(f18)
+check("切到 18 后 html 内联 font-size=18px", document.documentElement.style.fontSize === "18px",
+  document.documentElement.style.fontSize)
+check("切到 18 后落盘（键 webnote:base-font）", window.localStorage.getItem(BASE_FONT_KEY) === "18",
+  String(window.localStorage.getItem(BASE_FONT_KEY)))
+check("切到 18 后三档一起放大（12.375 / 13.5 / 15.75px）",
+  fontSizeOf(probe11) === "12.375px" && fontSizeOf(probe12) === "13.5px" && fontSizeOf(probeSm) === "15.75px",
+  fontSizeReport())
+
+await clickBaseFont(f20)
+check("切到 20 后正文 17.5px、12 档 15px",
+  fontSizeOf(probeSm) === "17.5px" && fontSizeOf(probe12) === "15px", fontSizeReport())
+
+await clickBaseFont(f16)
+check("切回 16 后内联样式被撤掉（不留一个与默认同值的覆盖）",
+  document.documentElement.style.fontSize === "", document.documentElement.style.fontSize)
+check("切回 16 后三档回到原值", fontSizeOf(probe12) === "12px" && fontSizeOf(probeSm) === "14px", fontSizeReport())
+check("设置实例里的档位跟着回到 16", settings !== null && settings.baseFont.value === 16,
+  settings === null ? "（没拿到实例）" : String(settings.baseFont.value))
+
+probe11.remove()
+probe12.remove()
+probeSm.remove()
 
 // ---------- 输出 ----------
 

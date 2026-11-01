@@ -83,7 +83,7 @@ function onBlur(index: number, event: FocusEvent) {
           :data-editable="messageEditable(index)"
           contenteditable="true"
           spellcheck="false"
-          class="min-h-[1.6rem] whitespace-pre-wrap break-words rounded-2xl px-3 py-1.5 text-[13px] leading-[1.6] outline-none"
+          class="min-h-[1.6rem] whitespace-pre-wrap break-words rounded-2xl px-3 py-1.5 text-13 leading-[1.6] outline-none"
           :class="
             message.role === 'you'
               ? 'rounded-br-md bg-tint text-tint-foreground'
@@ -122,7 +122,7 @@ function onBlur(index: number, event: FocusEvent) {
       :data-editable="block.id"
       variant="ghost"
       size="sm"
-      class="h-6 w-fit gap-1 self-center px-2 text-[11px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/chat:opacity-100"
+      class="h-6 w-fit gap-1 self-center px-2 text-11 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/chat:opacity-100"
       @click="addMessage"
     >
       <PlusIcon class="size-3" />

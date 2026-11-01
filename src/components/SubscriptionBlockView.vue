@@ -242,7 +242,7 @@ function setRole(role: SubscriptionRole, event: Event): void {
 }
 
 const MENU = "w-[224px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
-const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
+const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
 
 function openTable() {
   if (props.block.path === "") return
@@ -273,28 +273,28 @@ function openTable() {
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground"
+        class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground"
         @click="openTable"
       >
         <DatabaseIcon class="size-3" />打开数据表
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground">
             <Settings2Icon class="size-3" />设置
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent :class="[MENU, 'max-h-[72vh] overflow-y-auto']" align="end">
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">字段映射</DropdownMenuLabel>
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">字段映射</DropdownMenuLabel>
           <div v-for="item in ROLE_ITEMS" :key="item.role" class="px-2 pb-1.5">
-            <div class="mb-0.5 text-[11px] text-muted-foreground">{{ item.label }}</div>
+            <div class="mb-0.5 text-11 text-muted-foreground">{{ item.label }}</div>
             <select :class="SELECT" :value="roleValue(item.role)" @change="setRole(item.role, $event)">
               <option value="">自动识别</option>
               <option v-for="column in columns" :key="column.id" :value="column.id">{{ column.name }}</option>
             </select>
           </div>
           <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <div class="px-2 py-1 text-[11px] leading-relaxed text-muted-foreground">
+          <div class="px-2 py-1 text-11 leading-relaxed text-muted-foreground">
             留「自动识别」时按列名与列类型找；表里的列改名或删除后也会自动退让。
           </div>
         </DropdownMenuContent>
@@ -304,7 +304,7 @@ function openTable() {
     <!-- 名称列都没认出来:卡片照常列参数,但先说明缺的是哪一环。 -->
     <p
       v-if="roles.name === null"
-      class="mb-2 rounded-lg border border-dashed border-line bg-muted/30 px-3 py-2.5 text-[12px] text-muted-foreground"
+      class="mb-2 rounded-lg border border-dashed border-line bg-muted/30 px-3 py-2.5 text-12 text-muted-foreground"
     >
       没有认出名称列 —— 点右上角「设置」指定一列,卡片标题才会有名字。
     </p>
@@ -335,14 +335,14 @@ function openTable() {
       </div>
     </div>
 
-    <p v-if="summary.unknownCycle > 0" class="mb-2.5 text-[11px] text-muted-foreground">
+    <p v-if="summary.unknownCycle > 0" class="mb-2.5 text-11 text-muted-foreground">
       另有 {{ summary.unknownCycle }} 项认不出周期，未计入月 / 年支出。
     </p>
 
     <!-- 空表:与账目同一句引导。 -->
     <div
       v-if="orderedRows.length === 0"
-      class="rounded-xl border border-dashed border-line px-4 py-8 text-center text-[12px] text-muted-foreground"
+      class="rounded-xl border border-dashed border-line px-4 py-8 text-center text-12 text-muted-foreground"
     >
       这张表还没有订阅 —— 点右上角「打开数据表」添加一条。
     </div>
@@ -373,7 +373,7 @@ function openTable() {
               <span class="subs-caption">订阅</span>
             </div>
           </div>
-          <span class="subs-status shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium" :class="STATUS_TONES[statusOf(row).kind]">
+          <span class="subs-status shrink-0 rounded-full px-2 py-0.5 text-11 font-medium" :class="STATUS_TONES[statusOf(row).kind]">
             {{ statusOf(row).label }}
           </span>
         </div>

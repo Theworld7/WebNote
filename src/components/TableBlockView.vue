@@ -187,13 +187,13 @@ function alignColumn(align: TableAlign) {
 const MENU = "w-[244px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const SUB_MENU = "w-[148px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
-const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-foreground"
+const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foreground"
 </script>
 
 <template>
   <!-- 空表：先挑尺寸。首行默认当表头 —— 笔记里的表多半有表头，没有再从菜单关掉。 -->
   <div v-if="!hasRows" class="my-1 rounded-lg bg-muted p-3">
-    <div class="mb-2 text-[12px] text-muted-foreground">选择表格尺寸（首行为表头）</div>
+    <div class="mb-2 text-12 text-muted-foreground">选择表格尺寸（首行为表头）</div>
     <TableSizePicker
       @pick="(columns: number, rows: number) => defineTable(block.id, columns, rows, true)"
     />
@@ -239,7 +239,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full px-2 text-[12px] text-muted-foreground hover:text-foreground"
+        class="h-6 gap-1 rounded-full px-2 text-12 text-muted-foreground hover:text-foreground"
         @click="addRow"
       >
         <PlusIcon class="size-3" />行
@@ -247,7 +247,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full px-2 text-[12px] text-muted-foreground hover:text-foreground"
+        class="h-6 gap-1 rounded-full px-2 text-12 text-muted-foreground hover:text-foreground"
         @click="addColumn"
       >
         <PlusIcon class="size-3" />列
@@ -265,7 +265,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent :class="MENU" side="top" :side-offset="8" align="center">
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
             第 {{ anchor.row + 1 }} 行 · 第 {{ anchor.column + 1 }} 列
           </DropdownMenuLabel>
 

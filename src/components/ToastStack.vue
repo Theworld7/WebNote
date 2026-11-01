@@ -30,7 +30,7 @@ const { toasts } = useToast()
       <div
         v-for="toast in toasts"
         :key="toast.id"
-        class="flex max-w-[70vw] items-center gap-1.5 rounded-full border border-line bg-popover px-3 py-1.5 text-[12px] text-foreground shadow-island"
+        class="flex max-w-[70vw] items-center gap-1.5 rounded-full border border-line bg-popover px-3 py-1.5 text-12 text-foreground shadow-island"
       >
         <TriangleAlertIcon v-if="toast.kind === 'error'" class="size-3.5 shrink-0 text-destructive" />
         <CheckIcon v-else class="size-3.5 shrink-0 text-status-ok-foreground" />

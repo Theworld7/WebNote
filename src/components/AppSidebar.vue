@@ -91,7 +91,7 @@ function setQuery(value: string | number) {
           <TooltipTrigger as-child>
             <button
               type="button"
-              class="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 text-[12px] transition-colors hover:bg-muted"
+              class="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 text-12 transition-colors hover:bg-muted"
               :class="hasRoot ? 'text-muted-foreground' : 'font-medium text-foreground'"
               @click="openRoot"
             >
@@ -118,17 +118,17 @@ function setQuery(value: string | number) {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem class="gap-2 text-[13px]" @select="requestCreate('note')">
+            <DropdownMenuItem class="gap-2 text-13" @select="requestCreate('note')">
               <span>新建笔记</span>
             </DropdownMenuItem>
-            <DropdownMenuItem class="gap-2 text-[13px]" @select="requestCreate('table')">
+            <DropdownMenuItem class="gap-2 text-13" @select="requestCreate('table')">
               <span>新建数据表</span>
             </DropdownMenuItem>
-            <DropdownMenuItem class="gap-2 text-[13px]" @select="requestCreate('folder')">
+            <DropdownMenuItem class="gap-2 text-13" @select="requestCreate('folder')">
               <span>新建文件夹</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem class="gap-2 text-[13px]" @select="requestImport">
+            <DropdownMenuItem class="gap-2 text-13" @select="requestImport">
               <span>从 Markdown 导入…</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -160,7 +160,7 @@ function setQuery(value: string | number) {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem class="gap-2 text-[13px]" @select="requestExport">
+            <DropdownMenuItem class="gap-2 text-13" @select="requestExport">
               <FileDownIcon class="size-3.5 text-muted-foreground" />
               <span>导出整个工作区为 Markdown…</span>
             </DropdownMenuItem>
@@ -177,7 +177,7 @@ function setQuery(value: string | number) {
         <Input
           :model-value="query"
           placeholder="搜索笔记…"
-          class="h-full rounded-none border-0 bg-transparent px-0 text-[13px] shadow-none focus-visible:border-transparent focus-visible:ring-0 md:text-[13px]"
+          class="h-full rounded-none border-0 bg-transparent px-0 text-13 shadow-none focus-visible:border-transparent focus-visible:ring-0 md:text-13"
           @update:model-value="setQuery"
         />
       </div>

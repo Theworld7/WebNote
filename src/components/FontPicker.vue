@@ -74,7 +74,7 @@ function preview(name: string): Record<string, string> {
         :aria-label="`字体：${modelValue === '' ? '系统默认' : modelValue}`"
       >
         <span
-          class="min-w-0 flex-1 truncate text-[13px] text-foreground"
+          class="min-w-0 flex-1 truncate text-13 text-foreground"
           :style="modelValue === '' ? undefined : preview(modelValue)"
         >
           {{ modelValue === "" ? "系统默认" : modelValue }}
@@ -96,7 +96,7 @@ function preview(name: string): Record<string, string> {
           type="text"
           spellcheck="false"
           placeholder="搜索字体"
-          class="h-7 w-full rounded-[6px] bg-muted px-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground"
+          class="h-7 w-full rounded-[6px] bg-muted px-2 text-12 text-foreground outline-none placeholder:text-muted-foreground"
           @keydown.enter.prevent="pickFirst"
         >
       </div>
@@ -104,7 +104,7 @@ function preview(name: string): Record<string, string> {
       <div class="max-h-[260px] overflow-y-auto p-1">
         <button
           type="button"
-          class="flex w-full items-center gap-2 rounded-[7px] px-2 py-1.5 text-left text-[13px] transition-colors"
+          class="flex w-full items-center gap-2 rounded-[7px] px-2 py-1.5 text-left text-13 transition-colors"
           :class="modelValue === '' ? 'bg-selection text-selection-foreground' : 'hover:bg-muted'"
           @click="pick('')"
         >
@@ -116,7 +116,7 @@ function preview(name: string): Record<string, string> {
           v-for="name in matches"
           :key="name"
           type="button"
-          class="flex w-full items-center gap-2 rounded-[7px] px-2 py-1.5 text-left text-[13px] transition-colors"
+          class="flex w-full items-center gap-2 rounded-[7px] px-2 py-1.5 text-left text-13 transition-colors"
           :class="modelValue === name ? 'bg-selection text-selection-foreground' : 'hover:bg-muted'"
           @click="pick(name)"
         >
@@ -124,7 +124,7 @@ function preview(name: string): Record<string, string> {
           <CheckIcon v-if="modelValue === name" class="size-3.5 flex-none" />
         </button>
 
-        <p v-if="matches.length === 0" class="px-2 py-3 text-center text-[12px] text-muted-foreground">
+        <p v-if="matches.length === 0" class="px-2 py-3 text-center text-12 text-muted-foreground">
           没有匹配的字体
         </p>
       </div>

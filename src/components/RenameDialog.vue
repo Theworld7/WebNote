@@ -61,8 +61,8 @@ async function confirm() {
   <AlertDialog :open="target !== null" @update:open="emit('close')">
     <AlertDialogContent class="max-w-sm" @open-auto-focus.prevent>
       <AlertDialogHeader>
-        <AlertDialogTitle class="text-[14px]">重命名</AlertDialogTitle>
-        <AlertDialogDescription class="text-[12px]">
+        <AlertDialogTitle class="text-14">重命名</AlertDialogTitle>
+        <AlertDialogDescription class="text-12">
           {{ target === null ? "" : `原名：${fileName(target.path)}` }}
         </AlertDialogDescription>
       </AlertDialogHeader>
@@ -71,15 +71,15 @@ async function confirm() {
         ref="input"
         v-model="name"
         :placeholder="placeholder"
-        class="h-8 text-[13px]"
+        class="h-8 text-13"
         @keydown.enter.prevent="confirm"
       />
 
       <AlertDialogFooter>
         <AlertDialogCancel as-child>
-          <Button variant="ghost" size="sm" class="text-[13px]">取消</Button>
+          <Button variant="ghost" size="sm" class="text-13">取消</Button>
         </AlertDialogCancel>
-        <Button size="sm" class="text-[13px]" @click="confirm">重命名</Button>
+        <Button size="sm" class="text-13" @click="confirm">重命名</Button>
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>

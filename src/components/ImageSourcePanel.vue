@@ -72,7 +72,7 @@ async function onFileChange(event: Event) {
       <Input
         v-model="draft"
         placeholder="粘贴图片链接"
-        class="h-7 text-[12px]"
+        class="h-7 text-12"
         @keydown.enter.prevent="applyUrl"
       />
       <Button size="sm" class="h-7 shrink-0 px-2.5" :disabled="draft.trim() === ''" @click="applyUrl">
@@ -83,7 +83,7 @@ async function onFileChange(event: Event) {
     <Button
       variant="secondary"
       size="sm"
-      class="h-7 justify-start gap-1.5 px-2.5 text-[12px]"
+      class="h-7 justify-start gap-1.5 px-2.5 text-12"
       :disabled="busy"
       @click="fileRef?.click()"
     >
@@ -91,7 +91,7 @@ async function onFileChange(event: Event) {
       {{ busy ? "读取中…" : "选择本地图片" }}
     </Button>
 
-    <p class="text-[11px] leading-[1.5] text-muted-foreground">
+    <p class="text-11 leading-[1.5] text-muted-foreground">
       也可以把图片直接拖进来，或粘贴进来
     </p>
 

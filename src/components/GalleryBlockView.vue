@@ -394,19 +394,19 @@ function openTable() {
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground"
+        class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground"
         @click="openTable"
       >
         <DatabaseIcon class="size-3" />打开数据表
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground">
             <Settings2Icon class="size-3" />设置
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent :class="MENU" align="end">
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
             布局
           </DropdownMenuLabel>
           <DropdownMenuCheckboxItem
@@ -427,7 +427,7 @@ function openTable() {
               type="number"
               min="1"
               max="12"
-              class="ml-auto w-10 rounded border border-line bg-transparent px-1 text-right text-[11px] outline-none"
+              class="ml-auto w-10 rounded border border-line bg-transparent px-1 text-right text-11 outline-none"
               :value="props.block.columns === 'auto' ? 6 : props.block.columns"
               @click.stop
               @keydown.enter.prevent="commitOnEnter"
@@ -435,7 +435,7 @@ function openTable() {
             >
           </DropdownMenuCheckboxItem>
           <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
             图片填充
           </DropdownMenuLabel>
           <DropdownMenuCheckboxItem
@@ -448,26 +448,26 @@ function openTable() {
             <span>{{ item.label }}</span>
           </DropdownMenuCheckboxItem>
           <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
             图片比例
           </DropdownMenuLabel>
           <div class="px-2 pb-1.5">
             <select
               v-model="ratioSelection"
-              class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
+              class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
             >
               <option v-for="item in RATIO_ITEMS" :key="item.value" :value="item.value">
                 {{ item.label }}
               </option>
             </select>
           </div>
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
             图片宽度
           </DropdownMenuLabel>
           <div class="px-2 pb-1.5">
             <select
               v-model="widthSelection"
-              class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
+              class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
             >
               <option v-for="item in WIDTH_ITEMS" :key="item.value" :value="item.value">
                 {{ item.label }}
@@ -476,13 +476,13 @@ function openTable() {
           </div>
           <template v-if="columns.some((column) => column.type !== 'image')">
             <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
               聚合展示
             </DropdownMenuLabel>
             <div class="px-2 pb-1.5">
               <select
                 v-model="groupSelection"
-                class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
+                class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
               >
                 <option value="">关闭(平铺展示)</option>
                 <option v-for="column in columns.filter((c) => c.type !== 'image')" :key="column.id" :value="column.id">
@@ -493,13 +493,13 @@ function openTable() {
           </template>
           <template v-if="columns.some((column) => column.type !== 'image')">
             <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
               分组展示
             </DropdownMenuLabel>
             <div class="px-2 pb-1.5">
               <select
                 v-model="groupBySelection"
-                class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
+                class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
               >
                 <option value="">关闭</option>
                 <option v-for="column in columns.filter((c) => c.type !== 'image')" :key="column.id" :value="column.id">
@@ -510,7 +510,7 @@ function openTable() {
                    mt 与 select 拉开间距,px-1.5 对齐 select 的边框内文字。 -->
               <div v-if="props.block.groupBy !== ''" class="mt-1.5 space-y-0.5 px-1.5">
                 <div v-for="sec in sections" v-show="sec.value !== ''" :key="sec.key" class="flex items-center gap-1">
-                  <span class="min-w-0 flex-1 truncate text-[12px]" :class="sec.title === null && 'text-muted-foreground'">{{ sec.title }}</span>
+                  <span class="min-w-0 flex-1 truncate text-12" :class="sec.title === null && 'text-muted-foreground'">{{ sec.title }}</span>
                   <button
                     type="button"
                     aria-label="上移该组"
@@ -533,7 +533,7 @@ function openTable() {
           </template>
           <template v-if="columns.some((column) => column.type !== 'image')">
             <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
               字段
             </DropdownMenuLabel>
             <DropdownMenuCheckboxItem
@@ -553,12 +553,12 @@ function openTable() {
     </div>
 
     <!-- 宫格。空表给一句说明,而不是留一片空白。 -->
-    <p v-if="rows.length === 0" class="py-6 text-center text-[12px] text-muted-foreground">
+    <p v-if="rows.length === 0" class="py-6 text-center text-12 text-muted-foreground">
       这张表还没有行 —— 到数据表里添加后,画册会自动出现。
     </p>
     <div v-else class="flex flex-col gap-3">
       <section v-for="sec in sections" :key="sec.key">
-        <p v-if="sec.title !== null" class="pb-1 text-[12px] font-medium text-muted-foreground">{{ sec.title }}</p>
+        <p v-if="sec.title !== null" class="pb-1 text-12 font-medium text-muted-foreground">{{ sec.title }}</p>
         <div class="grid gap-3" :style="gridStyle">
       <template v-for="unit in sec.units" :key="unit.key">
         <!-- 聚合态:一张代表卡 + 底部两叠收窄的骨架,hover 浮出展开按钮。
@@ -583,15 +583,15 @@ function openTable() {
 
             <div class="px-2.5 py-1">
               <div v-for="column in visibleColumns" :key="column.id" class="flex min-h-6 items-center gap-2 py-0.5">
-                <span class="shrink-0 whitespace-nowrap text-[11px] text-muted-foreground/70">{{ column.name }}</span>
-                <span class="w-full min-w-0 truncate px-0.5 text-[12px]">{{ cellOf(unit.lead, column) || "空" }}</span>
+                <span class="shrink-0 whitespace-nowrap text-11 text-muted-foreground/70">{{ column.name }}</span>
+                <span class="w-full min-w-0 truncate px-0.5 text-12">{{ cellOf(unit.lead, column) || "空" }}</span>
               </div>
             </div>
           </div>
 
           <button
             type="button"
-            class="absolute -bottom-3 left-1/2 z-20 flex h-6 -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-popover px-2 text-[12px] text-muted-foreground opacity-0 shadow-island transition-opacity pointer-events-none hover:text-foreground group-hover/gstack:pointer-events-auto group-hover/gstack:opacity-100"
+            class="absolute -bottom-3 left-1/2 z-20 flex h-6 -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-popover px-2 text-12 text-muted-foreground opacity-0 shadow-island transition-opacity pointer-events-none hover:text-foreground group-hover/gstack:pointer-events-auto group-hover/gstack:opacity-100"
             @click="toggleGroup(unit.key)"
           >
             <UnfoldVerticalIcon class="size-3" />展开
@@ -618,7 +618,7 @@ function openTable() {
 
               <div class="px-2.5 py-1">
                 <div v-for="column in visibleColumns" :key="column.id" class="flex min-h-6 items-center gap-2 py-0.5">
-                  <span class="shrink-0 whitespace-nowrap text-[11px] text-muted-foreground/70">{{ column.name }}</span>
+                  <span class="shrink-0 whitespace-nowrap text-11 text-muted-foreground/70">{{ column.name }}</span>
 
                   <input
                     v-if="column.type === 'checkbox'"
@@ -631,7 +631,7 @@ function openTable() {
                   <input
                     v-else-if="editing === cellKey(row, column)"
                     :ref="focusOnMount"
-                    class="w-full min-w-0 rounded bg-transparent px-0.5 text-[12px] outline-none"
+                    class="w-full min-w-0 rounded bg-transparent px-0.5 text-12 outline-none"
                     :value="cellOf(row, column)"
                     :placeholder="column.type === 'date' ? 'YYYY-MM-DD' : ''"
                     @keydown.enter.prevent="commitOnEnter"
@@ -641,7 +641,7 @@ function openTable() {
                   <button
                     v-else
                     type="button"
-                    class="w-full min-w-0 rounded px-0.5 text-left text-[12px] hover:bg-muted"
+                    class="w-full min-w-0 rounded px-0.5 text-left text-12 hover:bg-muted"
                     @click="editing = cellKey(row, column)"
                   >
                     <span class="break-words" :class="cellOf(row, column) === '' && 'text-muted-foreground/40'">{{ cellOf(row, column) || "空" }}</span>
@@ -653,7 +653,7 @@ function openTable() {
             <button
               v-if="unit.rows.length > 1"
               type="button"
-              class="absolute -bottom-3 left-1/2 z-20 flex h-6 -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-popover px-2 text-[12px] text-muted-foreground opacity-0 shadow-island transition-opacity pointer-events-none hover:text-foreground group-hover/gcard:pointer-events-auto group-hover/gcard:opacity-100"
+              class="absolute -bottom-3 left-1/2 z-20 flex h-6 -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-popover px-2 text-12 text-muted-foreground opacity-0 shadow-island transition-opacity pointer-events-none hover:text-foreground group-hover/gcard:pointer-events-auto group-hover/gcard:opacity-100"
               @click="toggleGroup(unit.key)"
             >
               <FoldVerticalIcon class="size-3" />聚合

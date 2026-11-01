@@ -110,25 +110,25 @@ const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
         v-if="props.block.path !== ''"
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground"
+        class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground"
         @click="openTable"
       >
         <DatabaseIcon class="size-3" />打开数据表
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground">
             <Settings2Icon class="size-3" />设置
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent :class="MENU" align="end">
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
             数据表
           </DropdownMenuLabel>
           <div class="px-2 pb-1.5">
             <select
               :value="props.block.path"
-              class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
+              class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
               @change="rebindTable(props.block.id, ($event.target as HTMLSelectElement).value)"
             >
               <option value="">未选择</option>
@@ -138,13 +138,13 @@ const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
             </select>
           </div>
           <template v-if="props.block.path !== ''">
-            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
               统计字段(对该列数值求和)
             </DropdownMenuLabel>
             <div class="px-2 pb-1.5">
               <select
                 v-model="columnSelection"
-                class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
+                class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
               >
                 <option value="">未选择</option>
                 <option v-for="column in columns" :key="column.id" :value="column.id">
@@ -152,13 +152,13 @@ const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
                 </option>
               </select>
             </div>
-            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
               筛选字段(留空 = 全表求和)
             </DropdownMenuLabel>
             <div class="px-2 pb-1.5">
               <select
                 :value="props.block.filterColumnId ?? ''"
-                class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
+                class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
                 @change="pickFilterColumn(($event.target as HTMLSelectElement).value)"
               >
                 <option value="">不限</option>
@@ -168,25 +168,25 @@ const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
               </select>
             </div>
             <template v-if="filterColumn !== null">
-              <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+              <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
                 筛选值(只合计该字段等于此值的行)
               </DropdownMenuLabel>
               <div class="px-2 pb-1.5">
                 <input
                   :value="props.block.filterValue ?? ''"
                   :placeholder="`如:${filterColumn.name} 的某个值`"
-                  class="w-full rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
+                  class="w-full rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
                   @change="commitFilterValue"
                 />
               </div>
             </template>
-            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
               小数位数
             </DropdownMenuLabel>
             <div class="px-2 pb-1.5">
               <select
                 :value="precision"
-                class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
+                class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
                 @change="updateBlockSettings(props.block.id, { precision: Number(($event.target as HTMLSelectElement).value) })"
               >
                 <option v-for="option in dt.STAT_PRECISION_OPTIONS" :key="option" :value="option">
@@ -208,7 +208,7 @@ const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
       class="my-4 flex items-center gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
     >
       <DatabaseIcon class="size-3.5 shrink-0 text-muted-foreground" />
-      <span class="text-[12px] text-muted-foreground">
+      <span class="text-12 text-muted-foreground">
         统计卡尚未指向数据表 —— 点右上角「设置」先挑一张表,再选求和字段。
       </span>
     </div>
@@ -228,7 +228,7 @@ const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
     <!-- 未选统计列(或列已被删):引导去设。 -->
     <div
       v-else-if="statColumn === null"
-      class="rounded-lg border border-dashed border-line bg-muted/30 px-3 py-2.5 text-[12px] text-muted-foreground"
+      class="rounded-lg border border-dashed border-line bg-muted/30 px-3 py-2.5 text-12 text-muted-foreground"
     >
       统计卡尚未选择字段 —— 点右上角「设置」挑一列,卡片会对它下面的数值求和。
     </div>
@@ -237,11 +237,11 @@ const MENU = "w-[196px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
       v-else
       class="flex w-full flex-col gap-0.5 rounded-lg border border-line bg-muted/30 px-4 py-3"
     >
-      <span class="truncate text-[11px] text-muted-foreground">
+      <span class="truncate text-11 text-muted-foreground">
         {{ statColumn.name }}<template v-if="filterColumn !== null"> · {{ filterColumn.name }} = {{ props.block.filterValue }}</template>
       </span>
-      <span class="text-[26px] font-semibold leading-tight tabular-nums">{{ sumText }}</span>
-      <span class="text-[11px] text-muted-foreground/70">
+      <span class="text-26 font-semibold leading-tight tabular-nums">{{ sumText }}</span>
+      <span class="text-11 text-muted-foreground/70">
         {{ filteredRows.length }} 行<template v-if="filterColumn !== null"> / 共 {{ rows.length }} 行</template> · 求和
       </span>
     </div>

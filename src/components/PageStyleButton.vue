@@ -31,7 +31,7 @@ function commit(css: string) {
     <TooltipTrigger as-child>
       <button
         type="button"
-        class="flex h-6 flex-none items-center gap-1.5 rounded-[4px] px-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        class="flex h-6 flex-none items-center gap-1.5 rounded-[4px] px-1.5 text-11 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         @mousedown.prevent
         @click="open = true"
       >

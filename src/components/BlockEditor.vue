@@ -292,7 +292,7 @@ const fileDropIndex = ref<number | null>(null)
  * 交给调度器，所以这里自己 createElement、自己写 `style.transform`。
  */
 const GHOST_CLASS =
-  "pointer-events-none fixed top-0 left-0 z-50 max-w-[260px] truncate rounded-[7px] border border-line bg-popover px-2 py-1 text-[12px] leading-[1.4] text-foreground opacity-90 shadow-island"
+  "pointer-events-none fixed top-0 left-0 z-50 max-w-[260px] truncate rounded-[7px] border border-line bg-popover px-2 py-1 text-12 leading-[1.4] text-foreground opacity-90 shadow-island"
 
 let ghostEl: HTMLElement | null = null
 
@@ -1344,11 +1344,11 @@ function edgeOf(index: number, to: number): BlockDropEdge {
           :style="{ top: `${barTop}px` }"
         >
           <div class="pointer-events-auto flex items-center gap-0.5 rounded-island border border-line bg-popover p-1 shadow-pop">
-            <span class="px-1.5 text-[12px] text-muted-foreground">已选 {{ selectedIds.length }} 块</span>
+            <span class="px-1.5 text-12 text-muted-foreground">已选 {{ selectedIds.length }} 块</span>
             <span class="mx-0.5 h-4 w-px bg-line" />
             <DropdownMenu>
               <DropdownMenuTrigger as-child>
-                <Button variant="ghost" class="h-6 gap-1 rounded-[5px] px-2 text-[12px]">
+                <Button variant="ghost" class="h-6 gap-1 rounded-[5px] px-2 text-12">
                   <RefreshCwIcon class="size-3" />
                   转为…
                 </Button>
@@ -1357,7 +1357,7 @@ function edgeOf(index: number, to: number): BlockDropEdge {
                 <BlockTypeMenuItems :only="BATCH_RETYPE_TYPES" @pick="retypeSelected" />
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button variant="ghost" class="h-6 gap-1 rounded-[5px] px-2 text-[12px] text-destructive hover:text-destructive" @click="deleteSelected">
+            <Button variant="ghost" class="h-6 gap-1 rounded-[5px] px-2 text-12 text-destructive hover:text-destructive" @click="deleteSelected">
               <Trash2Icon class="size-3" />
               删除
             </Button>

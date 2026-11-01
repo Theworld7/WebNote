@@ -356,10 +356,10 @@ watch(
 /** 菜单外框与下拉框,与画册设置菜单同一套参数。 */
 const MENU = "w-48 rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 /** 下拉框观感照搬画册设置里的 select,两处菜单放一起看不出差别。 */
-const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
+const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
 /** 编辑模态框的输入框(与 SELECT 同一套观感)与底部按钮(与关标签确认框同一体量)。 */
-const FIELD = "w-full rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
-const DIALOG_BTN = "h-7 px-3 text-[13px]"
+const FIELD = "w-full rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
+const DIALOG_BTN = "h-7 px-3 text-13"
 
 const COLUMN_COUNTS = [1, 2, 3, 4, 5, 6] as const
 
@@ -427,7 +427,7 @@ const columnsSelection = computed({
         v-if="nameColumn !== null && urlColumn !== null"
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground shadow-sm hover:text-foreground"
+        class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground shadow-sm hover:text-foreground"
         @click="addBookmark"
       >
         <PlusIcon class="size-3" />添加书签
@@ -435,19 +435,19 @@ const columnsSelection = computed({
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground shadow-sm hover:text-foreground"
+        class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground shadow-sm hover:text-foreground"
         @click="openFile(props.block.path)"
       >
         <DatabaseIcon class="size-3" />打开数据表
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground shadow-sm hover:text-foreground">
+          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground shadow-sm hover:text-foreground">
             <Settings2Icon class="size-3" />设置
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent :class="MENU" align="end">
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
             名称列
           </DropdownMenuLabel>
           <div class="px-2 pb-1.5">
@@ -460,7 +460,7 @@ const columnsSelection = computed({
           </div>
 
           <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
             链接列
           </DropdownMenuLabel>
           <div class="px-2 pb-1.5">
@@ -473,7 +473,7 @@ const columnsSelection = computed({
           </div>
 
           <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
             图标列
           </DropdownMenuLabel>
           <div class="px-2 pb-1.5">
@@ -486,7 +486,7 @@ const columnsSelection = computed({
           </div>
 
           <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
             分组
           </DropdownMenuLabel>
           <div class="px-2 pb-1.5">
@@ -499,7 +499,7 @@ const columnsSelection = computed({
           </div>
 
           <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
             布局
           </DropdownMenuLabel>
           <div class="px-2 pb-1.5">
@@ -515,21 +515,21 @@ const columnsSelection = computed({
     <!-- 字段未挑全:引导去设置,而不是渲染一排空卡。 -->
     <p
       v-if="nameColumn === null || urlColumn === null"
-      class="py-6 text-center text-[12px] text-muted-foreground"
+      class="py-6 text-center text-12 text-muted-foreground"
     >
       在「设置」里挑选名称列和链接列后,每一行会变成一枚书签卡片。
     </p>
 
     <!-- 宫格。空表给一句说明,表尾的「添加书签」即入口。 -->
     <div v-else class="flex flex-col gap-3">
-      <p v-if="rows.length === 0" class="py-2 text-center text-[12px] text-muted-foreground">
+      <p v-if="rows.length === 0" class="py-2 text-center text-12 text-muted-foreground">
         这张表还没有书签 —— 点上方「添加书签」开始。
       </p>
 
       <!-- 分节宫格:不开分组时只有一节且不画标题,观感与平铺无差别。 -->
       <template v-if="rows.length > 0">
         <section v-for="sec in sections" :key="sec.key">
-          <p v-if="sec.title !== null" class="pb-1 text-[12px] font-medium text-muted-foreground">{{ sec.title }}</p>
+          <p v-if="sec.title !== null" class="pb-1 text-12 font-medium text-muted-foreground">{{ sec.title }}</p>
           <ul class="m-0 grid list-none gap-2.5 p-0" :style="gridStyle">
             <li v-for="row in sec.rows" :key="row.id" class="group/card relative min-w-0">
               <!-- 悬停操作:编辑 / 删除。锚在卡片右下角、向下半露 —— 不占卡片右侧宽度,
@@ -599,13 +599,13 @@ const columnsSelection = computed({
         </AlertDialogHeader>
         <div class="flex max-h-[55vh] flex-col gap-2.5 overflow-y-auto pt-0.5 pr-0.5">
           <div v-for="column in columns" :key="column.id">
-            <span class="block pb-1 text-[11px] text-muted-foreground">{{ column.name }}</span>
+            <span class="block pb-1 text-11 text-muted-foreground">{{ column.name }}</span>
 
             <!-- 图片列:选图 / 预览 / 清除都只改草稿,点「保存」才落盘。 -->
             <div v-if="column.type === 'image'" class="flex items-center">
               <label
                 v-if="draftTextOf(column) === ''"
-                class="flex cursor-pointer items-center gap-1 rounded border border-line px-2 py-1 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                class="flex cursor-pointer items-center gap-1 rounded border border-line px-2 py-1 text-12 text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 <ImagePlusIcon class="size-3.5" />选择图片
                 <input type="file" accept="image/*" class="hidden" @change="(event: Event) => pickDraftImage(column, event)">
@@ -668,7 +668,7 @@ const columnsSelection = computed({
       <AlertDialogContent class="w-[300px] rounded-block p-5 shadow-pop ring-1 ring-line/70">
         <AlertDialogHeader>
           <AlertDialogTitle>删除书签</AlertDialogTitle>
-          <AlertDialogDescription class="text-[12px]">
+          <AlertDialogDescription class="text-12">
             「{{ deletingName === "" ? "未命名书签" : deletingName }}」将从数据表中删除，此操作不可恢复。
             表被多篇笔记共用时，别处也会跟着少一行。
           </AlertDialogDescription>

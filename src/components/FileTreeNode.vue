@@ -73,7 +73,7 @@ const isDropTarget = computed(() => isFolder.value && dropTargetPath.value === f
 const rowStyle = computed(() => ({ paddingLeft: `${6 + props.depth * 16}px` }))
 
 const ROW =
-  "mb-0.5 flex h-7 cursor-default items-center gap-1.5 rounded-md pr-1.5 text-[13px] select-none hover:bg-muted group/row"
+  "mb-0.5 flex h-7 cursor-default items-center gap-1.5 rounded-md pr-1.5 text-13 select-none hover:bg-muted group/row"
 
 /** 行尾菜单按钮：hover 才现身，与 `+` 按钮共用一套观感。 */
 const MENU_BUTTON =
@@ -195,20 +195,20 @@ function startDrag(event: DragEvent) {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('create', fullPath, 'note')">
+            <DropdownMenuItem class="gap-2 text-13" @select="emit('create', fullPath, 'note')">
               <FilePlusIcon class="size-3.5 text-muted-foreground" />
               <span>新建笔记</span>
             </DropdownMenuItem>
-            <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('create', fullPath, 'table')">
+            <DropdownMenuItem class="gap-2 text-13" @select="emit('create', fullPath, 'table')">
               <DatabaseIcon class="size-3.5 text-muted-foreground" />
               <span>新建数据表</span>
             </DropdownMenuItem>
-            <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('create', fullPath, 'folder')">
+            <DropdownMenuItem class="gap-2 text-13" @select="emit('create', fullPath, 'folder')">
               <FolderPlusIcon class="size-3.5 text-muted-foreground" />
               <span>新建文件夹</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem class="gap-2 text-[13px]" @select="importMarkdown">
+            <DropdownMenuItem class="gap-2 text-13" @select="importMarkdown">
               <FileUpIcon class="size-3.5 text-muted-foreground" />
               <span>从 Markdown 导入…</span>
             </DropdownMenuItem>
@@ -229,26 +229,26 @@ function startDrag(event: DragEvent) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <template v-if="isDesktop">
-              <DropdownMenuItem class="gap-2 text-[13px]" @select="copyPath">
+              <DropdownMenuItem class="gap-2 text-13" @select="copyPath">
                 <CopyIcon class="size-3.5 text-muted-foreground" />
                 <span>复制路径</span>
               </DropdownMenuItem>
-              <DropdownMenuItem class="gap-2 text-[13px]" @select="revealInFileManager">
+              <DropdownMenuItem class="gap-2 text-13" @select="revealInFileManager">
                 <FolderOpenIcon class="size-3.5 text-muted-foreground" />
                 <span>打开所在位置</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
             </template>
-            <DropdownMenuItem class="gap-2 text-[13px]" @select="exportFolderAsMarkdown">
+            <DropdownMenuItem class="gap-2 text-13" @select="exportFolderAsMarkdown">
               <FileDownIcon class="size-3.5 text-muted-foreground" />
               <span>导出为 Markdown…</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('rename', fullPath, 'folder')">
+            <DropdownMenuItem class="gap-2 text-13" @select="emit('rename', fullPath, 'folder')">
               <PencilIcon class="size-3.5 text-muted-foreground" />
               <span>重命名</span>
             </DropdownMenuItem>
-            <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('remove', fullPath, 'folder')">
+            <DropdownMenuItem class="gap-2 text-13" @select="emit('remove', fullPath, 'folder')">
               <TrashIcon class="size-3.5 text-muted-foreground" />
               <span>删除</span>
             </DropdownMenuItem>
@@ -316,29 +316,29 @@ function startDrag(event: DragEvent) {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <template v-if="isDesktop">
-            <DropdownMenuItem class="gap-2 text-[13px]" @select="copyPath">
+            <DropdownMenuItem class="gap-2 text-13" @select="copyPath">
               <CopyIcon class="size-3.5 text-muted-foreground" />
               <span>复制路径</span>
             </DropdownMenuItem>
-            <DropdownMenuItem class="gap-2 text-[13px]" @select="revealInFileManager">
+            <DropdownMenuItem class="gap-2 text-13" @select="revealInFileManager">
               <FolderOpenIcon class="size-3.5 text-muted-foreground" />
               <span>打开所在位置</span>
             </DropdownMenuItem>
-            <DropdownMenuItem v-if="isHtmlFile" class="gap-2 text-[13px]" @select="openInBrowser">
+            <DropdownMenuItem v-if="isHtmlFile" class="gap-2 text-13" @select="openInBrowser">
               <GlobeIcon class="size-3.5 text-muted-foreground" />
               <span>用浏览器打开</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
           </template>
-          <DropdownMenuItem v-if="isHtmlFile" class="gap-2 text-[13px]" @select="exportAsMarkdown">
+          <DropdownMenuItem v-if="isHtmlFile" class="gap-2 text-13" @select="exportAsMarkdown">
             <FileDownIcon class="size-3.5 text-muted-foreground" />
             <span>导出为 Markdown</span>
           </DropdownMenuItem>
-          <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('rename', fullPath, node.kind)">
+          <DropdownMenuItem class="gap-2 text-13" @select="emit('rename', fullPath, node.kind)">
             <PencilIcon class="size-3.5 text-muted-foreground" />
             <span>重命名</span>
           </DropdownMenuItem>
-          <DropdownMenuItem class="gap-2 text-[13px]" @select="emit('remove', fullPath, node.kind)">
+          <DropdownMenuItem class="gap-2 text-13" @select="emit('remove', fullPath, node.kind)">
             <TrashIcon class="size-3.5 text-muted-foreground" />
             <span>删除</span>
           </DropdownMenuItem>

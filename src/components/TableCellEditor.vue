@@ -145,6 +145,7 @@ const tag = computed(() => (props.cell.header ? "th" : "td"))
     <InlineToolbar
       v-if="toolbar !== null"
       :marks="toolbar.marks"
+      :color="toolbar.color"
       no-link
       :anchor="{ top: toolbar.top, left: toolbar.left }"
       @toggle="applyMark"

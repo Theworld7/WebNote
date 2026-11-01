@@ -624,7 +624,7 @@ const sortableColumns = computed(() => columns.value.filter((column) => column.t
 
 const MENU = "w-[210px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
-const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none"
+const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
 
 function openTable() {
   if (props.block.path === "") return
@@ -656,7 +656,7 @@ function openTable() {
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground"
+        class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground"
         @click="addEntry"
       >
         <PlusIcon class="size-3" />记一笔
@@ -664,26 +664,26 @@ function openTable() {
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground"
+        class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground"
         @click="openTable"
       >
         <DatabaseIcon class="size-3" />打开数据表
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-[12px] text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground">
             <Settings2Icon class="size-3" />设置
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent :class="MENU" align="end">
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">收入列</DropdownMenuLabel>
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">收入列</DropdownMenuLabel>
           <div class="px-2 pb-1.5">
             <select :class="SELECT" :value="props.block.incomeColumnId" @change="setIncomeColumn">
               <option value="">未设置</option>
               <option v-for="column in columns" :key="column.id" :value="column.id">{{ column.name }}</option>
             </select>
           </div>
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">支出列</DropdownMenuLabel>
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">支出列</DropdownMenuLabel>
           <div class="px-2 pb-1.5">
             <select :class="SELECT" :value="props.block.expenseColumnId" @change="setExpenseColumn">
               <option value="">未设置</option>
@@ -691,7 +691,7 @@ function openTable() {
             </select>
           </div>
           <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">分组</DropdownMenuLabel>
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">分组</DropdownMenuLabel>
           <div class="px-2 pb-1.5">
             <select v-model="groupSelection" :class="SELECT">
               <option value="">不分组</option>
@@ -700,14 +700,14 @@ function openTable() {
             </select>
           </div>
           <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">排序</DropdownMenuLabel>
+          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">排序</DropdownMenuLabel>
           <div class="flex gap-1 px-2 pb-1.5">
-            <select class="min-w-0 flex-1 cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none" :value="props.block.sortColumnId" @change="setSortColumn">
+            <select class="min-w-0 flex-1 cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none" :value="props.block.sortColumnId" @change="setSortColumn">
               <option value="">不排序</option>
               <option v-for="column in sortableColumns" :key="column.id" :value="column.id">{{ column.name }}</option>
             </select>
             <select
-              class="w-[62px] cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-[12px] outline-none disabled:opacity-40"
+              class="w-[62px] cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none disabled:opacity-40"
               :value="props.block.sortDirection"
               :disabled="props.block.sortColumnId === ''"
               @change="setSortDirection"
@@ -733,7 +733,7 @@ function openTable() {
     <!-- 未设收入 / 支出列:引导去设,表格照常渲染(不做金额格式化与合计)。 -->
     <p
       v-if="!hasMoney"
-      class="mb-2 rounded-lg border border-dashed border-line bg-muted/30 px-3 py-2.5 text-[12px] text-muted-foreground"
+      class="mb-2 rounded-lg border border-dashed border-line bg-muted/30 px-3 py-2.5 text-12 text-muted-foreground"
     >
       账目尚未设置收入 / 支出列 —— 点右上角「设置」各挑一列(只设收入就是礼账的记法),
       金额求和、余额与合计才会出现。
@@ -746,7 +746,7 @@ function openTable() {
       从圆角底边推开。
     -->
     <div class="table-scrollbar overflow-x-auto rounded-lg border border-line pb-2">
-      <table class="w-max min-w-full whitespace-nowrap border-collapse text-[12px]">
+      <table class="w-max min-w-full whitespace-nowrap border-collapse text-12">
         <thead>
           <tr class="border-b border-line bg-muted/40 text-left text-muted-foreground">
             <!-- 行号列(空表头):宽度定死,行号与悬停删除钮共用这一格。 -->
@@ -759,7 +759,7 @@ function openTable() {
           <template v-for="section in allSections" :key="section.key">
             <!-- 节标题行:分组名 + 行内小计(平铺模式没有标题行)。 -->
             <tr v-if="section.title !== ''" class="border-b border-line bg-muted/20">
-              <th :colspan="cellCount" class="px-2.5 py-1 text-left text-[11px] font-medium text-muted-foreground">
+              <th :colspan="cellCount" class="px-2.5 py-1 text-left text-11 font-medium text-muted-foreground">
                 {{ section.title }}
                 <span v-if="section.totals.income !== 0 || section.totals.expense !== 0" class="ml-2.5 font-normal">
                   收入 <span class="text-ledger-income">{{ formatYuan(section.totals.income) }}</span>
@@ -776,7 +776,7 @@ function openTable() {
               @focusout="onRowFocusOut(row, $event)"
             >
               <!-- 行号 / 删除同占一格(与数据表编辑页同一手法):悬停换成 ✕,列宽不变、行不跳。 -->
-              <th class="relative w-7 px-2 py-1 text-right align-top font-mono text-[11px] font-normal text-muted-foreground/60">
+              <th class="relative w-7 px-2 py-1 text-right align-top font-mono text-11 font-normal text-muted-foreground/60">
                 <span class="group-hover/lrow:invisible">{{ rowNumbers.get(row.id) }}</span>
                 <button
                   type="button"
@@ -854,7 +854,7 @@ function openTable() {
                   <input
                     v-if="editing === cellKey(row, column)"
                     :ref="focusOnMount"
-                    class="absolute inset-0 rounded bg-transparent px-0.5 text-[12px] outline-none"
+                    class="absolute inset-0 rounded bg-transparent px-0.5 text-12 outline-none"
                     :class="isNumberish(column) ? 'text-right tabular-nums' : 'text-left'"
                     :value="editText(row, column)"
                     :placeholder="column.type === 'date' ? 'YYYY-MM-DD' : ''"
@@ -909,14 +909,14 @@ function openTable() {
       <AlertDialogContent class="w-[300px] rounded-block p-5 shadow-pop ring-1 ring-line/70">
         <AlertDialogHeader>
           <AlertDialogTitle>删除这一笔</AlertDialogTitle>
-          <AlertDialogDescription class="text-[12px]">
+          <AlertDialogDescription class="text-12">
             「{{ deletingSummary === "" ? "这一行" : deletingSummary }}」将从数据表中删除，此操作不可恢复。
             表被多篇笔记共用时，别处也会跟着少一行。
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter class="mx-0 mb-0 gap-2 rounded-none border-t-0 bg-transparent p-0 pt-3">
-          <Button variant="ghost" class="h-7 px-3 text-[13px]" @click="closeDelete">取消</Button>
-          <Button variant="destructive" class="h-7 px-3 text-[13px]" @click="confirmDelete">删除</Button>
+          <Button variant="ghost" class="h-7 px-3 text-13" @click="closeDelete">取消</Button>
+          <Button variant="destructive" class="h-7 px-3 text-13" @click="confirmDelete">删除</Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

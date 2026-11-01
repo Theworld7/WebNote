@@ -51,6 +51,11 @@
    `pnpm dev` 后访问 `/design/<名字>.html`;其中 `drag-check`、`typography-check`、
    `data-table-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-date-check`、`kanban-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check`、`tab-housing-check`、`undo-paint-check`、`table-ref-check` 含顶层 `await`,要抓结果用
    `node design/cdp-dump.mjs http://localhost:1420/design/<名字>.html`。
+   **挂进来的是复用组件时,把 `App.vue` 提供的上下文补齐** —— `provideWorkspace()`、
+   `provideSettings()`、`TooltipProvider`(提示气泡走 reka-ui 的注入)。缺一层不会报在结果里:
+   Vue 的 `setup` 抛错会让顶层 `await` 永不继续,`#out` 停在 `running: …`,看着像"卡住"而不是
+   "失败"。定位办法是在页里另起一段普通 `<script>` 挂钩 `error` / `unhandledrejection` 与
+   `console.error`,把栈追加进 `#out`。
 
 改哪层跑哪页:动 `lib/html` → `parse-check`;动块拖拽 / 标签栏 → `drag-check` / `tab-check`;
 动窗口 chrome(品牌名 / 全局动作 / 拖拽面 / 字数 / 页面样式入口)→ `chrome-check`;
@@ -71,6 +76,10 @@
 `markdown-view-check`(挂真实编辑器，排版 / 消毒 / 转笔记)、
 `create-check`(扫描 / 打开 / 同目录转换)、`tree-integration-check`(整合视图保留 `.md`);
 动设置 → `settings-check`;动布局块 → `layout-check`;
+动字号档位 / 基础字号(`style.css` 的 `--text-*`、`useSettings` 的 `baseFont`)→
+`settings-check`(切档后量 computed 字号,不看存储值)与 `typography-check`(默认档下编辑器与
+导出仍逐像素一致)。**给 Tailwind 加自定义字号刻度必须同时扩 `lib/utils.ts` 的
+`classGroups`** —— 否则 `cn()` 会把档位名当成文字颜色吃掉,标题静默掉回正文大小;
 动保存时机(`saveOnLeave` / `attachAutoSave` / `requestWindowClose` 的前置保存、`useSettings`
 的 `autoSave`) → `autosave-check`(真实工作区 + 假盘),设置面板里那颗开关 → `settings-check`;
 动会话快照(`composables/useSession.ts`、`adoptRoot` 里的 `restoreSession`、`confirmWindowClose`

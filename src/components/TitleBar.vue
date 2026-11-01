@@ -137,7 +137,7 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
   <header class="flex h-11 flex-none items-center gap-2 pr-3 pl-3 select-none" data-tauri-drag-region>
     <!-- 品牌名从侧栏顶部搬上来：它描述的是窗口（与 productName 同一件事），不是侧栏。
          留在 chrome 里还顺带解决了「折叠侧栏时标签整排左跳 40px」。 -->
-    <span class="flex-none text-[13px] font-medium tracking-[0.01em]">玉简</span>
+    <span class="flex-none text-13 font-medium tracking-[0.01em]">玉简</span>
 
     <div class="flex flex-none items-center gap-0.5">
       <!-- 三颗按钮都 `@mousedown.prevent`：点下去不抢焦点。否则点完焦点留在按钮上，
@@ -233,7 +233,7 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
            `whitespace-nowrap` 是兜底 —— 真到了七位数，宁可撑宽也不换行。 -->
       <span
         v-if="hasNoteDocument"
-        class="w-[60px] flex-none whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground max-[820px]:hidden"
+        class="w-[60px] flex-none whitespace-nowrap text-right text-11 tabular-nums text-muted-foreground max-[820px]:hidden"
       >
         {{ charCount }} 字
       </span>

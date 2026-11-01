@@ -47,7 +47,7 @@ const gridStyle = { gridTemplateColumns: `repeat(${TABLE_PICKER_SIZE}, 1fr)` }
         @click="emit('pick', slot.column + 1, slot.row + 1)"
       />
     </div>
-    <div class="h-4 text-[11px] text-muted-foreground">
+    <div class="h-4 text-11 text-muted-foreground">
       {{ hovered.columns === 0 ? "拖动选择行列数" : `${hovered.columns} 列 × ${hovered.rows} 行` }}
     </div>
   </div>

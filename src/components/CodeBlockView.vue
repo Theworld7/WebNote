@@ -5,6 +5,7 @@ import { CheckIcon, CopyIcon, PencilIcon } from "@lucide/vue"
 import { useCopied } from "@/composables/useCopied"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTheme } from "@/composables/useTheme"
+import { rootFontPx } from "@/lib/base-font"
 import { currentFontStack } from "@/lib/fonts"
 import { highlightCode } from "@/lib/highlight"
 import { runsText, textToRuns } from "@/lib/inline"
@@ -32,6 +33,8 @@ const { theme } = useTheme()
 
 const text = computed(() => runsText(props.block.runs))
 const language = computed(() => props.block.lang ?? "")
+// 静态层是 rem（`text-12`），Monaco 只认数字：进编辑态时把当前根字号告诉它。
+// 读模块级 ref 而不是注入设置 —— 这个块在自检页里也会被挂，那里没有 provider。
 const highlighted = computed(() => (text.value === "" ? "" : highlightCode(text.value, language.value)))
 
 /** 空块直接进编辑态；有内容就先给静态高亮。 */
@@ -82,6 +85,7 @@ async function mountEditor(): Promise<void> {
     language: language.value,
     theme: theme.value,
     fontFamily: currentFontStack("code"),
+    baseFontPx: rootFontPx.value,
   })
   if (opened === null) {
     // Monaco 没起来就退回静态态 —— 块里还是原来那段文字，读者不受影响。
@@ -228,7 +232,7 @@ onBeforeUnmount(() => {
     >
       <select
         :value="language"
-        class="rounded border border-line bg-transparent px-1.5 py-0.5 text-[11px] text-muted-foreground outline-none hover:text-foreground focus-visible:border-brand"
+        class="rounded border border-line bg-transparent px-1.5 py-0.5 text-11 text-muted-foreground outline-none hover:text-foreground focus-visible:border-brand"
         title="代码语言"
         @change="changeLanguage"
       >
@@ -240,7 +244,7 @@ onBeforeUnmount(() => {
       -->
       <button
         type="button"
-        class="rounded px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+        class="rounded px-2 py-0.5 text-11 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
         :disabled="!formattable || formatting"
         :title="formattable ? '格式化' : '该语言暂无格式化器'"
         @mousedown.prevent
@@ -248,10 +252,10 @@ onBeforeUnmount(() => {
       >
         {{ formatLabel }}
       </button>
-      <span class="text-[11px] text-muted-foreground">Esc 取消 · ⌘/Ctrl + Enter 完成</span>
+      <span class="text-11 text-muted-foreground">Esc 取消 · ⌘/Ctrl + Enter 完成</span>
       <button
         type="button"
-        class="ml-auto rounded px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        class="ml-auto rounded px-2 py-0.5 text-11 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         @mousedown.prevent
         @click="commitEdit"
       >
@@ -264,7 +268,7 @@ onBeforeUnmount(() => {
            用户写的 `pre { … }` 经 lib/note-style 改写成 `[data-block-type="code"]`。别删。 -->
       <div
         data-block-type="code"
-        class="rounded-lg bg-muted-strong px-3.5 py-2.5 font-mono text-[12px] leading-[21px] whitespace-pre-wrap break-words text-code-foreground"
+        class="rounded-lg bg-muted-strong px-3.5 py-2.5 font-mono text-12 leading-[21px] whitespace-pre-wrap break-words text-code-foreground"
       >
         <template v-if="text === ''">
           <span class="text-muted-foreground/60">空代码块 · 点右上角「编辑」开始写</span>

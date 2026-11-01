@@ -26,7 +26,7 @@ const {
 } = useWorkspace()
 
 /** 确认框里的按钮：h-7、13px，跟工具栏那批小按钮同一个体量。 */
-const DIALOG_BTN = "h-7 px-3 text-[13px]"
+const DIALOG_BTN = "h-7 px-3 text-13"
 
 /**
  * 标签条两端的渐变遮罩：某一侧还有内容可滚时才显示，

@@ -107,7 +107,7 @@ function onKeydown(event: KeyboardEvent) {
 
 /** 与格式条按钮同一规格的文字按钮。 */
 const FORM_BUTTON =
-  "h-6 rounded-[5px] px-2 text-[12px] text-muted-foreground hover:text-foreground"
+  "h-6 rounded-[5px] px-2 text-12 text-muted-foreground hover:text-foreground"
 const FORM_ACTIVE = "bg-accent text-foreground"
 </script>
 
@@ -122,21 +122,21 @@ const FORM_ACTIVE = "bg-accent text-foreground"
     <!-- 两个框都可能有值，靠左侧标签区分「改哪个」—— 只写 placeholder 的话，
          填上值之后两个框就长得一样了。 -->
     <div class="flex items-center gap-1.5">
-      <span class="w-7 shrink-0 text-[11px] text-muted-foreground">文字</span>
+      <span class="w-7 shrink-0 text-11 text-muted-foreground">文字</span>
       <Input
         v-model="text"
         data-text-input
-        class="h-7 text-[13px]"
+        class="h-7 text-13"
         placeholder="链接上显示的字"
         spellcheck="false"
       />
     </div>
     <div class="mt-1.5 flex items-center gap-1.5">
-      <span class="w-7 shrink-0 text-[11px] text-muted-foreground">链接</span>
+      <span class="w-7 shrink-0 text-11 text-muted-foreground">链接</span>
       <Input
         v-model="url"
         data-url-input
-        class="h-7 text-[13px]"
+        class="h-7 text-13"
         placeholder="粘贴网址，或填工作区里的笔记 / 数据表路径"
         spellcheck="false"
       />
@@ -145,7 +145,7 @@ const FORM_ACTIVE = "bg-accent text-foreground"
     <!-- 三行的左端共用同一列标签（w-7 + 同一档 gap）：「形态」的按钮组与上面两个
          输入框的左缘对齐，否则只有这行往外凸 6px，看着像没对齐。 -->
     <div class="mt-2 flex items-center gap-1.5">
-      <span class="w-7 shrink-0 text-[11px] text-muted-foreground">形态</span>
+      <span class="w-7 shrink-0 text-11 text-muted-foreground">形态</span>
       <span class="flex items-center gap-1">
         <Button
           v-for="form in FORMS"
@@ -167,7 +167,7 @@ const FORM_ACTIVE = "bg-accent text-foreground"
       <Button
         v-if="props.href !== ''"
         variant="ghost"
-        class="h-6 rounded-[5px] px-2 text-[12px] text-muted-foreground hover:text-destructive"
+        class="h-6 rounded-[5px] px-2 text-12 text-muted-foreground hover:text-destructive"
         @click="emit('apply', removedText, '', 'text')"
       >
         移除链接
@@ -176,14 +176,14 @@ const FORM_ACTIVE = "bg-accent text-foreground"
       <span class="flex items-center gap-1">
         <Button
           variant="ghost"
-          class="h-6 rounded-[5px] px-2 text-[12px] text-muted-foreground hover:text-foreground"
+          class="h-6 rounded-[5px] px-2 text-12 text-muted-foreground hover:text-foreground"
           @click="cancel"
         >
           取消
         </Button>
         <Button
           variant="ghost"
-          class="h-6 rounded-[5px] bg-accent px-2.5 text-[12px] text-accent-foreground"
+          class="h-6 rounded-[5px] bg-accent px-2.5 text-12 text-accent-foreground"
           :disabled="!canApply"
           @click="submit"
         >

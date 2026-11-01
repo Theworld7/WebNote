@@ -283,16 +283,16 @@ const COLUMN_TYPE_ITEMS = [
 /** 菜单外框与菜单项，与块手柄的两套菜单同一套参数。 */
 const MENU = "w-[176px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
-const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-foreground"
+const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foreground"
 </script>
 
 <template>
   <!-- 读不到。文件被删或移走 —— 与引用块同一个立场：说明白，不喊错。 -->
   <div v-if="state !== 'loading' && table === null" class="flex flex-1 items-center justify-center p-8">
     <div class="max-w-sm text-center">
-      <p class="text-[13px] text-foreground/80">这个数据表读不到</p>
-      <p class="mt-1.5 font-mono text-[12px] text-muted-foreground">{{ activePath }}</p>
-      <p class="mt-3 text-[12px] text-muted-foreground">
+      <p class="text-13 text-foreground/80">这个数据表读不到</p>
+      <p class="mt-1.5 font-mono text-12 text-muted-foreground">{{ activePath }}</p>
+      <p class="mt-3 text-12 text-muted-foreground">
         文件可能已被移动或删除，也可能不是合法的数据表文件。
       </p>
     </div>
@@ -304,7 +304,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
       <Button
         variant="ghost"
         size="sm"
-        class="h-7 gap-1 rounded-[7px] px-2 text-[12px] text-muted-foreground hover:text-foreground"
+        class="h-7 gap-1 rounded-[7px] px-2 text-12 text-muted-foreground hover:text-foreground"
         @click="addRow"
       >
         <PlusIcon class="size-3" />行
@@ -312,7 +312,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
       <Button
         variant="ghost"
         size="sm"
-        class="h-7 gap-1 rounded-[7px] px-2 text-[12px] text-muted-foreground hover:text-foreground disabled:opacity-40"
+        class="h-7 gap-1 rounded-[7px] px-2 text-12 text-muted-foreground hover:text-foreground disabled:opacity-40"
         :disabled="atColumnLimit"
         @click="addColumn"
       >
@@ -321,16 +321,16 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
 
       <div class="flex-1" />
 
-      <span class="pr-1 font-mono text-[12px] text-muted-foreground">{{ summary }}</span>
+      <span class="pr-1 font-mono text-12 text-muted-foreground">{{ summary }}</span>
     </div>
 
     <!-- 表格：自己横向滚动，永远铺满窗口宽度（不受「表格效果」偏好影响）。 -->
     <div class="table-scrollbar min-h-0 flex-1 overflow-auto rounded-lg border border-line">
-      <table class="w-full border-separate border-spacing-0 text-[13px]">
+      <table class="w-full border-separate border-spacing-0 text-13">
         <thead>
           <tr>
             <!-- 行号列。固定短宽度，不参与列模型。 -->
-            <th class="sticky left-0 z-10 w-9 border-r border-b border-line bg-muted/60 px-2 py-1.5 text-right font-mono text-[11px] font-normal text-muted-foreground/70">
+            <th class="sticky left-0 z-10 w-9 border-r border-b border-line bg-muted/60 px-2 py-1.5 text-right font-mono text-11 font-normal text-muted-foreground/70">
               #
             </th>
             <th
@@ -350,13 +350,13 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
                   <DropdownMenuTrigger as-child>
                     <button
                       type="button"
-                      class="shrink-0 rounded-[5px] px-1 font-mono text-[11px] text-muted-foreground/70 hover:bg-muted hover:text-foreground"
+                      class="shrink-0 rounded-[5px] px-1 font-mono text-11 text-muted-foreground/70 hover:bg-muted hover:text-foreground"
                     >
                       {{ dt.columnTypeLabel(column.type) }}
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent :class="MENU" align="end">
-                    <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+                    <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
                       列类型
                     </DropdownMenuLabel>
                     <DropdownMenuItem
@@ -370,7 +370,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
                     </DropdownMenuItem>
                     <template v-if="column.type === 'select'">
                       <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-                      <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+                      <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
                         选项
                       </DropdownMenuLabel>
                       <!-- 选项维护就地下拉里做:改名的格子存的是 id,改名不动任何一行;
@@ -381,7 +381,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
                       <div class="max-h-44 space-y-0.5 overflow-y-auto px-2 pb-1">
                         <div v-for="option in column.options" :key="option.id" class="flex items-center gap-1">
                           <input
-                            class="min-w-0 flex-1 rounded border border-line bg-transparent px-1.5 py-0.5 text-[12px] outline-none"
+                            class="min-w-0 flex-1 rounded border border-line bg-transparent px-1.5 py-0.5 text-12 outline-none"
                             :value="option.name"
                             @click.stop
                             @keydown.stop
@@ -398,7 +398,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
                           </button>
                         </div>
                         <input
-                          class="w-full rounded border border-dashed border-line bg-transparent px-1.5 py-0.5 text-[12px] outline-none placeholder:text-muted-foreground/50"
+                          class="w-full rounded border border-dashed border-line bg-transparent px-1.5 py-0.5 text-12 outline-none placeholder:text-muted-foreground/50"
                           placeholder="新增选项，回车确认"
                           @click.stop
                           @keydown.stop
@@ -424,7 +424,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
         </thead>
         <tbody>
           <tr v-for="(row, rowIndex) in rows" :key="row.id" class="group/drow">
-            <th class="sticky left-0 z-10 border-r border-b border-line bg-muted/30 px-2 py-1 text-right font-mono text-[11px] font-normal text-muted-foreground/60">
+            <th class="sticky left-0 z-10 border-r border-b border-line bg-muted/30 px-2 py-1 text-right font-mono text-11 font-normal text-muted-foreground/60">
               <!-- 悬停换成删除钮:行号改用 invisible 让位不撤宽度,钮绝对定位叠在原位 ——
                    两态占同一格,列宽不变,表格不跳动。 -->
               <span class="group-hover/drow:invisible">{{ rowIndex + 1 }}</span>
@@ -455,7 +455,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
               <div v-if="column.type === 'image'" class="flex items-center justify-center">
                 <label
                   v-if="dt.cellValue(row, column) === null"
-                  class="flex cursor-pointer items-center gap-1 rounded-[5px] px-1.5 py-0.5 text-[12px] text-muted-foreground/50 hover:bg-muted hover:text-muted-foreground"
+                  class="flex cursor-pointer items-center gap-1 rounded-[5px] px-1.5 py-0.5 text-12 text-muted-foreground/50 hover:bg-muted hover:text-muted-foreground"
                 >
                   <ImagePlusIcon class="size-3" />图片
                   <input type="file" accept="image/*" class="hidden" @change="onPick($event, row, column)">
@@ -478,7 +478,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
                        像是「这里本来就没图」，用户不会想到去查链接。 -->
                   <div
                     v-else
-                    class="grid h-16 w-full place-items-center rounded-lg border border-dashed border-line bg-muted/40 text-[11px] text-muted-foreground"
+                    class="grid h-16 w-full place-items-center rounded-lg border border-dashed border-line bg-muted/40 text-11 text-muted-foreground"
                   >
                     图片打不开
                   </div>
@@ -528,7 +528,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
             <td :colspan="columns.length" class="border-line px-1.5 py-0">
               <button
                 type="button"
-                class="flex w-full items-center gap-1 rounded-[5px] px-1 py-0.5 text-left text-[12px] text-muted-foreground/50 hover:bg-muted hover:text-muted-foreground"
+                class="flex w-full items-center gap-1 rounded-[5px] px-1 py-0.5 text-left text-12 text-muted-foreground/50 hover:bg-muted hover:text-muted-foreground"
                 @click="addRow"
               >
                 <PlusIcon class="size-3" />新记录
@@ -545,14 +545,14 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
       <AlertDialogContent class="w-[300px] rounded-block p-5 shadow-pop ring-1 ring-line/70">
         <AlertDialogHeader>
           <AlertDialogTitle>删除这一行</AlertDialogTitle>
-          <AlertDialogDescription class="text-[12px]">
+          <AlertDialogDescription class="text-12">
             「{{ deletingSummary === "" ? "这一行" : deletingSummary }}」将从数据表中删除，此操作不可恢复。
             表被多篇笔记共用时，别处也会跟着少一行。
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter class="mx-0 mb-0 gap-2 rounded-none border-t-0 bg-transparent p-0 pt-3">
-          <Button variant="ghost" class="h-7 px-3 text-[13px]" @click="closeDelete">取消</Button>
-          <Button variant="destructive" class="h-7 px-3 text-[13px]" @click="confirmDelete">删除</Button>
+          <Button variant="ghost" class="h-7 px-3 text-13" @click="closeDelete">取消</Button>
+          <Button variant="destructive" class="h-7 px-3 text-13" @click="confirmDelete">删除</Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
@@ -561,6 +561,6 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
   <!-- 读盘 + 解析的等待期（state 停在 loading）：给一句提示而不是空白，
        否则大表打开时界面像死了。读不到的分支在上面已经截走，走到这里的都还在读。 -->
   <div v-else class="flex flex-1 items-center justify-center p-8">
-    <p class="text-[12px] text-muted-foreground">正在读取数据表…</p>
+    <p class="text-12 text-muted-foreground">正在读取数据表…</p>
   </div>
 </template>

@@ -69,10 +69,10 @@ async function confirm() {
   <AlertDialog :open="target !== null" @update:open="emit('close')">
     <AlertDialogContent class="max-w-sm" @open-auto-focus.prevent>
       <AlertDialogHeader>
-        <AlertDialogTitle class="text-[14px]">
+        <AlertDialogTitle class="text-14">
           {{ title }}
         </AlertDialogTitle>
-        <AlertDialogDescription class="text-[12px]">
+        <AlertDialogDescription class="text-12">
           {{ target?.parentPath === "" ? "位置：工作区根目录" : `位置：${target?.parentPath}` }}
         </AlertDialogDescription>
       </AlertDialogHeader>
@@ -81,15 +81,15 @@ async function confirm() {
         ref="input"
         v-model="name"
         :placeholder="placeholder"
-        class="h-8 text-[13px]"
+        class="h-8 text-13"
         @keydown.enter.prevent="confirm"
       />
 
       <AlertDialogFooter>
         <AlertDialogCancel as-child>
-          <Button variant="ghost" size="sm" class="text-[13px]">取消</Button>
+          <Button variant="ghost" size="sm" class="text-13">取消</Button>
         </AlertDialogCancel>
-        <Button size="sm" class="text-[13px]" @click="confirm">创建</Button>
+        <Button size="sm" class="text-13" @click="confirm">创建</Button>
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>

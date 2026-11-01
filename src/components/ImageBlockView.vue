@@ -86,13 +86,13 @@ async function onDrop(event: DragEvent) {
     >
       <ImageOffIcon class="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
       <div class="min-w-0">
-        <p class="text-[12px] text-muted-foreground">图片打不开 —— 地址可能失效、需要联网，或对方不允许外链。</p>
-        <p class="mt-1 truncate font-mono text-[11px] text-muted-foreground/70">{{ block.src }}</p>
+        <p class="text-12 text-muted-foreground">图片打不开 —— 地址可能失效、需要联网，或对方不允许外链。</p>
+        <p class="mt-1 truncate font-mono text-11 text-muted-foreground/70">{{ block.src }}</p>
       </div>
     </div>
 
     <div v-else class="my-1 rounded-lg bg-muted p-3">
-      <div class="mb-2 flex items-center gap-1.5 text-[12px] text-muted-foreground">
+      <div class="mb-2 flex items-center gap-1.5 text-12 text-muted-foreground">
         <ImagePlusIcon class="size-3.5" />
         还没有图片 —— 选一张，或拖入 / 粘贴
       </div>

@@ -59,7 +59,7 @@ function shift(delta: number): void {
 }
 
 const NAV = "flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-const FOOT = "rounded px-1.5 py-0.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+const FOOT = "rounded px-1.5 py-0.5 text-12 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 </script>
 
 <template>
@@ -70,14 +70,14 @@ const FOOT = "rounded px-1.5 py-0.5 text-[12px] text-muted-foreground transition
       <button type="button" :class="NAV" tabindex="-1" aria-label="上个月" @click="shift(-1)">
         <ChevronLeftIcon class="size-3.5" />
       </button>
-      <span class="text-[12px] font-medium">{{ monthLabel }}</span>
+      <span class="text-12 font-medium">{{ monthLabel }}</span>
       <button type="button" :class="NAV" tabindex="-1" aria-label="下个月" @click="shift(1)">
         <ChevronRightIcon class="size-3.5" />
       </button>
     </div>
 
     <div class="grid grid-cols-7 gap-0.5">
-      <span v-for="weekday in WEEKDAYS" :key="weekday" class="py-0.5 text-center text-[11px] text-muted-foreground">
+      <span v-for="weekday in WEEKDAYS" :key="weekday" class="py-0.5 text-center text-11 text-muted-foreground">
         {{ weekday }}
       </span>
       <button
@@ -86,7 +86,7 @@ const FOOT = "rounded px-1.5 py-0.5 text-[12px] text-muted-foreground transition
         :data-day="cell.key"
         type="button"
         tabindex="-1"
-        class="h-6 rounded text-[12px] tabular-nums transition-colors"
+        class="h-6 rounded text-12 tabular-nums transition-colors"
         :class="[
           cell.key === value
             ? 'bg-brand font-medium text-background'

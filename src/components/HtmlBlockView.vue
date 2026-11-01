@@ -5,6 +5,7 @@ import { PencilIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTheme } from "@/composables/useTheme"
+import { rootFontPx } from "@/lib/base-font"
 import { buildHtmlFrameDoc } from "@/lib/html-frame"
 import HtmlSourceDrawer from "./HtmlSourceDrawer.vue"
 
@@ -58,7 +59,8 @@ const height = ref(48)
  * 一天两次（日出日落）的代价，比让块里留着一块白、或者另开一条只在「换色」时才走的
  * 消息通道便宜。
  */
-const doc = computed(() => buildHtmlFrameDoc(props.block.source, activeStyle.value, theme.value))
+// 基础字号也是这张纸的一部分：改档位时 srcdoc 变、iframe 重载，块里的字跟着走。
+const doc = computed(() => buildHtmlFrameDoc(props.block.source, activeStyle.value, theme.value, rootFontPx.value))
 
 /**
  * 高度上报的守卫：只认自己 iframe 发来的消息（按 `event.source` 认窗口，多个
@@ -97,7 +99,7 @@ onBeforeUnmount(() => window.removeEventListener("message", onMessage))
       v-else
       :data-editable="block.id"
       tabindex="0"
-      class="my-1 flex h-16 cursor-pointer items-center justify-center rounded-lg bg-muted text-[12px] text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      class="my-1 flex h-16 cursor-pointer items-center justify-center rounded-lg bg-muted text-12 text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
       title="编写 HTML 源码"
       @focus="openDrawer"
       @click="openDrawer"
@@ -111,7 +113,7 @@ onBeforeUnmount(() => window.removeEventListener("message", onMessage))
       v-if="block.source.trim() !== ''"
       size="sm"
       variant="ghost"
-      class="absolute right-0 top-2 z-10 h-7 gap-1.5 rounded-md border border-line bg-background/80 px-2.5 text-[12px] shadow-xs backdrop-blur-sm reduce-transparency:bg-background reduce-transparency:backdrop-blur-none opacity-0 transition-opacity hover:bg-muted group-hover/html:opacity-100 focus-visible:opacity-100"
+      class="absolute right-0 top-2 z-10 h-7 gap-1.5 rounded-md border border-line bg-background/80 px-2.5 text-12 shadow-xs backdrop-blur-sm reduce-transparency:bg-background reduce-transparency:backdrop-blur-none opacity-0 transition-opacity hover:bg-muted group-hover/html:opacity-100 focus-visible:opacity-100"
       @click="openDrawer"
     >
       <PencilIcon class="size-3.5" />

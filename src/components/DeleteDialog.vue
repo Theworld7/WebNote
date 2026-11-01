@@ -44,10 +44,10 @@ async function confirm() {
   <AlertDialog :open="target !== null" @update:open="emit('close')">
     <AlertDialogContent class="max-w-sm">
       <AlertDialogHeader>
-        <AlertDialogTitle class="text-[14px]">
+        <AlertDialogTitle class="text-14">
           {{ target === null ? "删除" : `删除「${fileName(target.path)}」` }}
         </AlertDialogTitle>
-        <AlertDialogDescription class="text-[12px]">
+        <AlertDialogDescription class="text-12">
           {{ isFolder ? "文件夹及其全部内容将从磁盘删除，此操作不可恢复。" : "文件将从磁盘删除，此操作不可恢复。" }}
           <span v-if="hasDirtyTabs">其中打开的标签有未保存的修改，将一并丢弃。</span>
         </AlertDialogDescription>
@@ -55,11 +55,11 @@ async function confirm() {
 
       <AlertDialogFooter>
         <AlertDialogCancel as-child>
-          <Button variant="ghost" size="sm" class="text-[13px]">取消</Button>
+          <Button variant="ghost" size="sm" class="text-13">取消</Button>
         </AlertDialogCancel>
         <!-- 不用 `AlertDialogAction`：它点击即关闭对话框，`target` 随之清空，
              `confirm` 再读就什么都没有了。删除失败（脏数据表被拦）时要让用户重试。 -->
-        <Button variant="destructive" size="sm" class="text-[13px]" @click="confirm">删除</Button>
+        <Button variant="destructive" size="sm" class="text-13" @click="confirm">删除</Button>
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>

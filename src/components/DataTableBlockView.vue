@@ -141,7 +141,7 @@ function removeColumn(columnId: string) {
 /** 菜单外框与菜单项，与块手柄的两套菜单同一套参数。 */
 const MENU = "w-[176px] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
-const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-foreground"
+const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foreground"
 </script>
 
 <template>
@@ -171,7 +171,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
 
   <div v-else class="group/ref relative my-4">
     <div :class="frame.container">
-      <table :class="[frame.table, 'text-[13px]']">
+      <table :class="[frame.table, 'text-13']">
         <thead>
           <tr>
             <th
@@ -186,13 +186,13 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
                     class="flex w-full items-center gap-1.5 text-left font-medium text-foreground/90 hover:text-foreground"
                   >
                     <span class="truncate">{{ column.name }}</span>
-                    <span class="shrink-0 font-mono text-[11px] font-normal text-muted-foreground/70">
+                    <span class="shrink-0 font-mono text-11 font-normal text-muted-foreground/70">
                       {{ dt.columnTypeLabel(column.type) }}
                     </span>
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent :class="MENU" align="start">
-                  <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-[11px] font-normal text-muted-foreground">
+                  <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
                     列类型
                   </DropdownMenuLabel>
                   <DropdownMenuItem
@@ -289,7 +289,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full px-2 text-[12px] text-muted-foreground hover:text-foreground"
+        class="h-6 gap-1 rounded-full px-2 text-12 text-muted-foreground hover:text-foreground"
         @click="addRow"
       >
         <PlusIcon class="size-3" />行
@@ -297,7 +297,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full px-2 text-[12px] text-muted-foreground hover:text-foreground"
+        class="h-6 gap-1 rounded-full px-2 text-12 text-muted-foreground hover:text-foreground"
         @click="addColumn"
       >
         <PlusIcon class="size-3" />列
@@ -305,7 +305,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-[12px] text-muted-fore
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full px-2 text-[12px] text-muted-foreground hover:text-foreground"
+        class="h-6 gap-1 rounded-full px-2 text-12 text-muted-foreground hover:text-foreground"
         @click="openTable"
       >
         <ExternalLinkIcon class="size-3" />打开
