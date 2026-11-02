@@ -4354,7 +4354,7 @@ dependencies = [
 
 [[package]]
 name = "webnote"
-version = "0.9.6"
+version = "0.10.0"
 dependencies = [
  "fontdb",
  "serde",
