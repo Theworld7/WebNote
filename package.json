@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "build:pages": "vue-tsc --noEmit && vite build --mode pages",
     "preview": "vite preview",
     "tauri": "tauri",
     "icon": "node design/icon/icon.mjs && node design/icon/verify.mjs && python design/icon/rasterize.py"

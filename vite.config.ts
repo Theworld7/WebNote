@@ -6,8 +6,18 @@ import pkg from "./package.json" with { type: "json" };
 
 const host = process.env.TAURI_DEV_HOST;
 
+/**
+ * GitHub Pages 项目站点的子路径（仓库名 WebNote → `/WebNote/`）。
+ *
+ * 只在 `vite build --mode pages` 时生效，默认仍是 `/`。桌面端的 `pnpm tauri build`
+ * 走 `beforeBuildCommand: pnpm build` 并以 asset 协议加载 `../dist`，那时的绝对路径
+ * 相对应用根解析；把 base 改成子路径会打断它，所以两种构建按 mode 分开。
+ */
+const PAGES_BASE = "/WebNote/";
+
 // https://vite.dev/config/
-export default defineConfig(() => ({
+export default defineConfig(({ mode }) => ({
+  base: mode === "pages" ? PAGES_BASE : "/",
   plugins: [vue(), tailwindcss()],
 
   // 当前版本号：更新的检测要拿它跟 GitHub 上的最新 release 比。
