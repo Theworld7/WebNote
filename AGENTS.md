@@ -44,7 +44,10 @@
   文件的菜单只有一份:网页自己的右键菜单在窗口层被吃掉而 Monaco 例外,树行 `⋯` / 树行右键 /
   标签右键共用 `FileMenuItems`,三个对话框目标共享在 `useTreeDialogs` 里(0046)、
   密钥块是一张卡一条凭据:掩码只是显示开关,明文躺在 `data-secret` 属性里、导出的可见文本
-  永远是掩码、不做加密(0047)。
+  永远是掩码、不做加密(0047)、窄屏(<900)下侧栏是盖在正文上的浮层且默认不出现、手机(<480)铺满
+  而平板竖屏仍是一张卡片、宽屏那份收起偏好照旧落盘而浮层开合不记(0048)、触摸端按住 500ms
+  才弹菜单、按压态是自己算的 `data-pressed` 而非 `:active`、底色在 500ms 里推到
+  `muted-strong` 且菜单开着时整行保持(0049)。
   改对应行为前先读那篇。(0029 的标签位置已被 0033 取代,0034 的模态表单已被 0035 取代)
 
 ## 验证
@@ -55,7 +58,7 @@
    用类型收窄和类型守卫表达。
 2. **自检页**:`design/*.html` 是能直接跑的回归页,每个用例输出 `OK` / `FAIL` 行。
    `pnpm dev` 后访问 `/design/<名字>.html`;其中 `drag-check`、`typography-check`、
-   `data-table-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-date-check`、`kanban-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check`、`tab-housing-check`、`undo-paint-check`、`table-ref-check`、`context-menu-check`、`secret-check` 含顶层 `await`,要抓结果用
+   `data-table-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-date-check`、`kanban-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check`、`tab-housing-check`、`undo-paint-check`、`table-ref-check`、`context-menu-check`、`secret-check`、`sidebar-overlay-check` 含顶层 `await`,要抓结果用
    `node design/cdp-dump.mjs http://localhost:1420/design/<名字>.html`。
    **挂进来的是复用组件时,把 `App.vue` 提供的上下文补齐** —— `provideWorkspace()`、
    `provideSettings()`、`TooltipProvider`(提示气泡走 reka-ui 的注入)。缺一层不会报在结果里:
@@ -65,6 +68,9 @@
 
 改哪层跑哪页:动 `lib/html` → `parse-check`;动块拖拽 / 标签栏 → `drag-check` / `tab-check`;
 动窗口 chrome(品牌名 / 全局动作 / 拖拽面 / 字数 / 页面样式入口)→ `chrome-check`;
+动侧栏的窄屏浮层(断点 / 默认隐藏 / 跨断点复位 / 浮层宽度,`composables/useSidebarLayout.ts`、
+`AppSidebar` 的 `overlay` 形态)→ `sidebar-overlay-check`(挂真实侧栏,走 CDP,两个视口各跑一次
+—— 宽度分手机全宽 / 平板卡片两段,`WINDOW=390` 与 `WINDOW=800` 各钉一支);
 动标签的落位(编辑卡片第一行长什么样、塞满时在卡片里滚动)→ `tab-housing-check`(挂真实
 标题栏与编辑卡片,走 CDP);
 动文件树的整合数据表视图（笔记隐后缀、引用表收进笔记名下、展开箭头）→ `tree-integration-check`;
@@ -128,8 +134,9 @@
 (挂真实编辑器,走 CDP 驱动),改写规则与紧凑化本身在 `parse-check`;动 HTML 块的沙箱文档 /
 高度探针 / 块里那张纸(画布底色与 `pinScheme`)→ `html-check`;动源码抽屉(打开 / 提交 / 取消)或抽屉里 Monaco 的配色
 (`lib/monaco-theme.ts`)→ `html-drawer-check`;动右键菜单(网页菜单的拦截与 Monaco 例外、
-`FileMenuItems` 的三处入口、`useTreeDialogs` 的共享目标,见 ADR-0046)→ `context-menu-check`
-(挂真实侧栏与标签,走 CDP 驱动);动密钥块(掩码 / 明文切换、复制、导出属性,见 ADR-0047)→
+`FileMenuItems` 的三处入口、`useTreeDialogs` 的共享目标,见 ADR-0046)或触摸长按与按压底色
+(`composables/usePressHold.ts`、`lib/touch.ts` 的 `LONG_PRESS_MS`,见 ADR-0049)→
+`context-menu-check`(挂真实侧栏与标签,走 CDP 驱动);动密钥块(掩码 / 明文切换、复制、导出属性,见 ADR-0047)→
 `secret-check`(挂真实编辑器 + OPFS,走 CDP)与 `parse-check` 的密钥往返样本;动 Monaco 的
 按需加载(块内编辑态与源码抽屉的 loading 态,见 ADR-0017)→ `code-edit-check` 与
 `html-drawer-check` 的首次打开用例。

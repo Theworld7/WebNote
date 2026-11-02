@@ -25,6 +25,7 @@ import AppSidebar from "../src/components/AppSidebar.vue"
 import EditorTab from "../src/components/EditorTab.vue"
 import { provideWorkspace } from "../src/composables/useWorkspace.ts"
 import { suppressPageContextMenu } from "../src/lib/dom.ts"
+import { LONG_PRESS_MS } from "../src/lib/touch.ts"
 import { createMemoryFs } from "./memory-fs.ts"
 
 const out = document.querySelector("#out")
@@ -196,6 +197,96 @@ if (tab !== undefined) {
   check("右键标签弹出菜单", tabItems.length > 0, JSON.stringify(tabItems))
   check("标签菜单与树上的文件菜单一致", JSON.stringify(tabItems) === JSON.stringify(fileItems), `${JSON.stringify(tabItems)} vs ${JSON.stringify(fileItems)}`)
 }
+
+// ---- 四、触摸：长按与按压反馈 ----
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** 触摸序列。reka 的 trigger 只认 `pointerType !== "mouse"`，合成事件一样走它的长按分支。 */
+function touch(element, type, dx = 0, dy = 0) {
+  const rect = element.getBoundingClientRect()
+  element.dispatchEvent(
+    new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 1,
+      pointerType: "touch",
+      isPrimary: true,
+      clientX: Math.round(rect.left + 12 + dx),
+      clientY: Math.round(rect.top + 8 + dy),
+    }),
+  )
+}
+
+workspace.openFile("笔记 / 第二篇.html")
+await settle()
+// 上一节最后右键了标签，菜单还开着 —— 不清掉的话下面的「还没到点」会读到它的残留。
+document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+await settle()
+await settle()
+check("长按前先清掉上一节的菜单", menuItems().length === 0, JSON.stringify(menuItems()))
+// 上一节点了文件夹行，折叠态的文件行不在 DOM 里 —— 先摊开。
+if (!workspace.expandedIds.value.has("笔记")) {
+  document.querySelector('[data-tree-path="笔记"]')?.click()
+  await settle()
+}
+const pressRow = treeRow("第一篇")
+check("长按用例拿得到文件行", pressRow !== null)
+
+/** 蓄力时长写在 class 里，按住多久写在 TS 常量里 —— 两处必须同一个数。 */
+const holdInClass = Number(pressRow.className.match(/data-\[pressed\]:duration-(\d+)/)?.[1] ?? NaN)
+check(
+  "按住时长与样式里的蓄力过渡对账",
+  holdInClass === LONG_PRESS_MS,
+  `class 里 ${holdInClass}ms，常量 ${LONG_PRESS_MS}ms`,
+)
+
+/**
+ * 按压态是 `usePressHold` 算的，不是 `:active`：触摸端的 `:active` 在可滚动容器里
+ * 要等浏览器确认「这不是滚动」才给，实测按住全程都是 false。所以这里钉的是我们自己
+ * 的那个属性 —— 按下有、移开就散。
+ */
+touch(pressRow, "pointerdown")
+await sleep(60)
+check("按下即进入按压态", pressRow.getAttribute("data-pressed") === "true", pressRow.getAttribute("data-pressed"))
+touch(pressRow, "pointermove", 20, 0)
+await sleep(60)
+check("手指移开（当成滚动）就撤掉按压态", pressRow.getAttribute("data-pressed") === null, pressRow.getAttribute("data-pressed"))
+
+touch(pressRow, "pointerdown")
+await sleep(LONG_PRESS_MS - 150)
+check(`按住 ${LONG_PRESS_MS - 150}ms：菜单还没到点`, menuItems().length === 0, JSON.stringify(menuItems()))
+await sleep(300)
+const pressedOpen = menuItems().length > 0
+lines.push(`按住 ${LONG_PRESS_MS + 150}ms：菜单 ${pressedOpen ? "已弹出" : "没弹出"}`)
+check("到点弹出文件菜单", pressedOpen, JSON.stringify(menuItems()))
+
+/** 菜单开着时整行必须保持深底：用户得知道这份菜单作用于哪一行。 */
+await sleep(LONG_PRESS_MS)
+check("行上标着 data-state=open", pressRow.getAttribute("data-state") === "open", pressRow.getAttribute("data-state"))
+const probe = document.createElement("div")
+probe.className = "bg-muted-strong"
+document.body.append(probe)
+const rowColor = getComputedStyle(pressRow).backgroundColor
+const probeColor = getComputedStyle(probe).backgroundColor
+probe.remove()
+check("菜单开着时整行是 muted-strong", rowColor === probeColor, `${rowColor} vs ${probeColor}`)
+
+touch(pressRow, "pointerup")
+await settle()
+check(
+  "松手不顺手打开文件（长按已被菜单接管）",
+  workspace.activePath.value === "笔记 / 第二篇.html",
+  `activePath=${workspace.activePath.value}`,
+)
+
+/** 标签是另一种底色（激活的用 selection），按住时只压暗一点，不能换成灰底。 */
+const tabClass = tab.className
+check(
+  "标签的蓄力时长与树行同一套",
+  tabClass.includes(`data-[pressed]:duration-${LONG_PRESS_MS}`),
+  tabClass,
+)
 
 lines.push(failed === 0 ? `自检 ${passed}/${passed}` : `自检 ${passed} 过 / ${failed} 败`)
 out.textContent = lines.join("\n")

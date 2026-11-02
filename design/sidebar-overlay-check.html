@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>侧栏浮层自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #stage { margin: 0 0 16px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>窄屏侧栏：浮层形态、默认隐藏、跨断点复位</h1>
+<div id="stage" style="display:flex; height:420px"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import { createApp, defineComponent, h, nextTick } from "vue"
+// 必须引应用样式表：断言查的是 Tailwind 类的计算几何，不引 style.css 这些类根本不存在。
+import "../src/style.css"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import AppSidebar from "../src/components/AppSidebar.vue"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { useSidebarLayout, OVERLAY_AT } from "../src/composables/useSidebarLayout.ts"
+
+const out = document.querySelector("#out")
+const lines = []
+let passed = 0
+let failed = 0
+let finished = false
+
+/** 顶层 await 抛错时把原因写到 #out，否则 CDP 只会看到停在最后一步。 */
+addEventListener("error", (event) => {
+  finished = true
+  out.textContent = `ERROR ${event.message}\n${lines.join("\n")}`
+})
+addEventListener("unhandledrejection", (event) => {
+  finished = true
+  const reason = event.reason
+  const text = reason instanceof Error ? reason.message : String(reason)
+  out.textContent = `REJECT ${text}\n${lines.join("\n")}`
+})
+
+function flush() {
+  const body = lines.join("\n")
+  out.textContent = finished ? body : `running: ${body}`
+}
+
+function step(text) {
+  flush()
+  out.textContent = `running: ${text}`
+}
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  flush()
+}
+
+/**
+ * 这个页面跑在窄视口下（`WINDOW=390`）。跨断点那一组要靠改 `innerWidth` 再派发 resize
+ * 来模拟 —— CSS 的 `vw` 不受它影响，正好：几何那组量的是真实视口，状态那组只关心判定。
+ */
+const originalInnerWidth = Object.getOwnPropertyDescriptor(window, "innerWidth")
+
+function setViewportWidth(px) {
+  Object.defineProperty(window, "innerWidth", { configurable: true, get: () => px })
+  window.dispatchEvent(new Event("resize"))
+}
+
+function restoreViewportWidth() {
+  if (originalInnerWidth === undefined) delete window.innerWidth
+  else Object.defineProperty(window, "innerWidth", originalInnerWidth)
+  window.dispatchEvent(new Event("resize"))
+}
+
+// ---- 挂真实的那份逻辑（同一个 useSidebarLayout）----
+
+/** localStorage 是**同一个 origin 共享**的，改完必须放回去，否则会污染真应用的下次启动。 */
+const COLLAPSED_KEY = "webnote:sidebar-collapsed"
+const savedCollapsed = window.localStorage.getItem(COLLAPSED_KEY)
+window.localStorage.removeItem(COLLAPSED_KEY)
+
+let layout = null
+const Root = defineComponent({
+  setup() {
+    provideWorkspace()
+    layout = useSidebarLayout()
+    return () =>
+      h(TooltipProvider, null, {
+        default: () =>
+          h("div", { style: "display:flex; gap:16px; height:100%" }, [
+            h("div", { id: "docked", style: "display:flex; height:100%" }, [
+              h(AppSidebar, { width: 232 }),
+            ]),
+            h("div", { id: "overlay", style: "display:flex; height:100%" }, [
+              h(AppSidebar, { width: 232, overlay: true }),
+            ]),
+          ]),
+      })
+  },
+})
+
+step("挂载")
+createApp(Root).mount("#stage")
+await nextTick()
+await new Promise((r) => setTimeout(r, 50))
+
+if (layout === null) throw new Error("没拿到 useSidebarLayout 的返回值")
+
+lines.push(`视口 ${window.innerWidth}px，断点 ${OVERLAY_AT}px`)
+flush()
+
+// ---- 状态机 ----
+
+step("窄屏初始态")
+check("窄于断点：走浮层", layout.overlay.value === true, `overlay=${layout.overlay.value}`)
+check("浮层默认不露面", layout.hidden.value === true && layout.open.value === false, `hidden=${layout.hidden.value}`)
+
+step("按折叠按钮")
+layout.toggle()
+await nextTick()
+check("窄屏按一下：浮层打开", layout.open.value === true && layout.hidden.value === false)
+
+step("关掉它")
+layout.close()
+await nextTick()
+check("close：浮层收起", layout.open.value === false && layout.hidden.value === true)
+
+step("窄 → 宽")
+setViewportWidth(1100)
+await nextTick()
+check("宽于断点：回到布局里的一栏", layout.overlay.value === false)
+check("宽屏无偏好时默认展开", layout.hidden.value === false)
+check("跨断点把浮层复位", layout.open.value === false)
+
+step("宽屏按折叠")
+layout.toggle()
+await nextTick()
+check("宽屏按一下：记成收起", layout.hidden.value === true)
+check("宽屏的收起落了盘", window.localStorage.getItem(COLLAPSED_KEY) === "1")
+
+step("宽 → 窄")
+setViewportWidth(390)
+await nextTick()
+check("回到窄屏仍是浮层", layout.overlay.value === true)
+check("浮层不继承宽屏那份收起偏好", layout.hidden.value === true && layout.open.value === false)
+
+step("窄 → 宽（记忆生效）")
+setViewportWidth(1100)
+await nextTick()
+check("宽屏读回用户偏好：仍然收起", layout.hidden.value === true)
+
+restoreViewportWidth()
+await nextTick()
+
+// ---- 几何 ----
+
+step("量几何")
+const dockedAside = document.querySelector("#docked aside")
+const overlayAside = document.querySelector("#overlay aside")
+if (dockedAside === null || overlayAside === null) throw new Error("找不到两个 aside")
+
+const widthOf = (el) => +el.getBoundingClientRect().width.toFixed(2)
+const overlayWidth = widthOf(overlayAside)
+/**
+ * 浮层宽度分两段：手机（<480）铺满、左右各留 10px；再宽就是一张 280px 的卡片，
+ * 右边要留得出一列读得下去的正文。断点在 CSS 里（`max-[479px]:`），所以这张页换个
+ * `WINDOW=` 重跑一遍，两段都能被钉到。
+ */
+const MOBILE_FULL_AT = 480
+const mobileFull = window.innerWidth < MOBILE_FULL_AT
+const expectedOverlay = mobileFull ? window.innerWidth - 20 : Math.min(280, window.innerWidth * 0.82)
+
+lines.push(`视口 ${window.innerWidth}px（${mobileFull ? "手机全宽" : "平板卡片"}），期望 ${expectedOverlay.toFixed(2)}，实测 ${overlayWidth}`)
+flush()
+
+check("浮层宽度按视口分段算", Math.abs(overlayWidth - expectedOverlay) < 0.5, `${overlayWidth} vs ${expectedOverlay}`)
+check(
+  mobileFull ? "手机：铺满，只留左右 10px" : "平板：右缘留出一截正文",
+  mobileFull ? overlayWidth > window.innerWidth - 24 : overlayWidth < window.innerWidth - 40,
+  `宽 ${overlayWidth}，视口 ${window.innerWidth}`,
+)
+/**
+ * 停靠形态不量盒子：它带着 `calc(100vw - 480px)` 的上限（窄窗口里不让侧栏把编辑区挤没），
+ * 在这张 390 宽的探针页上那个值算出来是负的、盒子被压成 0 —— 而它在应用里根本不会出现
+ * （<900 一律走浮层）。这里只钉住「传进去的宽度还是唯一依据」这条。
+ */
+check(
+  "没有 overlay 时宽度照旧读传入值",
+  // 浏览器会把 `calc(100vw - 480px)` 归一成 `calc(-480px + 100vw)`，所以只比成分。
+  dockedAside.style.width === "232px" &&
+    dockedAside.style.maxWidth.includes("100vw") &&
+    dockedAside.style.maxWidth.includes("480px"),
+  `${dockedAside.style.width} / ${dockedAside.style.maxWidth}`,
+)
+check(
+  "浮层宽度只由视口决定，不写进行内样式",
+  overlayAside.style.width === "" && overlayAside.style.maxWidth === "",
+  `${overlayAside.style.width} / ${overlayAside.style.maxWidth}`,
+)
+check(
+  "两段宽度都是类（手机全宽 + 卡片上限）",
+  overlayAside.className.includes("w-[min(17.5rem,82vw)]") &&
+    overlayAside.className.includes("max-[479px]:w-[calc(100vw-1.25rem)]"),
+  overlayAside.className,
+)
+
+check("浮层用 pop 那一档阴影", overlayAside.getAttribute("class").includes("shadow-pop"), overlayAside.getAttribute("class"))
+check("停靠形态仍是 block 那一档", dockedAside.getAttribute("class").includes("shadow-block"), dockedAside.getAttribute("class"))
+
+// ---- 收尾：把共享的 localStorage 放回去 ----
+
+if (savedCollapsed === null) window.localStorage.removeItem(COLLAPSED_KEY)
+else window.localStorage.setItem(COLLAPSED_KEY, savedCollapsed)
+
+lines.push(`\n${passed} passed, ${failed} failed`)
+finished = true
+if (failed > 0) lines.unshift("FAIL")
+flush()
+</script>
+</body>
+</html>

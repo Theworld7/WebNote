@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue"
+import { onBeforeUnmount, onMounted, watch } from "vue"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { provideWorkspace } from "@/composables/useWorkspace"
 import { provideTables } from "@/composables/useTables"
@@ -7,6 +7,7 @@ import { provideSettings } from "@/composables/useSettings"
 import { provideTheme } from "@/composables/useTheme"
 import { useUpdateCheck } from "@/composables/useUpdateCheck"
 import { useResizableWidth } from "@/composables/useResizableWidth"
+import { useSidebarLayout } from "@/composables/useSidebarLayout"
 import AppSidebar from "@/components/AppSidebar.vue"
 import CloseWindowDialog from "@/components/CloseWindowDialog.vue"
 import EditorSurface from "@/components/EditorSurface.vue"
@@ -16,7 +17,7 @@ import ToastStack from "@/components/ToastStack.vue"
 import { suppressPageContextMenu } from "@/lib/dom"
 import { isTauriRuntime } from "@/lib/fs"
 
-const { hasDirty, bootstrap, fs, root, attachTableRegistry, attachIntegrateTables, attachAutoSave, save, attachCloseGuard, requestWindowClose, persistSession } =
+const { hasDirty, bootstrap, fs, root, activePath, attachTableRegistry, attachIntegrateTables, attachAutoSave, save, attachCloseGuard, requestWindowClose, persistSession } =
   provideWorkspace()
 // 数据表注册表与工作区**共用同一对 driver / root**：切目录时两者必须一起换语境，
 // 各持一份引用迟早对不齐（见 useTables 的注释）。
@@ -56,46 +57,23 @@ attachAutoSave(settings.autoSave)
 const { width: sidebarWidth, dragging, startDrag } = useResizableWidth()
 
 /**
+ * 侧栏的可见性。宽屏是布局里的一栏（收起偏好落盘），窄屏是一张盖在编辑区上的浮层
+ * （默认不出现，不落盘）—— 两套语义都在 `useSidebarLayout` 里，见那边的注释。
+ */
+const { overlay, open: overlayOpen, hidden: sidebarHidden, toggle: toggleSidebar, close: closeOverlay } = useSidebarLayout()
+
+/**
+ * 窄屏挑完一篇笔记就把浮层收起来：手机上点树行的目的就是看正文，不该再多点一下遮罩。
+ * 判据是 `activePath` 变了 —— 打开、切换、新建落成标签都会经过它。宽屏下这行只是个空写的
+ * 赋值，浮层本来就关着。
+ */
+watch(activePath, closeOverlay)
+
+/**
  * 新版本检测。挂在根组件而不是那颗按钮里：它是一次启动只发生一次的查网动作，
  * 按钮只负责「有结果就画出来」。查不到就什么都不发生（见 `useUpdateCheck`）。
  */
 const { checkOnLaunch } = useUpdateCheck()
-
-/**
- * 侧栏折叠，两个来源分开存：
- *
- * - `userCollapsed` 是用户的选择，落 localStorage，跨会话记住；
- * - `autoCollapsed` 只是「窗口现在太窄」的镜像，不落盘 —— 宽回来它自己就解除了，
- *   用户的偏好不该被一次窄窗口改写。
- *
- * 手点按钮时先看 `autoCollapsed`：窄窗口下按它是「临时展开」，只解除自动折叠；
- * 正常宽度下按它才真的写偏好。否则窄窗口里点一下就会被下一次 resize 折回去。
- */
-const SIDEBAR_COLLAPSED_KEY = "webnote:sidebar-collapsed"
-/** 窄于这个宽度就自动收起侧栏 —— 侧栏加上拖拽条要吃掉 244px，再窄编辑区就只剩一行。 */
-const AUTO_COLLAPSE_AT = 900
-
-const userCollapsed = ref(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1")
-const autoCollapsed = ref(false)
-const collapsed = computed(() => userCollapsed.value || autoCollapsed.value)
-
-/** 只在**跨过**阈值时改状态：每次 resize 都写会把用户刚展开的侧栏又折回去。 */
-let wasNarrow = false
-function syncAutoCollapse() {
-  const narrow = window.innerWidth < AUTO_COLLAPSE_AT
-  if (narrow === wasNarrow) return
-  wasNarrow = narrow
-  autoCollapsed.value = narrow
-}
-
-function toggleSidebar() {
-  if (autoCollapsed.value) {
-    autoCollapsed.value = false
-    return
-  }
-  userCollapsed.value = !userCollapsed.value
-  window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, userCollapsed.value ? "1" : "0")
-}
 
 /**
  * 关窗兜底，分两条路：
@@ -129,6 +107,11 @@ function onBeforeUnload(event: BeforeUnloadEvent) {
  * 那张「保存网页」。
  */
 function onKeyDown(event: KeyboardEvent) {
+  // 浮层开着时 Esc 是关闭它的第一直觉键，先吃掉，不让它冒到别处（比如关菜单）。
+  if (event.key === "Escape" && overlayOpen.value) {
+    closeOverlay()
+    return
+  }
   if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey) return
   if (event.key.toLowerCase() !== "s") return
   event.preventDefault()
@@ -138,10 +121,7 @@ function onKeyDown(event: KeyboardEvent) {
 onMounted(() => {
   window.addEventListener("beforeunload", onBeforeUnload)
   window.addEventListener("keydown", onKeyDown)
-  window.addEventListener("resize", syncAutoCollapse)
   window.addEventListener("contextmenu", suppressPageContextMenu)
-  // 挂载时就量一次：上次关窗时窗口可能是窄的，恢复出来的宽度不一定会派发 resize。
-  syncAutoCollapse()
   // 工作区要在挂载后再进 —— 它要异步挑运行时驱动（Tauri / 浏览器），还可能去恢复上次的目录。
   void bootstrap()
   // 不去 await：查网慢一点不该拖住首屏，按钮什么时候出来都行。
@@ -162,7 +142,6 @@ onBeforeUnmount(() => {
   unlistenCloseBlocked?.()
   window.removeEventListener("beforeunload", onBeforeUnload)
   window.removeEventListener("keydown", onKeyDown)
-  window.removeEventListener("resize", syncAutoCollapse)
   window.removeEventListener("contextmenu", suppressPageContextMenu)
 })
 </script>
@@ -171,19 +150,48 @@ onBeforeUnmount(() => {
   <TooltipProvider>
     <!-- 窗口无系统装饰，chrome 是自绘的一条 44px 标题栏（品牌 / 全局动作 / 文档信息 /
          窗口按钮，见 ADR-0024）；标签在编辑卡片自己的第一行里（ADR-0033）。chrome 贴着
-         窗口上沿，下面的卡片区才留内边距。侧栏折叠状态要跨这两块用（chrome 里的按钮改它，
-         下面的侧栏读它），所以留在根组件。 -->
+         窗口上沿，下面的卡片区才留内边距。侧栏的可见性要跨这两块用（chrome 里的按钮改它，
+         下面的侧栏读它），所以在根组件取一份（状态本身在 `useSidebarLayout` 里）。 -->
     <div class="flex h-screen flex-col overflow-hidden bg-canvas">
-      <TitleBar :sidebar-collapsed="collapsed" @toggle-sidebar="toggleSidebar" />
+      <TitleBar :sidebar-collapsed="sidebarHidden" @toggle-sidebar="toggleSidebar" />
 
       <!-- 不给 gap：左右两区之间的间隔只由 PaneResizer 的 w-3 一处承担，
-           再叠 gap 会让它变成 12 + 10 + 10 = 32px。折叠侧栏时两者都不渲染，编辑区直接占满。 -->
+           再叠 gap 会让它变成 12 + 10 + 10 = 32px。折叠侧栏时两者都不渲染，编辑区直接占满。
+           窄屏（<900）两栏都不进布局 —— 侧栏改走下面的浮层，编辑区独占整行。 -->
       <div class="flex min-h-0 flex-1 px-2.5 pb-2.5 pt-1">
-        <AppSidebar v-if="!collapsed" :width="sidebarWidth" />
-        <PaneResizer v-if="!collapsed" :dragging="dragging" @drag-start="startDrag" />
+        <template v-if="!overlay">
+          <AppSidebar v-if="!sidebarHidden" :width="sidebarWidth" />
+          <PaneResizer v-if="!sidebarHidden" :dragging="dragging" @drag-start="startDrag" />
+        </template>
         <EditorSurface />
       </div>
     </div>
+
+    <!-- 窄屏的侧栏浮层：盖在编辑区上，不占布局。顶边让开 44px 的标题栏（+ 卡片区的 4px
+         上内边距），那颗折叠按钮才不会被压在底下 —— 开着的时候再按一次就是关掉。
+         点遮罩、按 Esc、挑完一篇笔记都会收起；进出各 150ms，减少动效偏好下不播。 -->
+    <Transition
+      enter-active-class="transition-opacity duration-150 motion-reduce:transition-none"
+      enter-from-class="opacity-0"
+      leave-active-class="transition-opacity duration-100 motion-reduce:transition-none"
+      leave-to-class="opacity-0"
+    >
+      <div
+        v-if="overlay && overlayOpen"
+        class="reduce-transparency:bg-black/45 supports-backdrop-filter:backdrop-blur-xs reduce-transparency:backdrop-blur-none fixed inset-x-0 top-12 bottom-0 z-40 bg-black/25"
+        @click="closeOverlay"
+      />
+    </Transition>
+    <Transition
+      enter-active-class="transition duration-150 ease-out motion-reduce:transition-none"
+      enter-from-class="-translate-x-3 opacity-0"
+      leave-active-class="transition duration-100 ease-in motion-reduce:transition-none"
+      leave-to-class="-translate-x-3 opacity-0"
+    >
+      <div v-if="overlay && overlayOpen" class="fixed top-12 bottom-2.5 left-2.5 z-50 flex">
+        <AppSidebar overlay :width="sidebarWidth" />
+      </div>
+    </Transition>
 
     <CloseWindowDialog />
     <ToastStack />

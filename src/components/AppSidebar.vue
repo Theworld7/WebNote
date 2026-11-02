@@ -14,7 +14,16 @@ import DeleteDialog from "./DeleteDialog.vue"
 import FileTree from "./FileTree.vue"
 import RenameDialog from "./RenameDialog.vue"
 
-defineProps<{ width: number }>()
+/**
+ * `overlay` 是窄屏（<900）下的形态：它不在布局里流动，而是一张盖在编辑区上的卡片。
+ * 宽度因此不读桌面拖拽出来的那份偏好 —— 232px 在手机上正好卡掉半屏、露出多少正文
+ * 全凭运气，所以按视口算。
+ *
+ * 两段：手机（<480）铺满，左右各留 10px；平板竖屏（480~899）仍是一张 280px 的卡片，
+ * 右边露出来的那一列正文要读得下去。480 以下露出来的那条既读不了也点不到（点上去是
+ * 关浮层），只是装饰，不如让给树。
+ */
+defineProps<{ width: number; overlay?: boolean }>()
 
 const { query, rootName, hasRoot, scanning, fsHint, openRoot, refreshTree, importMarkdownInto, exportMarkdownTree } = useWorkspace()
 const { notify } = useToast()
@@ -74,10 +83,17 @@ function setQuery(value: string | number) {
 <template>
   <!-- `maxWidth` 兜住窄窗口：记下来的宽度可以到 420px，而窗口最小只有 720 ——
        不放这条的话，用户在宽窗口里把侧栏拖到最宽，之后把窗口缩小，编辑区就只剩一条。
-       480px 是编辑区还读得下去的下限（正文 gutter 收缩之后的行宽）。 -->
+       480px 是编辑区还读得下去的下限（正文 gutter 收缩之后的行宽）。
+       浮层形态下宽度改按视口算（且带一段手机全宽，见上面的 prop 注释），阴影也跟着换一级 ——
+       它盖在正文之上，是 pop 那一档。 -->
   <aside
-    class="flex flex-none flex-col overflow-hidden rounded-block bg-card shadow-block"
-    :style="{ width: `${width}px`, maxWidth: 'calc(100vw - 480px)' }"
+    class="flex flex-none flex-col overflow-hidden rounded-block bg-card"
+    :class="
+      overlay
+        ? 'w-[min(17.5rem,82vw)] max-[479px]:w-[calc(100vw-1.25rem)] shadow-pop'
+        : 'shadow-block'
+    "
+    :style="overlay ? undefined : { width: `${width}px`, maxWidth: 'calc(100vw - 480px)' }"
   >
     <!-- 工作区行：当前根目录 + 新建 + 换目录 + 重扫。品牌名已经搬到窗口 chrome（ADR-0024），
          这一行就是侧栏的顶 —— 树是主角，不为了「有个头部」再占掉 42px。
@@ -177,7 +193,7 @@ function setQuery(value: string | number) {
         <Input
           :model-value="query"
           placeholder="搜索笔记…"
-          class="h-full rounded-none border-0 bg-transparent px-0 text-13 shadow-none focus-visible:border-transparent focus-visible:ring-0 md:text-13"
+          class="h-full rounded-none border-0 bg-transparent px-0 text-13 shadow-none focus-visible:border-transparent focus-visible:ring-0 md:text-13 dark:bg-transparent"
           @update:model-value="setQuery"
         />
       </div>

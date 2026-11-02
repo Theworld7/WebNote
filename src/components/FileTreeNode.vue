@@ -6,9 +6,11 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useToast } from "@/composables/useToast"
+import { usePressHold } from "@/composables/usePressHold"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { fileStem } from "@/lib/fs/policy"
 import { importSummaryText } from "@/lib/markdown"
+import { LONG_PRESS_MS } from "@/lib/touch"
 import { cn } from "@/lib/utils"
 import FileMenuItems from "./FileMenuItems.vue"
 
@@ -36,6 +38,12 @@ const {
   importMarkdownInto,
 } = useWorkspace()
 const { notify } = useToast()
+
+/**
+ * 按住不放的底色。文件夹行与文件行共用一个实例 —— 两个分支互斥渲染，同一时刻只有一行
+ * 能收到指针。
+ */
+const { pressed, down: pressDown, move: pressMove, release: pressRelease } = usePressHold()
 
 // 节点的 id 就是完整工作区路径（见 `lib/fs/policy` 的 `folderNode` / `fileNode`）。
 // 整合视图把数据表挂到笔记名下，这时「父目录 + 名字」拼不出表的真实路径，只能读 id。
@@ -69,8 +77,20 @@ const isDropTarget = computed(() => isFolder.value && dropTargetPath.value === f
 // 缩进靠 padding 而非嵌套容器的 margin，这样 hover 底色仍是一整行。
 const rowStyle = computed(() => ({ paddingLeft: `${6 + props.depth * 16}px` }))
 
+/**
+ * 行。
+ *
+ * 底色分三层，触摸端全靠它们说话（`hover:` 在 Tailwind v4 里只对带指针的设备生效，
+ * 手指按下时那一层根本不触发）：
+ * - `hover:bg-muted` 悬停；
+ * - `data-[pressed]` 按住。落下去先垫一层浅底，再交给 `data-[pressed]:duration-500`
+ *   把底色在 `LONG_PRESS_MS` 里推到 `muted-strong` —— 按住的那半秒看得见在蓄力，
+ *   到点菜单弹出（reka 的 `pressOpenDelay` 传的是同一个值）。状态由 `usePressHold`
+ *   算，不靠 `:active`，理由见那边的注释；
+ * - `data-[state=open]` 菜单开着时整行保持深色，用户始终知道这份菜单作用于哪一行。
+ */
 const ROW =
-  "mb-0.5 flex h-7 cursor-default items-center gap-1.5 rounded-md pr-1.5 text-13 select-none hover:bg-muted group/row"
+  "mb-0.5 flex h-7 cursor-default items-center gap-1.5 rounded-md pr-1.5 text-13 select-none transition-colors duration-100 hover:bg-muted data-[pressed]:bg-muted-strong data-[pressed]:duration-500 data-[state=open]:bg-muted-strong group/row"
 
 /** 行尾菜单按钮：hover 才现身，与 `+` 按钮共用一套观感。 */
 const MENU_BUTTON =
@@ -100,7 +120,7 @@ function startDrag(event: DragEvent) {
 
 <template>
   <Collapsible v-if="isFolder" :open="isOpen" @update:open="toggleExpanded(node.id)">
-    <ContextMenu>
+    <ContextMenu :press-open-delay="LONG_PRESS_MS">
       <!-- 触发区是**整行**：原来就是整行可点，把 trigger 收到内层会让缩进区与
            「行右缘的空白」点不动 —— 用户会以为折叠坏了。`+` 按钮用 `@click.stop`
            把自己摘出去，既不折叠也不影响行。 -->
@@ -114,6 +134,11 @@ function startDrag(event: DragEvent) {
             :style="rowStyle"
             :data-tree-kind="'folder'"
             :data-tree-path="fullPath"
+            :data-pressed="pressed ? 'true' : undefined"
+            @pointerdown="pressDown"
+            @pointermove="pressMove"
+            @pointerup="pressRelease"
+            @pointercancel="pressRelease"
           >
             <ChevronRightIcon
               :class="cn('size-3 shrink-0 text-muted-foreground transition-transform', isOpen && 'rotate-90')"
@@ -194,7 +219,7 @@ function startDrag(event: DragEvent) {
   <!-- 文件行（笔记 / 数据表）。整合视图把引用表挂在笔记名下，所以行外面套一层
        Collapsible —— 但触发区**不是**整行：点行要打开文件，只有右端的箭头才折叠。 -->
   <Collapsible v-else :open="isRefsOpen">
-    <ContextMenu>
+    <ContextMenu :press-open-delay="LONG_PRESS_MS">
       <ContextMenuTrigger as-child>
         <div
           draggable="true"
@@ -206,9 +231,14 @@ function startDrag(event: DragEvent) {
           :style="rowStyle"
           :data-tree-kind="node.kind"
           :data-tree-path="fullPath"
+          :data-pressed="pressed ? 'true' : undefined"
           @dragstart="startDrag"
           @dragend="draggingPath = ''"
           @click="openFile(fullPath)"
+          @pointerdown="pressDown"
+          @pointermove="pressMove"
+          @pointerup="pressRelease"
+          @pointercancel="pressRelease"
         >
           <!-- 数据表、Markdown 各一个图标：树上同名 / 相邻的几种文件靠它一眼分开。 -->
           <DatabaseIcon

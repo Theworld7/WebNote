@@ -4,7 +4,9 @@ import { computed } from "vue"
 import { LoaderCircleIcon, SaveIcon, XIcon } from "@lucide/vue"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { isMarkdownFile, isTableFile } from "@/lib/fs/policy"
+import { usePressHold } from "@/composables/usePressHold"
 import { fileName } from "@/lib/paths"
+import { LONG_PRESS_MS } from "@/lib/touch"
 import { cn } from "@/lib/utils"
 import FileMenuItems from "./FileMenuItems.vue"
 
@@ -29,6 +31,9 @@ const emit = defineEmits<{
 
 const label = computed(() => fileName(props.tab.path))
 
+/** 按住不放的底色。理由与时长见 `usePressHold` 与 `lib/touch`。 */
+const { pressed, down: pressDown, move: pressMove, release: pressRelease } = usePressHold()
+
 /**
  * 标签右键给的是**文件树里那一行**的菜单（ADR-0046）：同一条路径、同一批动作。
  * kind 由名字判 —— 标签只存路径，这里按 `lib/fs/policy` 的同一套后缀口径反推。
@@ -42,19 +47,27 @@ const kind = computed(() => {
 </script>
 
 <template>
-  <ContextMenu>
+  <ContextMenu :press-open-delay="LONG_PRESS_MS">
     <ContextMenuTrigger as-child>
       <button
         type="button"
         :class="cn(
           // 胶囊（28px 高 → 14px，正好是 `--radius-island`）：标签住在 18px 圆角的卡片里，
           // 9px 和 18px 两颗圆弧挨在一起像在互相较劲；胶囊的曲率不跟任何相邻圆角比大小。
-          'group/tab flex h-7 max-w-[14.375rem] shrink-0 items-center gap-1.5 rounded-full pr-2 pl-3 text-xs transition-colors',
+          // 按住那半秒的蓄力与树行同一套：`data-[pressed]:duration-500` 把底色推到
+          // `muted-strong`，和 reka 的 `pressOpenDelay`（`LONG_PRESS_MS`）同点。激活的标签
+          // 本来就是选中底色，只压暗一点 —— 换成灰底会像是「选中丢了」。
+          'group/tab flex h-7 max-w-[14.375rem] shrink-0 items-center gap-1.5 rounded-full pr-2 pl-3 text-xs transition-colors duration-100 data-[pressed]:duration-500',
           active
-            ? 'bg-selection font-medium text-selection-foreground'
-            : 'text-muted-foreground hover:bg-muted',
+            ? 'bg-selection font-medium text-selection-foreground data-[pressed]:bg-selection/90'
+            : 'text-muted-foreground hover:bg-muted data-[pressed]:bg-muted-strong data-[state=open]:bg-muted-strong',
         )"
+        :data-pressed="pressed ? 'true' : undefined"
         @click="emit('activate', tab.path)"
+        @pointerdown="pressDown"
+        @pointermove="pressMove"
+        @pointerup="pressRelease"
+        @pointercancel="pressRelease"
       >
         <span class="min-w-0 truncate">{{ label }}</span>
 
