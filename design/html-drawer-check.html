@@ -100,6 +100,17 @@ check("空块渲染可聚焦占位", placeholder !== null, "")
 check("初始不弹抽屉", document.querySelector("[data-editor-surface] .monaco-editor") === null, "")
 
 // 焦点落到占位（BlockEditor 聚焦新块的同一条路）→ 抽屉拉开。
+//
+// 顺手盯住加载态：Monaco 是首次打开才动态拉进来的（几 MB + 四个 worker），抽屉滑出来
+// 那一下不能是一块空底。每 10ms 采一次，采到过就算成立 —— 只看「此刻在不在」会在加载
+// 快的时候假失败。
+let sawLoadingHint = false
+const loadingHintWatcher = setInterval(() => {
+  const hintShown = [...document.querySelectorAll("[data-html-source-drawer] div")].some(
+    (el) => el.textContent?.trim() === "正在加载编辑器…",
+  )
+  if (hintShown) sawLoadingHint = true
+}, 10)
 placeholder?.focus()
 await wait(200)
 
@@ -109,6 +120,12 @@ check("聚焦占位后抽屉打开", drawer !== null, "")
 // Monaco 动态加载需要时间，轮询等编辑器落进抽屉。
 const monacoHost = await until(() => document.querySelector("[data-html-source-drawer] .monaco-editor"), 20000)
 check("抽屉内挂上 Monaco", monacoHost !== null, "")
+clearInterval(loadingHintWatcher)
+check("首次打开先给加载提示（Monaco 还没到）", sawLoadingHint)
+check("编辑器到位后加载提示消失",
+  [...document.querySelectorAll("[data-html-source-drawer] div")].every(
+    (el) => el.textContent?.trim() !== "正在加载编辑器…",
+  ))
 
 // 往编辑器里写内容再点「完成」提交。
 //

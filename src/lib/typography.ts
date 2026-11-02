@@ -280,6 +280,7 @@ export const BLOCK_SPACING: Readonly<Record<BlockType, BlockSpacing>> = {
   subscription: { top: 16, bottom: 16 },
   playlist: { top: 16, bottom: 16 },
   chat: { top: 16, bottom: 16 },
+  secret: { top: 16, bottom: 16 },
   layout: { top: 16, bottom: 16 },
   html: { top: 16, bottom: 16 },
 }
@@ -655,6 +656,17 @@ ${headingRules}
     .note-kfield .v { font-size: 12px; line-height: 1.4; overflow-wrap: break-word; }
     .note-kfield input[type="checkbox"] { width: 14px; height: 14px; margin: 0; accent-color: rgba(0,0,0,.7); }
     .note-empty { color: var(--muted); opacity: .6; }
+    /* 密钥块与 SecretBlockView 对齐:一张灰底卡,上面一行名称、中间一行等宽掩码、
+       最下面一行小字备注。掩码本身不靠这条 CSS —— 导出文件里的可见文本本来就是点
+       (见 SecretBlock 的注释),这里只负责让它看着像一张卡。 */
+    .note-secret { margin: ${BLOCK_SPACING.secret.top}px 0; padding: 10px 14px;
+      border: 1px solid var(--line); border-radius: 8px; background: var(--bg-soft); }
+    .note-secret p { margin: 0; }
+    .note-secret-name { font-size: 13px; font-weight: 600; line-height: 1.5; }
+    .note-secret-value { margin-top: 6px; padding: 5px 8px; border-radius: 6px;
+      background: Canvas; font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
+      font-size: 12px; letter-spacing: .12em; color: var(--muted); }
+    .note-secret-note { margin-top: 6px; font-size: 11px; color: var(--muted); }
     .note-bookmark .note-bookmarks { margin: 0; padding: 0; list-style: none;
       display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
     .note-bookmark[data-columns="1"] .note-bookmarks { grid-template-columns: repeat(1, minmax(0, 1fr)); }

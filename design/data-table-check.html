@@ -74,7 +74,9 @@ check(
   BLOCK_TYPES.findIndex((m) => m.type === "datatable") ===
     BLOCK_TYPES.findIndex((m) => m.type === "table") + 1,
 )
-check("BLOCK_TYPES 共 28 种", BLOCK_TYPES.length === 28, `实际 ${BLOCK_TYPES.length}`)
+// 数字故意写死：加一个块类型就该来改这一行，顺便走一遍「类型 / 登记表 / 造块 /
+// 克隆 / 投影 / 序列化 / 解析 / 导出样式」这份接入清单。
+check("BLOCK_TYPES 共 29 种", BLOCK_TYPES.length === 29, `实际 ${BLOCK_TYPES.length}`)
 
 const refBlock = createDataTableBlock("客户.tbl")
 check("引用块是 datatable 且带路径", refBlock.type === "datatable" && refBlock.path === "客户.tbl")

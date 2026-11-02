@@ -59,6 +59,19 @@ pins the row's parent (the card), its position (first child), its height, the 4p
 chips, the 10px inset, the 44px + 4px chrome budget, and that twelve tabs overflow inside the card
 instead of widening it.
 
+**The strip follows the active tab.** Once the strip scrolls, switching to a document whose chip
+sits past the edge used to leave the strip exactly where it was: the body changed and the tab list
+gave no sign of it. `EditorTabBar` now moves `scrollLeft` so the active chip is fully inside the
+viewport — one edge only, and only when that chip is actually cut off, so a position the user
+scrolled to by hand survives every switch that stays inside it. It computes `scrollLeft` itself
+rather than calling `scrollIntoView`, which also scrolls the ancestors and would shift the whole
+canvas along with the strip. The strip gains `pr-6`: at the far end `scrollLeft` can only reach
+`scrollWidth - clientWidth`, so without 24px of trailing space the last chip would still sit under
+the right-hand gradient — the same 24px the scroll offset keeps free on the left. `tab-housing-check`
+pins the three cases that matter: a session restored with the twelfth tab active scrolls it into
+view, switching back to the first returns to 0, and a switch between two visible chips does not move
+the strip at all.
+
 **Considered.**
 
 *Keep the row, only narrow it to the editor width* (option B in the review) — rejected: it spends a

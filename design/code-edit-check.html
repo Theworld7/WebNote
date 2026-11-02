@@ -85,6 +85,16 @@ async function until(predicate, timeout = 8000) {
 
 // ---------- 一、空代码块插入即进编辑态 ----------
 
+// 顺手盯住加载态：Monaco 首次是按需拉的（ADR-0017），拉到之前编辑态不能是一块空底。
+// 每 10ms 采一次，采到过就算成立 —— 只看「此刻在不在」会在加载快的时候假失败。
+let sawBooting = false
+const bootingWatcher = setInterval(() => {
+  const shown = [...document.querySelectorAll("[data-block-id] div")].some(
+    (el) => el.textContent?.trim() === "正在加载编辑器…",
+  )
+  if (shown) sawBooting = true
+}, 10)
+
 const id = workspace.appendBlock("code")
 await nextTick()
 const codeBlock = () => workspace.activeDocument.value.find((block) => block.type === "code")
@@ -92,6 +102,10 @@ const codeBlock = () => workspace.activeDocument.value.find((block) => block.typ
 check("插入空的 code 块", codeBlock() !== undefined && codeBlock().id === id, JSON.stringify(codeBlock()))
 const hasMonaco = await until(() => row(id)?.querySelector(".monaco-editor") != null)
 check("空块自动进入编辑态（Monaco 已挂上）", hasMonaco, row(id)?.outerHTML.slice(0, 160) ?? "行不存在")
+clearInterval(bootingWatcher)
+check("首次进编辑态先给加载提示（Monaco 还没到）", sawBooting)
+check("实例到位后加载提示消失",
+  [...(row(id)?.querySelectorAll("div") ?? [])].every((el) => el.textContent?.trim() !== "正在加载编辑器…"))
 check("同时只有一个 Monaco 实例", editors().length === 1, `实例数 ${editors().length}`)
 check("编辑态有语言下拉", row(id)?.querySelector("select") !== null, "")
 check("编辑态有「完成」按钮", [...(row(id)?.querySelectorAll("button") ?? [])].some((b) => b.textContent?.includes("完成")), "")

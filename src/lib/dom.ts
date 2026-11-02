@@ -246,3 +246,21 @@ export function closestTreeRow(el: Element): { path: string; kind: string } | nu
   if (path === undefined || kind === undefined) return null
   return { path, kind }
 }
+
+/**
+ * 吃掉网页自己的右键菜单。
+ *
+ * 挂在窗口上（`App.vue`），一处管全应用：无装饰窗口里，「后退 / 重新加载 / 检查元素」
+ * 没有一个动作对笔记有意义，而它长得像系统菜单、点下去却像坏掉了。文件树的行与编辑器
+ * 标签另挂了自己的右键菜单（`FileMenuItems`），它们自己 preventDefault —— 这里多拦一次
+ * 不会影响它们。
+ *
+ * **Monaco 例外**：代码块右键要的是编辑器自己那套（剪切 / 复制 / 粘贴 / 命令面板），
+ * 那是它画在 DOM 里的菜单，不是网页菜单。按最近的 `.monaco-editor` 判断，而不是看
+ * 事件目标是不是编辑器的一层壳。
+ */
+export function suppressPageContextMenu(event: MouseEvent): void {
+  const target = event.target
+  if (target instanceof Element && target.closest(".monaco-editor") !== null) return
+  event.preventDefault()
+}

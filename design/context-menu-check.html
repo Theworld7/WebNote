@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>右键菜单自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { display: flex; height: 360px; margin-bottom: 16px; }
+  .monaco-editor { height: 40px; background: #eee; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>右键菜单：网页菜单被吃掉、树行与标签给同一份文件菜单</h1>
+<div id="app"></div>
+<div class="monaco-editor" id="fake-monaco">（假装这里是 Monaco）</div>
+<pre id="out">running…</pre>
+<script type="module">
+import { createApp, defineComponent, h, nextTick } from "vue"
+// 必须引应用样式表：菜单项的几何与底色都由 Tailwind 类决定。
+import "../src/style.css"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import AppSidebar from "../src/components/AppSidebar.vue"
+import EditorTab from "../src/components/EditorTab.vue"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { suppressPageContextMenu } from "../src/lib/dom.ts"
+import { createMemoryFs } from "./memory-fs.ts"
+
+const out = document.querySelector("#out")
+const lines = []
+let passed = 0
+let failed = 0
+
+addEventListener("error", (event) => {
+  out.textContent = `ERROR ${event.message}\n${lines.join("\n")}`
+})
+addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason
+  out.textContent = `REJECT ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}\n${lines.join("\n")}`
+})
+
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  out.textContent = lines.join("\n")
+}
+
+/** 等 Vue 与 reka 的浮层落地：菜单是 nextTick 之后才挂进 portal 的。 */
+async function settle() {
+  for (let i = 0; i < 4; i += 1) {
+    await nextTick()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+}
+
+// ---- 一、网页自己的右键菜单被吃掉（Monaco 例外） ----
+
+/** 从元素上真派发一次右键，再让应用那个处理函数跑一遍 —— 它靠 `event.target` 判断。 */
+function contextMenuOn(element) {
+  const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 })
+  element.dispatchEvent(event)
+  suppressPageContextMenu(event)
+  return event
+}
+
+const plain = document.createElement("div")
+document.body.append(plain)
+check("普通区域：右键被 preventDefault", contextMenuOn(plain).defaultPrevented)
+
+const monaco = document.querySelector("#fake-monaco")
+check("Monaco 里不拦（编辑器自己的菜单要用）", contextMenuOn(monaco).defaultPrevented === false)
+
+// ---- 二、真实侧栏 + 内存 driver ----
+
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    return () =>
+      h(TooltipProvider, null, {
+        default: () => [
+          h(AppSidebar, { width: 260 }),
+          h(EditorTab, {
+            tab: { path: "笔记 / 第一篇.html", dirty: false },
+            active: true,
+            unsaved: false,
+            saving: false,
+          }),
+        ],
+      })
+  },
+})
+
+const memory = createMemoryFs()
+createApp(Root).mount("#app")
+await nextTick()
+await workspace.attachForTest(memory.fs, { kind: "path", path: "/stub" })
+await nextTick()
+
+workspace.dismissError()
+await workspace.createFolderIn("", "笔记")
+await workspace.createNoteIn("笔记", "第一篇")
+await workspace.createNoteIn("笔记", "第二篇")
+await settle()
+
+function treeRow(name) {
+  return [...document.querySelectorAll("[data-tree-path]")].find((el) => el.textContent.includes(name)) ?? null
+}
+
+/** 派一次真实右键。reka 的 trigger 只认 DOM 事件，构造函数的合成事件同样是 DOM 事件。 */
+function rightClick(element) {
+  const rect = element.getBoundingClientRect()
+  return element.dispatchEvent(
+    new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+      buttons: 2,
+      clientX: Math.round(rect.left + 12),
+      clientY: Math.round(rect.top + 8),
+    }),
+  )
+}
+
+function menuItems() {
+  const menu = document.querySelector('[data-slot="context-menu-content"]')
+  if (menu === null) return []
+  return [...menu.querySelectorAll('[data-slot="context-menu-item"]')].map((item) => item.textContent.trim())
+}
+
+const fileRow = treeRow("第一篇")
+check("树上有文件行", fileRow !== null)
+rightClick(fileRow)
+await settle()
+const fileItems = menuItems()
+check("右键文件行弹出菜单", fileItems.length > 0, JSON.stringify(fileItems))
+check("菜单里是文件那一套动作（重命名 / 删除）",
+  fileItems.includes("重命名") && fileItems.includes("删除"), JSON.stringify(fileItems))
+check("桌面端才有的动作也在（复制路径 / 在文件管理器里定位）",
+  fileItems.includes("复制路径") && fileItems.includes("打开所在位置"), JSON.stringify(fileItems))
+
+// 点菜单项走的是真对话框：重命名那一路在 AppSidebar 里，两处入口共用 `useTreeDialogs`。
+// 菜单项的选择走 reka 的 `click`（MenuItemImpl 的 onClick = handleSelect），不是 pointer 序列。
+const renameItem = [...document.querySelectorAll('[data-slot="context-menu-item"]')]
+  .find((item) => item.textContent.trim() === "重命名")
+check("菜单里点得到「重命名」", renameItem !== undefined)
+renameItem?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))
+await settle()
+// 重命名框是 AlertDialog（确认性动作），角色是 alertdialog 而不是 dialog。
+const renameDialog = document.querySelector('[role="alertdialog"]')
+check("点「重命名」打的是侧栏那颗真对话框", renameDialog !== null)
+check("对话框里带着这个文件名", renameDialog?.textContent.includes("第一篇") === true, renameDialog?.textContent ?? "")
+// 关掉：Esc 在 AlertDialog 上是故意不生效的，走「取消」那颗按钮。
+const cancelButton = [...(renameDialog?.querySelectorAll("button") ?? [])]
+  .find((button) => button.textContent.trim() === "取消")
+check("对话框里有「取消」", cancelButton !== undefined)
+cancelButton?.click()
+await settle()
+await settle()
+check("「取消」把对话框关掉", document.querySelector('[role="alertdialog"]') === null)
+
+// 左键仍然照常打开文件 —— `as-child` 把两个 trigger 叠在同一行上，别把点击吃掉。
+workspace.openFile("笔记 / 第一篇.html")
+await settle()
+check("左键打开文件不受影响", workspace.activePath.value === "笔记 / 第一篇.html", workspace.activePath.value)
+
+const folderRow = [...document.querySelectorAll('[data-tree-path="笔记"]')][0] ?? null
+check("树上有文件夹行", folderRow !== null)
+const expandedBefore = workspace.expandedIds.value.has("笔记")
+rightClick(folderRow)
+await settle()
+const folderItems = menuItems()
+check("右键文件夹行弹出菜单", folderItems.length > 0, JSON.stringify(folderItems))
+check("文件夹菜单是文件夹那一套（导出为 Markdown… / 重命名 / 删除）",
+  folderItems.includes("导出为 Markdown…") && folderItems.includes("重命名") && folderItems.includes("删除"),
+  JSON.stringify(folderItems))
+document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+await settle()
+await settle()
+check("Esc 关掉右键菜单", document.querySelector('[data-slot="context-menu-content"]') === null)
+
+folderRow.click()
+await settle()
+check("左键文件夹仍然折叠 / 展开", workspace.expandedIds.value.has("笔记") !== expandedBefore,
+  `${expandedBefore} → ${workspace.expandedIds.value.has("笔记")}`)
+
+// ---- 三、标签右键给的是同一份文件菜单 ----
+
+const tab = [...document.querySelectorAll("#app button")].find((button) => button.textContent.includes("第一篇") && button.closest("[data-tree-path]") === null)
+check("页面上有这条标签", tab !== undefined)
+if (tab !== undefined) {
+  rightClick(tab)
+  await settle()
+  const tabItems = menuItems()
+  check("右键标签弹出菜单", tabItems.length > 0, JSON.stringify(tabItems))
+  check("标签菜单与树上的文件菜单一致", JSON.stringify(tabItems) === JSON.stringify(fileItems), `${JSON.stringify(tabItems)} vs ${JSON.stringify(fileItems)}`)
+}
+
+lines.push(failed === 0 ? `自检 ${passed}/${passed}` : `自检 ${passed} 过 / ${failed} 败`)
+out.textContent = lines.join("\n")
+</script>
+</body>
+</html>

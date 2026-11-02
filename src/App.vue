@@ -13,6 +13,7 @@ import EditorSurface from "@/components/EditorSurface.vue"
 import PaneResizer from "@/components/PaneResizer.vue"
 import TitleBar from "@/components/TitleBar.vue"
 import ToastStack from "@/components/ToastStack.vue"
+import { suppressPageContextMenu } from "@/lib/dom"
 import { isTauriRuntime } from "@/lib/fs"
 
 const { hasDirty, bootstrap, fs, root, attachTableRegistry, attachIntegrateTables, attachAutoSave, save, attachCloseGuard, requestWindowClose, persistSession } =
@@ -138,6 +139,7 @@ onMounted(() => {
   window.addEventListener("beforeunload", onBeforeUnload)
   window.addEventListener("keydown", onKeyDown)
   window.addEventListener("resize", syncAutoCollapse)
+  window.addEventListener("contextmenu", suppressPageContextMenu)
   // 挂载时就量一次：上次关窗时窗口可能是窄的，恢复出来的宽度不一定会派发 resize。
   syncAutoCollapse()
   // 工作区要在挂载后再进 —— 它要异步挑运行时驱动（Tauri / 浏览器），还可能去恢复上次的目录。
@@ -161,6 +163,7 @@ onBeforeUnmount(() => {
   window.removeEventListener("beforeunload", onBeforeUnload)
   window.removeEventListener("keydown", onKeyDown)
   window.removeEventListener("resize", syncAutoCollapse)
+  window.removeEventListener("contextmenu", suppressPageContextMenu)
 })
 </script>
 

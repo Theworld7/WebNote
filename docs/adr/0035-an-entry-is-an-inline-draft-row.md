@@ -46,22 +46,36 @@ column is *not* prefilled with today (0034 did prefill it): a row carrying a dat
 would survive the release, and "empty" would stop meaning anything. Inline, the calendar is one
 click or one `↓` away on that cell regardless.
 
-**Enter fills rightwards inside a draft row.** Everywhere else Enter means "commit and go down the
-same column", which is how a column of amounts gets entered fastest. A record being typed for the
-first time is horizontal, so in the draft row Enter moves to the next input column and, from the
-last one, finishes the entry (exit → release → sort). Tab still does the same thing on every row,
-draft or not.
+**Enter and Tab both fill rightwards inside a draft row.** Everywhere else Enter means "commit and
+go down the same column", which is how a column of amounts gets entered fastest. A record being
+typed for the first time is horizontal, so in the draft row Enter moves to the next input column
+and, from the last one, finishes the entry (exit → release → sort).
+
+Tab had been left to the browser, first in the form (0034) and then here. That was a bug wearing the
+word "default": the next focusable element after an input in this row is **outside the table** — the
+sibling cells are spans, focusable only once they are in an editing state, and there is no editing
+state to reach without a click. So one Tab threw the caret out of the row, `editing` went empty, the
+release fired, and the row sorted away mid-entry with the remaining columns never filled. (Same
+symptom in kind as the freeze bug, different mechanism: that one was the row leaving; this one is the
+caret leaving.) Draft rows now take Tab for themselves and advance exactly like Enter, which is the
+point — one action, one meaning, regardless of which key you pressed to mean it. On a non-draft row
+Tab stays the browser's: there the row is finished, and moving focus out of the grid is a reasonable
+thing to want. Shift+Tab is not intercepted anywhere; a draft row has nothing to the left of its
+first input column, and the grid has no "previous cell" model to navigate.
 
 **Consequences.** `LedgerEntryDialog.vue` is gone, and with it `components/ui/dialog/` — that
 wrapper was added for this form and for nothing else (0034's `AlertDialog` argument), so it goes too
 rather than sitting unused. `LedgerBlockView` gains `draftRowId` (the pin), `releaseDraft` (delete
-if blank, flash if kept, drop the freeze), a draft-aware Enter and `onRowFocusOut` (the release
-`editing` cannot see). `design/ledger-entry-check.html` is rewritten for the new flow — the row
+if blank, flash if kept, drop the freeze), a draft-aware Enter **and Tab** (both through
+`advanceDraft`), and `onRowFocusOut` (the release `editing` cannot see). `design/ledger-entry-check.html`
+is rewritten for the new flow — the row
 lands at the top, Enter walks rightwards and skips the select cell, the row stays on top while being
 filled even though its date is older than the existing one, and it drops into date order once the
 last cell is committed. It also holds the two release cases that used to be misjudged: Tab into the
 select cell of the same row neither moves the row nor loses focus, and leaving mid-entry for another
-entry's cell sorts the new row immediately (into its month section, not a trailing one),
+entry's cell sorts the new row immediately (into its month section, not a trailing one), plus the
+Tab walk: taken over inside the draft row, cell by cell to the last input column, still pinned at
+the top with no row number until the last Tab finishes the entry,
 `design/ledger-edit-check.html` adds its rows through the same inline path instead of the form.
 
 There is **one draft at a time**: a second "记一笔" releases the first (blank ones are deleted), and

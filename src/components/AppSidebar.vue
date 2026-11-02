@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import type { CreateTarget, TreeTarget } from "@/types/workspace"
+import type { CreateTarget } from "@/types/workspace"
 import { EllipsisIcon, FileDownIcon, FolderIcon, FolderOpenIcon, PlusIcon, RefreshCwIcon, SearchIcon } from "@lucide/vue"
-import { computed, ref } from "vue"
+import { computed } from "vue"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useToast } from "@/composables/useToast"
+import { useTreeDialogs } from "@/composables/useTreeDialogs"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { exportSummaryText, importSummaryText } from "@/lib/markdown"
 import CreateDialog from "./CreateDialog.vue"
@@ -18,12 +19,11 @@ defineProps<{ width: number }>()
 const { query, rootName, hasRoot, scanning, fsHint, openRoot, refreshTree, importMarkdownInto, exportMarkdownTree } = useWorkspace()
 const { notify } = useToast()
 
-/** 挂起的命名对话框目标。null 表示关着。 */
-const createTarget = ref<CreateTarget | null>(null)
-
-/** 挂起的重命名 / 删除目标。null 表示各自关着。 */
-const renameTarget = ref<TreeTarget | null>(null)
-const deleteTarget = ref<TreeTarget | null>(null)
+/**
+ * 三个对话框的挂起目标住在 `useTreeDialogs`（模块作用域）—— 树上没有「导出全部」那一行，
+ * 而编辑器标签的右键菜单也要能重命名 / 删除同一个文件，两处入口共用一份目标状态。
+ */
+const { createTarget, renameTarget, deleteTarget, closeCreate, closeRename, closeRemove } = useTreeDialogs()
 
 /** 树的根层新建（父目录 = 工作区根，路径为空串）。空库时这里是唯一的入口。 */
 function requestCreate(kind: CreateTarget["kind"]) {
@@ -189,8 +189,8 @@ function setQuery(value: string | number) {
       @remove="(path, kind) => (deleteTarget = { path, kind })"
     />
 
-    <CreateDialog :target="createTarget" @close="createTarget = null" />
-    <RenameDialog :target="renameTarget" @close="renameTarget = null" />
-    <DeleteDialog :target="deleteTarget" @close="deleteTarget = null" />
+    <CreateDialog :target="createTarget" @close="closeCreate" />
+    <RenameDialog :target="renameTarget" @close="closeRename" />
+    <DeleteDialog :target="deleteTarget" @close="closeRemove" />
   </aside>
 </template>

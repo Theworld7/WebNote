@@ -1,5 +1,5 @@
 import type { Block, BookmarkBlock, ChatMessage, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, LedgerBlock, LedgerGroupMode, PlaylistBlock, StatBlock, SubscriptionBlock, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
-import { createBookmarkBlock, createChatBlock, createGalleryBlock, createHtmlBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createLedgerBlock, createMermaidBlock, createPlaylistBlockFrom, createStatBlock, createSubscriptionBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
+import { createBookmarkBlock, createChatBlock, createGalleryBlock, createHtmlBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createLedgerBlock, createMermaidBlock, createPlaylistBlockFrom, createSecretBlock, createStatBlock, createSubscriptionBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
 import { STAT_PRECISION_DEFAULT, STAT_PRECISION_OPTIONS } from "@/lib/data-table"
 import { SUBSCRIPTION_ROLE_ATTRS, SUBSCRIPTION_ROLES } from "@/lib/subscription"
 import type { SubscriptionRole } from "@/lib/subscription"
@@ -260,6 +260,11 @@ function parseBlockElement(element: Element, state: ParseState, depth: number): 
         state.blocks.push(parseChat(element))
         return
       }
+      // 密钥块以 data-secret 指针认领（真值就在这个属性里，可见文本是掩码）。
+      if (element.hasAttribute("data-secret")) {
+        state.blocks.push(parseSecret(element))
+        return
+      }
       // 布局块（ADR-0007）以 data-layout 指针认领；没有指针的 div 照旧穿透 ——
       // 剪藏来的页面满地都是 div，不能因为新增了容器块就改变它们的去处。
       if (element.hasAttribute("data-layout")) {
@@ -440,6 +445,20 @@ function parseChat(element: Element): Block {
     messages.push({ role: child.getAttribute("data-role") === "you" ? "you" : "agent", text })
   }
   return createChatBlock(messages)
+}
+
+/**
+ * 密钥块：三个字段全在属性里，子节点是渲染出来的快照，一律不读。
+ *
+ * 宽容口径与其它块一致：属性缺失归空串，不猜。于是手工把可见文本改掉、或者把
+ * 属性写坏了，坏掉的那一段只是变成空值，不会解析出一段来历不明的正文。
+ */
+function parseSecret(element: Element): Block {
+  return createSecretBlock(
+    element.getAttribute("data-name") ?? "",
+    element.getAttribute("data-secret") ?? "",
+    element.getAttribute("data-note") ?? "",
+  )
 }
 
 function parseTable(table: HTMLTableElement): TableBlock {

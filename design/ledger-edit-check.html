@@ -67,10 +67,35 @@ const NOTE_HTML = blocksToHtml(
   (path) => (path === "礼账.tbl" ? tableFromJson(TABLE_JSON) : null),
 )
 
+/**
+ * 第二张表：带一列**勾选**，排序按金额倒序。
+ *
+ * 单开一份而不是往上面那张表里加列：上面的用例全按下标取格，多一列会把整套断言挪位。
+ * 这里要验的也不是账目口径，而是「Tab 到同一行的非输入格时不许重排」—— 勾选格正好
+ * 是那种「可聚焦、没有输入态」的格子，`editing` 会在焦点还在行内时变空。
+ */
+const TABLE2 = {
+  version: 1,
+  columns: [
+    { id: "c1", name: "项目", type: "text", options: [] },
+    { id: "c2", name: "金额", type: "number", options: [] },
+    { id: "c3", name: "已结", type: "checkbox", options: [] },
+  ],
+  rows: [
+    { id: "s1", values: { c1: "房租", c2: 500, c3: false } },
+    { id: "s2", values: { c1: "水电", c2: 100, c3: false } },
+  ],
+}
+const TABLE2_JSON = JSON.stringify(TABLE2, null, 2) + "\n"
+const NOTE2_HTML = blocksToHtml(
+  [createBlock("text"), createLedgerBlock("清单.tbl", "c2", "", false, "none", "", "c2", "desc")],
+  (path) => (path === "清单.tbl" ? tableFromJson(TABLE2_JSON) : null),
+)
+
 step("opfs")
 const opfs = await navigator.storage.getDirectory()
 const dir = await opfs.getDirectoryHandle("ledger-edit-probe", { create: true })
-for (const [name, text] of [["礼账.tbl", TABLE_JSON], ["账.html", NOTE_HTML]]) {
+for (const [name, text] of [["礼账.tbl", TABLE_JSON], ["账.html", NOTE_HTML], ["清单.tbl", TABLE2_JSON], ["清单.html", NOTE2_HTML]]) {
   const handle = await dir.getFileHandle(name, { create: true })
   const writable = await handle.createWritable()
   await writable.write(text)
@@ -120,7 +145,7 @@ await nextTick()
 
 const note = (function find(nodes) {
   for (const node of nodes) {
-    if (node.kind === "note") return node
+    if (node.kind === "note" && node.name === "账.html") return node
     const hit = node.children ? find(node.children) : null
     if (hit) return hit
   }
@@ -395,6 +420,50 @@ if (rows0.length === 3) {
   check("笔记快照仍是账目块指针", noteText.includes('class="note-ledger"') && noteText.includes('data-ledger="礼账.tbl"'))
   check("笔记快照的分组设置跟着落盘", noteText.includes('data-group-mode="column"') && noteText.includes('data-group="c1"'))
   check("笔记快照的合计跟着重算（结余 ¥2,934.00）", noteText.includes("结余 ¥2,934.00"), "快照 tfoot 里的结余")
+
+  // ---- Tab 到同一行的非输入格:排序等焦点离开整行才发生 ----
+  //
+  // 这一节换一篇笔记（带勾选列、按金额倒序）。`editing` 变空**不等于**离开这一行 ——
+  // 勾选 / 选择格没有输入态，Tab 进去时正在编辑的格会先结束编辑；若那一刻就松开钉住的
+  // 顺序，行会在用户还在这一行里填的时候按金额飞走（「只有 Tab 后会立刻排序」）。
+  step("tab-order")
+  const secondNote = (function find2(nodes) {
+    for (const node of nodes) {
+      if (node.kind === "note" && node.name === "清单.html") return node
+      const hit = node.children ? find2(node.children) : null
+      if (hit !== null) return hit
+    }
+    return null
+  })(workspace.tree.value)
+  check("扫到了第二篇笔记", secondNote !== null)
+  if (secondNote !== null) {
+    const target = secondNote.id
+    workspace.openFile(target)
+    for (let i = 0; i < 60 && workspace.activePath.value !== target; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    await settle()
+    const order = () => bodyRows().map((row) => cellText(row, 0)).join(",")
+    check("按金额倒序：房租在前", order() === "房租,水电", order())
+
+    const tail = bodyRows()[1]
+    const amount = await openCell(tail, 1)
+    check("水电的金额格进编辑态", amount !== null)
+    if (amount !== null) {
+      type(amount, "900")
+      // 模拟 Tab：输入框先失焦（提交），焦点接着交给**同一行**的勾选格。
+      amount.blur()
+      const checkbox = tail.querySelector('input[type="checkbox"]')
+      if (checkbox instanceof HTMLInputElement) checkbox.focus()
+      await settle()
+      check("焦点还在这一行时不重排（改了金额也不飞走）", order() === "房租,水电", order())
+
+      // 真离开这一行（焦点交给块外那颗「记一笔」）才归位。
+      addButton()?.focus()
+      await settle()
+      check("离开这一行后按金额归位", order() === "水电,房租", order())
+    }
+  }
 }
 
 lines.push(failed === 0 ? `自检 ${passed}/${passed}` : `自检 ${passed} 过 / ${failed} 败`)

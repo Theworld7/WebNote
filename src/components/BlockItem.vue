@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils"
 import BlockToolbar from "./BlockToolbar.vue"
 import BookmarkBlockView from "./BookmarkBlockView.vue"
 import ChatBlockView from "./ChatBlockView.vue"
+import SecretBlockView from "./SecretBlockView.vue"
 import ImageBlockView from "./ImageBlockView.vue"
 import InlineToolbar from "./InlineToolbar.vue"
 import LayoutBlockView from "./LayoutBlockView.vue"
@@ -536,6 +537,8 @@ const bodyClass = computed(() => {
     <PlaylistBlockView v-else-if="block.type === 'playlist'" :block="block" />
 
     <ChatBlockView v-else-if="block.type === 'chat'" :block="block" />
+
+    <SecretBlockView v-else-if="block.type === 'secret'" :block="block" />
 
     <LayoutBlockView v-else-if="block.type === 'layout'" :block="block" :repaint="repaint">
       <!--

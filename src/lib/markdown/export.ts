@@ -109,6 +109,15 @@ function blockToMarkdown(block: Block, lookup: DataTableLookup): string {
       return statMarkdown(block, lookup(block.path))
     case "chat":
       return chatMarkdown(block.messages)
+    case "secret": {
+      // 值落成一段代码围栏 —— 复制到别的工具里仍是原样的一串字符，不会被 Markdown 的
+      // 强调 / 列表语法啃掉。名称与备注照抄，掩码不进来:能写明文的地方就没必要藏。
+      const parts: string[] = []
+      if (block.name !== "") parts.push(`**${block.name}**`)
+      parts.push(fencedCode("", block.value))
+      if (block.note !== "") parts.push(escapeLineStarts(block.note))
+      return parts.join("\n\n")
+    }
     case "layout":
       return layoutMarkdown(block.cells, lookup)
     case "html":

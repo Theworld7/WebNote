@@ -24,7 +24,7 @@ import { createApp, defineComponent, h, nextTick } from "vue"
 // 必须引应用样式表：`.dark` 那套 token 与 color-scheme 都在里面，不引就量不到真实换色。
 import "../src/style.css"
 import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
-import EditorTabBar from "../src/components/EditorTabBar.vue"
+import TitleBar from "../src/components/TitleBar.vue"
 import { provideSettings } from "../src/composables/useSettings.ts"
 import { provideWorkspace } from "../src/composables/useWorkspace.ts"
 import { provideTheme } from "../src/composables/useTheme.ts"
@@ -170,7 +170,11 @@ check("手动覆盖：在自己那个槽里生效", applyOverride(evening, overr
 check("手动覆盖：槽对不上就忽略", applyOverride(morningSlot, override) === "light")
 check("手动覆盖：没有覆盖时就是推导值", applyOverride(morningSlot, null) === "light")
 
-// ---------- 四、挂真实应用：DOM 落地 + 标签栏按钮 ----------
+// ---------- 四、挂真实应用：DOM 落地 + 标题栏那颗按钮 ----------
+//
+// 挂的是 `TitleBar` 而不是标签栏：外观开关跟着「窗口」这一层（ADR-0033 把标签搬出标题栏，
+// 但全局动作留在了这里）。曾经挂 `EditorTabBar`，三条断言因此一直红着却没人认领 ——
+// 页面找的是标签栏里的按钮，而按钮早已是标题栏的。
 
 note("DOM 落地")
 let ctx = null
@@ -181,7 +185,7 @@ const Root = defineComponent({
     provideWorkspace()
     settings = provideSettings()
     ctx = provideTheme(settings)
-    return () => h(TooltipProvider, null, { default: () => h(EditorTabBar, { sidebarCollapsed: false }) })
+    return () => h(TooltipProvider, null, { default: () => h(TitleBar, { sidebarCollapsed: false }) })
   },
 })
 createApp(Root).mount("#app")
@@ -229,7 +233,7 @@ check("切到浅色：body 画成白底", bodyBg().every((v) => v > 240), `rgb($
 
 const toggleButton = () =>
   document.querySelector('[aria-label="切换到深色"], [aria-label="切换到浅色"]')
-check("标签栏有一颗主题按钮", toggleButton() !== null)
+check("标题栏有一颗主题按钮", toggleButton() !== null)
 check("按钮文案说的是「切到哪」（浅色时提示切深色）",
   settings.theme.value.mode === "light" && toggleButton()?.getAttribute("aria-label") === "切换到深色",
   toggleButton()?.getAttribute("aria-label") ?? "（没渲染）")

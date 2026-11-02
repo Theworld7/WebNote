@@ -61,7 +61,7 @@
 | 基础 | 文本、标题 1–6 |
 | 列表 | 待办、无序列表、有序列表 |
 | 内容 | 引用、代码块（按语言着色）、Mermaid 图、HTML、标注、分割线 |
-| 媒体与数据 | 图片、表格、数据表、画册、书签、看板、账目、统计卡、订阅、歌单、对话记录 |
+| 媒体与数据 | 图片、表格、数据表、画册、书签、看板、账目、统计卡、订阅、歌单、密钥、对话记录 |
 | 版面 | 布局块（2–4 栏网格，或并排换行） |
 
 代码块的正文始终是纯文本，着色只画在重合的另一层上，所以复制出去不带颜色、也不会被颜色改写。
@@ -101,6 +101,7 @@ Mermaid 与 HTML 的源码只在需要时加载，不画图的笔记不必为它
 | 统计卡 | 把某一列的数值求和成一个大数字 | 求和列、小数位、可选筛选列 |
 | 订阅 | 每行一张订阅卡：名称、图标、金额 / 周期、起止日期、试用、自动续费、累计支付，顶部汇总月 / 年支出 | 名称、图标、金额、周期、自动续费、试用期、开始、到期、已取消、累计支付各指哪一列 |
 | 歌单 | 一份曲目表：序号、封面、歌名 / 副标题、时长，顶部是曲目数与总时长；就地加歌、删歌；可按歌名 / 歌手 / 专辑模糊搜索，一键复制成 `歌名 - 歌手` 的纯文本（导入听歌软件用）。一个块可绑多张表，顶部胶囊标签切换（标签名即表文件名） | 每张表各有一套：歌名、副标题、封面、时长各指哪一列 |
+| 密钥 | 一张卡装一条凭据：名称、值、备注。值默认是八个点的掩码，点眼睛（或点掩码那行）才换成明文输入框并把光标放进去，Esc 收起；有「复制」一键进剪贴板。**不做加密**：明文就在这篇 `.html` 的属性里，掩码只是显示开关 —— 导出的页面里可见文本同样是掩码，双击打开给谁看都不露值（ADR-0047） | — |
 
 所以同一张表可以在两篇笔记里长得完全不同：一篇按状态分组看进度，另一篇按月结算看余额，
 谁都不必复制数据。余额和合计都是**视图算出来的**，永远不写进文件。
@@ -287,8 +288,8 @@ pnpm icon           # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | 区域 | 页面 |
 | :-- | :-- |
 | 解析与往返 | `parse-check`、`inline-check` |
-| 编辑器交互 | `chrome-check`、`tab-check`、`tab-housing-check`、`toolbar-check`、`sidebar-check`、`tree-integration-check`、`drag-check`、`split-check`、`cell-check`、`undo-check`、`undo-paint-check`、`autosave-check`、`session-check`、`scroll-memory-check`、`menu-nav-check`、`focus-check`、`link-check`、`heading-nav-check`、`block-select-check` |
-| 块类型 | `table-check`、`table-align-check`、`data-table-check`、`table-ref-check`、`gallery-check`、`kanban-check`、`kanban-date-check`、`ledger-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-date-check`、`option-cell-check`、`subscription-check`、`playlist-check`、`playlist-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check` |
+| 编辑器交互 | `chrome-check`、`tab-check`、`tab-housing-check`、`toolbar-check`、`sidebar-check`、`tree-integration-check`、`drag-check`、`split-check`、`cell-check`、`undo-check`、`undo-paint-check`、`autosave-check`、`session-check`、`scroll-memory-check`、`menu-nav-check`、`focus-check`、`link-check`、`heading-nav-check`、`block-select-check`、`context-menu-check` |
+| 块类型 | `table-check`、`table-align-check`、`data-table-check`、`table-ref-check`、`gallery-check`、`kanban-check`、`kanban-date-check`、`ledger-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-date-check`、`option-cell-check`、`subscription-check`、`playlist-check`、`playlist-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check`、`secret-check` |
 | 样式与外观 | `typography-check`、`theme-check`、`theme-mode-check`、`page-style-check`、`settings-check` |
 | 文件操作 | `create-check`、`move-check`、`markdown-check`、`markdown-batch-check`、`markdown-view-check` |
 | 其它 | `update-check`（新版本检测）、`drawer-jitter-probe`（抽屉抖动守卫）、`icon-check`（图标观感） |

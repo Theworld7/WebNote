@@ -34,13 +34,17 @@
   簇右端、查不到就是没有(0030)、手动检查更新住在设置「关于」里、第一次之后的请求都带
   `If-None-Match`（304 不占限额）、每次按下都以一条瞬态提示收尾(0031)、主路没给出结论就问
   jsDelivr 上的 `package.json`、镜像只往「有更新」下结论且链接退回列表页(0032)、标签住在编辑
-  卡片的第一行、chrome 只剩一条标题栏(0033)、记一笔曾是模态表单(0034)、记一笔是行内草稿行:
-  插在列表顶端、焦点离开这一行才按排序归位、一格没填就自动删掉(0035)、切标签 / 窗口失焦 /
+  卡片的第一行、chrome 只剩一条标题栏、激活项不在视口里时标签条自己补位(0033)、记一笔曾是模态表单(0034)、记一笔是行内草稿行:
+  插在列表顶端、回车与 Tab 都横着走到下一输入格、焦点离开这一行才按排序归位、一格没填就自动删掉(0035)、切标签 / 窗口失焦 /
   关窗这三个「离开」的时机才落盘、不按时间轮询(0036)、删一行先弹确认而空行不弹(0037)、
   关窗那一刻把标签 / 激活项 / 展开的层 / 每篇停在哪记进 `localStorage`、下次打开原样接上(0038)、
   撤销 / 重做只重画数据真变了的那块而其余块连赋值都不做、代码块仍整块重挂(0039)、
   数据表的脏态只有注册表一处真源、标签侧按「这个界面能改到哪几张表」现算(0044)、
-  画册的归桶(空值不聚合 / 单行平铺 / 多行折叠)只有 `lib/gallery` 一份、分节各写各的(0045)。
+  画册的归桶(空值不聚合 / 单行平铺 / 多行折叠)只有 `lib/gallery` 一份、分节各写各的(0045)、
+  文件的菜单只有一份:网页自己的右键菜单在窗口层被吃掉而 Monaco 例外,树行 `⋯` / 树行右键 /
+  标签右键共用 `FileMenuItems`,三个对话框目标共享在 `useTreeDialogs` 里(0046)、
+  密钥块是一张卡一条凭据:掩码只是显示开关,明文躺在 `data-secret` 属性里、导出的可见文本
+  永远是掩码、不做加密(0047)。
   改对应行为前先读那篇。(0029 的标签位置已被 0033 取代,0034 的模态表单已被 0035 取代)
 
 ## 验证
@@ -51,7 +55,7 @@
    用类型收窄和类型守卫表达。
 2. **自检页**:`design/*.html` 是能直接跑的回归页,每个用例输出 `OK` / `FAIL` 行。
    `pnpm dev` 后访问 `/design/<名字>.html`;其中 `drag-check`、`typography-check`、
-   `data-table-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-date-check`、`kanban-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check`、`tab-housing-check`、`undo-paint-check`、`table-ref-check` 含顶层 `await`,要抓结果用
+   `data-table-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-date-check`、`kanban-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check`、`tab-housing-check`、`undo-paint-check`、`table-ref-check`、`context-menu-check`、`secret-check` 含顶层 `await`,要抓结果用
    `node design/cdp-dump.mjs http://localhost:1420/design/<名字>.html`。
    **挂进来的是复用组件时,把 `App.vue` 提供的上下文补齐** —— `provideWorkspace()`、
    `provideSettings()`、`TooltipProvider`(提示气泡走 reka-ui 的注入)。缺一层不会报在结果里:
@@ -111,7 +115,7 @@
 `option-cell-check`(组件级,不借账目夹具);动引用块的提示态(空指针 / 读不到 / 读取中,以及
 读不到时「重新选择数据表」的出路,`components/TableRefNotice.vue`、换表该清什么的规则在
 `lib/rebind.ts`)→ `table-ref-check`(组件级 + 纯函数,不借任何一个引用块的夹具);动账目块的财务口径 → `ledger-check`,动它的就地增删改 →
-`ledger-edit-check`,动记一笔的草稿行(顶端落位 / 横着填 / 归位排序 / 空行自动删)→
+`ledger-edit-check`,动记一笔的草稿行(顶端落位 / 回车与 Tab 横着填 / 归位排序 / 空行自动删)→
 `ledger-entry-check`,动日期面板 / 编辑期钉住排序 → `ledger-date-check`(都挂真实编辑器,走 CDP 驱动);
 动删行的确认框(账目块 / 数据表编辑页同一套,`requestDelete` 与 `lib/data-table` 的 `isBlankRow`)→
 `ledger-edit-check` 与 `data-table-check` 都跑;
@@ -119,11 +123,16 @@
 它的键盘导航(`lib/date-key.ts` 的日期算术、`DateCalendar.vue` 的高亮环)→ 两页都跑;
 动看板卡的逐格编辑 → `kanban-date-check`(挂真实编辑器,走 CDP 驱动);动歌单块的字段识别 / 在线封面 / 多表绑定的落盘形态(`lib/playlist.ts`)→
 `playlist-check`,动它的标签切换 / 加歌 / 删歌 / 解除绑定 / 搜索 / 复制纯文本 → `playlist-edit-check`(挂真实编辑器,走 CDP 驱动);动主题色 / 品牌色 → `theme-check`(对齐图标 tokens,守对比度);动外观 / 主题模式 / 定时与
-日出日落 → `theme-mode-check`(挂真实标签栏,含太阳位置与时区);动页面级样式
+日出日落 → `theme-mode-check`(挂真实标题栏 —— 外观开关在窗口这一层,ADR-0033 之后标签栏里没有它了;含太阳位置与时区);动页面级样式
 (读写、预览改写、chrome 入口、编辑期格式化与落盘紧凑、页面样式对 HTML 块生效)→ `page-style-check`
 (挂真实编辑器,走 CDP 驱动),改写规则与紧凑化本身在 `parse-check`;动 HTML 块的沙箱文档 /
 高度探针 / 块里那张纸(画布底色与 `pinScheme`)→ `html-check`;动源码抽屉(打开 / 提交 / 取消)或抽屉里 Monaco 的配色
-(`lib/monaco-theme.ts`)→ `html-drawer-check`。
+(`lib/monaco-theme.ts`)→ `html-drawer-check`;动右键菜单(网页菜单的拦截与 Monaco 例外、
+`FileMenuItems` 的三处入口、`useTreeDialogs` 的共享目标,见 ADR-0046)→ `context-menu-check`
+(挂真实侧栏与标签,走 CDP 驱动);动密钥块(掩码 / 明文切换、复制、导出属性,见 ADR-0047)→
+`secret-check`(挂真实编辑器 + OPFS,走 CDP)与 `parse-check` 的密钥往返样本;动 Monaco 的
+按需加载(块内编辑态与源码抽屉的 loading 态,见 ADR-0017)→ `code-edit-check` 与
+`html-drawer-check` 的首次打开用例。
 自检页清单见 README「自检」一节,每页具体断言读该页脚本里的 `check(...)` 用例。
 
 ## 写代码

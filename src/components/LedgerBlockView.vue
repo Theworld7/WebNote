@@ -268,25 +268,39 @@ function editText(row: DataRow, column: DataColumn): string {
 function commitOnEnter(row: DataRow, column: DataColumn, event: Event): void {
   const target = event.target
   if (!(target instanceof HTMLInputElement)) return
-  commit(row, column, target.value)
   if (row.id === draftRowId.value) {
     // 草稿行是**横着**填的:一条记录从左往右走完,走到最后一个输入格就收工(退出编辑态,
     // 草稿行随之归位)。纵向跳格留给已经记过的账 —— 那儿「下一行同列」才是在录一列。
-    const next = nextInputColumn(column)
-    if (next !== null) {
-      editing.value = cellKey(row, next)
-      return
-    }
-    // 收工。松手放在退出编辑态之前:此刻焦点还在这一格里,靠焦点判「有没有离开这一行」
-    // 会判成没离开(输入框是拆掉之后才失焦的),而拆输入框那一瞬间的 focusout 落在渲染
-    // 过程中 —— 在那里改状态就会再触发一次渲染。
-    editing.value = ""
-    releaseDraft()
+    advanceDraft(row, column, target.value)
     return
   }
+  commit(row, column, target.value)
   const index = displayRows.value.findIndex((item) => item.id === row.id)
   const next = displayRows.value[index + 1]
   editing.value = next === undefined ? "" : cellKey(next, column)
+  // 出了最后一行 = 这一列录完了。输入框会被拆掉,拆掉时浏览器不一定补一次 focusout,
+  // 所以在这里明说一句「收工」,不指望焦点那条路。
+  if (next === undefined) settleOrder()
+}
+
+/**
+ * 草稿行里「这一格填完了,往下走」—— 提交当前格,把编辑态挪到同一行的下一个输入格;
+ * 后面没有能打字的格了,就收工归位。
+ *
+ * 回车与 Tab 共用这一条:同一个动作不该因为按了哪颗键而分成两件事。
+ */
+function advanceDraft(row: DataRow, column: DataColumn, value: string): void {
+  commit(row, column, value)
+  const next = nextInputColumn(column)
+  if (next !== null) {
+    editing.value = cellKey(row, next)
+    return
+  }
+  // 收工。松手放在退出编辑态之前:此刻焦点还在这一格里,靠焦点判「有没有离开这一行」
+  // 会判成没离开(输入框是拆掉之后才失焦的),而拆输入框那一瞬间的 focusout 落在渲染
+  // 过程中 —— 在那里改状态就会再触发一次渲染。
+  editing.value = ""
+  releaseDraft()
 }
 
 /** 能就地打字的列:图片列不给编辑,勾选 / 选择是别的控件(没有输入态)。 */
@@ -345,13 +359,29 @@ watch(editing, (key) => {
   // 按排序飞走,连焦点一起丢(自检里 Tab 进选择格就是这么露出来的)。
   if (draftRowId.value !== "" && !focusInRow(draftRowId.value)) releaseDraft()
 
+  // 一样的判据也管旧账:**`editing` 变空不等于离开这一行**。Tab 从正文格走到同一行的
+  // 选择格 / 勾选格时,后者没有输入态,`editing` 会先变空 —— 那一刻重排,行就在用户
+  // 还在这一行里填的时候飞走,下一格落空(「只有 Tab 后会立刻排序」就是这么来的)。
+  // 焦点还在这一行,顺序就继续钉着;真走出去由 `onRowFocusOut` 收口。
+  if (lastRowId !== "" && focusInRow(lastRowId)) return
+
+  settleOrder()
+})
+
+/**
+ * 收工:松开钉住的顺序,让它按排序归位。
+ *
+ * 「跳了位置就闪一下底纹」也在这里 —— 行挪到别处时,用户只会觉得「我刚填的那行不见了」。
+ * 没有可变的时候什么都不做,所以重复调用是安全的(焦点那两条路可能各来一次)。
+ */
+function settleOrder(): void {
   const id = lastRowId
   const before = displayRows.value.findIndex((row) => row.id === id)
   frozenOrder.value = null
   frozenSections.value = null
   const after = displayRows.value.findIndex((row) => row.id === id)
   if (id !== "" && before !== -1 && after !== -1 && before !== after) flash(id)
-})
+}
 
 /**
  * 松开草稿行:一格都没填就把它删掉(误点一次「记一笔」不该在账里留一条空记录),
@@ -394,16 +424,19 @@ function isBlankRow(row: DataRow): boolean {
  * 焦点转移都完事之后才有定论。
  */
 function onRowFocusOut(row: DataRow, event: FocusEvent): void {
-  if (row.id !== draftRowId.value) return
+  // 要盯的两种「还没松手」:草稿行(空着自删、填了归位),和钉住顺序的那一行(等它归位)。
+  const drafting = row.id === draftRowId.value
+  const settling = frozenOrder.value !== null && row.id === lastRowId
+  if (!drafting && !settling) return
   // 同一行内部挪焦点:直接跳过,连定时器都不用挂。
   const next = event.relatedTarget
   if (next instanceof Node && event.currentTarget instanceof Node && event.currentTarget.contains(next)) return
   const id = row.id
   window.clearTimeout(draftFocusTimer)
   draftFocusTimer = window.setTimeout(() => {
-    if (draftRowId.value !== id) return
     if (focusInRow(id)) return
-    releaseDraft()
+    if (draftRowId.value === id) releaseDraft()
+    if (frozenOrder.value !== null && lastRowId === id) settleOrder()
   }, 0)
 }
 
@@ -437,12 +470,25 @@ const {
 /**
  * 格子的键盘。日期格把方向键与回车让给月历(高亮那天、回车确认)，其余键照常
  * 进输入框打日期;非日期格就是原来的「回车提交 + 跳下一行同列」。
+ *
+ * 草稿行里的 Tab 由我们自己接着走 —— 理由见下面那一支。
  */
 function onCellKeydown(row: DataRow, column: DataColumn, event: KeyboardEvent): void {
   if (column.type === "date" && dateKeydown(event)) return
   if (event.key === "Enter") {
     event.preventDefault()
     commitOnEnter(row, column, event)
+    return
+  }
+  // 草稿行里的 Tab 必须自己接住。交回浏览器的话，它会去找**下一个可聚焦元素**，而这一行
+  // 其余的格此刻都没有输入态（都是 span）—— 焦点直接跳出表格，`editing` 变空，草稿行
+  // 当场按排序归位，后面几格再也没地方填（「填完名称 Tab 一下就重排了」就是这么来的）。
+  // 往回走（Shift+Tab）不接管：草稿行前面没有「上一格」可言。
+  if (event.key === "Tab" && !event.shiftKey && row.id === draftRowId.value) {
+    const target = event.target
+    if (!(target instanceof HTMLInputElement)) return
+    event.preventDefault()
+    advanceDraft(row, column, target.value)
   }
 }
 

@@ -52,8 +52,42 @@ function updateOverflow() {
   }
 }
 
-onMounted(() => {
+/** 两端渐变遮罩的宽度（`w-6`）：落点让开它，激活项才不会被压暗。 */
+const EDGE_GAP = 24
+
+/**
+ * 激活的那一颗必须露出来 —— 标签多到溢出时，切到看不见的那一篇（或从会话里恢复）
+ * 会让用户觉得「没切过去」。只补位、不居中：已经完整可见就一动不动。
+ *
+ * 手算 `scrollLeft` 而不用 `scrollIntoView`：后者会连带滚动所有能滚的祖先，
+ * 把整块画布跟着挪一下。
+ */
+function revealActive() {
+  const element = stripRef.value
+  if (element === null) return
+  const index = tabs.value.findIndex((tab) => tab.path === activePath.value)
+  const target = index < 0 ? undefined : element.children[index]
+  if (!(target instanceof HTMLElement)) return
+  const stripRect = element.getBoundingClientRect()
+  const targetRect = target.getBoundingClientRect()
+  const left = targetRect.left - stripRect.left + element.scrollLeft
+  const right = left + targetRect.width
+  const viewLeft = element.scrollLeft
+  const viewRight = viewLeft + element.clientWidth
+  if (left >= viewLeft && right <= viewRight) return
+  // 靠右被截断就往右补，否则往左补；两边都补一次不划算，一次只修一边。
+  const next = right > viewRight ? right - element.clientWidth + EDGE_GAP : left - EDGE_GAP
+  element.scrollLeft = Math.max(0, Math.min(next, element.scrollWidth - element.clientWidth))
+}
+
+/** 补位之后才量得准遮罩与指示条（`scroll` 事件要下一帧才到，别指望它）。 */
+function revealActiveThenMeasure() {
+  revealActive()
   updateOverflow()
+}
+
+onMounted(() => {
+  revealActiveThenMeasure()
   window.addEventListener("resize", updateOverflow)
 })
 
@@ -61,8 +95,11 @@ onBeforeUnmount(() => {
   window.removeEventListener("resize", updateOverflow)
 })
 
-// 开关标签会改变总宽，等 DOM 更新完再量一次。
-watch(() => tabs.value.length, () => nextTick(updateOverflow))
+// 开关标签会改变总宽，等 DOM 更新完再量一次。开关也会换激活项（新标签排末位并激活、
+// 关掉激活项后落到邻居），所以顺手补位 —— 这两件事都必须等 DOM 落地后再算。
+watch(() => tabs.value.length, () => nextTick(revealActiveThenMeasure))
+// 切标签本身不改宽度，但可能切到滚出视口外的那个。
+watch(activePath, () => nextTick(revealActiveThenMeasure))
 </script>
 
 <template>
@@ -71,11 +108,13 @@ watch(() => tabs.value.length, () => nextTick(updateOverflow))
        窗口的拖拽面在标题栏，见 ADR-0033）。所以这里既不能 flex-1，也不能撑破父级。
        group/tabs：自绘滚动指示条挂在标签条下缘，hover 这一段才显形。 -->
   <div class="group/tabs relative min-w-0 max-w-full">
-    <!-- **没开文件时标签区不渲染**：没有标签可显示，留一条空轨道只会把卡片顶端撑出一条缝。 -->
+    <!-- **没开文件时标签区不渲染**：没有标签可显示，留一条空轨道只会把卡片顶端撑出一条缝。
+         `pr-6` 是给右端渐变遮罩留的位置：滚动到头时最后一颗才可能整颗露出来（`scrollLeft`
+         最多走到 `scrollWidth - clientWidth`，没有这段留白就永远有一截压在遮罩下）。 -->
     <div
       v-if="tabs.length > 0"
       ref="stripRef"
-      class="tab-scrollbar flex h-7 items-center gap-0.5 overflow-x-auto"
+      class="tab-scrollbar flex h-7 items-center gap-0.5 overflow-x-auto pr-6"
       @scroll.passive="updateOverflow"
     >
       <EditorTab

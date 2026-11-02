@@ -20,6 +20,7 @@ import "../src/style.css"
 import { createApp, defineComponent, h, nextTick, ref } from "vue"
 import BlockToolbar from "../src/components/BlockToolbar.vue"
 import { provideSettings } from "../src/composables/useSettings.ts"
+import { BLOCK_TYPES } from "../src/lib/blocks.ts"
 import { arrowTargetIndex } from "../src/lib/menu-nav.ts"
 
 const lines = []
@@ -189,7 +190,10 @@ if (contentOf() !== null) {
 
   // 退格逐个还回来：dmk → dm → d → 全量。
   for (const _ of [0, 1, 2]) await typeKey("Backspace")
-  check("退格退空后清单复原", typeLabels().length === 28, `实得 ${typeLabels().length} 项`)
+  // 清单长度取登记表本身 —— 写死数字的话，加一个块类型就得来改这里，而失败信息
+  // （「实得 29 项」）看上去像方向键坏了。
+  check("退格退空后清单复原", typeLabels().length === BLOCK_TYPES.length,
+    `实得 ${typeLabels().length} 项，登记表 ${BLOCK_TYPES.length}`)
   check("退空后回显退回提示语", echoText().includes("拼音首字母筛选"), `实得「${echoText()}」`)
 
   // 筛不中：清单里没有块类型，但菜单还得开着，并给一句话让人知道是筛空的。

@@ -1,4 +1,4 @@
-import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, HtmlBlock, ImageBlock, KanbanBlock, LayoutBlock, LedgerBlock, MermaidBlock, PlaylistBlock, StatBlock, SubscriptionBlock, TableCell, TextualBlock } from "@/types/workspace"
+import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, HtmlBlock, ImageBlock, KanbanBlock, LayoutBlock, LedgerBlock, MermaidBlock, PlaylistBlock, SecretBlock, StatBlock, SubscriptionBlock, TableCell, TextualBlock } from "@/types/workspace"
 import type { DataColumn, DataTable, DataRow } from "@/types/data-table"
 import { GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT, LAYOUT_COLUMNS_DEFAULT, isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
@@ -8,6 +8,7 @@ import type { GalleryUnit } from "@/lib/gallery"
 import { balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, ledgerSort, sortRows, sumRows } from "@/lib/ledger"
 import type { LedgerSection, LedgerTotals } from "@/lib/ledger"
 import { escapeHtml, escapeTextToHtml, linkDomain, linkIcon, runsText, runsToHtml } from "@/lib/inline"
+import { SECRET_MASK } from "@/lib/secret"
 import {
   SUBSCRIPTION_ROLE_ATTRS,
   SUBSCRIPTION_ROLE_FIELDS,
@@ -149,6 +150,10 @@ export function blocksToHtml(blocks: readonly Block[], lookupTables?: DataTableL
     }
     if (block.type === "chat") {
       out.push(chatHtml(block))
+      continue
+    }
+    if (block.type === "secret") {
+      out.push(secretHtml(block))
       continue
     }
     if (block.type === "html") {
@@ -974,6 +979,28 @@ function chatHtml(block: ChatBlock): string {
   )
   const inner = lines.length === 0 ? "" : `\n${lines.join("\n")}\n`
   return `<div data-chat>${inner}</div>`
+}
+
+/**
+ * 密钥块 → `<div class="note-secret" data-secret="…" data-name="…" data-note="…">`。
+ *
+ * 真值放在**属性**里，可见文本只写掩码：这份文件双击就能用浏览器打开，看得见的是
+ * 可见文本 —— 那里必须是掩码，而且这一层不依赖任何 CSS（属性里的值不会自己显示出来）。
+ * 里面那两行（名称 / 掩码）是给人看的快照，解析端一律按属性重建，不读它们。
+ *
+ * 不做加密：笔记是普通 HTML，把一段密文塞进去就得再给出一份密钥管理的设计 ——
+ * 而用户要的是「别在屏幕上晃着」。这一点写在 ADR-0047 里。
+ */
+function secretHtml(block: SecretBlock): string {
+  const name = block.name === "" ? "" : `\n  <p class="note-secret-name">${escapeHtml(block.name)}</p>`
+  const note = block.note === "" ? "" : `\n  <p class="note-secret-note">${escapeHtml(block.note)}</p>`
+  const attrs = [
+    'class="note-secret"',
+    `data-secret="${escapeHtml(block.value)}"`,
+    `data-name="${escapeHtml(block.name)}"`,
+    `data-note="${escapeHtml(block.note)}"`,
+  ].join(" ")
+  return `<div ${attrs}>${name}\n  <p class="note-secret-value">${SECRET_MASK}</p>${note}\n</div>`
 }
 
 /**

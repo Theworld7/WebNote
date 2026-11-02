@@ -58,7 +58,7 @@ export type TextualBlockType =
   | "divider"
 
 /** 全部块类型 = 正文类 + 结构类。派生而常量列表，避免两处维护。 */
-export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "subscription" | "playlist" | "chat" | "layout" | "html"
+export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "subscription" | "playlist" | "chat" | "secret" | "layout" | "html"
 
 /** 正文块。块之间是平铺列表；列表的嵌套层级用 `depth` 表达，不建树。 */
 export interface TextualBlock {
@@ -453,7 +453,29 @@ export interface ChatBlock {
   messages: ChatMessage[]
 }
 
-export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | LedgerBlock | StatBlock | SubscriptionBlock | PlaylistBlock | ChatBlock | LayoutBlock | HtmlBlock
+/**
+ * 密钥块：一条凭据 —— 名称、密钥本体、备注。
+ *
+ * 值的落盘形态是**属性**而不是可见文本：笔记是普通 HTML,双击用浏览器打开时谁都看得见
+ * 可见文本,那里必须是掩码;真值躺在 `data-secret` 里,只有应用（以及翻源码的人）读得到。
+ * 于是即使我们自己的样式没生效、或者文件被别的浏览器打开,默认看到的也是掩码而不是明文 ——
+ * 掩码这件事不押在一条 CSS 规则上（ADR-0047）。
+ *
+ * 三个字段都是纯字符串（与 mermaid 的 source 同一立场）：密钥不需要行内格式,
+ * 存成 runs 只会让「复制值」多一步投影。
+ */
+export interface SecretBlock {
+  id: string
+  type: "secret"
+  /** 这一条叫什么（「OpenAI API Key」）。空串 = 还没起名。 */
+  name: string
+  /** 密钥本体。原样保存，含首尾空格也照收 —— 密钥里出现空格并不罕见。 */
+  value: string
+  /** 备注：在哪儿用、什么时候换。空串 = 没有。 */
+  note: string
+}
+
+export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | LedgerBlock | StatBlock | SubscriptionBlock | PlaylistBlock | ChatBlock | SecretBlock | LayoutBlock | HtmlBlock
 
 /**
  * 引用块展示设置的 patch 形状:六种引用块设置字段的并集,id / type / path 不在内

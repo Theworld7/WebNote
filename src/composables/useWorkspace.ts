@@ -1,5 +1,5 @@
 import type { InjectionKey, Ref } from "vue"
-import type { Block, BlockSettingsPatch, BlockType, ChatMessage, CloseStrategy, CreateTarget, FileNode, InlineRun, LayoutMode, OpenTab, PlaylistSource, TableAlign, TableCell, TreeTarget } from "@/types/workspace"
+import type { Block, BlockSettingsPatch, BlockType, ChatMessage, CloseStrategy, CreateTarget, FileNode, InlineRun, LayoutMode, OpenTab, PlaylistSource, SecretBlock, TableAlign, TableCell, TreeTarget } from "@/types/workspace"
 import type { FsRoot, RestoreOffer, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref, watch } from "vue"
 import { adoptScrollTops, readSession, scrollTopsSnapshot, sessionKeyOf, writeSession } from "@/composables/useSession"
@@ -2379,6 +2379,23 @@ function createWorkspace() {
     markDirty()
   }
 
+  // ---- 密钥 ----
+
+  /**
+   * 改密钥块的某几个字段。
+   *
+   * 三格各自失焦提交,所以按 patch 写 —— 一次只动改过的那一格,不把另外两格的旧值
+   * 一起回写(写盘的那一路是整体替换,拿旧值覆盖会把同时发生的另一格改动吃掉)。
+   */
+  function setSecretFields(id: string, patch: Partial<Pick<SecretBlock, "name" | "value" | "note">>): void {
+    const block = activeBlock(id)
+    if (block === undefined || block.type !== "secret") return
+    if (patch.name !== undefined) block.name = patch.name
+    if (patch.value !== undefined) block.value = patch.value
+    if (patch.note !== undefined) block.note = patch.note
+    markDirty()
+  }
+
   // ---- 表格 ----
 
   /**
@@ -2642,6 +2659,8 @@ function createWorkspace() {
     setNoteStyle,
     // chat actions
     setChatMessages,
+    // secret actions
+    setSecretFields,
     // table actions
     defineTable,
     setTableCellRuns,

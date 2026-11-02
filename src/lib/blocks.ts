@@ -19,6 +19,7 @@ import type {
   MermaidBlock,
   PlaylistBlock,
   PlaylistSource,
+  SecretBlock,
   StatBlock,
   SubscriptionBlock,
   TableBlock,
@@ -97,6 +98,9 @@ export const BLOCK_TYPES = [
   { type: "playlist", group: "媒体与数据", marker: "♪", label: "歌单", initials: "gd" },
   // 紧挨 kanban 之后、布局压轴之前:聊天记录是内容块,不是版面级重结构。
   { type: "chat", group: "媒体与数据", marker: "◌", label: "聊天记录", initials: "ltjl" },
+  // 紧挨 chat:两者都是「自成一体的内容块」,不吃数据表。密钥块摆在内容块族末尾、
+  // 容器块之前 —— 它是这一族里唯一会把东西藏起来的那个。
+  { type: "secret", group: "媒体与数据", marker: "⌘", label: "密钥", initials: "my" },
   // 压轴：容器块是「版面级」的重结构,跟在内容块族的最后。
   { type: "layout", group: "版面", marker: "⬚", label: "布局", initials: "bj" },
 ] satisfies readonly BlockTypeMenuEntry[]
@@ -217,6 +221,7 @@ export function isTextualBlock(block: Block): block is TextualBlock {
     block.type !== "subscription" &&
     block.type !== "playlist" &&
     block.type !== "chat" &&
+    block.type !== "secret" &&
     block.type !== "layout" &&
     block.type !== "html"
   )
@@ -432,6 +437,14 @@ export function createChatBlock(messages: ChatMessage[] = []): ChatBlock {
   return { id: createBlockId(), type: "chat", messages }
 }
 
+/**
+ * 造密钥块。缺省三个字段全空 = 刚插进来的一张空白卡，名字那一格就是入口。
+ * 带全参数的调用来自解析器 —— 盘上属性宽容读取后的值在这里收口。
+ */
+export function createSecretBlock(name = "", value = "", note = ""): SecretBlock {
+  return { id: createBlockId(), type: "secret", name, value, note }
+}
+
 /** 造统计块。缺省不指列 —— 视图显示提示态引导去设置;解析器带全参数调用在此收口。 */
 export function createStatBlock(path = "", columnId = ""): StatBlock {
   return { id: createBlockId(), type: "stat", path, columnId }
@@ -580,6 +593,7 @@ export function createBlock(type: BlockType, text = ""): Block {
   if (type === "subscription") return createSubscriptionBlock()
   if (type === "playlist") return createPlaylistBlock()
   if (type === "chat") return createChatBlock()
+  if (type === "secret") return createSecretBlock()
   if (type === "layout") return createLayoutBlock()
   if (type === "html") return createHtmlBlock()
   return createTextualBlock(type, textToRuns(text))
@@ -601,7 +615,7 @@ export function retypeBlock(block: Block, type: BlockType): Block {
     const source = isTextualBlock(block) ? runsText(block.runs) : blockText(block)
     return type === "mermaid" ? { ...createMermaidBlock(), source } : { ...createHtmlBlock(), source }
   }
-  if (type === "image" || type === "table" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat" || type === "subscription" || type === "playlist" || type === "chat" || type === "layout") {
+  if (type === "image" || type === "table" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat" || type === "subscription" || type === "playlist" || type === "chat" || type === "secret" || type === "layout") {
     return createBlock(type)
   }
   if (!isTextualBlock(block)) return createTextualBlock(type, textToRuns(blockText(block)))
@@ -620,7 +634,7 @@ export function retypeBlock(block: Block, type: BlockType): Block {
  */
 export function cloneBlock(block: Block, id: string): Block {
   // 平坦形态浅拷即可：账目块与数据表 / 书签 / 统计一样全是原始值字段。
-  if (block.type === "image" || block.type === "mermaid" || block.type === "html" || block.type === "datatable" || block.type === "bookmark" || block.type === "ledger" || block.type === "stat" || block.type === "subscription") {
+  if (block.type === "image" || block.type === "mermaid" || block.type === "html" || block.type === "secret" || block.type === "datatable" || block.type === "bookmark" || block.type === "ledger" || block.type === "stat" || block.type === "subscription") {
     return { ...block, id }
   }
   // 歌单的 sources 是对象数组：整体替换,但拷贝不该共享同一批绑定项。
@@ -702,6 +716,9 @@ export function blockText(block: Block): string {
   if (block.type === "chat") {
     return block.messages.map((message) => message.text).join("\n")
   }
+  // 密钥块只取名称与备注 —— **值不进投影**。字数统计与将来的任何摘要都走这条路,
+  // 让一串凭据摊进去等于把它拉进「读的东西」那一类,而它不是。
+  if (block.type === "secret") return `${block.name} ${block.note}`.trim()
   if (block.type === "table") {
     return block.rows.map((row) => row.map((cell) => runsText(cell.runs)).join(" ")).join("\n")
   }

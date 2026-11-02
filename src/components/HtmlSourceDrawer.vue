@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue"
+import { LoaderCircleIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import type { editor as monacoEditor } from "monaco-editor"
 import { compactCss, formatCss, formatHtml } from "@/lib/source-format"
@@ -50,6 +51,12 @@ let editor: monacoEditor.IStandaloneCodeEditor | null = null
 let openSeq = 0
 /** 编辑器里当前呈现的文本。提交时拿它判断「有没有真改过」。 */
 let shown = ""
+
+/**
+ * 首次打开时 Monaco 还没加载（整包几 MB + 四个 worker），抽屉会先滑出一块空底。
+ * 那一下没有任何反馈，看着像抽屉坏了。实例就位后置 true，之后再打开零成本。
+ */
+const ready = ref(false)
 
 const cssMode = computed(() => props.language === "css")
 /** 两种源码都支持格式化；除此之外的语言（将来的 js 块之类）先不接。 */
@@ -163,6 +170,9 @@ watch(
       })
     }
     editor.updateOptions({ fontFamily: currentFontStack("code") })
+    // 实例已经在这个 tick 里建好（或本来就在）—— 加载态到此为止。
+    // 与上面那行同一个 tick，所以「撤加载态」和「编辑器出现」是同一帧，不会闪空。
+    ready.value = true
     // 实例是复用的，语言得每次打开按 props 重设 —— 否则开过 HTML 块之后，
     // 页面样式那份会沿用 html 的高亮与校验。
     const model = editor.getModel()
@@ -234,7 +244,17 @@ onBeforeUnmount(() => {
           </Button>
           <Button size="sm" class="h-7 flex-none px-2.5 text-12" @click="commit">完成</Button>
         </div>
-        <div ref="hostRef" class="min-h-0 flex-1" />
+        <div class="relative min-h-0 flex-1">
+          <div ref="hostRef" class="absolute inset-0" />
+          <!-- 首次打开的那一瞬：Monaco 还在路上，给一句话比给一块空底诚实。 -->
+          <div
+            v-if="!ready"
+            class="pointer-events-none absolute inset-0 flex items-center gap-1.5 px-4 pt-3 text-12 text-muted-foreground"
+          >
+            <LoaderCircleIcon class="size-3.5 animate-spin" />
+            正在加载编辑器…
+          </div>
+        </div>
       </div>
     </Transition>
   </Teleport>

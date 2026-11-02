@@ -365,6 +365,53 @@ if (retargetDate !== null) {
 check("删掉草稿行之后改旧账日期，行照样按新日期归位到首位",
   cellText(tableRows()[0], 0) === "2026-12-31", tableRows().map((row) => cellText(row, 0)).join(","))
 
+// Tab 要和回车一样横着走：填完名称按 Tab 不该把这一行交出去。
+//
+// 不接管的话，浏览器的默认 Tab 去找**下一个可聚焦元素**，而这一行里其余的格此刻都没有
+// 输入态（都是 span）—— 焦点直接跳出表格，`editing` 跟着变空，草稿行当场按排序飞走，
+// 后面的字段再也没地方填。这正是「输入完名称 Tab 后就重新排序了」的来路。
+step("tab-through")
+addButton()?.click()
+await settle()
+const tabDraft = () => tableRows()[0]
+check("新草稿行仍从第一个输入格开始", focusIs(tabDraft(), 0))
+
+clickCell(tabDraft(), 1)
+await settle()
+const tabName = cellInput(tabDraft(), 1)
+check("点人员格进编辑态", tabName !== null, "没有输入框")
+if (tabName !== null) {
+  type(tabName, "阿飞")
+  const tabEvent = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })
+  tabName.dispatchEvent(tabEvent)
+  await settle()
+  check("草稿行里 Tab 被接管（不让浏览器把焦点扔出这一行）", tabEvent.defaultPrevented)
+  check("Tab 落到同一行的下一个输入格（跳过选择格，到收入）", focusIs(tabDraft(), 3),
+    `焦点在 ${document.activeElement?.tagName ?? "无"} / 第 3 格有输入框 ${cellInput(tabDraft(), 3) === null ? "否" : "是"}`)
+  check("Tab 之后这一行仍是草稿（钉在顶端、还没有行号）",
+    rowNumber(tabDraft()) === "" && cellText(tabDraft(), 1) === "阿飞",
+    `行号「${rowNumber(tabDraft())}」 / 人员「${cellText(tabDraft(), 1)}」`)
+}
+
+// 再一个 Tab 落到最后一个输入格（支出），在它上面 Tab 才算这一笔记完。
+const tabKey = () => new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })
+const tabIncome = cellInput(tabDraft(), 3)
+if (tabIncome !== null) {
+  tabIncome.dispatchEvent(tabKey())
+  await settle()
+}
+check("再一个 Tab 落到最后一个输入格（支出）", focusIs(tabDraft(), 4),
+  `焦点在 ${document.activeElement?.tagName ?? "无"} / 第 4 格有输入框 ${cellInput(tabDraft(), 4) === null ? "否" : "是"}`)
+
+const tabLast = cellInput(tabDraft(), 4)
+if (tabLast !== null) {
+  tabLast.dispatchEvent(tabKey())
+  await settle()
+}
+check("最后一个输入格上 Tab 退出编辑态", tableRows().every((row) => cells(row).every((td) => td.querySelector("input") === null)))
+check("Tab 走完才归位（拿到行号，不再是草稿）", rowNumber(tableRows()[0]) !== "",
+  tableRows().map(rowNumber).join(","))
+
 lines.push(failed === 0 ? `自检 ${passed}/${passed}` : `自检 ${passed} 过 / ${failed} 败`)
 document.getElementById("out").textContent = lines.join("\n")</script>
 </body>

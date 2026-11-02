@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { TextualBlock } from "@/types/workspace"
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import { CheckIcon, CopyIcon, PencilIcon } from "@lucide/vue"
+import { CheckIcon, CopyIcon, LoaderCircleIcon, PencilIcon } from "@lucide/vue"
 import { useCopied } from "@/composables/useCopied"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTheme } from "@/composables/useTheme"
@@ -46,6 +46,16 @@ const rootRef = ref<HTMLElement | null>(null)
 let handle: CodeEditorHandle | null = null
 
 /**
+ * Monaco 还在加载。
+ *
+ * 进编辑态这一下要等 `import("monaco-editor")` 与 worker 就位（首次几百毫秒到几秒），
+ * 这段时间块里**什么都不会画** —— 编辑器实例还没建，静态层也已经让位。用户看到的是
+ * 「点了一下，块变成一块空底」，很容易当成卡住又点一次。所以给一行加载态占住那块底，
+ * 实例一建好立刻撤（撤得比编辑器首帧早一点点也无妨：那时底已经是编辑器的了）。
+ */
+const booting = ref(false)
+
+/**
  * 语言选项。Monaco 的语言 id 就是这些键（`shell` 是它的 bash 标识）。
  * 只列常用的：列全了要滚三屏，而真正会写进笔记的就这几门。
  */
@@ -68,6 +78,9 @@ const LANGUAGES = [
 function disposeEditor(): void {
   handle?.dispose()
   handle = null
+  // 加载还没回来就收工（Esc / 点别处）：加载态得跟着撤，不然下次进编辑态先闪一行
+  // 「正在加载」再显示已经就绪的编辑器。
+  booting.value = false
   // 排版是异步的：块可能在等待期间收工，`runFormat` 那侧的 `await` 就再也没有机会
   // 把按钮复位。状态归这里收，下次进编辑态不会挂着一个「格式化中…」。
   formatting.value = false
@@ -79,6 +92,7 @@ function disposeEditor(): void {
 async function mountEditor(): Promise<void> {
   const host = hostRef.value
   if (host === null) return
+  booting.value = true
   const opened = await openCodeEditor({
     host,
     value: text.value,
@@ -87,6 +101,7 @@ async function mountEditor(): Promise<void> {
     fontFamily: currentFontStack("code"),
     baseFontPx: rootFontPx.value,
   })
+  booting.value = false
   if (opened === null) {
     // Monaco 没起来就退回静态态 —— 块里还是原来那段文字，读者不受影响。
     editing.value = false
@@ -223,8 +238,17 @@ onBeforeUnmount(() => {
       块高、文字起点都不变。工具条做成**块下方的浮层**而不是块内的一行 ——
       块内加一行会让编辑态比静态态高 28px，进出一次下面的内容整体跳一下。
     -->
-    <div v-if="editing" class="overflow-hidden rounded-lg bg-muted-strong">
-      <div ref="hostRef" class="monaco-code-host px-3.5 py-2.5" />
+    <div v-if="editing" class="relative overflow-hidden rounded-lg bg-muted-strong">
+      <div ref="hostRef" class="monaco-code-host px-3.5 py-2.5" :class="booting && 'min-h-[2.5625rem]'" />
+      <!-- 加载态占住编辑器那块底：单行高度与静态层逐像素一致（21px 行高 + 上下 10px 内边距），
+           实例一就位立刻撤，块高不因此跳。 -->
+      <div
+        v-if="booting"
+        class="pointer-events-none absolute inset-0 flex items-center gap-1.5 px-3.5 text-12 text-muted-foreground"
+      >
+        <LoaderCircleIcon class="size-3.5 animate-spin" />
+        正在加载编辑器…
+      </div>
     </div>
     <div
       v-if="editing"

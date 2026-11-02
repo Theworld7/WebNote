@@ -78,6 +78,9 @@ const tabRow = () => surface()?.querySelector(':scope > [class*="h-11"]') ?? nul
 const strip = () => surface()?.querySelector('[class*="group/tabs"]') ?? null
 const scroller = () => surface()?.querySelector('[class*="overflow-x-auto"]') ?? null
 const firstTab = () => surface()?.querySelector('button[class*="group/tab"]') ?? null
+const tabAt = (index) => surface()?.querySelectorAll('button[class*="group/tab"]')[index] ?? null
+/** 标签条的补位在 `watch` 的 `nextTick` 里跑，要多等一轮才看得到结果。 */
+const settle = async () => { for (let i = 0; i < 3; i += 1) await nextTick() }
 
 // ---------- 一、没有标签时 ----------
 
@@ -169,6 +172,54 @@ check(
 )
 // 量完把视口摆回开头：这一页常被拿来截图看落位，停在末尾的话首标签被渐变遮罩盖着。
 if (wide !== null && wide !== undefined) wide.scrollLeft = 0
+
+// ---------- 四、激活项自己滚进视口 ----------
+
+// 从空白起步再一次性给齐：这就是「开应用时把会话接上」那条路 —— 标签与激活项同时落地，
+// 两条 watch 各补一次位。
+workspace.tabs.value = []
+workspace.activePath.value = ""
+await nextTick()
+workspace.tabs.value = Array.from({ length: 12 }, (_, i) => ({ path: `第${i}章.html`, dirty: false }))
+workspace.activePath.value = "第11章.html"
+await settle()
+
+const rail = scroller()
+const railBox = box(rail)
+const lastBox = box(tabAt(11))
+check(
+  "接着会话打开时标签条滚到能看见激活项",
+  rail !== null && rail !== undefined && rail.scrollLeft > 0,
+  `scrollLeft ${rail?.scrollLeft ?? "缺失"}`,
+)
+// `EDGE_GAP` 在组件里是 24px（两端的渐变遮罩 `w-6` 的宽度），这里按同一口径判：整颗都要
+// 落在未遮挡的那段里，否则等于「看得见但被压掉一截」。
+check(
+  "激活的那一颗整颗落在视口里且让开两端遮罩",
+  railBox !== null && lastBox !== null &&
+    lastBox.left >= railBox.left + 24 - EPS &&
+    lastBox.right <= railBox.right - 24 + EPS,
+  railBox === null || lastBox === null
+    ? "缺失"
+    : `标签 ${lastBox.left.toFixed(1)}~${lastBox.right.toFixed(1)} vs 视口 ${(railBox.left + 24).toFixed(1)}~${(railBox.right - 24).toFixed(1)}`,
+)
+
+workspace.activePath.value = "第0章.html"
+await settle()
+check(
+  "切回排头的标签后标签条滚回开头",
+  scroller() !== null && scroller().scrollLeft === 0,
+  `scrollLeft ${scroller()?.scrollLeft ?? "缺失"}`,
+)
+
+// 本来就在视口里的切换不该动滚动位置 —— 手动滚过的位置是用户的，别顺手居中。
+workspace.activePath.value = "第1章.html"
+await settle()
+check(
+  "可见范围内的切换不挪动标签条",
+  scroller() !== null && scroller().scrollLeft === 0,
+  `scrollLeft ${scroller()?.scrollLeft ?? "缺失"}`,
+)
 
 lines.push(`自检 ${passed}/${passed + failed}`)
 out.textContent = lines.join("\n")
