@@ -2,7 +2,7 @@
 import type { KanbanBlock } from "@/types/workspace"
 import type { DataColumn, DataRow, DataCellValue } from "@/types/data-table"
 import { computed } from "vue"
-import { ChevronDownIcon, ChevronUpIcon, DatabaseIcon, PlusIcon, Settings2Icon } from "@lucide/vue"
+import { ChevronDownIcon, ChevronUpIcon, PlusIcon, Settings2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import TableRefNotice from "@/components/TableRefNotice.vue"
+import ReferenceBlockShell from "@/components/ReferenceBlockShell.vue"
 import OptionCell from "@/components/OptionCell.vue"
 import DateCalendar from "@/components/DateCalendar.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
@@ -35,9 +35,9 @@ import * as dt from "@/lib/data-table"
  */
 const props = defineProps<{ block: KanbanBlock }>()
 
-const { openFile, updateBlockSettings, rebindTable, tablePaths } = useWorkspace()
+const { updateBlockSettings } = useWorkspace()
 
-const { state, table, columns, rows, change } = useTableEntry(() => props.block.path)
+const { state, columns, rows, change } = useTableEntry(() => props.block.path)
 
 // ---- 分组 ----
 
@@ -244,41 +244,17 @@ function toggleField(column: DataColumn, checked: boolean): void {
 
 const MENU = "w-[12.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
-
-function openTable() {
-  if (props.block.path === "") return
-  openFile(props.block.path)
-}
 </script>
 
 <template>
-  <!-- 空指针:如实说没指定,而不是永远转圈。 -->
-  <TableRefNotice v-if="props.block.path === ''" kind="unset" label="看板" />
-
-  <!-- 引用的文件读不到:提示态,不是错误态 —— 提示条自带一条重新指向的出路。 -->
-  <TableRefNotice
-    v-else-if="state === 'missing' || state === 'failed'"
-    kind="missing"
-    label="看板"
+  <ReferenceBlockShell
+    :block-id="props.block.id"
     :path="props.block.path"
-    :tables="tablePaths"
-    @reselect="(path: string) => rebindTable(props.block.id, path)"
-  />
-
-  <!-- 还没读完。 -->
-  <TableRefNotice v-else-if="table === null" kind="loading" label="看板" />
-
-  <div v-else class="group/kanban relative my-4">
+    label="看板"
+    :state="state"
+  >
     <!-- 块操作入口:右上角,悬停浮现。 -->
-    <div class="absolute -top-2 right-0 z-20 flex items-center gap-1 opacity-0 transition-opacity group-hover/kanban:opacity-100 focus-within:opacity-100">
-      <Button
-        variant="ghost"
-        size="sm"
-        class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground"
-        @click="openTable"
-      >
-        <DatabaseIcon class="size-3" />打开数据表
-      </Button>
+    <template #actions>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
           <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground">
@@ -349,7 +325,7 @@ function openTable() {
           </template>
         </DropdownMenuContent>
       </DropdownMenu>
-    </div>
+    </template>
 
     <!-- 未选分组列:引导去设。 -->
     <p
@@ -460,5 +436,5 @@ function openTable() {
         <DateCalendar :value="datePanel.value" :focus="datePanel.focus" @pick="pickDate($event)" @clear="pickDate('')" />
       </div>
     </Teleport>
-  </div>
+  </ReferenceBlockShell>
 </template>

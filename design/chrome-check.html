@@ -86,7 +86,7 @@ check("无激活标签时不渲染页面样式入口", styleEntry() === undefine
 
 // ---------- 三、标签不在 chrome 里 ----------
 
-workspace.tabs.value = [{ path: "日记/2026-10-23.html", dirty: false, dirtyTables: [] }]
+workspace.tabs.value = [{ path: "日记/2026-10-23.html", dirty: false }]
 workspace.activePath.value = "日记/2026-10-23.html"
 await nextTick()
 
@@ -111,7 +111,7 @@ check(
   surfaceBox === null ? "拖拽区缺失" : `实际 ${surfaceBox.width.toFixed(1)}`,
 )
 const surfaceBefore = surfaceBox?.width ?? NaN
-workspace.tabs.value = Array.from({ length: 12 }, (_, i) => ({ path: `第${i}章.html`, dirty: false, dirtyTables: [] }))
+workspace.tabs.value = Array.from({ length: 12 }, (_, i) => ({ path: `第${i}章.html`, dirty: false }))
 workspace.activePath.value = "第11章.html"
 await nextTick()
 check(
@@ -122,7 +122,7 @@ check(
 
 // ---------- 五、右端文档信息 ----------
 
-workspace.tabs.value = [{ path: "日记/2026-10-23.html", dirty: false, dirtyTables: [] }]
+workspace.tabs.value = [{ path: "日记/2026-10-23.html", dirty: false }]
 workspace.activePath.value = "日记/2026-10-23.html"
 await nextTick()
 
@@ -143,7 +143,7 @@ check(
 )
 
 const styleLeftBefore = box(styleEntry())?.left ?? NaN
-workspace.tabs.value = [{ path: "日记/2026-10-23.html", dirty: true, dirtyTables: [] }]
+workspace.tabs.value = [{ path: "日记/2026-10-23.html", dirty: true }]
 await nextTick()
 check(
   "标签变脏（长出一个保存图标）后页面样式入口不挪位",

@@ -2,8 +2,8 @@
 import type { BookmarkBlock } from "@/types/workspace"
 import type { DataColumn, DataRow } from "@/types/data-table"
 import type { ComponentPublicInstance } from "vue"
-import { computed, nextTick, ref, watch } from "vue"
-import { DatabaseIcon, ImagePlusIcon, PencilIcon, PlusIcon, Settings2Icon, Trash2Icon, XIcon } from "@lucide/vue"
+import { computed, nextTick, ref, useTemplateRef, watch } from "vue"
+import { ImagePlusIcon, PencilIcon, PlusIcon, Settings2Icon, Trash2Icon, XIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -21,7 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import TableRefNotice from "@/components/TableRefNotice.vue"
+import ReferenceBlockShell from "@/components/ReferenceBlockShell.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
 import { isImageFile, readImageFile } from "@/lib/image"
@@ -45,9 +45,9 @@ import * as dt from "@/lib/data-table"
  */
 const props = defineProps<{ block: BookmarkBlock }>()
 
-const { openFile, updateBlockSettings, rebindTable, tablePaths } = useWorkspace()
+const { updateBlockSettings } = useWorkspace()
 
-const { state, table, columns, rows, change } = useTableEntry(() => props.block.path)
+const { state, columns, rows, change } = useTableEntry(() => props.block.path)
 
 /** 指向的列被删后这里落空,整块退化为「未设置」提示态,无需清洗块属性。 */
 const nameColumn = computed<DataColumn | null>(() => columns.value.find((column) => column.id === props.block.nameColumn) ?? null)
@@ -339,8 +339,9 @@ function measureTruncation() {
 watch(sections, () => void nextTick(measureTruncation))
 
 /** 容器的宽度变化(窗口缩放、侧栏开合)同样会改变截断,跟着重量一次。
-    根节点是条件渲染的(表读完才出现),所以监听 ref 本身而不是在 onMounted 里拿。 */
-const rootEl = ref<HTMLElement | null>(null)
+    根节点由外壳条件渲染(表读完才出现),所以监听 ref 本身而不是在 onMounted 里拿。 */
+const shell = useTemplateRef<InstanceType<typeof ReferenceBlockShell>>("shell")
+const rootEl = computed(() => shell.value?.root ?? null)
 
 watch(
   rootEl,
@@ -403,25 +404,16 @@ const columnsSelection = computed({
 </script>
 
 <template>
-  <!-- 空指针:如实说没指定,而不是永远转圈。 -->
-  <TableRefNotice v-if="props.block.path === ''" kind="unset" label="书签" />
-
-  <!-- 引用的文件读不到:提示态,不是错误态 —— 提示条自带一条重新指向的出路。 -->
-  <TableRefNotice
-    v-else-if="state === 'missing' || state === 'failed'"
-    kind="missing"
-    label="书签"
+  <ReferenceBlockShell
+    ref="shell"
+    :block-id="props.block.id"
     :path="props.block.path"
-    :tables="tablePaths"
-    @reselect="(path: string) => rebindTable(props.block.id, path)"
-  />
-
-  <!-- 还没读完。 -->
-  <TableRefNotice v-else-if="table === null" kind="loading" label="书签" />
-
-  <div v-else ref="rootEl" class="group/bookmark relative my-4">
-    <!-- 块操作入口:右上角,悬停浮现。与画册的入口同一套;浅阴影把浮岛从正文上托起来。 -->
-    <div class="absolute -top-2 right-0 z-20 flex items-center gap-1 opacity-0 transition-opacity group-hover/bookmark:opacity-100 focus-within:opacity-100">
+    label="书签"
+    :state="state"
+    lifted
+  >
+    <!-- 块操作入口:右上角,悬停浮现。 -->
+    <template #actions>
       <!-- 添加书签 = 表尾追加一行并进编辑态;名称/链接列没挑时没有可写的字段,不给入口。 -->
       <Button
         v-if="nameColumn !== null && urlColumn !== null"
@@ -431,14 +423,6 @@ const columnsSelection = computed({
         @click="addBookmark"
       >
         <PlusIcon class="size-3" />添加书签
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground shadow-sm hover:text-foreground"
-        @click="openFile(props.block.path)"
-      >
-        <DatabaseIcon class="size-3" />打开数据表
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
@@ -510,7 +494,7 @@ const columnsSelection = computed({
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
-    </div>
+    </template>
 
     <!-- 字段未挑全:引导去设置,而不是渲染一排空卡。 -->
     <p
@@ -679,5 +663,5 @@ const columnsSelection = computed({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  </div>
+  </ReferenceBlockShell>
 </template>

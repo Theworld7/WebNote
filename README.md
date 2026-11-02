@@ -258,7 +258,13 @@ pnpm icon           # 重算应用图标（改 design/icon/icon.tokens.json 之�
 
 - **单一真源**。块类型标识符只在 `lib/blocks.ts` 的 `BLOCK_TYPES`；工作区路径格式只在 `lib/paths.ts`；
   目录扫描的过滤与排序只在 `lib/fs/policy.ts`（桌面端与浏览器端两份 `WorkspaceFs` 实现共用）；
-  「什么算列表族」只在 `isListBlock()` 一处；数据表的列类型只在 `lib/data-table.ts` 的 `COLUMN_TYPES`。
+  「什么算列表族」只在 `isListBlock()` 一处；数据表的列类型只在 `lib/data-table.ts` 的 `COLUMN_TYPES`；
+  画册的宫格归桶（空值行不聚合、单行组平铺、≥2 行折成叠卡）只在 `lib/gallery.ts`，编辑器的视图与
+  导出的静态快照共用这一份。
+- **数据表的脏态只在注册表**。`useTables` 每条 `entry.dirty` 是唯一答案 —— 表是全局的（一张表可能被
+  好几篇引用），标签上只记「正文脏了」；「这个标签有没有未保存的东西」问 `tabHasUnsaved`，
+  保存时把脏表**全部**落盘。早先标签另记一份 `dirtyTables`，那份镜像要在改动 / 保存 / 丢弃 / 换名
+  四处各维护一次，漏一处就留下无人认领的脏表。
 - **正文是 `InlineRun[]`**，不是字符串。需要纯文本时投影（`runsText` / `blockText`），不另存一份字符串字段。
 - **`contenteditable` 必须非受控**：DOM 只在 `onMounted` 写一次，Vue 不回写；格式化后由编辑逻辑自己
   重画并复原选区。

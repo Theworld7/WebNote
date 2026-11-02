@@ -6,7 +6,6 @@ import { computed, ref, watch } from "vue"
 import {
   ChevronDownIcon,
   ChevronUpIcon,
-  DatabaseIcon,
   FoldVerticalIcon,
   LayoutGridIcon,
   Settings2Icon,
@@ -21,11 +20,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import TableRefNotice from "@/components/TableRefNotice.vue"
+import ReferenceBlockShell from "@/components/ReferenceBlockShell.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
 import { useCellEditing } from "@/composables/useCellEditing"
 import * as dt from "@/lib/data-table"
+import { galleryUnits } from "@/lib/gallery"
+import type { GalleryUnit } from "@/lib/gallery"
 import { markImageBroken, usableImage } from "@/lib/broken-images"
 
 /**
@@ -43,9 +44,9 @@ import { markImageBroken, usableImage } from "@/lib/broken-images"
  */
 const props = defineProps<{ block: GalleryBlock }>()
 
-const { openFile, updateBlockSettings, rebindTable, tablePaths } = useWorkspace()
+const { updateBlockSettings } = useWorkspace()
 
-const { state, table, columns, rows, change } = useTableEntry(() => props.block.path)
+const { state, columns, rows, change } = useTableEntry(() => props.block.path)
 
 /**
  * 卡片上的字段:排除图片列(它已经是海报位)和被块设置隐藏的列。
@@ -112,63 +113,12 @@ watch(
   () => expanded.value.clear(),
 )
 
-/** 宫格的渲染单元:一张平铺卡是一个单元,一个聚合组也是(聚合/展开由 `stacked` 区分)。 */
-interface GalleryUnit {
-  /** 稳定 key:聚合组用组值,平铺行用行 id。 */
-  key: string
-  /** true = 聚合态,整组画成一张叠卡;false = 组内逐张平铺。 */
-  stacked: boolean
-  /** 代表行:聚合卡画的是它;平铺时就是那一行自己。 */
-  lead: DataRow
-  rows: readonly DataRow[]
-}
+/** 聚合组默认折叠;点开过的按 `expanded` 摊平。 */
+const isExpanded = (key: string): boolean => expanded.value.has(key)
 
-/**
- * 分组规则:按参考列的原始值归组,产出顺序跟行的首次出现序。空值行不聚合 ——
- * 「没有合集名」的行互相无关,聚到一起是错的;单行组也不聚合,一张卡配一叠
- * 骨架是在暗示「后面还有卡」,而那里没有。
- */
-function buildUnits(list: readonly DataRow[], col: DataColumn | null): GalleryUnit[] {
-  if (col === null) {
-    return list.map((row) => ({ key: row.id, stacked: false, lead: row, rows: [row] }))
-  }
-
-  const buckets = new Map<string, DataRow[]>()
-  for (const row of list) {
-    const value = dt.cellValue(row, col)
-    if (value === null || value === "") continue
-    const key = String(value)
-    const bucket = buckets.get(key)
-    if (bucket === undefined) buckets.set(key, [row])
-    else bucket.push(row)
-  }
-
-  const seen = new Set<string>()
-  const out: GalleryUnit[] = []
-  for (const row of list) {
-    const value = dt.cellValue(row, col)
-    if (value === null || value === "") {
-      out.push({ key: row.id, stacked: false, lead: row, rows: [row] })
-      continue
-    }
-    const key = String(value)
-    if (seen.has(key)) continue
-    seen.add(key)
-    const bucket = buckets.get(key)
-    if (bucket === undefined) continue
-    const [lead] = bucket
-    if (lead === undefined) continue
-    if (bucket.length < 2) {
-      // 单行组平铺:一张卡配一叠骨架是在暗示「后面还有卡」,而那里没有。
-      out.push({ key: lead.id, stacked: false, lead, rows: bucket })
-      continue
-    }
-    out.push({ key, stacked: !expanded.value.has(key), lead, rows: bucket })
-  }
-  return out
-}
-
-const units = computed<readonly GalleryUnit[]>(() => buildUnits(rows.value, groupColumn.value))
+const units = computed<readonly GalleryUnit[]>(() =>
+  galleryUnits(rows.value, groupColumn.value, isExpanded),
+)
 
 /**
  * 宫格的分节视图:不开分组时整表一节(标题不画);开了分组则按参考列的原始值
@@ -201,7 +151,7 @@ const sections = computed<readonly GallerySection[]>(() => {
     key: `g:${bucket.key}`,
     value: bucket.key,
     title: bucket.title,
-    units: buildUnits(bucket.rows, aggCol),
+    units: galleryUnits(bucket.rows, aggCol, isExpanded),
   }))
 
   // 「未分组」节恒在末尾:没有这一项的行互相无关,不参与手排。
@@ -210,7 +160,7 @@ const sections = computed<readonly GallerySection[]>(() => {
       key: "g:",
       value: "",
       title: "未分组",
-      units: buildUnits(loose, aggCol),
+      units: galleryUnits(loose, aggCol, isExpanded),
     })
   }
   return out
@@ -362,43 +312,18 @@ const WIDTH_ITEMS = [
   { value: "50", label: "50%" },
 ] satisfies readonly { value: string; label: string }[]
 
-function openTable() {
-  if (props.block.path === "") return
-  // 走工作区的打开入口 —— 标签、按需读都由它统一管。
-  openFile(props.block.path)
-}
-
 /** 编辑态的输入框一挂载就聚焦:点值即编辑,焦点应已在框里,而不是再点一下。 */
 </script>
 
 <template>
-  <!-- 空指针(转换流程修好前的遗留块 / 手工编辑):如实说没指定,而不是永远转圈。 -->
-  <TableRefNotice v-if="props.block.path === ''" kind="unset" label="画册" />
-
-  <!-- 引用的文件读不到:提示态,不是错误态 —— 提示条自带一条重新指向的出路。 -->
-  <TableRefNotice
-    v-else-if="state === 'missing' || state === 'failed'"
-    kind="missing"
-    label="画册"
+  <ReferenceBlockShell
+    :block-id="props.block.id"
     :path="props.block.path"
-    :tables="tablePaths"
-    @reselect="(path: string) => rebindTable(props.block.id, path)"
-  />
-
-  <!-- 还没读完。 -->
-  <TableRefNotice v-else-if="table === null" kind="loading" label="画册" />
-
-  <div v-else class="group/gallery relative my-4">
+    label="画册"
+    :state="state"
+  >
     <!-- 块操作入口:右上角,悬停浮现。z-20 压过聚合卡的 z-10,否则首行最右的卡会盖住它。 -->
-    <div class="absolute -top-2 right-0 z-20 flex items-center gap-1 opacity-0 transition-opacity group-hover/gallery:opacity-100 focus-within:opacity-100">
-      <Button
-        variant="ghost"
-        size="sm"
-        class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground"
-        @click="openTable"
-      >
-        <DatabaseIcon class="size-3" />打开数据表
-      </Button>
+    <template #actions>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
           <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground">
@@ -550,7 +475,7 @@ function openTable() {
           </template>
         </DropdownMenuContent>
       </DropdownMenu>
-    </div>
+    </template>
 
     <!-- 宫格。空表给一句说明,而不是留一片空白。 -->
     <p v-if="rows.length === 0" class="py-6 text-center text-12 text-muted-foreground">
@@ -664,6 +589,5 @@ function openTable() {
         </div>
       </section>
     </div>
-
-  </div>
+  </ReferenceBlockShell>
 </template>

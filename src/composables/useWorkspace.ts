@@ -21,7 +21,7 @@ import { createPlaylistPreset, createPlaylistSource } from "@/lib/playlist"
 import { rebindBlock } from "@/lib/rebind"
 import { MARKDOWN_EXTENSION, NOTE_EXTENSION, TABLE_EXTENSION, checkName, defaultExpanded, fileStem, isMarkdownFile, isNoteFile, isTableFile } from "@/lib/fs/policy"
 import * as table from "@/lib/table"
-import { fileName, fromSegments, isUnder, joinPath, migratePath, titleOf, toSegments } from "@/lib/paths"
+import { fileName, fromSegments, isUnder, joinPath, migratePath, pruneRecord, pruneSet, rekeyRecord, rekeySet, titleOf, toSegments } from "@/lib/paths"
 
 /**
  * 工作区状态。
@@ -91,16 +91,20 @@ function replaceChildren(nodes: FileNode[], parentPath: string, children: FileNo
 }
 
 /**
- * 工作区要用数据表注册表做的五件事 —— 一条**端口**。
+ * 工作区要用数据表注册表做的六件事 —— 一条**端口**。
  *
  * 注册表要用工作区的 driver / root（它依赖工作区），而保存笔记时要读表（工作区反过来
  * 要用它），直接互相 import 会成环。`App.vue` 在两边都建好之后把适配器递进来一次，
- * 依赖方向于是各自单向；自检页不接，五项各自退化成「什么都不做」，引用块写成提示态。
+ * 依赖方向于是各自单向；自检页不接，六项各自退化成「什么都不做」，引用块写成提示态。
  *
- * 五项的顺序不能合：
+ * 前五项的顺序不能合：
  * - `preload` 是异步的**前置动作**（读盘），`peek` 是同步的**取值**（拼快照）——
  *   合成一个就得让 `blocksToHtml` 变成异步，而它是纯函数。
  * - `flush` / `reload` / `create` 是写盘动作：保存前落盘、丢弃时退回盘上真相、新建表。
+ *
+ * `dirtyPaths` 单列出来是因为**表是全局状态**：一张表可能被好几篇笔记同时引用，脏不脏
+ * 只有注册表知道。标签上不再另记一份「我改过哪几张表」—— 那份镜像得在改动 / 保存 /
+ * 丢弃 / 换名四处各维护一次，漏一处（比如删掉一篇开着脏表的笔记）就留下无人认领的脏表。
  */
 export interface TableRegistry {
   /** 把一批表读进内存。保存前调用，让随后的 `peek` 拿得到内容。 */
@@ -113,6 +117,8 @@ export interface TableRegistry {
   reload(path: string): Promise<void>
   /** 新建一张 `.tbl`。`initial` 缺省时由注册表给默认内容。 */
   create(driver: WorkspaceFs, root: FsRoot, path: string, initial?: DataTable): Promise<void>
+  /** 当前有未落盘改动的表。在 `computed` 里读会跟着变。 */
+  dirtyPaths(): string[]
 }
 
 function createWorkspace() {
@@ -380,10 +386,56 @@ function createWorkspace() {
 
   const charCount = computed(() => countChars(activeDocument.value))
 
-  const isDirty = computed(() => activeTab.value?.dirty ?? false)
+  /**
+   * 有未落盘改动的数据表。
+   *
+   * 表是**全局**状态：同一张 `.tbl` 可能被好几篇笔记的引用块同时用着，改一处所有视图
+   * 一起变。所以「脏」也只有一个答案，由注册表说了算 —— 标签上不再另记一份。
+   *
+   * 改名 / 删目录也读它：表的内容以**旧路径**记在注册表里，路径一变，之后任何一次
+   * 保存都会把改动写向一个已经不存在的位置 —— 浏览器端 `writeNote` 甚至会把删掉的
+   * 文件原样写回来。所以这两个动作前置拦下受影响的脏表，让用户先保存或丢弃。
+   */
+  const dirtyTablePaths = computed<ReadonlySet<string>>(
+    () => new Set(registry.value?.dirtyPaths() ?? []),
+  )
 
-  /** 是否存在任何未保存的标签。关窗兜底用它判断要不要拦。 */
-  const hasDirty = computed(() => tabs.value.some((tab) => tab.dirty))
+  /**
+   * 标签有没有未落盘的东西。
+   *
+   * 正文那份看 `tab.dirty`；表那份看注册表，范围是「这个标签的界面能改到的表」——
+   * 笔记是它正文里引用着的那些，数据表标签就是它自己。块删掉之后那张表仍可能是脏的，
+   * 那已经不属于这篇的界面了：它留在注册表里，由关窗兜底，不跟着这篇一起丢掉。
+   *
+   * 先判空集再扫正文：绝大多数时刻一张脏表都没有，那时连 `refPathsOf` 都不用跑。
+   */
+  function tabHasUnsaved(tab: OpenTab): boolean {
+    if (tab.dirty) return true
+    if (dirtyTablePaths.value.size === 0) return false
+    if (isTableFile(fileName(tab.path))) return dirtyTablePaths.value.has(tab.path)
+    const blocks = documents.value[tab.path]
+    if (blocks === undefined) return false
+    return refPathsOf(blocks).some((path) => dirtyTablePaths.value.has(path))
+  }
+
+  /** 一篇标签的界面能改到的表 —— 笔记看它引用的那些，数据表标签就是它自己。 */
+  function tablesTouchedBy(path: string): string[] {
+    if (dirtyTablePaths.value.size === 0) return []
+    if (isTableFile(fileName(path))) return dirtyTablePaths.value.has(path) ? [path] : []
+    const blocks = documents.value[path]
+    if (blocks === undefined) return []
+    return refPathsOf(blocks).filter((item) => dirtyTablePaths.value.has(item))
+  }
+
+  const isDirty = computed(() => {
+    const tab = activeTab.value
+    return tab === null ? false : tabHasUnsaved(tab)
+  })
+
+  /** 是否存在任何未保存的内容。关窗兜底用它判断要不要拦。 */
+  const hasDirty = computed(
+    () => dirtyTablePaths.value.size > 0 || tabs.value.some((tab) => tabHasUnsaved(tab)),
+  )
 
   const isClosePending = computed(() => pendingClosePath.value !== null)
 
@@ -507,7 +559,7 @@ function createWorkspace() {
     adoptScrollTops(snapshot.scrollTops)
 
     const restorable = snapshot.tabs.filter((path) => alive.has(path))
-    tabs.value = restorable.map((path) => ({ path, dirty: false, dirtyTables: [] }))
+    tabs.value = restorable.map((path) => ({ path, dirty: false }))
     const next = restorable.includes(snapshot.activePath) ? snapshot.activePath : restorable[0]
     // 只剩「树展开到哪层」也该还原：标签全关掉、只看树也是合法的一次下班状态。
     if (next !== undefined) activateTab(next)
@@ -704,7 +756,7 @@ function createWorkspace() {
   }
 
   function openFile(path: string) {
-    if (!tabs.value.some((tab) => tab.path === path)) tabs.value.push({ path, dirty: false, dirtyTables: [] })
+    if (!tabs.value.some((tab) => tab.path === path)) tabs.value.push({ path, dirty: false })
     activateTab(path)
   }
 
@@ -767,7 +819,7 @@ function createWorkspace() {
   function requestCloseTab(path: string) {
     const tab = tabs.value.find((item) => item.path === path)
     if (!tab) return
-    if (!tab.dirty) {
+    if (!tabHasUnsaved(tab)) {
       closeTab(path)
       return
     }
@@ -788,12 +840,11 @@ function createWorkspace() {
     if (strategy === "save") {
       await saveTab(path)
       const tab = tabs.value.find((item) => item.path === path)
-      if (tab?.dirty === true) return
+      if (tab !== undefined && tabHasUnsaved(tab)) return
     } else {
       // 丢弃：把它改过的表退回盘上真相。否则改动还挂在注册表内存里，之后任何一次
-      // 保存都会把它们无声写出去 —— 「不保存」就不能只是不保存笔记那份。
-      const tab = tabs.value.find((item) => item.path === path)
-      for (const tablePath of tab?.dirtyTables ?? []) await registry.value?.reload(tablePath)
+      // 保存都会把它们无声写出去 ——「不保存」就不能只是不保存笔记那份。
+      for (const tablePath of tablesTouchedBy(path)) await registry.value?.reload(tablePath)
       // 笔记正文同样要退回盘上真相：documents 里还挂着带未保存修改的块，缓存不清，
       // 重新打开只会读到内存这份 —— 「丢弃」对正文就成了空话。历史一并作废：
       // 重读盘 = 语境重开，旧历史对新内容是错位的（同 loadDocument）。
@@ -825,8 +876,8 @@ function createWorkspace() {
    */
   const windowClosePending = ref(false)
 
-  /** 有未保存改动的标签。确认框按它数数，也按它逐个保存。 */
-  const dirtyTabs = computed(() => tabs.value.filter((tab) => tab.dirty))
+  /** 有未保存内容的标签（正文或它引用的表）。确认框按它数数，也按它逐个保存。 */
+  const dirtyTabs = computed(() => tabs.value.filter((tab) => tabHasUnsaved(tab)))
 
   /**
    * 收到原生层的「有人想关窗」：有脏的就问，没有就直接放行。
@@ -934,7 +985,7 @@ function createWorkspace() {
     if (autoSaveEnabled?.value !== true) return
     if (path === "") return
     const tab = tabs.value.find((item) => item.path === path)
-    if (tab === undefined || !tab.dirty) return
+    if (tab === undefined || !tabHasUnsaved(tab)) return
     await saveTab(path)
   }
 
@@ -990,7 +1041,10 @@ function createWorkspace() {
 
     savingPaths.value = withFlag(savingPaths.value, path, true)
     try {
-      for (const tablePath of tab.dirtyTables) {
+      // 脏表全部落盘 —— 不挑「属于这个标签的」：表是全局状态，内存里只有一份，
+      // 谁先保存都该把它写下去。写在正文之前：引用块快照取的就是内存那份，
+      // `.tbl` 不跟着写，盘上就有两份互相矛盾的真相。任何一张写失败就整体中止。
+      for (const tablePath of [...dirtyTablePaths.value]) {
         const error = (await registry.value?.flush(tablePath)) ?? null
         if (error !== null) {
           fsError.value = `保存数据表「${fileName(tablePath)}」失败：${error}`
@@ -1000,7 +1054,6 @@ function createWorkspace() {
 
       const blocks = documents.value[path]
       if (blocks === undefined) {
-        tab.dirtyTables = []
         tab.dirty = false
         return
       }
@@ -1020,9 +1073,8 @@ function createWorkspace() {
         fsError.value = `保存「${fileName(path)}」失败：${describeError(error)}`
         return
       }
-      // 写成功了才清脏态。
+      // 写成功了才清脏态（表那份已在上面逐张 flush 时清掉）。
       tab.dirty = false
-      tab.dirtyTables = []
       // 引用关系可能刚被改过：整合视图立刻跟上，不必等下一次树变化。
       refCache.delete(path)
       void refreshNoteTableRefs()
@@ -1438,27 +1490,28 @@ function createWorkspace() {
    *
    * `migratePath` 同时覆盖等值与前缀两种情况，所以整个目录改名时它下面开着的
    * 标签、读进内存的文档、展开着的子目录一起跟着走，不会留下悬空键。
+   *
+   * 换键与摘键的写法收在 `lib/paths` 的四个函数里；这里只负责**列全名单**。
+   * 名单漏一项不会有任何编译期提示 —— 所以每加一份以路径为键的状态，都要回来补一行。
    */
   function migrateKeys(from: string, to: string) {
-    tabs.value = tabs.value.map((tab) => ({
-      ...tab,
-      path: migratePath(tab.path, from, to),
-      // 标签记名的脏数据表也要跟着换：`.tbl` 在改名的目录下时，旧键已经写不回去了。
-      dirtyTables: tab.dirtyTables.map((path) => migratePath(path, from, to)),
+    const map = (path: string) => migratePath(path, from, to)
+    tabs.value = tabs.value.map((tab) => ({ ...tab, path: map(tab.path) }))
+    activePath.value = map(activePath.value)
+    expandedIds.value = rekeySet(expandedIds.value, map)
+    loadedPaths.value = rekeySet(loadedPaths.value, map)
+    loadingPaths.value = rekeySet(loadingPaths.value, map)
+    documents.value = rekeyRecord(documents.value, map)
+    styles.value = rekeyRecord(styles.value, map)
+    markdowns.value = rekeyRecord(markdowns.value, map)
+    // 撤销栈同样按路径记。漏掉它的话，改过名的那篇撤销记录留在旧键上 ——
+    // 同一篇笔记换个名字，本会话的撤销就没了（下一笔编辑会从新键重新起算）。
+    const moved: { path: string; entry: DocHistory }[] = [...history].map(([path, entry]) => ({
+      path: map(path),
+      entry,
     }))
-    activePath.value = migratePath(activePath.value, from, to)
-    expandedIds.value = new Set([...expandedIds.value].map((id) => migratePath(id, from, to)))
-    loadedPaths.value = new Set([...loadedPaths.value].map((path) => migratePath(path, from, to)))
-    loadingPaths.value = new Set([...loadingPaths.value].map((path) => migratePath(path, from, to)))
-    documents.value = Object.fromEntries(
-      Object.entries(documents.value).map(([path, blocks]) => [migratePath(path, from, to), blocks]),
-    )
-    styles.value = Object.fromEntries(
-      Object.entries(styles.value).map(([path, css]) => [migratePath(path, from, to), css]),
-    )
-    markdowns.value = Object.fromEntries(
-      Object.entries(markdowns.value).map(([path, text]) => [migratePath(path, from, to), text]),
-    )
+    history.clear()
+    for (const item of moved) history.set(item.path, item.entry)
   }
 
   /**
@@ -1515,22 +1568,6 @@ function createWorkspace() {
   // ---- 重命名与删除 ----
 
   /**
-   * 当前有未落盘改动的数据表路径。
-   *
-   * 改名/删目录对脏数据表是危险的：表的内容以**旧路径**记在注册表里，路径一变，
-   * 之后任何一次保存都会把改动写向一个已经不存在的位置 —— 浏览器端 `writeNote` 甚至会
-   * 把删掉的文件原样写回来。所以这两个动作前置拦下受影响的脏表，让用户先保存或丢弃。
-   */
-  function dirtyTablePaths(): Set<string> {
-    const dirty = new Set<string>()
-    for (const tab of tabs.value) {
-      if (tab.dirty && isTableFile(fileName(tab.path))) dirty.add(tab.path)
-      for (const tablePath of tab.dirtyTables) dirty.add(tablePath)
-    }
-    return dirty
-  }
-
-  /**
    * 把一个文件或文件夹改名（只换名字，不换父级）。
    *
    * 与 `createInto` 同一个骨架：校验 → 前置查冲突 → 动盘 → 刷树 → 换键。冲突口径也
@@ -1557,7 +1594,7 @@ function createWorkspace() {
     const to = joinPath(parentOfPath(path), finalName)
     if (to === path) return true
 
-    for (const tablePath of dirtyTablePaths()) {
+    for (const tablePath of dirtyTablePaths.value) {
       if (!isUnder(tablePath, path)) continue
       fsError.value = `重命名失败：「${fileName(tablePath)}」有未保存的修改，先保存或丢弃再试`
       return false
@@ -1595,7 +1632,7 @@ function createWorkspace() {
     const current = root.value
     if (driver === null || current === null) return false
 
-    for (const tablePath of dirtyTablePaths()) {
+    for (const tablePath of dirtyTablePaths.value) {
       if (!isUnder(tablePath, path)) continue
       fsError.value = `删除失败：「${fileName(tablePath)}」有未保存的修改，先保存或丢弃再试`
       return false
@@ -1619,36 +1656,21 @@ function createWorkspace() {
     for (const tab of [...tabs.value]) {
       if (isUnder(tab.path, path)) closeTab(tab.path)
     }
-    for (const key of Object.keys(documents.value)) {
-      if (isUnder(key, path)) delete documents.value[key]
-    }
-    for (const key of Object.keys(styles.value)) {
-      if (isUnder(key, path)) delete styles.value[key]
-    }
-    for (const key of Object.keys(markdowns.value)) {
-      if (isUnder(key, path)) delete markdowns.value[key]
-    }
-    loadedPaths.value = new Set([...loadedPaths.value].filter((key) => !isUnder(key, path)))
-    loadingPaths.value = new Set([...loadingPaths.value].filter((key) => !isUnder(key, path)))
-    expandedIds.value = new Set([...expandedIds.value].filter((key) => !isUnder(key, path)))
+    // 与 `migrateKeys` 同一张名单的摘键那一半：谁在以路径为键，谁就跟着一起摘。
+    const keep = (key: string) => !isUnder(key, path)
+    documents.value = pruneRecord(documents.value, keep)
+    styles.value = pruneRecord(styles.value, keep)
+    markdowns.value = pruneRecord(markdowns.value, keep)
+    loadedPaths.value = pruneSet(loadedPaths.value, keep)
+    loadingPaths.value = pruneSet(loadingPaths.value, keep)
+    expandedIds.value = pruneSet(expandedIds.value, keep)
+    for (const [key] of [...history]) if (!keep(key)) history.delete(key)
     return true
   }
 
   function markDirty(dirty = true) {
     const tab = activeTab.value
     if (tab) tab.dirty = dirty
-  }
-
-  /**
-   * 数据表内容被改：记到**当前激活标签**名下，与笔记编辑共用同一个保存出口。
-   * 在笔记里改（引用块 / 画册）记到那篇笔记头上，在数据表编辑页改记到表自己头上 ——
-   * 谁的界面里发生的改动归谁，关标签时的保存 / 丢弃提示才有准确的归属。
-   */
-  function markTableDirty(tablePath: string) {
-    const tab = activeTab.value
-    if (tab === null) return
-    if (!tab.dirtyTables.includes(tablePath)) tab.dirtyTables.push(tablePath)
-    tab.dirty = true
   }
 
   // ---- 撤销 / 重做 ----
@@ -2511,6 +2533,8 @@ function createWorkspace() {
     charCount,
     isDirty,
     hasDirty,
+    /** 某个标签有没有未落盘的东西（正文或它引用的表）。标签条据此点脏点。 */
+    tabHasUnsaved,
     savingPaths,
     isClosePending,
     pendingCloseLabel,
@@ -2562,7 +2586,6 @@ function createWorkspace() {
     save,
     saveTab,
     markDirty,
-    markTableDirty,
     createNoteIn,
     createFolderIn,
     createTableIn,

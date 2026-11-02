@@ -3,7 +3,6 @@ import type { DataColumn, DataRow, DataTable } from "@/types/data-table"
 import type { TableEntry, TableLoadState } from "@/composables/useTables"
 import { useTables } from "@/composables/useTables"
 import { useToast } from "@/composables/useToast"
-import { useWorkspace } from "@/composables/useWorkspace"
 import { computed, onBeforeUnmount, onMounted, shallowRef, watch } from "vue"
 
 /**
@@ -36,7 +35,6 @@ export interface TableEntryView {
 
 export function useTableEntry(pathOf: () => string): TableEntryView {
   const tables = useTables()
-  const { markTableDirty } = useWorkspace()
   const { notify } = useToast()
 
   const entry = shallowRef<TableEntry | null>(null)
@@ -78,9 +76,7 @@ export function useTableEntry(pathOf: () => string): TableEntryView {
       // 表还没读到（或读失败）：格子里的新值不会被接受，视觉上却是「打进去了又弹回来」。
       // 不说一声，用户只会以为这个格子坏了，再试一遍。
       notify("这张数据表还没读到，改动没有生效", "error")
-      return
     }
-    markTableDirty(path)
   }
 
   return { state, table, columns, rows, change }

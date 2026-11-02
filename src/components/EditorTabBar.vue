@@ -23,6 +23,7 @@ const {
   pendingCloseLabel,
   resolveClose,
   cancelPendingClose,
+  tabHasUnsaved,
 } = useWorkspace()
 
 /** 确认框里的按钮：h-7、13px，跟工具栏那批小按钮同一个体量。 */
@@ -82,6 +83,7 @@ watch(() => tabs.value.length, () => nextTick(updateOverflow))
         :key="tab.path"
         :tab="tab"
         :active="tab.path === activePath"
+        :unsaved="tabHasUnsaved(tab)"
         :saving="savingPaths.has(tab.path)"
         @activate="activateTab"
         @close="requestCloseTab"

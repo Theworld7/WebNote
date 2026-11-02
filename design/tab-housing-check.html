@@ -90,7 +90,7 @@ check("没有标签时卡片里没有标签条", strip() === null)
 
 // ---------- 二、有标签时的落位 ----------
 
-workspace.tabs.value = [{ path: "日记/2026-10-23.html", dirty: false, dirtyTables: [] }]
+workspace.tabs.value = [{ path: "日记/2026-10-23.html", dirty: false }]
 // 刻意不给 activePath：这一页只量「标签行落在哪」，别为了断言把正文编辑器一起挂上来。
 await nextTick()
 
@@ -144,7 +144,7 @@ check(
 
 // ---------- 三、标签塞满时在卡片里滚动 ----------
 
-workspace.tabs.value = Array.from({ length: 12 }, (_, i) => ({ path: `第${i}章.html`, dirty: false, dirtyTables: [] }))
+workspace.tabs.value = Array.from({ length: 12 }, (_, i) => ({ path: `第${i}章.html`, dirty: false }))
 await nextTick()
 
 const wide = scroller()

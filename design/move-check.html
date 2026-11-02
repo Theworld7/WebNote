@@ -268,6 +268,42 @@ await dropOn("归档", dt)
 check("同目录落点：视作空操作", seeded.read("归档 / 留守.html") === "<p>y</p>")
 check("同目录落点：不报错", workspace.fsError.value === "", workspace.fsError.value)
 
+// ---- 改名：以路径为键的状态要一起走，撤销栈也在其中 ----
+//
+// 改名走的是 `migrateKeys` 那张名单。`history` 曾经不在名单里 —— 改过名的那篇撤销记录
+// 留在旧键上，同一篇笔记换个名字，本会话的撤销就没了。撤销的定格是 500ms 静默窗口，
+// 所以每次改完都要真等过它，否则读到的是「还没定格」而不是「换键丢了」。
+
+const settleHistory = () => new Promise((resolve) => setTimeout(resolve, 600))
+
+workspace.dismissError()
+// 上面那次 `attachForTest` 重开了工作区，文档缓存是空的 —— 先把它读回来。
+const renamedFrom = "日记 / 第一篇.html"
+workspace.openFile(renamedFrom)
+for (let i = 0; i < 40 && workspace.activeDocument.value.length === 0; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 25))
+}
+check("改名前置：笔记已打开", workspace.activePath.value === renamedFrom && workspace.activeDocument.value.length === 1, workspace.activePath.value)
+
+workspace.setBlockRuns(workspace.activeDocument.value[0].id, [{ text: "改名前的样子", marks: [] }])
+await settleHistory()
+check("改名前置：这处改动可以撤销", workspace.canUndo.value === true)
+
+await workspace.renameFile(renamedFrom, "改名后", "note")
+check("改名没报错", workspace.fsError.value === "", workspace.fsError.value)
+check("盘上：新名字在", seeded.read("日记 / 改名后.html") !== undefined, String(seeded.read("日记 / 改名后.html")))
+check("盘上：旧名字已消失", seeded.read("日记 / 第一篇.html") === undefined)
+check("激活项换到了新名字", workspace.activePath.value === "日记 / 改名后.html", workspace.activePath.value)
+check("撤销栈跟着换键，没有丢", workspace.canUndo.value === true)
+
+workspace.undo()
+await nextTick()
+check(
+  "撤销拿到的是改名前的正文（不是一片空白）",
+  (workspace.activeDocument.value[0]?.runs ?? []).map((run) => run.text).join("") === "改过了",
+  JSON.stringify(workspace.activeDocument.value[0]?.runs),
+)
+
 // ---- 非本应用的拖拽（比如拖进一个图片文件）不该被认领 ----
 
 const foreign = new DataTransfer()

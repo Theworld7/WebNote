@@ -96,7 +96,7 @@ check("按钮的可及名是「保存」", shown !== undefined && shown.getAttri
 check("激活的脏标签里就是那枚保存图标", visible(saveIn(tabButtons()[0])))
 check("激活的脏标签不显示圆点", !visible(dotIn(tabButtons()[0])))
 
-workspace.tabs.value.push({ path: "b.html", dirty: false, dirtyTables: [] })
+workspace.tabs.value.push({ path: "b.html", dirty: false })
 workspace.activePath.value = "b.html"
 await nextTick()
 check("切到干净标签 → 隐藏", saveButton() === undefined)
@@ -139,7 +139,7 @@ await nextTick()
 check("未打开文件时不渲染滚动容器", scrollerOf() === null)
 check("「更多」按钮已移除", document.querySelector('button[aria-label="更多"]') === null)
 
-workspace.tabs.value = [{ path: "a.html", dirty: false, dirtyTables: [] }]
+workspace.tabs.value = [{ path: "a.html", dirty: false }]
 workspace.activePath.value = "a.html"
 await nextTick()
 check("「在目录中定位」已移除（曾是没接事件的死按钮）",
@@ -152,8 +152,8 @@ check("打开文件后标签区挂上滚动容器", scrollerOf() !== null)
 // 浮岛的 p-1」。现在外壳撤了，要锁的是**没有残留内边距**：滚动容器必须与组件根同缘。
 
 workspace.tabs.value = [
-  { path: "a.html", dirty: false, dirtyTables: [] },
-  { path: "b.html", dirty: false, dirtyTables: [] },
+  { path: "a.html", dirty: false },
+  { path: "b.html", dirty: false },
 ]
 workspace.activePath.value = "b.html"
 await nextTick()
@@ -196,7 +196,7 @@ check(
 //
 // 类名断言防不住「滚动链断了」：外层一旦不可收缩（flex-none），滚动容器永远不溢出、
 // 类名原样挂着却滚不动。这里塞够多的标签，断言溢出真实发生、scrollLeft 真的能动。
-workspace.tabs.value = Array.from({ length: 12 }, (_, i) => ({ path: `第${i}章.html`, dirty: false, dirtyTables: [] }))
+workspace.tabs.value = Array.from({ length: 12 }, (_, i) => ({ path: `第${i}章.html`, dirty: false }))
 workspace.activePath.value = "第11章.html"
 await nextTick()
 

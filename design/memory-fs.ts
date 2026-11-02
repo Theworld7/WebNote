@@ -193,6 +193,16 @@ export function createMemoryFs(): MemoryFs {
       disk.files.delete(from)
       disk.files.set(to, html)
     },
+
+    /**
+     * 改名 = 只换名字的移动，stub 不再写第二份。
+     *
+     * 与真驱动的差别只剩**冲突时**：真 `rename` 会覆盖目标，这里拒绝。改名这条路
+     * 走的是 `renameFile`，它在调驱动之前就查过冲突了，所以这条差别落不到操作上。
+     */
+    async rename(root: FsRoot, from: string, to: string): Promise<void> {
+      await fs.move(root, from, to)
+    },
   }
 
   return {

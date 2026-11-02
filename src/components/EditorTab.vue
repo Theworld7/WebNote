@@ -8,6 +8,12 @@ import { cn } from "@/lib/utils"
 const props = defineProps<{
   tab: OpenTab
   active: boolean
+  /**
+   * 这个标签有未落盘的东西 —— 正文改动，或它引用的数据表改动。
+   *
+   * 由标签条算好递进来：表的脏态在注册表里，「这篇引用了哪几张表」只有工作区知道。
+   */
+  unsaved: boolean
   /** 正在写盘。图标换成转圈 —— 慢盘上「点了」与「存好了」必须是两件事。 */
   saving: boolean
 }>()
@@ -39,7 +45,7 @@ const label = computed(() => fileName(props.tab.path))
     <!-- 未保存态分两种：激活的用保存图标按钮（本身就是「点这里存」的入口），非激活的用小圆点。
          写盘在途时同一颗位置换成转圈，位置不动 —— 否则图标会跳一下。 -->
     <span
-      v-if="tab.dirty && active"
+      v-if="props.unsaved && active"
       class="flex size-4 shrink-0 items-center justify-center rounded-[4px] text-dirty hover:text-foreground"
       :aria-label="saving ? '保存中' : '保存'"
       :aria-busy="saving"
@@ -49,7 +55,7 @@ const label = computed(() => fileName(props.tab.path))
       <SaveIcon v-else class="size-3" />
     </span>
     <span
-      v-if="tab.dirty"
+      v-if="props.unsaved"
       :class="cn('size-1.5 shrink-0 rounded-full bg-dirty', active ? 'hidden' : 'inline-block')"
     />
 

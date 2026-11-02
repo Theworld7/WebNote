@@ -21,7 +21,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ close: [] }>()
 
-const { tabs, deleteFile } = useWorkspace()
+const { tabs, deleteFile, tabHasUnsaved } = useWorkspace()
 
 const isFolder = computed(() => props.target?.kind === "folder")
 
@@ -29,7 +29,7 @@ const isFolder = computed(() => props.target?.kind === "folder")
 const hasDirtyTabs = computed(() => {
   const target = props.target
   if (target === null) return false
-  return tabs.value.some((tab) => tab.dirty && isUnder(tab.path, target.path))
+  return tabs.value.some((tab) => tabHasUnsaved(tab) && isUnder(tab.path, target.path))
 })
 
 async function confirm() {

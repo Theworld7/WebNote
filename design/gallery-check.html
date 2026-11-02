@@ -21,6 +21,7 @@ import { BLOCK_TYPES, createBlock, createGalleryBlock, blockText, cloneBlock } f
 import { blocksToHtml } from "../src/lib/html/serialize.ts"
 import { parseHtml } from "../src/lib/html/parse.ts"
 import * as dt from "../src/lib/data-table.ts"
+import { galleryUnits } from "../src/lib/gallery.ts"
 
 const lines = []
 let passed = 0
@@ -145,6 +146,56 @@ check("空指针路径容忍(走 missing 提示态)", lenient('data-gallery=""')
 // 剥掉指针(第三方编辑器、旧版应用):退化成普通表格块 —— 与数据表引用块的快照例外等价。
 const plain = parseHtml("<body><table><thead><tr><th>名</th></tr></thead><tbody><tr><td>a</td></tr></tbody></table></body>")[0]
 check("没有 data-gallery 就是普通表格块", plain.type === "table", plain.type)
+
+// ---------- 六、分节与聚合（编辑器与导出同一份算法） ----------
+
+note("分节与聚合")
+
+// 三节：甲/乙/丙 同一类型（同合集 → 折成一张叠卡）、丁 独占一节（单行平铺）、
+// 戊 没填类型（进末尾的「未分组」节）。这一组数据把归桶的每条规则都压到了。
+let grid = dt.createEmptyTable(["名称", "类型", "合集"])
+const G_NAME = grid.columns[0].id
+const G_KIND = grid.columns[1].id
+const G_SET = grid.columns[2].id
+// `createEmptyTable` 自带一个空行；这组用例要一张从零铺起的表。
+grid = { ...grid, rows: [] }
+for (const [name, kind, set] of [
+  ["甲", "剧", "合集一"],
+  ["乙", "剧", "合集一"],
+  ["丙", "剧", "合集一"],
+  ["丁", "影", "合集二"],
+  ["戊", "", "合集三"],
+]) {
+  grid = dt.addRow(grid)
+  const row = grid.rows[grid.rows.length - 1]
+  grid = dt.replaceRow(grid, dt.setCell(dt.setCell(dt.setCell(row, G_NAME, name), G_KIND, kind), G_SET, set))
+}
+
+// 分节列 = 类型，聚合列 = 合集（不同字段叠加：节内按合集堆叠）。
+const gridBlock = createGalleryBlock("追剧.tbl", "auto", "cover", [], "2:3", G_SET, G_KIND)
+const gridHtml = blocksToHtml([gridBlock], () => grid)
+const secTitles = [...gridHtml.matchAll(/note-sec-title">([^<]*)</g)].map((m) => m[1])
+check("按类型分出三节（剧 / 影 / 未分组）", secTitles.join(",") === "剧,影,未分组", JSON.stringify(secTitles))
+check("只折叠行数 ≥2 的那一节", (gridHtml.match(/note-gstack/g) ?? []).length === 1,
+  String((gridHtml.match(/note-gstack/g) ?? []).length))
+check("三节各出一张卡（叠卡算一张，单行组平铺）", (gridHtml.match(/class="note-gcard"/g) ?? []).length === 3,
+  String((gridHtml.match(/class="note-gcard"/g) ?? []).length))
+check("叠卡只画代表行（甲在，乙丙不在）",
+  gridHtml.includes("甲") && !gridHtml.includes("乙") && !gridHtml.includes("丙"), "")
+
+// 与分组同字段时退化为平铺：同一列又分节又堆叠没有读法。
+const sameField = blocksToHtml([createGalleryBlock("追剧.tbl", "auto", "cover", [], "2:3", G_KIND, G_KIND)], () => grid)
+check("聚合列与分节列撞字段时不出叠卡", !sameField.includes("note-gstack"), sameField.slice(0, 200))
+
+// 单元划分本身：编辑器那边多传一个「已展开」判定，展开的组不再折。
+const byKind = grid.columns.find((column) => column.id === G_KIND)
+const folded = galleryUnits(grid.rows, byKind)
+const unfolded = galleryUnits(grid.rows, byKind, () => true)
+check("空值行各自成单元（不聚合）", folded.length === 3, `实际 ${folded.length}`)
+check("默认把多行组折起来", folded.some((unit) => unit.stacked && unit.rows.length === 3))
+check("展开只改 stacked，不改分组（组还是那三个）",
+  unfolded.length === folded.length && unfolded.every((unit) => !unit.stacked),
+  JSON.stringify(unfolded.map((unit) => [unit.rows.length, unit.stacked])))
 
 // ---------- 收尾 ----------
 

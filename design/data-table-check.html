@@ -656,9 +656,10 @@ const EditorRoot = defineComponent({
       peek: (path) => tables.peek(path),
       flush: (path) => tables.flush(path),
       reload: (path) => tables.reload(path),
+      dirtyPaths: () => tables.dirtyPaths(),
       create: () => Promise.reject(new Error("数据表编辑页不新建表")),
     })
-    Object.assign(editorProbe, workspace)
+    Object.assign(editorProbe, workspace, { tables })
     return () => (editorReady.value ? h(DataTableEditor) : h("div"))
   },
 })
@@ -698,7 +699,7 @@ check(
   editorText.slice(0, 200),
 )
 
-// 直接在编辑器里改一个字段 → 只进内存并记脏（标签变脏、表记到标签名下）,
+// 直接在编辑器里改一个字段 → 只进内存并记脏（注册表说这张表脏了，标签跟着算未保存）,
 // 落盘交给统一保存 —— 与笔记编辑同一套语义。
 // 这里改的是**列名输入框**：它是编辑器里唯一还是 `<input>` 的字段（select 列的格子
 // 已经换成下拉，值域封闭，写不进「随便什么文本」）。
@@ -718,9 +719,9 @@ check(
 )
 check("改值后标签变脏", editorProbe.hasDirty.value === true)
 check(
-  "脏表记到标签名下（保存 / 丢弃提示有准确归属）",
-  JSON.stringify(editorProbe.tabs.value[0]?.dirtyTables) === JSON.stringify(["编辑.tbl"]),
-  JSON.stringify(editorProbe.tabs.value[0]?.dirtyTables ?? null),
+  "脏表由注册表统管（保存 / 丢弃提示都按它判断）",
+  editorProbe.tables.dirtyPaths().includes("编辑.tbl"),
+  editorProbe.tables.dirtyPaths().join(","),
 )
 
 // 统一保存:saveTab 把改过的表落盘并清脏。
@@ -731,6 +732,7 @@ check(
   (editMemory.read("编辑.tbl") ?? "").slice(0, 200),
 )
 check("保存后标签干净", editorProbe.hasDirty.value === false)
+
 
 // ---- 删行：先问一句（与账目块同一口径，ADR-0037） ----
 // 数据行 = 带删除钮的行；末尾那行「新记录」没有钮，自然被排除。
@@ -783,6 +785,23 @@ await settleEditor()
 check("删空行不弹框", dialogEl() === null)
 check("空行直接消失", editorRows().length === rowsAfterAdd - 1, `实际 ${editorRows().length}`)
 
+// 脏可能不是这个标签的界面弄出来的：同一张表被另一篇笔记的画册改过，注册表里它是脏的，
+// 而这个标签的 `dirty` 一点没动。保存仍得把它写下去 —— 表是全局状态，内存里只有一份，
+// 没有「属于谁」这回事。早先按「标签名下那几张」落盘，这个改动就永远等不到写盘。
+await editorProbe.tables.mutate("编辑.tbl", (current) => {
+  const withRow = dt.addRow(current)
+  const last = withRow.rows[withRow.rows.length - 1]
+  return dt.replaceRow(withRow, dt.setCell(last, withRow.columns[0].id, "别处改的"))
+})
+check("表脏了、标签却没标脏", editorProbe.tabs.value[0]?.dirty === false)
+check("标签仍算未保存（脏表由注册表统管）", editorProbe.hasDirty.value === true)
+await editorProbe.save()
+check(
+  "保存把别处改的表也落盘",
+  (editMemory.read("编辑.tbl") ?? "").includes("别处改的"),
+  (editMemory.read("编辑.tbl") ?? "").slice(0, 200),
+)
+check("落完之后彻底干净", editorProbe.hasDirty.value === false)
 // ---------- 收尾 ----------
 
 const summary = `自检 ${passed}/${passed + failed} 通过`

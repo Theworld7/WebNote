@@ -3,7 +3,7 @@ import type { LedgerBlock } from "@/types/workspace"
 import type { DataColumn, DataRow } from "@/types/data-table"
 import type { LedgerSection } from "@/lib/ledger"
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue"
-import { DatabaseIcon, PlusIcon, Settings2Icon, Trash2Icon } from "@lucide/vue"
+import { PlusIcon, Settings2Icon, Trash2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -21,7 +21,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import TableRefNotice from "@/components/TableRefNotice.vue"
+import ReferenceBlockShell from "@/components/ReferenceBlockShell.vue"
 import DateCalendar from "@/components/DateCalendar.vue"
 import OptionCell from "@/components/OptionCell.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
@@ -58,9 +58,9 @@ import { balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledg
  */
 const props = defineProps<{ block: LedgerBlock }>()
 
-const { openFile, updateBlockSettings, rebindTable, tablePaths } = useWorkspace()
+const { updateBlockSettings } = useWorkspace()
 
-const { state, table, columns, rows, change } = useTableEntry(() => props.block.path)
+const { state, columns, rows, change } = useTableEntry(() => props.block.path)
 
 /** 收入 / 支出列。指向的列被删后落空,视图退化为「未设置」,无需清洗。 */
 const incomeColumn = computed<DataColumn | null>(() =>
@@ -625,34 +625,18 @@ const sortableColumns = computed(() => columns.value.filter((column) => column.t
 const MENU = "w-[13.125rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
 const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
-
-function openTable() {
-  if (props.block.path === "") return
-  openFile(props.block.path)
-}
 </script>
 
 <template>
-  <!-- 空指针:如实说没指定,而不是永远转圈。 -->
-  <TableRefNotice v-if="props.block.path === ''" kind="unset" label="账目" />
-
-  <!-- 引用的文件读不到:提示态,不是错误态 —— 提示条自带一条重新指向的出路。 -->
-  <TableRefNotice
-    v-else-if="state === 'missing' || state === 'failed'"
-    kind="missing"
-    label="账目"
+  <ReferenceBlockShell
+    :block-id="props.block.id"
     :path="props.block.path"
-    :tables="tablePaths"
-    @reselect="(path: string) => rebindTable(props.block.id, path)"
-  />
-
-  <!-- 还没读完。 -->
-  <TableRefNotice v-else-if="table === null" kind="loading" label="账目" />
-
-  <div v-else class="group/ledger relative my-4">
+    label="账目"
+    :state="state"
+  >
     <!-- 块操作入口:右上角,悬停浮现。「记一笔」排在最前 —— 它是这块的主要动作;
          表底那条常驻行撤掉之后,这是唯一入口。 -->
-    <div class="absolute -top-2 right-0 z-20 flex items-center gap-1 opacity-0 transition-opacity group-hover/ledger:opacity-100 focus-within:opacity-100">
+    <template #actions>
       <Button
         variant="ghost"
         size="sm"
@@ -660,14 +644,6 @@ function openTable() {
         @click="addEntry"
       >
         <PlusIcon class="size-3" />记一笔
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground"
-        @click="openTable"
-      >
-        <DatabaseIcon class="size-3" />打开数据表
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
@@ -728,7 +704,7 @@ function openTable() {
           </DropdownMenuCheckboxItem>
         </DropdownMenuContent>
       </DropdownMenu>
-    </div>
+    </template>
 
     <!-- 未设收入 / 支出列:引导去设,表格照常渲染(不做金额格式化与合计)。 -->
     <p
@@ -920,7 +896,7 @@ function openTable() {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  </div>
+  </ReferenceBlockShell>
 
   <!-- 日期浮层:挂到 body 上、fixed 定位 —— 账目表外面是横向滚动容器,格内浮层会被裁掉。
        `mousedown.prevent` 是这套面板的命门:点日期时输入框不失焦,编辑态与面板都还活着。 -->

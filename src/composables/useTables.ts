@@ -211,8 +211,16 @@ function createTables(driver: Ref<WorkspaceFs | null>, root: Ref<FsRoot | null>)
     }
   }
 
-  /** 同步列出所有有未落盘改动的表。自检与调试用。 */
+  /**
+   * 同步列出所有有未落盘改动的表。
+   *
+   * 这是「表脏不脏」的**唯一答案**：工作区据此判断标签有没有未保存的东西、保存时该
+   * 落哪些表、改名 / 删目录前拦哪几张。它读的是各条目自己的 `dirty` ref，所以放进
+   * `computed` 里会跟着变；`revision` 那一行是为了让「新注册一张表」也算作变化 ——
+   * 注册表本身不是响应式的，条目增删没人通知。
+   */
   function dirtyPaths(): string[] {
+    void revision.value
     return [...registry.entries()].filter(([, entry]) => entry.dirty.value).map(([path]) => path)
   }
 

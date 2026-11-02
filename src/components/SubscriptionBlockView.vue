@@ -3,7 +3,7 @@ import type { DataRow } from "@/types/data-table"
 import type { SubscriptionBlock } from "@/types/workspace"
 import type { SubscriptionRole, SubscriptionState, SubscriptionStatus } from "@/lib/subscription"
 import { computed } from "vue"
-import { DatabaseIcon, Settings2Icon } from "@lucide/vue"
+import { Settings2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import TableRefNotice from "@/components/TableRefNotice.vue"
+import ReferenceBlockShell from "@/components/ReferenceBlockShell.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
 import { markImageBroken, usableImage } from "@/lib/broken-images"
@@ -56,9 +56,9 @@ import {
  */
 const props = defineProps<{ block: SubscriptionBlock }>()
 
-const { openFile, updateBlockSettings, rebindTable, tablePaths } = useWorkspace()
+const { updateBlockSettings } = useWorkspace()
 
-const { state, table, columns, rows, change } = useTableEntry(() => props.block.path)
+const { state, columns, rows, change } = useTableEntry(() => props.block.path)
 
 /** 页面打开时的本机日期。跨零点不自动翻页 —— 订阅状态不需要秒级刷新。 */
 const today = localToday()
@@ -243,41 +243,17 @@ function setRole(role: SubscriptionRole, event: Event): void {
 
 const MENU = "w-[14rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
-
-function openTable() {
-  if (props.block.path === "") return
-  openFile(props.block.path)
-}
 </script>
 
 <template>
-  <!-- 空指针:如实说没指定,而不是永远转圈。 -->
-  <TableRefNotice v-if="props.block.path === ''" kind="unset" label="订阅" />
-
-  <!-- 引用的文件读不到:提示态,不是错误态 —— 提示条自带一条重新指向的出路。 -->
-  <TableRefNotice
-    v-else-if="state === 'missing' || state === 'failed'"
-    kind="missing"
-    label="订阅"
+  <ReferenceBlockShell
+    :block-id="props.block.id"
     :path="props.block.path"
-    :tables="tablePaths"
-    @reselect="(path: string) => rebindTable(props.block.id, path)"
-  />
-
-  <!-- 还没读完。 -->
-  <TableRefNotice v-else-if="table === null" kind="loading" label="订阅" />
-
-  <div v-else class="group/subs relative my-4">
+    label="订阅"
+    :state="state"
+  >
     <!-- 块操作入口:右上角,悬停浮现。 -->
-    <div class="absolute -top-2 right-0 z-20 flex items-center gap-1 opacity-0 transition-opacity group-hover/subs:opacity-100 focus-within:opacity-100">
-      <Button
-        variant="ghost"
-        size="sm"
-        class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground"
-        @click="openTable"
-      >
-        <DatabaseIcon class="size-3" />打开数据表
-      </Button>
+    <template #actions>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
           <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground">
@@ -299,7 +275,7 @@ function openTable() {
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
-    </div>
+    </template>
 
     <!-- 名称列都没认出来:卡片照常列参数,但先说明缺的是哪一环。 -->
     <p
@@ -433,7 +409,7 @@ function openTable() {
         </div>
       </article>
     </div>
-  </div>
+  </ReferenceBlockShell>
 </template>
 
 <style scoped>

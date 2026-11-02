@@ -99,6 +99,7 @@ const Root = defineComponent({
       peek: (path) => tables.peek(path),
       flush: (path) => tables.flush(path),
       reload: (path) => tables.reload(path),
+      dirtyPaths: () => tables.dirtyPaths(),
       create: () => Promise.reject(new Error("本页不新建数据表")),
     })
     return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })

@@ -515,9 +515,13 @@ export interface FileNode {
 /** 已打开的标签页。path 是唯一键，形如 `日记 / 2026-10-08.html`。 */
 export interface OpenTab {
   path: string
+  /**
+   * 正文有未落盘的改动。
+   *
+   * 只有正文 —— 数据表是**全局**状态（一张表可能被好几篇引用），脏不脏由注册表回答，
+   * 不在标签上另记一份。标签「有没有未保存的东西」问 `tabHasUnsaved`。
+   */
   dirty: boolean
-  /** 这个标签里改过还没落盘的数据表路径。内容在注册表内存里,保存时随标签一起落盘,丢弃时退回盘上真相。 */
-  dirtyTables: string[]
 }
 
 /** 块左侧手柄的菜单打开状态。空串表示两个菜单都关着。 */

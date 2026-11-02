@@ -104,6 +104,7 @@ const Root = defineComponent({
       peek: (path) => tables.peek(path),
       flush: (path) => tables.flush(path),
       reload: (path) => tables.reload(path),
+      dirtyPaths: () => tables.dirtyPaths(),
       create: () => Promise.reject(new Error("本页不新建数据表")),
     })
     return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
@@ -364,10 +365,20 @@ if (rows0.length === 3) {
     looseTitle !== undefined && looseTitle.nextElementSibling?.querySelector('[aria-label="删除本行"]') !== null,
     JSON.stringify(sections))
 
+  // ---- 脏态的归属：改的是表，正文一个字没动，这篇标签仍要算未保存 ----
+  // 表是全局状态（一张 .tbl 可能被好几篇引用），脏不脏只有注册表知道；标签侧按
+  // 「这篇引用着的表脏没脏」现算，标签上不另存一份镜像 —— 那份镜像漏维护一处，
+  // 改动就失去归属：关标签不问、保存不写、改名不拦。
+  const noteTab = workspace.tabs.value.find((tab) => tab.path === workspace.activePath.value)
+  check("改表之后这篇笔记算未保存（正文一个字没动）",
+    noteTab !== undefined && workspace.tabHasUnsaved(noteTab))
+  check("工作区整体也有未保存内容（关窗会拦）", workspace.hasDirty.value === true)
+
   // ---- 保存：真写盘，读回来核对类型与增删结果 ----
   step("save")
   await workspace.save()
   await settle()
+  check("保存后表与正文一起清脏", workspace.hasDirty.value === false)
   const saved = JSON.parse(await readFile("礼账.tbl"))
   check("盘上行数 = 4（删 1 增 2）", saved.rows.length === 4, `实际 ${saved.rows.length}`)
   check("改过的收入以数字落盘（1234, type number）",

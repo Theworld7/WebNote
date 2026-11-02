@@ -20,8 +20,9 @@ const { hasDirty, bootstrap, fs, root, attachTableRegistry, attachIntegrateTable
 // 数据表注册表与工作区**共用同一对 driver / root**：切目录时两者必须一起换语境，
 // 各持一份引用迟早对不齐（见 useTables 的注释）。
 const tables = provideTables(fs, root)
-// 工作区要用注册表做的五件事，一次交齐（见 `TableRegistry` 的注释）：保存笔记时
-// 先 preload 再 peek 出快照、flush 改过的表；丢弃标签时 reload；新建 `.tbl` 时 create。
+// 工作区要用注册表做的六件事，一次交齐（见 `TableRegistry` 的注释）：保存笔记时
+// 先 preload 再 peek 出快照、flush 改过的表；丢弃标签时 reload；新建 `.tbl` 时 create；
+// 标签脏不脏问 dirtyPaths。
 // 缺省内容由注册表的知识决定（一张带两列的空表），`initial` 是调用方指定的初始内容
 // （账目块的预置四列），没指定才落默认表。
 attachTableRegistry({
@@ -29,6 +30,7 @@ attachTableRegistry({
   peek: (path) => tables.peek(path),
   flush: (path) => tables.flush(path),
   reload: (path) => tables.reload(path),
+  dirtyPaths: () => tables.dirtyPaths(),
   create: async (fsDriver, fsRoot, path, initial) => {
     const start = initial ?? tables.defaultTable()
     await fsDriver.createNote(fsRoot, path, tables.toJson(start))

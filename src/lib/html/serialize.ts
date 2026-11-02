@@ -3,6 +3,8 @@ import type { DataColumn, DataTable, DataRow } from "@/types/data-table"
 import { GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT, LAYOUT_COLUMNS_DEFAULT, isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
 import { cellValue, filterRowsByValue, formatGrouped, groupRows, kanbanCardColor, STAT_PRECISION_DEFAULT, sumColumn, valueText } from "@/lib/data-table"
+import { galleryUnits } from "@/lib/gallery"
+import type { GalleryUnit } from "@/lib/gallery"
 import { balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, ledgerSort, sortRows, sumRows } from "@/lib/ledger"
 import type { LedgerSection, LedgerTotals } from "@/lib/ledger"
 import { escapeHtml, escapeTextToHtml, linkDomain, linkIcon, runsText, runsToHtml } from "@/lib/inline"
@@ -430,22 +432,20 @@ function galleryPosterStyle(block: GalleryBlock): string {
   return style
 }
 
-/** ---- 画册视图逻辑的静态镜像（默认态 = 聚合全部折叠），与 GalleryBlockView 对齐 ---- */
+/** ---- 画册的分节与归桶（单元划分与编辑器共用 `lib/gallery`） ---- */
 
-interface GalleryUnit {
-  /** true = 聚合态,画成叠卡(代表卡 + 骨架);false = 逐行平铺。 */
-  stacked: boolean
-  lead: DataRow
-  rows: readonly DataRow[]
-}
-
+/** 分节的结果。单元的归属只有一份算法 —— 见 `lib/gallery`。 */
 interface GallerySection {
   /** 节标题;null = 不画标题行(未开分组)。 */
   title: string | null
   units: GalleryUnit[]
 }
 
-/** 分节(分组列 + 手排)与节内聚合(聚合列归桶,≥2 行折叠),规则口径见 `dt.groupRows`。 */
+/**
+ * 分节：分组列归桶 + 手排，规则收在 `dt.groupRows` 一处；节内再按聚合列切单元。
+ *
+ * 静态快照没有「展开」这层交互，所以不传展开判定 —— 多行组一律折叠。
+ */
 function gallerySections(block: GalleryBlock, table: DataTable): GallerySection[] {
   const byColumn = block.groupBy === "" ? null : table.columns.find((column) => column.id === block.groupBy) ?? null
   // 聚合列与分组列撞字段时退化为平铺 —— 同一列又分节又堆叠没有读法(编辑器同款规则)。
@@ -458,45 +458,11 @@ function gallerySections(block: GalleryBlock, table: DataTable): GallerySection[
   return out
 }
 
-/**
- * 聚合归桶:空值行不聚合、按首现序出组、单行组平铺 —— 与编辑器 `buildUnits` 同一套,
- * 差别只有聚合态恒为折叠(静态文件没有「展开」这层交互)。
- */
-function galleryUnits(rows: readonly DataRow[], column: DataColumn | null): GalleryUnit[] {
-  if (column === null) return rows.map((row) => ({ stacked: false, lead: row, rows: [row] }))
-
-  const buckets = new Map<string, DataRow[]>()
-  for (const row of rows) {
-    const value = cellValue(row, column)
-    if (value === null || value === "") continue
-    const key = String(value)
-    const bucket = buckets.get(key)
-    if (bucket === undefined) buckets.set(key, [row])
-    else bucket.push(row)
-  }
-
-  const seen = new Set<string>()
-  const out: GalleryUnit[] = []
-  for (const row of rows) {
-    const value = cellValue(row, column)
-    if (value === null || value === "") {
-      out.push({ stacked: false, lead: row, rows: [row] })
-      continue
-    }
-    const key = String(value)
-    if (seen.has(key)) continue
-    seen.add(key)
-    const bucket = buckets.get(key)
-    const lead = bucket?.[0]
-    if (bucket === undefined || lead === undefined) continue
-    out.push({ stacked: bucket.length >= 2, lead, rows: bucket })
-  }
-  return out
-}
-
 function galleryUnitHtml(unit: GalleryUnit, table: DataTable, block: GalleryBlock, posterStyle: string): string {
+  // 平铺单元逐行出卡 —— 与编辑器 `v-for row in unit.rows` 同一口径。单行组的结果与
+  // 只画代表行没有分别，但只要哪天这里多传了展开判定，行就不会凭空少掉。
+  if (!unit.stacked) return unit.rows.map((row) => galleryCardHtml(row, table, block, posterStyle)).join("\n")
   const card = galleryCardHtml(unit.lead, table, block, posterStyle)
-  if (!unit.stacked) return card
   // 叠卡:骨架两叠垫在代表卡后面,几何由 `.note-gstack` 的伪元素负责。
   return `<div class="note-gstack">\n${card}\n</div>`
 }
