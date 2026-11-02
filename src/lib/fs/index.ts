@@ -24,4 +24,4 @@ export async function createWorkspaceFs(): Promise<WorkspaceFs> {
   return createTauriFs()
 }
 
-export type { FsKind, FsRoot, WorkspaceFs } from "./types"
+export type { FsKind, FsRoot, RestoreOffer, WorkspaceFs } from "./types"

@@ -1,6 +1,6 @@
 import type { InjectionKey, Ref } from "vue"
 import type { Block, BlockSettingsPatch, BlockType, ChatMessage, CloseStrategy, CreateTarget, FileNode, InlineRun, LayoutMode, OpenTab, PlaylistSource, TableAlign, TableCell, TreeTarget } from "@/types/workspace"
-import type { FsRoot, WorkspaceFs } from "@/lib/fs"
+import type { FsRoot, RestoreOffer, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref, watch } from "vue"
 import { adoptScrollTops, readSession, scrollTopsSnapshot, sessionKeyOf, writeSession } from "@/composables/useSession"
 import { CELL_EXCLUDED_TYPES, REFERENCE_INSERT_SPEC, cloneBlock, countChars, createBlock, createBlockId, isReferenceBlock, isTextualBlock, refPathsOf, retypeBlock, snapshotBlock } from "@/lib/blocks"
@@ -403,9 +403,25 @@ function createWorkspace() {
   // ---- 工作区 ----
 
   /**
+   * 浏览器端已记住、但还缺一次用户手势的工作区。空状态据此给出「一键恢复」入口；
+   * 桌面端永远不会拿到它（`pendingRestore` 未实现）。
+   */
+  const restoreOffer = ref<RestoreOffer | null>(null)
+
+  /** 收下恢复结果：`invalid` 只提示一句，不把空状态换成错误页。 */
+  function adoptRestoreOffer(offer: RestoreOffer | null): void {
+    restoreOffer.value = offer?.kind === "grant" ? offer : null
+    if (offer?.kind === "invalid") {
+      fsError.value = `上次的工作区「${offer.name}」已不可用，请重新选择目录`
+    }
+  }
+
+  /**
    * 启动引导：挑驱动，能恢复就恢复。
    *
    * 恢复失败不是错误 —— 目录被移动或删除都是用户自己动过盘，静默回落到「请选择目录」。
+   * 浏览器端还会多一步：权限掉回 `prompt` 时，`requestPermission` 必须在用户手势里调，
+   * 于是把入口交给空状态，而不是在这里硬试。
    */
   async function bootstrap() {
     try {
@@ -413,7 +429,11 @@ function createWorkspace() {
       fs.value = driver
       if (!driver.canRestore) return
       const restored = await driver.restoreRoot()
-      if (restored !== null) await adoptRoot(restored)
+      if (restored !== null) {
+        await adoptRoot(restored)
+        return
+      }
+      adoptRestoreOffer((await driver.pendingRestore?.()) ?? null)
     } catch (error) {
       fsError.value = `初始化文件系统失败：${describeError(error)}`
     }
@@ -518,9 +538,34 @@ function createWorkspace() {
     if (driver === null) return
     try {
       const picked = await driver.pickRoot()
-      if (picked !== null) await adoptRoot(picked)
+      if (picked !== null) {
+        // 换了一个目录，上一次那份「恢复」入口就不再是当前语境了。
+        restoreOffer.value = null
+        await adoptRoot(picked)
+      }
     } catch (error) {
       fsError.value = `打开目录失败：${describeError(error)}`
+    }
+  }
+
+  /**
+   * 空状态里的「恢复上次工作区」。授权必须落在这次点击的手势里 —— 入口只能由 UI 触发。
+   *
+   * 先清掉入口再等结果：授权框弹出期间再点一次会重复调用 `requestPermission`。
+   * 最后重新问一遍还剩什么可做：成功或句柄失效都会自然消失，用户拒绝则把入口放回来。
+   */
+  async function grantRestore() {
+    const offer = restoreOffer.value
+    const driver = fs.value
+    if (offer === null || offer.kind !== "grant" || driver === null) return
+    restoreOffer.value = null
+    try {
+      const restored = await offer.grant()
+      if (restored !== null) await adoptRoot(restored)
+    } catch (error) {
+      fsError.value = `恢复工作区失败：${describeError(error)}`
+    } finally {
+      adoptRestoreOffer((await driver.pendingRestore?.()) ?? null)
     }
   }
 
@@ -2480,6 +2525,8 @@ function createWorkspace() {
     // workspace actions
     bootstrap,
     openRoot,
+    restoreOffer,
+    grantRestore,
     refreshTree,
     dismissError,
     attachForTest,

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { FolderOpenIcon, LoaderCircleIcon } from "@lucide/vue"
+import { computed } from "vue"
+import { FolderOpenIcon, LoaderCircleIcon, RefreshCwIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { useWorkspace } from "@/composables/useWorkspace"
 
@@ -9,7 +10,13 @@ import { useWorkspace } from "@/composables/useWorkspace"
  * 四种情况都落在这里，是为了让它们**长得一样**（居中、一行说明）——
  * 分散到各组件里各写一份，间距和字号必然漂移。
  */
-const { hasRoot, scanning, isLoadingDocument, tabs, fsHint, openRoot } = useWorkspace()
+const { hasRoot, scanning, isLoadingDocument, tabs, fsHint, openRoot, restoreOffer, grantRestore } =
+  useWorkspace()
+
+/** 只在还缺一次授权时给按钮；目录已失效由顶部的 `fsError` 条提示，不在这里出入口。 */
+const pendingGrant = computed(() =>
+  restoreOffer.value?.kind === "grant" ? restoreOffer.value : null,
+)
 </script>
 
 <template>
@@ -26,6 +33,16 @@ const { hasRoot, scanning, isLoadingDocument, tabs, fsHint, openRoot } = useWork
 
     <template v-else-if="!hasRoot">
       <p class="text-13 text-muted-foreground">还没有打开笔记目录</p>
+      <!-- 恢复入口放前面：浏览器重新打开时，上一次的目录通常就是想继续用的那个。 -->
+      <Button
+        v-if="pendingGrant !== null"
+        variant="secondary"
+        class="h-8 max-w-[18.75rem] gap-1.5 rounded-[10px] px-3.5 text-13"
+        @click="grantRestore"
+      >
+        <RefreshCwIcon class="size-4 shrink-0" />
+        <span class="truncate">恢复上次工作区：{{ pendingGrant.name }}</span>
+      </Button>
       <Button
         variant="secondary"
         class="h-8 gap-1.5 rounded-[10px] px-3.5 text-13"
@@ -35,7 +52,7 @@ const { hasRoot, scanning, isLoadingDocument, tabs, fsHint, openRoot } = useWork
         <span>打开文件夹</span>
       </Button>
       <p class="max-w-[18.75rem] text-12 leading-relaxed text-muted-foreground/70">
-        {{ fsHint }}
+        {{ pendingGrant !== null ? "上次的目录还记着，授权后即可继续" : fsHint }}
       </p>
     </template>
 

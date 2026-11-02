@@ -20,23 +20,40 @@ export type FsRoot =
 
 export type FsKind = "tauri" | "browser"
 
+/**
+ * 浏览器端「已记住、但还差一次用户手势」的工作区。
+ *
+ * 恢复被拆成两步，是因为 `requestPermission` 只能在用户手势内调用：启动时只能问出
+ * 「要不要问」，真正的授权必须等空状态里那颗按钮被点下。`invalid` 表示记住的目录
+ * 已被删除或移走 —— 实现那边已清掉记录，调用方给一句简短提示即可。
+ */
+export type RestoreOffer =
+  | { readonly kind: "grant"; readonly name: string; grant(): Promise<FsRoot | null> }
+  | { readonly kind: "invalid"; readonly name: string }
+
 /** 读写一个笔记库所需的全部能力。两份实现必须给出**逐字节相同**的树与路径键。 */
 export interface WorkspaceFs {
   readonly kind: FsKind
   /**
-   * 能否在重启后自动回到上次的目录。
+   * 能否自动回到上次的目录。
    *
-   * 这是两端唯一实质性的能力差异：Tauri 把路径存进 app config 就能恢复；浏览器端
-   * 句柄无法跨会话复用（即便存进 IndexedDB 也仍需用户手势重新授权）。UI 据此决定
-   * 要不要提示「每次都要重选」。
+   * Tauri 把路径存进 app config 就能恢复；浏览器端把句柄存进 IndexedDB，权限仍是
+   * `granted` 时同样能直接恢复，只有权限掉回 `prompt` 才需要再来一次用户手势
+   * （见 `pendingRestore`）。UI 据此决定要不要提示「每次都要重选」。
    */
   readonly canRestore: boolean
   /** 前端展示用的平台说明。 */
   readonly hint: string
   /** 让用户选一个目录当工作区。用户取消返回 `null`。 */
   pickRoot(): Promise<FsRoot | null>
-  /** 取回上次的工作区。没有或已失效返回 `null`。 */
+  /** 取回上次的工作区。没有、已失效或还缺授权返回 `null`。 */
   restoreRoot(): Promise<FsRoot | null>
+  /**
+   * 浏览器端专属：`restoreRoot()` 没能恢复时还剩什么可做。
+   *
+   * 桌面端没有这一步（重启即恢复），因此不实现。
+   */
+  pendingRestore?(): Promise<RestoreOffer | null>
   /** 根的显示名（目录名本身，不是全路径）。 */
   rootName(root: FsRoot): string
   /** 扫描整棵树。隐藏目录与依赖目录由实现按 `policy` 过滤掉。 */

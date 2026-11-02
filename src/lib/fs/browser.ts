@@ -1,5 +1,5 @@
 import type { FileNode } from "@/types/workspace"
-import type { FsRoot, WorkspaceFs } from "./types"
+import type { FsRoot, RestoreOffer, WorkspaceFs } from "./types"
 import { joinPath, toSegments } from "@/lib/paths"
 import {
   MAX_DEPTH,
@@ -17,9 +17,10 @@ import {
  * 交互验证全靠它）。退化成 mock 会让「验证过的」和「发出去的」变成两套东西，
  * 而浏览器本来就有一套真实的目录读写能力，没有理由不用。
  *
- * 与桌面端的差异只有一处是结构性的：**句柄无法跨会话恢复**。`canRestore` 因此为 false，
- * UI 会明说「每次打开都要重选」。存进 IndexedDB 也只能省下「选哪个目录」，
- * 省不掉「重新授权」那一次用户手势 —— 既然如此就不做，避免留下一个半可用的恢复路径。
+ * 与桌面端的差异：句柄是活对象，跨会话只能存进 IndexedDB（localStorage 只收字符串）。
+ * 权限仍是 `granted` 时启动就能无感恢复；浏览器重启或站点数据被清后权限掉回 `prompt`，
+ * 而 `requestPermission` 必须在用户手势内调用 —— 于是留给空状态一个「恢复上次工作区」
+ * 的入口，由点击那一下补上授权（见 `pendingRestore`）。
  *
  * 注意 `showDirectoryPicker` 要求安全上下文：http://localhost 算安全，直接开 dist/ 的
  * file:// 不算（届时 `window.showDirectoryPicker` undefined，`pickRoot` 会如实报错）。
@@ -27,6 +28,120 @@ import {
 
 /** 固定 id：浏览器据此记住上次选的目录，第二次打开直接落到那儿。 */
 const PICKER_ID = "webnote-notes"
+
+/**
+ * 上次工作区句柄的存放处。
+ *
+ * 只留最近一个 —— 多工作区列表会多出一层「选哪个」的成本，而这里要解决的只是
+ * 「下次别再让我重选」。
+ */
+const DB_NAME = "webnote"
+const DB_STORE = "workspace"
+const ROOT_KEY = "last-root"
+
+/** 上一次恢复时发现已失效的目录名。`pendingRestore` 取走它，只提示一次。 */
+let lostRootName: string | null = null
+
+function openDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1)
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(DB_STORE)) {
+        request.result.createObjectStore(DB_STORE)
+      }
+    }
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+}
+
+/** 结构化克隆取回来的是 `unknown`；`kind === "directory"` 才当成目录句柄用。 */
+function isDirectoryHandle(value: unknown): value is FileSystemDirectoryHandle {
+  return typeof value === "object" && value !== null && "kind" in value && value.kind === "directory"
+}
+
+async function readStoredRoot(): Promise<FileSystemDirectoryHandle | null> {
+  const db = await openDb()
+  try {
+    return await new Promise((resolve, reject) => {
+      const request = db.transaction(DB_STORE, "readonly").objectStore(DB_STORE).get(ROOT_KEY)
+      request.onsuccess = () => {
+        const value: unknown = request.result
+        resolve(isDirectoryHandle(value) ? value : null)
+      }
+      request.onerror = () => reject(request.error)
+    })
+  } finally {
+    db.close()
+  }
+}
+
+async function storeRoot(handle: FileSystemDirectoryHandle): Promise<void> {
+  const db = await openDb()
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(DB_STORE, "readwrite")
+      tx.objectStore(DB_STORE).put(handle, ROOT_KEY)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+      tx.onabort = () => reject(tx.error)
+    })
+  } finally {
+    db.close()
+  }
+}
+
+async function forgetRoot(): Promise<void> {
+  const db = await openDb()
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(DB_STORE, "readwrite")
+      tx.objectStore(DB_STORE).delete(ROOT_KEY)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+      tx.onabort = () => reject(tx.error)
+    })
+  } finally {
+    db.close()
+  }
+}
+
+/** 目录被删 / 被移动后读它抛 `NotFoundError`；权限被收回时抛 `NotAllowedError`。 */
+function isLostRoot(error: unknown): boolean {
+  return (
+    error instanceof DOMException &&
+    (error.name === "NotFoundError" || error.name === "NotAllowedError")
+  )
+}
+
+/**
+ * TS 的 DOM 类型里还没有 File System Access 的权限方法，浏览器原型上却确实有。
+ * 用类型守卫把它们补回类型层面 —— 项目不写类型断言。
+ */
+interface PermissionedHandle extends FileSystemDirectoryHandle {
+  queryPermission(options?: { mode: "read" | "readwrite" }): Promise<PermissionState>
+  requestPermission(options?: { mode: "read" | "readwrite" }): Promise<PermissionState>
+}
+
+function hasPermissionApi(handle: FileSystemDirectoryHandle): handle is PermissionedHandle {
+  return "queryPermission" in handle && "requestPermission" in handle
+}
+
+/**
+ * 句柄还在不在。
+ *
+ * `queryPermission` 只回答「授权过没有」—— 目录被删了它照样说 `granted`，直到真去读
+ * 才抛。读第一项是这里最省的一次试探，空目录也能正常走完。
+ */
+async function isReachable(handle: FileSystemDirectoryHandle): Promise<boolean> {
+  try {
+    await handle.entries().next()
+    return true
+  } catch (error) {
+    if (isLostRoot(error)) return false
+    throw error
+  }
+}
 
 function rootOf(root: FsRoot): FileSystemDirectoryHandle {
   if (root.kind !== "handle") throw new Error("浏览器端实现收到了非句柄形态的根目录")
@@ -217,13 +332,18 @@ async function walk(
 export function createBrowserFs(): WorkspaceFs {
   return {
     kind: "browser",
-    canRestore: false,
-    hint: "浏览器端 · 每次打开都需要重新选择目录",
+    canRestore: true,
+    hint: "浏览器端 · 自动回到上次的目录，必要时再授权一次",
 
     async pickRoot() {
       try {
         // mode: "readwrite" 让选择动作本身就带上写权限，省掉一次额外的 requestPermission。
         const handle = await window.showDirectoryPicker({ id: PICKER_ID, mode: "readwrite" })
+        try {
+          await storeRoot(handle)
+        } catch {
+          // 存不进去只影响「下次自动恢复」，不该挡住这次打开目录。
+        }
         return { kind: "handle", handle }
       } catch (error) {
         if (isAbort(error)) return null
@@ -231,9 +351,62 @@ export function createBrowserFs(): WorkspaceFs {
       }
     },
 
-    /** 浏览器端没有可恢复的根：句柄是活对象，跨会话必须重新授权。 */
+    /**
+     * 权限仍是 `granted` 就能无感恢复；否则留给 `pendingRestore` 交给用户手势。
+     *
+     * 目录被删 / 移走要在这里就查出来并清掉记录 —— 否则会先把一个死句柄当工作区
+     * 接上，随后扫树失败，停在「有根但空」的半截状态。
+     */
     async restoreRoot() {
-      return null
+      let handle: FileSystemDirectoryHandle | null
+      try {
+        handle = await readStoredRoot()
+      } catch {
+        // 读 IndexedDB 失败等同于「没存过」：恢复是锦上添花，不该拦住启动。
+        return null
+      }
+      if (handle === null) return null
+      if (!hasPermissionApi(handle)) return null
+      if ((await handle.queryPermission({ mode: "readwrite" })) !== "granted") return null
+      if (!(await isReachable(handle))) {
+        await forgetRoot()
+        lostRootName = handle.name
+        return null
+      }
+      return { kind: "handle", handle }
+    },
+
+    /** 权限掉回 `prompt` 时给出「一键恢复」所需的一切；`denied` 不再给入口。 */
+    async pendingRestore(): Promise<RestoreOffer | null> {
+      if (lostRootName !== null) {
+        const name = lostRootName
+        lostRootName = null
+        return { kind: "invalid", name }
+      }
+      let handle: FileSystemDirectoryHandle | null
+      try {
+        handle = await readStoredRoot()
+      } catch {
+        return null
+      }
+      if (handle === null) return null
+      if (!hasPermissionApi(handle)) return null
+      if ((await handle.queryPermission({ mode: "readwrite" })) !== "prompt") return null
+      const stored = handle
+      return {
+        kind: "grant",
+        name: stored.name,
+        grant: async () => {
+          // 这一下必须由点击手势触发：启动阶段静默调用会被浏览器直接拒绝。
+          if ((await stored.requestPermission({ mode: "readwrite" })) !== "granted") return null
+          if (!(await isReachable(stored))) {
+            await forgetRoot()
+            lostRootName = stored.name
+            return null
+          }
+          return { kind: "handle", handle: stored }
+        },
+      }
     },
 
     rootName(root) {
