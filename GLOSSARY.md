@@ -507,6 +507,16 @@ makes a Tab dirty.
 _Avoid_: Outline or TOC (both name a panel over the whole structure, not this strip), minimap,
 anchor list, heading list
 
+**Tree guide**:
+The dashed vertical line drawn beside each row of the file tree, one per ancestor level, so a
+row shows at a glance which folder it hangs under. It is decoration, not content: it never
+enters a Note and never makes a Tab dirty. It is a Preference — a switch, on by default — and
+the lines are drawn in **dashed** strokes, because a solid rule competes with the row
+highlight for attention. There is no horizontal stroke joining a line to its row: the level is
+read from the indent, and a connecting bar would only add a second thing to look at.
+_Avoid_: Elbow (that was the short horizontal bar, now gone), connector, tree line, indent
+guide
+
 ### Bounds
 
 **Table bound**:

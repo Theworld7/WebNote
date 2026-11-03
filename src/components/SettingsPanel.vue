@@ -9,6 +9,7 @@ import {
   ClockIcon,
   Columns2Icon,
   FolderTreeIcon,
+  GitBranchIcon,
   ListIcon,
   ListTreeIcon,
   MonitorIcon,
@@ -52,7 +53,7 @@ import NewVersionButton from "./NewVersionButton.vue"
  */
 const open = defineModel<boolean>("open", { required: true })
 
-const { tableEffect, setTableEffect, contentWidth, setContentWidth, menuGroupLayout, setMenuGroupLayout, corners, setCorners, baseFont, setBaseFont, integrateTables, setIntegrateTables, autoSave, setAutoSave, headingNav, setHeadingNav, headingNavMin, setHeadingNavMin, contentFont, setContentFont, codeFont, setCodeFont, theme, setTheme } = useSettings()
+const { tableEffect, setTableEffect, contentWidth, setContentWidth, menuGroupLayout, setMenuGroupLayout, corners, setCorners, baseFont, setBaseFont, integrateTables, setIntegrateTables, treeGuides, setTreeGuides, autoSave, setAutoSave, headingNav, setHeadingNav, headingNavMin, setHeadingNavMin, contentFont, setContentFont, codeFont, setCodeFont, theme, setTheme } = useSettings()
 
 /**
  * 本机字体列表。打开面板时才去取（桌面端要扫一遍系统字体），拿到之前选择框里
@@ -466,7 +467,7 @@ function optionClass(isActive: boolean): string {
 
             <section class="flex flex-col gap-2">
               <h3 class="text-13 font-medium text-foreground">文件树</h3>
-              <SheetDescription>开启后被笔记引用的数据表收进笔记名下，树更清爽。</SheetDescription>
+              <SheetDescription>文件树的显示方式。两项都只影响看，不动盘上的文件。</SheetDescription>
 
               <!-- 单独一项布尔偏好：它不是「几选一」，所以不给它凑成两条互斥选项。 -->
               <button
@@ -487,6 +488,27 @@ function optionClass(isActive: boolean): string {
                   </span>
                 </span>
                 <CheckIcon v-if="integrateTables" class="ml-auto mt-0.5 size-3.5 flex-none text-foreground" />
+              </button>
+
+              <!-- 默认开着：引导线本来就画在树上，关掉才是选择。 -->
+              <button
+                type="button"
+                role="switch"
+                :aria-checked="treeGuides"
+                :class="[
+                  'mt-0.5 flex items-start gap-2.5 rounded-[9px] border p-2.5 text-left transition-colors',
+                  optionClass(treeGuides),
+                ]"
+                @click="setTreeGuides(!treeGuides)"
+              >
+                <GitBranchIcon class="mt-0.5 size-4 flex-none text-muted-foreground" />
+                <span class="flex min-w-0 flex-col gap-0.5">
+                  <span class="text-13 leading-[1.4] text-foreground">显示层级连线</span>
+                  <span class="text-12 leading-[1.45] text-muted-foreground">
+                    在树的每一级画一道竖虚线，看得出这行挂在哪一层
+                  </span>
+                </span>
+                <CheckIcon v-if="treeGuides" class="ml-auto mt-0.5 size-3.5 flex-none text-foreground" />
               </button>
             </section>
 

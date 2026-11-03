@@ -70,6 +70,10 @@ const CORNER_KEY = "webnote:corners"
 window.localStorage.removeItem(CORNER_KEY)
 const BASE_FONT_KEY = "webnote:base-font"
 window.localStorage.removeItem(BASE_FONT_KEY)
+// 层级连线的开关在挂载前清掉：这颗开关默认是**开**的，而默认值由「没存过」推出来 ——
+// 带着上一个版本留下的 false 进来，「默认是开的」这条断言就名不副实了。
+const GUIDES_KEY = "webnote:tree-guides"
+window.localStorage.removeItem(GUIDES_KEY)
 
 // ---------- 挂真实组件：设置面板 + 一个宽表格 ----------
 
@@ -953,6 +957,82 @@ check("设置实例里的档位跟着回到 16", settings !== null && settings.b
 probe11.remove()
 probe12.remove()
 probeSm.remove()
+
+// ---------- 九、文件树连线 ----------
+//
+// 验的是这条链路：面板上的开关 → 偏好 → `<html data-tree-guides>` → 样式表那句
+// `display: none`。导线的**画法**（虚线、根数）归 `sidebar-check` 那页 ——
+// 它挂着真实的树，这里挂的是面板，两边各验一段。
+
+note("文件树连线")
+
+// 开关在「显示」分区里（与「整合数据表视图」同段）。面板此刻停在「外观」，先切回来。
+openSection("显示")
+await nextTick()
+
+/**
+ * 在**主面板**里找那颗开关。
+ *
+ * 不能全面板搜：页尾那节「坏值防御」又挂了第二份面板，两个 app 各有一份设置实例。
+ * 找错实例的话，点下去改的是另一份偏好，上面那些断言就全在读不相干的那份。
+ * `panelRoot()` 取的是第一份 sheet（主面板先挂，portal 也先落在 body 里）。
+ */
+const guidesSwitch = [...(panelRoot()?.querySelectorAll('[role="switch"]') ?? [])].find(
+  (node) => node.textContent.includes("显示层级连线"),
+)
+check("面板里有「显示层级连线」这颗开关", guidesSwitch !== undefined)
+check(
+  "默认是开的（没存过任何值时）",
+  settings !== null && settings.treeGuides.value === true,
+  settings === null ? "（没拿到实例）" : String(settings.treeGuides.value),
+)
+check(
+  "默认不往 html 上写 data-tree-guides（开着就是默认态）",
+  document.documentElement.dataset.treeGuides === undefined,
+  String(document.documentElement.dataset.treeGuides),
+)
+
+/**
+ * 探针：挂 `.tree-guide` 类的一段占位。样式表那句规则写在 `:root[data-tree-guides="off"]`
+ * 下面，所以探针吃到的判定与树上真的引导线完全一样 —— 量它就等于量线。
+ */
+const guideProbe = document.createElement("span")
+guideProbe.className = "tree-guide"
+document.body.appendChild(guideProbe)
+const guideVisible = () => getComputedStyle(guideProbe).display !== "none"
+check("默认下引导线是画出来的", guideVisible())
+
+await guidesSwitch?.click()
+await nextTick()
+check(
+  "点一下变关并落盘（键 webnote:tree-guides）",
+  settings.treeGuides.value === false && window.localStorage.getItem(GUIDES_KEY) === "false",
+  `值=${String(settings.treeGuides.value)} 存=${String(window.localStorage.getItem(GUIDES_KEY))}`,
+)
+check(
+  "关掉后 html 上带 data-tree-guides=off",
+  document.documentElement.dataset.treeGuides === "off",
+  String(document.documentElement.dataset.treeGuides),
+)
+check("关掉后引导线不再画", guideVisible() === false)
+
+await [...(panelRoot()?.querySelectorAll('[role="switch"]') ?? [])]
+  .find((node) => node.textContent.includes("显示层级连线"))
+  ?.click()
+await nextTick()
+check(
+  "再点一下回到开",
+  settings.treeGuides.value === true && window.localStorage.getItem(GUIDES_KEY) === "true",
+  `值=${String(settings.treeGuides.value)} 存=${String(window.localStorage.getItem(GUIDES_KEY))}`,
+)
+check(
+  "回到开后属性被撤掉（不留一个与默认同值的属性）",
+  document.documentElement.dataset.treeGuides === undefined,
+  String(document.documentElement.dataset.treeGuides),
+)
+check("回到开后引导线又画出来了", guideVisible())
+guideProbe.remove()
+window.localStorage.removeItem(GUIDES_KEY)
 
 // ---------- 输出 ----------
 

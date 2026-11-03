@@ -283,6 +283,33 @@ check(
   `实际间隔 ${(indents[1] - indents[0]).toFixed(2)} / ${(indents[2] - indents[1]).toFixed(2)}`,
 )
 
+// ---- 层级引导线 ----
+//
+// 引导线是层级关系的提示：每个祖先一级画一根竖线，落点跟着缩进走。
+// 这里钉三件事 —— 根数等于深度、画的是虚线（不是实线）、横向那条短横线已经没了。
+
+/** 这一行画了几根引导线。行内没有子行（子行是兄弟节点），所以数得到。 */
+function guideCount(name) {
+  const row = rowOf(name)
+  return row === undefined ? -1 : row.querySelectorAll(".tree-guide").length
+}
+
+check("根层行没有引导线", guideCount("随笔.html") === 0, String(guideCount("随笔.html")))
+check("二级行一根引导线", guideCount("2026-10-08.html") === 1, String(guideCount("2026-10-08.html")))
+check("三级行两根引导线", guideCount("说明.html") === 2, String(guideCount("说明.html")))
+
+const sampleGuide = rowOf("2026-10-08.html")?.querySelector(".tree-guide") ?? null
+check(
+  "引导线是虚线（背景是 repeating-linear-gradient，不是实色）",
+  sampleGuide !== null && getComputedStyle(sampleGuide).backgroundImage.includes("repeating-linear-gradient"),
+  sampleGuide === null ? "（没找到引导线）" : getComputedStyle(sampleGuide).backgroundImage,
+)
+check(
+  "树上没有横向短横线（.tree-elbow 已去掉）",
+  document.querySelectorAll(".tree-elbow").length === 0,
+  String(document.querySelectorAll(".tree-elbow").length),
+)
+
 lines.push(`\n${passed} passed, ${failed} failed`)
 finished = true
 if (failed > 0) lines.unshift("FAIL")

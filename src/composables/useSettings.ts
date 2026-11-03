@@ -155,6 +155,16 @@ function readIntegrateTables(): boolean {
 }
 
 /**
+ * 文件树的层级连线。开关默认**开**（线本来就画在树上，关掉才是选择），
+ * 所以读取时认的是「存过 false」。
+ */
+const TREE_GUIDES_KEY = "webnote:tree-guides"
+
+function readTreeGuides(): boolean {
+  return window.localStorage.getItem(TREE_GUIDES_KEY) !== "false"
+}
+
+/**
  * 标题导航 —— 笔记页右端那列标题刻度。开关默认**开**（这项功能就是默认在的，
  * 关掉才是选择），所以读取时认的是「存过 false」，没存过一律算开。
  */
@@ -302,6 +312,7 @@ interface PreferenceFile {
   corners?: CornerStyle
   baseFont?: BaseFont
   integrateTables?: boolean
+  treeGuides?: boolean
   autoSave?: boolean
   headingNav?: boolean
   headingNavMin?: number
@@ -339,6 +350,7 @@ function parsePreferenceFile(text: string): PreferenceFile {
     baseFont: pickBaseFont(source["baseFont"]),
     // 布尔偏好没有候选表可收窄，类型对得上才认。
     integrateTables: typeof source["integrateTables"] === "boolean" ? source["integrateTables"] : undefined,
+    treeGuides: typeof source["treeGuides"] === "boolean" ? source["treeGuides"] : undefined,
     autoSave: typeof source["autoSave"] === "boolean" ? source["autoSave"] : undefined,
     headingNav: typeof source["headingNav"] === "boolean" ? source["headingNav"] : undefined,
     headingNavMin: pickCount(source["headingNavMin"]),
@@ -375,6 +387,9 @@ interface Settings {
   /** 文件树是否把被引用的数据表收进笔记名下（整合数据表视图）。同上，只经 setter 写。 */
   integrateTables: Ref<boolean>
   setIntegrateTables: (value: boolean) => void
+  /** 文件树的层级引导线是否显示。同上，只经 setter 写。 */
+  treeGuides: Ref<boolean>
+  setTreeGuides: (value: boolean) => void
   /** 离开（切标签 / 失焦 / 关窗）时是否把当前笔记写盘。同上，只经 setter 写。 */
   autoSave: Ref<boolean>
   setAutoSave: (value: boolean) => void
@@ -449,6 +464,14 @@ function createSettings(): Settings {
   function setIntegrateTables(value: boolean) {
     integrateTables.value = value
     window.localStorage.setItem(INTEGRATE_TABLES_KEY, String(value))
+    void persistToStore()
+  }
+
+  const treeGuides = ref(readTreeGuides())
+
+  function setTreeGuides(value: boolean) {
+    treeGuides.value = value
+    window.localStorage.setItem(TREE_GUIDES_KEY, String(value))
     void persistToStore()
   }
 
@@ -536,6 +559,21 @@ function createSettings(): Settings {
   watch(corners, applyCornerStyle, { immediate: true })
 
   /**
+   * 层级引导线偏好 → `<html data-tree-guides>`。
+   *
+   * 走属性而不是让树组件去 inject：引导线是**样式**问题，样式表一句就能关掉，
+   * 树那一侧一行都不用改（挂着侧栏的六个自检页也就都还能跑）。
+   * 默认开着，所以默认**不写**属性 —— 与 `data-corners` 同一立场：
+   * 「没设过」与「明确选了开」在 DOM 上无从分辨，两者本来就该一样。
+   */
+  function applyTreeGuides(value: boolean) {
+    if (value) delete document.documentElement.dataset.treeGuides
+    else document.documentElement.dataset.treeGuides = "off"
+  }
+
+  watch(treeGuides, applyTreeGuides, { immediate: true })
+
+  /**
    * 基础字号 → `<html>` 的根字号。
    *
    * 改的是**根**，不是某个容器的字号：整套界面与正文的字号、间距、图标都写在 rem 上，
@@ -570,6 +608,7 @@ function createSettings(): Settings {
       corners: corners.value,
       baseFont: baseFont.value,
       integrateTables: integrateTables.value,
+      treeGuides: treeGuides.value,
       autoSave: autoSave.value,
       headingNav: headingNav.value,
       headingNavMin: headingNavMin.value,
@@ -625,6 +664,11 @@ function createSettings(): Settings {
     if (prefs.integrateTables !== undefined && prefs.integrateTables !== integrateTables.value) {
       integrateTables.value = prefs.integrateTables
       window.localStorage.setItem(INTEGRATE_TABLES_KEY, String(prefs.integrateTables))
+      changed = true
+    }
+    if (prefs.treeGuides !== undefined && prefs.treeGuides !== treeGuides.value) {
+      treeGuides.value = prefs.treeGuides
+      window.localStorage.setItem(TREE_GUIDES_KEY, String(prefs.treeGuides))
       changed = true
     }
     if (prefs.autoSave !== undefined && prefs.autoSave !== autoSave.value) {
@@ -707,6 +751,8 @@ function createSettings(): Settings {
     setBaseFont,
     integrateTables,
     setIntegrateTables,
+    treeGuides,
+    setTreeGuides,
     autoSave,
     setAutoSave,
     headingNav,

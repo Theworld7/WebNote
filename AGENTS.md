@@ -74,6 +74,9 @@
 动标签的落位(编辑卡片第一行长什么样、塞满时在卡片里滚动)→ `tab-housing-check`(挂真实
 标题栏与编辑卡片,走 CDP);
 动文件树的整合数据表视图（笔记隐后缀、引用表收进笔记名下、展开箭头）→ `tree-integration-check`;
+动文件树的层级引导线（虚线画法、每级几根、显示与否的开关,`style.css` 的 `.tree-guide` 与
+`useSettings` 的 `treeGuides`)→ `sidebar-check`(量画法与根数)与 `settings-check`(量开关 → 偏好 →
+`<html data-tree-guides>` → 样式表);
 动块菜单的方向键寻路(`lib/menu-nav.ts`、横向布局的列间移动)→ `menu-nav-check`(挂真实菜单,
 走 CDP);动右侧标题导航(收录范围 / 出现门槛 / 点击跳转 / 激活跟随滚动,`lib/headings.ts`、
 `components/HeadingNav.vue`)→ `heading-nav-check`(挂真实编辑器,走 CDP);
