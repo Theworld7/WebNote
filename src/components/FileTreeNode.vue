@@ -78,6 +78,14 @@ const isDropTarget = computed(() => isFolder.value && dropTargetPath.value === f
 const rowStyle = computed(() => ({ paddingLeft: `${6 + props.depth * 16}px` }))
 
 /**
+ * 层级引导线的 x：每级祖先画一根，落在那一级箭头的中心（缩进起点 6 + 6）。
+ * 与 `rowStyle` 共用同一套 16px 步长，所以对齐不会随层级跑偏。
+ */
+const guides = computed(() => Array.from({ length: props.depth }, (_, level) => 12 + level * 16))
+/** 收到自己这一级时的短横线，与父级竖线同一 x。 */
+const elbowLeft = computed(() => 12 + Math.max(0, props.depth - 1) * 16)
+
+/**
  * 行。
  *
  * 底色分三层，触摸端全靠它们说话（`hover:` 在 Tailwind v4 里只对带指针的设备生效，
@@ -87,10 +95,12 @@ const rowStyle = computed(() => ({ paddingLeft: `${6 + props.depth * 16}px` }))
  *   把底色在 `LONG_PRESS_MS` 里推到 `muted-strong` —— 按住的那半秒看得见在蓄力，
  *   到点菜单弹出（reka 的 `pressOpenDelay` 传的是同一个值）。状态由 `usePressHold`
  *   算，不靠 `:active`，理由见那边的注释；
- * - `data-[state=open]` 菜单开着时整行保持深色，用户始终知道这份菜单作用于哪一行。
+ * - 文件行的 `data-[state=open]`：菜单开着时整行保持深色，用户始终知道菜单作用于哪一行。
+ *   文件夹行不套这一层 —— 它同时是 CollapsibleTrigger，`data-state` 表示的是展开，
+ *   展开态改由引导线与旋转的箭头表达，不再靠底色。
  */
 const ROW =
-  "mb-0.5 flex h-7 cursor-default items-center gap-1.5 rounded-md pr-1.5 text-13 select-none transition-colors duration-100 hover:bg-muted data-[pressed]:bg-muted-strong data-[pressed]:duration-500 data-[state=open]:bg-muted-strong group/row"
+  "relative mb-0.5 flex h-7 cursor-default items-center gap-1.5 rounded-md pr-1.5 text-13 select-none transition-colors duration-100 hover:bg-muted data-[pressed]:bg-muted-strong data-[pressed]:duration-500 group/row"
 
 /** 行尾菜单按钮：hover 才现身，与 `+` 按钮共用一套观感。 */
 const MENU_BUTTON =
@@ -140,6 +150,19 @@ function startDrag(event: DragEvent) {
             @pointerup="pressRelease"
             @pointercancel="pressRelease"
           >
+            <span
+              v-for="x in guides"
+              :key="x"
+              aria-hidden="true"
+              class="tree-guide"
+              :style="{ left: `${x}px` }"
+            />
+            <span
+              v-if="depth > 0"
+              aria-hidden="true"
+              class="tree-elbow"
+              :style="{ left: `${elbowLeft}px` }"
+            />
             <ChevronRightIcon
               :class="cn('size-3 shrink-0 text-muted-foreground transition-transform', isOpen && 'rotate-90')"
             />
@@ -227,6 +250,7 @@ function startDrag(event: DragEvent) {
             ROW,
             isActive ? 'bg-selection font-medium text-selection-foreground' : 'text-foreground/80',
             isDragging && 'opacity-50',
+            'data-[state=open]:bg-muted-strong',
           )"
           :style="rowStyle"
           :data-tree-kind="node.kind"
@@ -240,6 +264,19 @@ function startDrag(event: DragEvent) {
           @pointerup="pressRelease"
           @pointercancel="pressRelease"
         >
+          <span
+            v-for="x in guides"
+            :key="x"
+            aria-hidden="true"
+            class="tree-guide"
+            :style="{ left: `${x}px` }"
+          />
+          <span
+            v-if="depth > 0"
+            aria-hidden="true"
+            class="tree-elbow"
+            :style="{ left: `${elbowLeft}px` }"
+          />
           <!-- 数据表、Markdown 各一个图标：树上同名 / 相邻的几种文件靠它一眼分开。 -->
           <DatabaseIcon
             v-if="isTable"

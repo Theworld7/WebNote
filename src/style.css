@@ -947,6 +947,29 @@ svg.size-4 {
 }
 
 /*
+ * 文件树的层级引导线。颜色取 `--color-line`（表格边框与分隔线同一支灰），明暗主题各自成立。
+ * 竖线上下各多画 0.25rem，跨过行与行之间的 `mb-0.5`，同级才连得成一条；短横线从父级
+ * 竖线伸到子项缩进前，让每个子项都能看出挂在哪一根线上。
+ */
+.tree-guide {
+    position: absolute;
+    top: -0.25rem;
+    width: 1px;
+    height: calc(100% + 0.25rem);
+    background-color: var(--color-line);
+    pointer-events: none;
+}
+
+.tree-elbow {
+    position: absolute;
+    top: calc(50% - 0.5px);
+    width: 0.5rem;
+    height: 1px;
+    background-color: var(--color-line);
+    pointer-events: none;
+}
+
+/*
  * 新块落位：落地后那一下淡淡的底。
  *
  * 从透明起、先淡入到 tint、再淡回透明，全程由一条 keyframes 自己收尾 —— 不靠

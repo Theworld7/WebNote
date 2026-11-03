@@ -211,10 +211,14 @@ onBeforeUnmount(() => {
       leave-active-class="transition-transform duration-150 ease-in"
       leave-to-class="translate-x-full"
     >
+      <!-- 宽度：平时占编辑区一半；窄屏（<900，与侧栏浮层同一断点）与平板竖屏改占满。
+           iPad Pro 竖屏恰好宽 1024，只看 `<900` 会把它当成桌面；这里用闭区间的
+           `width <= 1024px`（Tailwind 的 `max-[1024px]` 是严格小于，正好漏掉它），
+           再叠竖屏方向 —— 触屏平板竖屏都落在这个范围内，桌面横屏不受影响。 -->
       <div
         v-show="open"
         data-html-source-drawer
-        class="absolute inset-y-0 right-0 z-20 flex w-1/2 flex-col border-l border-line bg-popover shadow-pop"
+        class="absolute inset-y-0 right-0 z-20 flex w-1/2 flex-col border-l border-line bg-popover shadow-pop max-[899px]:w-full portrait:[@media(width<=1024px)]:w-full"
       >
         <div class="flex flex-none items-center gap-3 border-b border-line px-4 py-2">
           <span class="flex-none whitespace-nowrap text-12 font-medium">{{ title }}</span>

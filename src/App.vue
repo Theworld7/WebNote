@@ -169,19 +169,14 @@ onBeforeUnmount(() => {
 
     <!-- 窄屏的侧栏浮层：盖在编辑区上，不占布局。顶边让开 44px 的标题栏（+ 卡片区的 4px
          上内边距），那颗折叠按钮才不会被压在底下 —— 开着的时候再按一次就是关掉。
-         点遮罩、按 Esc、挑完一篇笔记都会收起；进出各 150ms，减少动效偏好下不播。 -->
-    <Transition
-      enter-active-class="transition-opacity duration-150 motion-reduce:transition-none"
-      enter-from-class="opacity-0"
-      leave-active-class="transition-opacity duration-100 motion-reduce:transition-none"
-      leave-to-class="opacity-0"
-    >
-      <div
-        v-if="overlay && overlayOpen"
-        class="reduce-transparency:bg-black/45 supports-backdrop-filter:backdrop-blur-xs reduce-transparency:backdrop-blur-none fixed inset-x-0 top-12 bottom-0 z-40 bg-black/25"
-        @click="closeOverlay"
-      />
-    </Transition>
+         点这块透明区域、按 Esc、挑完一篇笔记都会收起。窄屏下不压暗正文：卡片自己的阴影
+         已经说明它浮在上面，再蒙一层只会把手机上的正文糊掉。这块只剩「挡住下层点击」
+         与「点外部收起」两个职责 —— 页面本身 h-screen 不滚动，不需要额外锁滚动。 -->
+    <div
+      v-if="overlay && overlayOpen"
+      class="fixed inset-x-0 top-12 bottom-0 z-40"
+      @click="closeOverlay"
+    />
     <Transition
       enter-active-class="transition duration-150 ease-out motion-reduce:transition-none"
       enter-from-class="-translate-x-3 opacity-0"
