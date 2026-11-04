@@ -213,14 +213,25 @@ CSS 碰不到，得由 Rust 侧直接跟系统说话。
 
 | 平台 | 文件 |
 | :-- | :-- |
-| Windows 10 / 11（x64） | `玉简_<版本>_x64-setup.exe`（安装包）、`玉简_<版本>_x64_zh-CN.msi` |
-| macOS（Apple Silicon） | `玉简_<版本>_aarch64.dmg` |
+| Windows 10 / 11（x64） | `WebNote_<版本>_x64-setup.exe`（安装包）、`WebNote_<版本>_x64_zh-CN.msi` |
+| macOS（Apple Silicon） | `WebNote_<版本>_aarch64.dmg` |
 
 首次打开工作区时选一个文件夹即可 —— 里面已有的 `.html` 笔记、`.tbl` 数据表与 `.md` 文件会直接
 出现在树上，不需要导入。
 
-构建产物没有做代码签名，Windows SmartScreen 或 macOS Gatekeeper 可能提示一次确认；不想用预编译包
-就按下一节自己构建。
+安装包的签名情况见下一节；不想用预编译包就按「从源码构建」自己编。
+
+## 代码签名
+
+Windows 安装包走 [SignPath Foundation](https://signpath.org/) 的免费开源代码签名计划：证书由
+SignPath Foundation 颁发，因而发布者一栏显示的是 `SignPath Foundation`，不是本项目的名字。
+签名由 CI 在每次发版时从本仓库自动构建出的产物上提交，人工审批后生效 —— 所以签名也顺带证明了
+「你下载的二进制就是这份源码编出来的」。
+
+申请获批前，以及 macOS 安装包（未签名也未公证），首次打开会被系统要求确认一次。
+
+签名不等于没有提示：Windows 对新证书同样从零积累下载声誉，最早几批下载仍可能看到一次
+SmartScreen 确认。
 
 ## 从源码构建
 
@@ -315,6 +326,10 @@ CDP 驱动：`node design/cdp-dump.mjs http://localhost:1420/design/<名字>.htm
 应用图标的真源是 `design/icon/icon.tokens.json`（几何、配色、构图），界面主题色 `--color-brand`
 直接取图标背景蓝的中间档，所以「主题色」在全项目只有一个地方可改；`pnpm icon` 会重新生成 SVG、
 跑结构自检、再渲染出各档位图。相关取舍见 [docs/adr/0010](docs/adr/0010-theme-color-is-the-icon-background.md)。
+
+## 许可证
+
+[MIT](LICENSE)。用、改、再分发都行，保留版权声明即可。
 
 <div align="center">
 <br />

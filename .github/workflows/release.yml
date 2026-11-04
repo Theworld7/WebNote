@@ -1,0 +1,106 @@
+name: Release
+
+# 打 tag 才发版。失败后从 Actions 页面 re-run 即可，不需要重打 tag。
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # 创建 release、上传资产
+  actions: read # SignPath 读取本次运行的 job 详情与 artifact
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # secrets 不能出现在 step 的 if 条件里（该上下文不支持），所以先在这里算成布尔量。
+  # 没配置 SignPath 时整条签名链路跳过，直接发未签名产物。
+  SIGNPATH_ENABLED: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # pnpm 12 要 action-setup v6.1+；版本与 pages.yml 保持一致，仓库没有声明 packageManager
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.3.4
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm tauri build
+
+      # productName 是「玉简」，Tauri 会把它写进文件名。落到 release 前统一成 ASCII，
+      # 与已有资产（WebNote_0.10.0_x64-setup.exe）的命名一致，也避免下载链接出现百分号编码。
+      # 改名不影响 Authenticode 签名 —— 签名不绑定文件名。
+      - name: 归一化产物名
+        shell: pwsh
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "tag $env:GITHUB_REF_NAME 与 tauri.conf.json 的 $version 不一致"
+          }
+          # bundle/ 下会攒着历史版本，必须按版本号取，否则会把旧包当成新包发出去
+          $nsis = @(Get-ChildItem "src-tauri/target/release/bundle/nsis/*_${version}_x64-setup.exe")
+          $msi  = @(Get-ChildItem "src-tauri/target/release/bundle/msi/*_${version}_x64_zh-CN.msi")
+          if ($nsis.Count -ne 1 -or $msi.Count -ne 1) {
+            throw "产物数量不对：nsis=$($nsis.Count) msi=$($msi.Count)"
+          }
+          New-Item -ItemType Directory -Force staging | Out-Null
+          Copy-Item $nsis[0].FullName "staging/WebNote_${version}_x64-setup.exe"
+          Copy-Item $msi[0].FullName "staging/WebNote_${version}_x64_zh-CN.msi"
+          Get-ChildItem staging | Select-Object Name, Length
+
+      # SignPath 只接受「先落到 GitHub artifact、再提交」的产物，顺序不能换。
+      - name: 上传未签产物
+        id: upload-unsigned
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-unsigned
+          path: staging/*
+          if-no-files-found: error
+
+      # 需要先在 SignPath 网页建好项目与签名策略，把那三个 slug 存进仓库 secrets。
+      # 人工审批期间 workflow 会停在等，超时给 1 小时。
+      - name: 提交 SignPath 签名
+        if: env.SIGNPATH_ENABLED == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed
+
+      - name: 发布已签名产物
+        if: env.SIGNPATH_ENABLED == 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          name: 玉简 ${{ github.ref_name }}
+          files: signed/**
+          fail_on_unmatched_files: true
+
+      - name: 发布未签名产物
+        if: env.SIGNPATH_ENABLED != 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          name: 玉简 ${{ github.ref_name }}
+          files: staging/*
+          fail_on_unmatched_files: true
