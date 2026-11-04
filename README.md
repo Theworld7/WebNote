@@ -223,9 +223,9 @@ CSS 碰不到，得由 Rust 侧直接跟系统说话。
 
 ## 代码签名
 
-Windows 安装包走 [SignPath Foundation](https://signpath.org/) 的免费开源代码签名计划：证书由
+Windows 安装包正在申请 [SignPath Foundation](https://signpath.org/) 的免费开源代码签名：证书由
 SignPath Foundation 颁发，因而发布者一栏显示的是 `SignPath Foundation`，不是本项目的名字。
-签名由 CI 在每次发版时从本仓库自动构建出的产物上提交，人工审批后生效 —— 所以签名也顺带证明了
+签名由 CI 在每次发版时从本仓库自动构建出的产物上提交，人工审批后生效 —— 这样签名也顺带证明了
 「你下载的二进制就是这份源码编出来的」。
 
 申请获批前，以及 macOS 安装包（未签名也未公证），首次打开会被系统要求确认一次。
