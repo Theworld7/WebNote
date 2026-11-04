@@ -4,6 +4,13 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # 手动干跑：只走构建与产物归名，不建 release。用来在打 tag 之前确认流水线是通的。
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 同时创建 GitHub Release
+        type: boolean
+        default: false
 
 permissions:
   contents: write # 创建 release、上传资产
@@ -90,7 +97,7 @@ jobs:
           output-artifact-directory: signed
 
       - name: 发布已签名产物
-        if: env.SIGNPATH_ENABLED == 'true'
+        if: env.SIGNPATH_ENABLED == 'true' && (github.event_name == 'push' || github.event.inputs.publish == 'true')
         uses: softprops/action-gh-release@v3
         with:
           name: 玉简 ${{ github.ref_name }}
@@ -98,7 +105,7 @@ jobs:
           fail_on_unmatched_files: true
 
       - name: 发布未签名产物
-        if: env.SIGNPATH_ENABLED != 'true'
+        if: env.SIGNPATH_ENABLED != 'true' && (github.event_name == 'push' || github.event.inputs.publish == 'true')
         uses: softprops/action-gh-release@v3
         with:
           name: 玉简 ${{ github.ref_name }}
