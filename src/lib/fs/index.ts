@@ -1,5 +1,5 @@
 import type { WorkspaceFs } from "./types"
-import { createBrowserFs } from "./browser"
+import { canPickDirectory, createBrowserFs } from "./browser"
 
 /**
  * 按运行环境挑一份 `WorkspaceFs` 实现。
@@ -9,6 +9,17 @@ import { createBrowserFs } from "./browser"
  */
 export function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+}
+
+/**
+ * 浏览器端是不是只能落到内置存储（OPFS）。
+ *
+ * 判据与 `createBrowserFs` 内部挑路的那一个完全一致（有没有目录选择器），不按 UA 认
+ * 浏览器：Chrome 装在 file:// 下同样没有这个 API，那时它和 Firefox 是一回事。桌面端
+ * 不算 —— 它读写的是真实路径，跟这条通道无关。
+ */
+export function usesBuiltinStorage(): boolean {
+  return !isTauriRuntime() && !canPickDirectory()
 }
 
 /**

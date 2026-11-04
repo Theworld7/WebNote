@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useTheme } from "@/composables/useTheme"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { isTauriRuntime } from "@/lib/fs"
+import BrowserNotice from "./BrowserNotice.vue"
 import NewVersionButton from "./NewVersionButton.vue"
 import PageStyleButton from "./PageStyleButton.vue"
 import SettingsPanel from "./SettingsPanel.vue"
@@ -218,9 +219,12 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
       <NewVersionButton />
     </div>
 
-    <!-- 动作区与右侧文档信息之间整段都可拖。`min-w-4` 是底线：窗口窄到极限时它仍然
-         存在，标题栏不会整条变成「点得动但拖不动」。 -->
-    <div class="h-full min-w-4 flex-1" data-tauri-drag-region />
+    <!-- 动作区与右侧文档信息之间整段都可拖，也是唯一放得下「跨浏览器提示」的地方
+         （见 BrowserNotice）：它左右两边的内容宽度都在变，只有这段是空的。
+         `min-w-4` 是底线：窗口窄到极限时它仍然存在，标题栏不会整条变成「点得动但拖不动」。 -->
+    <div class="flex h-full min-w-4 flex-1 items-center justify-center px-2" data-tauri-drag-region>
+      <BrowserNotice />
+    </div>
 
     <!-- 右端文档信息：窄窗口先让字数，页面样式与窗口按钮永远留位 ——
          前者是整篇笔记排版的唯一入口，后者是平台约定。

@@ -26,6 +26,7 @@ import type {
   TableCell,
   TextualBlock,
   TextualBlockType,
+  VideoBlock,
 } from "@/types/workspace"
 import type { SubscriptionRole } from "@/lib/subscription"
 import type { PlaylistRole } from "@/lib/playlist"
@@ -79,6 +80,8 @@ export const BLOCK_TYPES = [
   { type: "callout", group: "内容", marker: "!", label: "标注", initials: "bz" },
   { type: "divider", group: "内容", marker: "—", label: "分割线", initials: "fgx" },
   { type: "image", group: "媒体与数据", marker: "▧", label: "图片", initials: "tp" },
+  // 紧挨 image：两者都是「一块媒体」，心智同族。
+  { type: "video", group: "媒体与数据", marker: "▷", label: "视频", initials: "sp" },
   { type: "table", group: "媒体与数据", marker: "⊞", label: "表格", initials: "bg" },
   // 紧挨 table：数据表在用户眼里就是「更正式的表格」，摆一起最容易找。
   { type: "datatable", group: "媒体与数据", marker: "▤", label: "数据表", initials: "sjb" },
@@ -210,6 +213,7 @@ export function isListBlock(block: Block): block is TextualBlock & { type: ListB
 export function isTextualBlock(block: Block): block is TextualBlock {
   return (
     block.type !== "image" &&
+    block.type !== "video" &&
     block.type !== "table" &&
     block.type !== "mermaid" &&
     block.type !== "datatable" &&
@@ -321,6 +325,11 @@ export function createTextualBlock(
 
 export function createImageBlock(src = "", alt = "", title = ""): ImageBlock {
   return { id: createBlockId(), type: "image", src, alt, title }
+}
+
+/** 造视频块。缺省空地址 = 尚未挑选，视图摊开「粘贴链接 / 选本地文件」的面板。 */
+export function createVideoBlock(src = ""): VideoBlock {
+  return { id: createBlockId(), type: "video", src }
 }
 
 export function createTableBlock(rows: TableCell[][] = []): TableBlock {
@@ -582,6 +591,7 @@ export function createLayoutBlock(mode: LayoutMode = "grid", columns?: number, c
 /** 按类型造块。`text` 会被包成单个无标记 run —— 组件层新建块走这条，不必手搓 runs。 */
 export function createBlock(type: BlockType, text = ""): Block {
   if (type === "image") return createImageBlock()
+  if (type === "video") return createVideoBlock()
   if (type === "table") return createTableBlock()
   if (type === "mermaid") return createMermaidBlock()
   if (type === "datatable") return createDataTableBlock()
@@ -615,7 +625,7 @@ export function retypeBlock(block: Block, type: BlockType): Block {
     const source = isTextualBlock(block) ? runsText(block.runs) : blockText(block)
     return type === "mermaid" ? { ...createMermaidBlock(), source } : { ...createHtmlBlock(), source }
   }
-  if (type === "image" || type === "table" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat" || type === "subscription" || type === "playlist" || type === "chat" || type === "secret" || type === "layout") {
+  if (type === "image" || type === "video" || type === "table" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat" || type === "subscription" || type === "playlist" || type === "chat" || type === "secret" || type === "layout") {
     return createBlock(type)
   }
   if (!isTextualBlock(block)) return createTextualBlock(type, textToRuns(blockText(block)))
@@ -634,7 +644,7 @@ export function retypeBlock(block: Block, type: BlockType): Block {
  */
 export function cloneBlock(block: Block, id: string): Block {
   // 平坦形态浅拷即可：账目块与数据表 / 书签 / 统计一样全是原始值字段。
-  if (block.type === "image" || block.type === "mermaid" || block.type === "html" || block.type === "secret" || block.type === "datatable" || block.type === "bookmark" || block.type === "ledger" || block.type === "stat" || block.type === "subscription") {
+  if (block.type === "image" || block.type === "video" || block.type === "mermaid" || block.type === "html" || block.type === "secret" || block.type === "datatable" || block.type === "bookmark" || block.type === "ledger" || block.type === "stat" || block.type === "subscription") {
     return { ...block, id }
   }
   // 歌单的 sources 是对象数组：整体替换,但拷贝不该共享同一批绑定项。
@@ -687,6 +697,8 @@ export function snapshotBlock(block: Block): Block {
  */
 export function blockText(block: Block): string {
   if (block.type === "image") return block.alt
+  // 视频块没有可读的正文 —— 地址不是内容。投影成空串，字数统计不该把一条 URL 算进去。
+  if (block.type === "video") return ""
   if (block.type === "mermaid") return block.source
   // HTML 块取原文 —— 标记字符跟着进投影，与 mermaid 的图源码同一立场：
   // 原文就是这块的全部内容，投影不再另作解析（那需要 DOM，字数统计是同步纯函数）。

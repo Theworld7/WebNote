@@ -23,11 +23,46 @@ import {
  * 的入口，由点击那一下补上授权（见 `pendingRestore`）。
  *
  * 注意 `showDirectoryPicker` 要求安全上下文：http://localhost 算安全，直接开 dist/ 的
- * file:// 不算（届时 `window.showDirectoryPicker` undefined，`pickRoot` 会如实报错）。
+ * file:// 不算 —— 那时它和 OPFS 都不可用，两条通道都拿不到根，`pickRoot` 如实报错。
+ *
+ * 而 Firefox / Safari 根本没有这个 API，它们走 OPFS 兜底：根换成浏览器内置存储里的
+ * 固定子目录，读写这半套一字不动，只是笔记不在盘上的文件夹里 —— 提示里写清楚，
+ * 出路是导出（见 `FALLBACK_DIR`）。Chromium 系一行也没变：有选择器就还走选择器。
+ * 标题栏中段另有一句「建议换 Chrome 内核浏览器」的提醒（见 `BrowserNotice`）。
  */
 
 /** 固定 id：浏览器据此记住上次选的目录，第二次打开直接落到那儿。 */
 const PICKER_ID = "webnote-notes"
+
+/**
+ * 没有目录选择器的浏览器（Firefox、Safari）落到这里：OPFS 里的固定子目录。
+ *
+ * 取回来的仍是 `FileSystemDirectoryHandle`，下面那套读、写、扫树、移动原样能跑 ——
+ * 差别只有一处：根不是用户选的，而是浏览器私有存储里的一个目录。它不需要授权，
+ * 所以下次启动能直接接上，连「恢复上次工作区」那一环都省了。
+ *
+ * 代价写在明面上：笔记不在盘上的某个文件夹里。要把它们变成 `.html` 文件，走导出。
+ */
+const FALLBACK_DIR = "webnote-notes"
+
+/** 目录选择器只有 Chromium 系实现；Firefox / Safari 上是 undefined。 */
+export function canPickDirectory(): boolean {
+  return typeof window.showDirectoryPicker === "function"
+}
+
+/**
+ * 打开回退工作区。`create` 为假时只认已经建过的 —— 第一次仍要用户点「打开文件夹」，
+ * 不然一个从没用过的人启动后会自动多出一块空工作区，他还不知道东西存在哪。
+ */
+async function fallbackDir(create: boolean): Promise<FileSystemDirectoryHandle | null> {
+  if (typeof navigator.storage?.getDirectory !== "function") return null
+  try {
+    const opfs = await navigator.storage.getDirectory()
+    return await opfs.getDirectoryHandle(FALLBACK_DIR, { create })
+  } catch {
+    return null
+  }
+}
 
 /**
  * 上次工作区句柄的存放处。
@@ -201,16 +236,24 @@ async function readFileAt(root: FileSystemDirectoryHandle, path: string): Promis
   return (await handle.getFile()).text()
 }
 
-/** 写文件（覆盖或新建），半途失败 abort 而不是 close。 */
+/**
+ * 写文件（覆盖或新建），半途失败 abort 而不是 close。
+ *
+ * `content` 收字符串与裸字节两种：笔记写的是 HTML 文本，视频搬进来写的是原始字节，
+ * 出口是同一个 —— `createWritable` 两种都吃，没必要为二进制再抄一遍失败处理。
+ */
 async function writeFileAt(
   root: FileSystemDirectoryHandle,
   path: string,
-  text: string,
+  content: string | Uint8Array,
 ): Promise<void> {
   const handle = await fileHandleAt(root, path, true)
   const stream = await handle.createWritable()
   try {
-    await stream.write(text)
+    // 裸字节要拷进一个 ArrayBuffer 支撑的视图再写：`readBinary` 回来的
+    // `Uint8Array<ArrayBufferLike>` 不满足 `FileSystemWriteChunkType` 对 ArrayBuffer 的要求。
+    if (typeof content === "string") await stream.write(content)
+    else await stream.write(new Uint8Array(content))
     await stream.close()
   } catch (error) {
     await stream.abort()
@@ -333,9 +376,18 @@ export function createBrowserFs(): WorkspaceFs {
   return {
     kind: "browser",
     canRestore: true,
-    hint: "浏览器端 · 自动回到上次的目录，必要时再授权一次",
+    hint: canPickDirectory()
+      ? "浏览器端 · 自动回到上次的目录，必要时再授权一次"
+      : "浏览器端 · 笔记保存在浏览器内置存储（可用导出取成 .html）",
 
     async pickRoot() {
+      if (!canPickDirectory()) {
+        const handle = await fallbackDir(true)
+        if (handle === null) {
+          throw new Error("这个浏览器既不支持选择本地文件夹，也没有内置存储，请改用桌面版或 Chromium 系浏览器")
+        }
+        return { kind: "handle", handle }
+      }
       try {
         // mode: "readwrite" 让选择动作本身就带上写权限，省掉一次额外的 requestPermission。
         const handle = await window.showDirectoryPicker({ id: PICKER_ID, mode: "readwrite" })
@@ -358,6 +410,11 @@ export function createBrowserFs(): WorkspaceFs {
      * 接上，随后扫树失败，停在「有根但空」的半截状态。
      */
     async restoreRoot() {
+      // 内置存储没有授权这一步，目录也搬不走：建过就能直接接上。
+      if (!canPickDirectory()) {
+        const handle = await fallbackDir(false)
+        return handle === null ? null : { kind: "handle", handle }
+      }
       let handle: FileSystemDirectoryHandle | null
       try {
         handle = await readStoredRoot()
@@ -435,8 +492,22 @@ export function createBrowserFs(): WorkspaceFs {
       return new Uint8Array(await (await handle.getFile()).arrayBuffer())
     },
 
+    /**
+     * 浏览器端没有 asset 协议这类「由 WebView 自己去取盘上文件」的通道：句柄只对 JS 可见，
+     * 页面拿不到一条能直接塞进 `<video src>` 的地址。`createObjectURL(file)` 倒是能取流，
+     * 但 `File` 是从句柄同步拿到的、背后仍要整段进内存 —— 与 `readBinary` 没有分别，
+     * 所以这里如实返回 `null`，让调用方走那条明确的路。
+     */
+    streamUrl() {
+      return null
+    },
+
     async writeNote(root, path, html) {
       await writeFileAt(rootOf(root), path, html)
+    },
+
+    async writeBinary(root, path, bytes) {
+      await writeFileAt(rootOf(root), path, bytes)
     },
 
     async createNote(root, path, html) {

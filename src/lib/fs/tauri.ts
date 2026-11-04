@@ -1,9 +1,9 @@
 import type { OpenDialogOptions } from "@tauri-apps/plugin-dialog"
 import type { FileNode } from "@/types/workspace"
 import type { FsRoot, WorkspaceFs } from "./types"
-import { invoke } from "@tauri-apps/api/core"
+import { convertFileSrc, invoke } from "@tauri-apps/api/core"
 import { open } from "@tauri-apps/plugin-dialog"
-import { exists as fsExists, mkdir, readDir, readFile, readTextFile, remove as fsRemove, rename, writeTextFile } from "@tauri-apps/plugin-fs"
+import { exists as fsExists, mkdir, readDir, readFile, readTextFile, remove as fsRemove, rename, writeFile, writeTextFile } from "@tauri-apps/plugin-fs"
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener"
 import { joinPath, toSegments } from "@/lib/paths"
 import {
@@ -163,8 +163,31 @@ export function createTauriFs(): WorkspaceFs {
       return readFile(absoluteOf(root, path))
     },
 
+    /**
+     * 走 asset 协议，把取流这件事整个交给 WebView。
+     *
+     * 与 `readBinary` 的差别只在**大文件**上：那条路把整段读成 `Uint8Array` 再包 `Blob`，
+     * 一段 4 GB 的录屏等于要求 WebView 腾出 4 GB 内存，而 `<video>` 真正在播的往往只有
+     * 当前的几秒。asset 协议则由播放器自己发 range 请求，内存占用与文件大小无关，
+     * 拖进度条也只拉需要的那一段。
+     *
+     * 路径必须已经在 asset scope 里 —— `set_workspace_root` 把它和 fs scope 一起授了
+     * （见 `lib.rs`）。少了那一步的表现是：视频区一片黑、控制台一句
+     * `not configured to allow the path`。
+     *
+     * 中文与空格不用处理：`convertFileSrc` 会做 percent-encoding，协议处理器按同一套解码。
+     */
+    streamUrl(root, path) {
+      return convertFileSrc(absoluteOf(root, path))
+    },
+
     async writeNote(root, path, html) {
       await writeTextFile(absoluteOf(root, path), html)
+    },
+
+    async writeBinary(root, path, bytes) {
+      if (root.kind !== "path") throw new Error("桌面端实现收到了非路径形态的根目录")
+      await writeFile(absoluteOf(root, path), bytes)
     },
 
     async createNote(root, path, html) {

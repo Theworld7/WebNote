@@ -1,4 +1,4 @@
-import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, HtmlBlock, ImageBlock, KanbanBlock, LayoutBlock, LedgerBlock, MermaidBlock, PlaylistBlock, SecretBlock, StatBlock, SubscriptionBlock, TableCell, TextualBlock } from "@/types/workspace"
+import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, HtmlBlock, ImageBlock, KanbanBlock, LayoutBlock, LedgerBlock, MermaidBlock, PlaylistBlock, SecretBlock, StatBlock, SubscriptionBlock, TableCell, TextualBlock, VideoBlock } from "@/types/workspace"
 import type { DataColumn, DataTable, DataRow } from "@/types/data-table"
 import { GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT, LAYOUT_COLUMNS_DEFAULT, isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
@@ -45,6 +45,7 @@ import {
 } from "@/lib/playlist"
 import type { PlaylistRoles } from "@/lib/playlist"
 import { docStyle } from "@/lib/typography"
+import { VIDEO_CLASS, videoModeOf } from "@/lib/video"
 
 /**
  * 块列表 → HTML。
@@ -106,6 +107,10 @@ export function blocksToHtml(blocks: readonly Block[], lookupTables?: DataTableL
     // 那里取 `block.runs` 拿到 undefined，序列化出来的是一段空白而不是报错。
     if (block.type === "image") {
       out.push(imageHtml(block))
+      continue
+    }
+    if (block.type === "video") {
+      out.push(videoHtml(block))
       continue
     }
     if (block.type === "table") {
@@ -254,6 +259,28 @@ function codeHtml(block: TextualBlock): string {
 function imageHtml(block: ImageBlock): string {
   const title = block.title === "" ? "" : ` title="${escapeHtml(block.title)}"`
   return `<img src="${escapeHtml(block.src)}" alt="${escapeHtml(block.alt)}"${title}>`
+}
+
+/**
+ * 视频块 → HTML。两种形态各用各的元素，判据只有 `videoModeOf` 一处：
+ *
+ * - 本地文件 / 直链 → `<video class="note-video" controls src="…">`：双击打开导出的
+ *   HTML 时由浏览器原生播放器接管，`src` 是相对笔记文件的路径（见 `VideoBlock`）；
+ * - 站点播放器 → `<iframe class="note-video" src="…">`：`allow` 放开全屏与画中画，
+ *   B站 / YouTube 的播放器都要这几项，缺了只是「能看，但没法全屏」。
+ *
+ * 不加 sandbox：跨源 iframe 本来碰不到父页面，而给它套一层白名单只会把播放器里
+ * 那些嵌套文档与弹窗挡掉 —— 收益为零，故障面很大。
+ *
+ * 也不预置宽高：尺寸交给 `DOC_STYLE` 的 `.note-video`（满宽 + 16:9），
+ * 与编辑器里的观感同一份规格。
+ */
+function videoHtml(block: VideoBlock): string {
+  const src = escapeHtml(block.src)
+  if (videoModeOf(block.src) === "file") {
+    return `<video class="${VIDEO_CLASS}" controls src="${src}"></video>`
+  }
+  return `<iframe class="${VIDEO_CLASS}" src="${src}" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen></iframe>`
 }
 
 /**

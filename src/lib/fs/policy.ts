@@ -1,5 +1,6 @@
 import type { FileNode } from "@/types/workspace"
-import { joinPath } from "@/lib/paths"
+import { fileName, fromSegments, joinPath, toSegments } from "@/lib/paths"
+import { assetsFolderName, isAssetsFolder } from "@/lib/video"
 
 /**
  * 目录扫描的共同规则。
@@ -87,6 +88,23 @@ export function fileStem(name: string): string {
 }
 
 /**
+ * 笔记旁边的资源目录路径（`目录/笔记名.assets`）。不是笔记返回 `null`。
+ *
+ * 推导只此一份：导入视频时按它落盘，删笔记时按它收尾。两边各算一遍的话，
+ * 任何一处改了口径（后缀、主干、父级），清理就会静默空转 —— 盘上那些视频再也没有
+ * 入口能删掉，因为它们本来就不进文件树（`isBrowsableDir`）。
+ *
+ * 放在这一层是因为它同时要用「什么是笔记」（`isNoteFile`）与「资源目录叫什么」
+ * （`assetsFolderName`），而后者由 `lib/video` 拥有、本模块已经在用。
+ */
+export function assetsPathOfNote(notePath: string): string | null {
+  if (!isNoteFile(notePath)) return null
+  const segments = toSegments(notePath)
+  const parent = fromSegments(segments.slice(0, -1))
+  return joinPath(parent, assetsFolderName(fileStem(fileName(notePath))))
+}
+
+/**
  * 文件夹名里不能出现的字符。
  *
  * 分隔符首当其冲：`/` 会被 `joinPath` 当成层级切分，`\` 在 Windows 上同理；
@@ -118,9 +136,18 @@ export function checkName(raw: string): string | null {
   return null
 }
 
-/** 点开头的一律不放行：它们的访问受 fs scope 的 `require_literal_leading_dot` 限制，显示出来也读不到。 */
+/**
+ * 点开头的一律不放行：它们的访问受 fs scope 的 `require_literal_leading_dot` 限制，
+ * 显示出来也读不到。
+ *
+ * `<笔记名>.assets/` 同样不放行：那里面只放视频这类大文件（见 `lib/video`），
+ * 树里既打不开也删不掉，留一个看起来空空的文件夹只是噪声。注意这条**只是不进树**，
+ * 读写照旧 —— 视频块按相对路径自己解析，桌面端走 asset 协议、浏览器端走 `readBinary`，
+ * 都不经过扫描。它也不进树意味着**删笔记时必须顺手收掉**（`deleteFile` 的
+ * `removeAssetsOf`），否则用户再也没有入口能删掉它。
+ */
 export function isBrowsableDir(name: string): boolean {
-  return !name.startsWith(".") && !SKIP_DIRS.has(name)
+  return !name.startsWith(".") && !SKIP_DIRS.has(name) && !isAssetsFolder(name)
 }
 
 /**

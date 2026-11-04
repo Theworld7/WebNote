@@ -1,10 +1,12 @@
 //! WebNote 桌面壳。
 //!
-//! 这一层只做一件事：把「用户选定的笔记目录」变成 fs 插件认可的授权范围。
+//! 这一层只做一件事：把「用户选定的笔记目录」变成 fs 插件与 asset 协议都认可的授权范围。
 //!
 //! **为什么不在 capability 里写死 `$HOME/**` 之类的宽 scope。** 那样等于给 WebView 开了
 //! 整盘读写，与「只碰用户明确选择的那个目录」的安全模型不符。这里的做法是：静态 scope
 //! 一条不写，全部走运行时 `allow_directory`，授权范围严格等于用户这一次的选择。
+//! asset 协议也一样（它的静态 `scope` 是空数组）—— 视频块要的正是「这一篇笔记旁边的
+//! 那几个文件能被 `<video>` 取到」，而不是整盘可播。见 `grant`。
 //! 选择结果落在 app config 目录的 `workspace.json`，重启由 `restore_workspace_root`
 //! 重新授权，用户不必每次重选。
 //!
@@ -46,11 +48,22 @@ fn load_config(app: &AppHandle) -> Option<WorkspaceConfig> {
     serde_json::from_str(&raw).ok()
 }
 
-/// 把目录纳入 fs 插件的运行时 scope，`recursive: true` 覆盖全部后代。
+/// 把目录纳入 fs 插件与 asset 协议的运行时 scope，`recursive: true` 覆盖全部后代。
+///
+/// **两个 scope 是各自独立的名单，必须一起授。** fs scope 管 `readDir` / `readFile` 这类
+/// JS 调用；asset 协议拿自己的名单判「这个路径能不能交给页面取流」。只授前者时，
+/// 普通笔记读写一切正常，唯独视频区一片黑 —— 协议处理器回 403，控制台一句
+/// `not configured to allow the path`，看起来完全不像权限问题。
+///
+/// 这里同样**不写静态 scope**（`tauri.conf.json` 里 `assetProtocol.scope` 是空数组）：
+/// 授权范围仍严格等于用户这一次选的目录，换目录只是在这份名单上再叠一条。
 fn grant(app: &AppHandle, root: &Path) -> Result<(), String> {
     app.fs_scope()
         .allow_directory(root, true)
-        .map_err(|error| format!("授权目录失败：{error}"))
+        .map_err(|error| format!("授权目录失败：{error}"))?;
+    app.asset_protocol_scope()
+        .allow_directory(root, true)
+        .map_err(|error| format!("授权媒体目录失败：{error}"))
 }
 
 /// 规范化根目录：解析软链、去掉结尾斜杠。

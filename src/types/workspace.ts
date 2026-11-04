@@ -58,7 +58,7 @@ export type TextualBlockType =
   | "divider"
 
 /** 全部块类型 = 正文类 + 结构类。派生而常量列表，避免两处维护。 */
-export type BlockType = TextualBlockType | "image" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "subscription" | "playlist" | "chat" | "secret" | "layout" | "html"
+export type BlockType = TextualBlockType | "image" | "video" | "table" | "mermaid" | "datatable" | "gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "subscription" | "playlist" | "chat" | "secret" | "layout" | "html"
 
 /** 正文块。块之间是平铺列表；列表的嵌套层级用 `depth` 表达，不建树。 */
 export interface TextualBlock {
@@ -80,6 +80,24 @@ export interface ImageBlock {
   src: string
   alt: string
   title: string
+}
+
+/**
+ * 视频块。
+ *
+ * `src` 只有两种形态，由**它自己**判别，不另存一个 kind 字段（两份表达同一件事必然漂移）：
+ *
+ * - `http(s)://…`：网络视频。带视频后缀的直链（`…/a.mp4`）仍按文件播，其余按**嵌入**
+ *   地址渲染成 iframe。粘贴 B站 / YouTube 的普通分享链接时，操作层会先把它归一成 embed
+ *   地址（见 `lib/video`），落到这里的永远是能直接塞进 iframe 的那个。
+ * - 其余：**相对笔记所在目录**的文件路径（`笔记名.assets/切片.mp4`）。存相对路径而不是
+ *   工作区全路径，是为了让序列化保持纯函数 —— `blocksToHtml` 拿不到笔记路径，而导出的
+ *   `<video src>` 必须相对笔记文件本身才点得开。读取时由视图拼上当前笔记的目录。
+ */
+export interface VideoBlock {
+  id: string
+  type: "video"
+  src: string
 }
 
 /** 单元格水平对齐。取值只有三档，UI 与序列化都按这三档走。 */
@@ -475,7 +493,7 @@ export interface SecretBlock {
   note: string
 }
 
-export type Block = TextualBlock | ImageBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | LedgerBlock | StatBlock | SubscriptionBlock | PlaylistBlock | ChatBlock | SecretBlock | LayoutBlock | HtmlBlock
+export type Block = TextualBlock | ImageBlock | VideoBlock | TableBlock | MermaidBlock | DataTableBlock | GalleryBlock | BookmarkBlock | KanbanBlock | LedgerBlock | StatBlock | SubscriptionBlock | PlaylistBlock | ChatBlock | SecretBlock | LayoutBlock | HtmlBlock
 
 /**
  * 引用块展示设置的 patch 形状:六种引用块设置字段的并集,id / type / path 不在内

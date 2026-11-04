@@ -13,6 +13,8 @@ import { fileNode, folderNode, sortNodes } from "@/lib/fs/policy"
 
 interface Disk {
   files: Map<string, string>
+  /** 二进制文件（视频）。与 `files` 分开存：树只认文本笔记，视频不该进树。 */
+  binaries: Map<string, Uint8Array>
   dirs: Set<string>
   ensureDir(path: string): void
   directChildren(path: string): string[]
@@ -21,6 +23,7 @@ interface Disk {
 /** 磁盘替身。目录表显式维护（真实文件系统的目录是独立实体，空目录也存在）。 */
 function createDisk(): Disk {
   const files = new Map<string, string>()
+  const binaries = new Map<string, Uint8Array>()
   const dirs = new Set<string>([""])
 
   function ensureDir(path: string): void {
@@ -45,7 +48,7 @@ function createDisk(): Disk {
     return names
   }
 
-  return { files, dirs, ensureDir, directChildren }
+  return { files, binaries, dirs, ensureDir, directChildren }
 }
 
 /**
@@ -130,7 +133,7 @@ export function createMemoryFs(): MemoryFs {
     },
 
     async exists(_root: FsRoot, path: string): Promise<boolean> {
-      return disk.files.has(path) || disk.dirs.has(path)
+      return disk.files.has(path) || disk.binaries.has(path) || disk.dirs.has(path)
     },
 
     async readNote(_root: FsRoot, path: string): Promise<string> {
@@ -142,6 +145,22 @@ export function createMemoryFs(): MemoryFs {
     async writeNote(_root: FsRoot, path: string, html: string): Promise<void> {
       disk.ensureDir(toSegments(path).slice(0, -1).join(" / "))
       disk.files.set(path, html)
+    },
+
+    async writeBinary(_root: FsRoot, path: string, bytes: Uint8Array): Promise<void> {
+      disk.ensureDir(toSegments(path).slice(0, -1).join(" / "))
+      disk.binaries.set(path, bytes)
+    },
+
+    async readBinary(_root: FsRoot, path: string): Promise<Uint8Array> {
+      const bytes = disk.binaries.get(path)
+      if (bytes === undefined) throw new Error(`没有这个文件：${path}`)
+      return bytes
+    },
+
+    /** 内存盘没有「可流式取用的地址」，与浏览器端同一口径。 */
+    streamUrl(): string | null {
+      return null
     },
 
     async createNote(_root: FsRoot, path: string, html: string): Promise<void> {

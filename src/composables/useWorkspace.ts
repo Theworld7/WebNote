@@ -19,8 +19,9 @@ import { bytesToBlob, imageDataUriOf, imageMimeOf } from "@/lib/image"
 import { openExternalUrl } from "@/lib/open-external"
 import { createPlaylistPreset, createPlaylistSource } from "@/lib/playlist"
 import { rebindBlock } from "@/lib/rebind"
-import { MARKDOWN_EXTENSION, NOTE_EXTENSION, TABLE_EXTENSION, checkName, defaultExpanded, fileStem, isMarkdownFile, isNoteFile, isTableFile } from "@/lib/fs/policy"
+import { MARKDOWN_EXTENSION, NOTE_EXTENSION, TABLE_EXTENSION, assetsPathOfNote, checkName, defaultExpanded, fileStem, isMarkdownFile, isNoteFile, isTableFile } from "@/lib/fs/policy"
 import * as table from "@/lib/table"
+import { availableName } from "@/lib/video"
 import { fileName, fromSegments, isUnder, joinPath, migratePath, pruneRecord, pruneSet, rekeyRecord, rekeySet, titleOf, toSegments } from "@/lib/paths"
 
 /**
@@ -1622,6 +1623,26 @@ function createWorkspace() {
   }
 
   /**
+   * 删掉笔记旁边的资源目录（`<笔记名>.assets`）。
+   *
+   * 只对笔记做：那个目录不进文件树（`isBrowsableDir`），笔记一删就再没有入口能删它 ——
+   * 不收尾的话，里面那些视频会一直躺着占盘，而且用户连它们存在都看不见。
+   *
+   * 清理失败**不当作删除失败**：文件已经没了，这时回退只会让用户去重试一次找不到目标
+   * 的删除。用一句提示告知即可，反正东西还在盘上。
+   */
+  async function removeAssetsOf(driver: WorkspaceFs, current: FsRoot, notePath: string) {
+    const assets = assetsPathOfNote(notePath)
+    if (assets === null) return
+    try {
+      if (!(await driver.exists(current, assets))) return
+      await driver.remove(current, assets)
+    } catch (error) {
+      fsError.value = `笔记已删除，但资源目录「${fileName(assets)}」没清理掉：${describeError(error)}`
+    }
+  }
+
+  /**
    * 删除一个文件或文件夹（文件夹连同其下全部内容）。
    *
    * 受影响标签直接关闭（含脏的 —— 未保存的修改随确认框里的说明一并丢弃）；
@@ -1644,6 +1665,8 @@ function createWorkspace() {
       fsError.value = `删除「${fileName(path)}」失败：${describeError(error)}`
       return false
     }
+
+    await removeAssetsOf(driver, current, path)
 
     const parent = parentOfPath(path)
     try {
@@ -1947,10 +1970,51 @@ function createWorkspace() {
     markDirty()
   }
 
+  /**
+   * 勾选后的沉底：把这一块连同它的子项搬到**同一段连续待办**的末尾。
+   *
+   * 段 = 上下相邻的 todo 块，撞上别的块就断开。只在段内搬 —— 待办不会被拖出自
+   * 己的清单，也不会跨过中间那段正文。带缩进时按层级算：目标取段内最后一个
+   * 「不深于自己」的块，深于自己的子项跟着一起走，缩进结构不会被打散。
+   *
+   * 只在顶层文档生效。格子里的待办是一条短清单，搬动换不来什么，反而让格子的
+   * 排布跟着跳；取消勾选也不往回搬 —— 原位置早被后来的勾选填掉了，追溯只会
+   * 让人猜不到它下次会落在哪。
+   */
+  function sinkCheckedTodo(block: Block, list: Block[], index: number) {
+    if (list !== activeDocument.value) return
+    const depthOf = (item: Block) => (isTextualBlock(item) ? (item.depth ?? 0) : 0)
+    const depth = depthOf(block)
+    /** 块连同子项的结束位置（不含）。子项 = 紧随其后、缩进更深的连续块。 */
+    const subtreeEnd = (at: number) => {
+      let end = at + 1
+      while (end < list.length && depthOf(list[end]) > depthOf(list[at])) end += 1
+      return end
+    }
+
+    let stop = index
+    while (stop + 1 < list.length && list[stop + 1].type === "todo") stop += 1
+
+    let last = index
+    for (let at = index + 1; at <= stop; at += 1) {
+      if (depthOf(list[at]) <= depth) last = at
+    }
+    if (last === index) return
+
+    // 两处位置都在改动前算：搬走 count 块之后，目标索引要跟着前移。
+    const count = subtreeEnd(index) - index
+    const insertAt = subtreeEnd(last) - count
+    const moved = list.splice(index, count)
+    list.splice(insertAt, 0, ...moved)
+  }
+
   function toggleBlockChecked(id: string) {
-    const block = activeBlock(id)
-    if (block === undefined || block.type !== "todo") return
+    const at = locateBlock(id)
+    if (at === null) return
+    const block = at.list[at.index]
+    if (block.type !== "todo") return
     block.checked = !block.checked
+    if (block.checked) sinkCheckedTodo(block, at.list, at.index)
     markDirty()
   }
 
@@ -2297,6 +2361,50 @@ function createWorkspace() {
     if (block === undefined || block.type !== "image") return
     block.src = src
     markDirty()
+  }
+
+  // ---- 视频 ----
+
+  /** 改视频块的地址。空串 = 清空，视图回到「粘贴链接 / 选文件」的面板。 */
+  function setVideoSrc(id: string, src: string) {
+    const block = activeBlock(id)
+    if (block === undefined || block.type !== "video") return
+    block.src = src
+    markDirty()
+  }
+
+  /**
+   * 把一个视频文件搬进工作区，返回**相对当前笔记**的地址。
+   *
+   * 落点是笔记旁边的 `<笔记名>.assets/`：与笔记同目录，导出的 HTML 里
+   * `src="xxx.assets/a.mp4"` 才是对的相对路径 —— `blocksToHtml` 拿不到笔记路径，
+   * 相对路径只能在写入时定下来（见 `VideoBlock`）。这个目录不进文件树
+   * （`isBrowsableDir`），用户看不见也就不会在里面手动整理。
+   *
+   * 为什么不像图片那样内联成 data URI：视频动辄几十上百 MB，base64 再把文件撑大
+   * 三分之一，笔记会变成打不开的炸弹。
+   *
+   * 同名不覆盖 —— 见 `availableName`。
+   */
+  async function importVideoFile(file: File): Promise<string> {
+    const driver = fs.value
+    const current = root.value
+    const notePath = activePath.value
+    if (driver === null || current === null || notePath === "") {
+      throw new Error("没有打开的笔记，视频无处安放")
+    }
+
+    // 落点与删笔记时的收尾推导同源（`assetsPathOfNote`），两边不会各算各的。
+    const folder = assetsPathOfNote(notePath)
+    if (folder === null) throw new Error(`「${fileName(notePath)}」不是笔记，视频无处安放`)
+    const folderSegments = toSegments(folder)
+    await driver.createFolder(current, folder)
+
+    const name = await availableName(file.name, (candidate) =>
+      driver.exists(current, fromSegments([...folderSegments, candidate])),
+    )
+    await driver.writeBinary(current, fromSegments([...folderSegments, name]), new Uint8Array(await file.arrayBuffer()))
+    return `${fileName(folder)}/${name}`
   }
 
   // ---- 代码块 ----
@@ -2649,6 +2757,8 @@ function createWorkspace() {
     removeLayoutCell,
     // image actions
     setImageSource,
+    setVideoSrc,
+    importVideoFile,
     // code actions
     setBlockLang,
     // mermaid actions

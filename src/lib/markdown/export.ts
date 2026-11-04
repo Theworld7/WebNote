@@ -93,6 +93,10 @@ function blockToMarkdown(block: Block, lookup: DataTableLookup): string {
       const title = block.title === "" ? "" : ` "${escapeQuoted(block.title)}"`
       return `![${escapeLinkLabel(block.alt)}](<${escapeLinkTarget(block.src)}>${title})`
     }
+    // 视频块在 Markdown 里没有对应语法。写成链接是唯一诚实的投影：嵌入地址点开就是
+    // 原站播放器，本地路径点开是那张片子（前提是同行导出时带上 `<笔记名>.assets/`）。
+    case "video":
+      return `[视频](<${escapeLinkTarget(block.src)}>)`
     case "table":
       return tableMarkdown(block.rows)
     case "mermaid":

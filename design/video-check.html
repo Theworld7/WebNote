@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>视频块自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+  #app { margin-top: 16px; }
+</style>
+</head>
+<body>
+<h1>视频块：地址归一 / 落盘往返 / 本地写入</h1>
+<pre id="out">running…</pre>
+<div id="app"></div>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick, ref } from "vue"
+import { createBrowserFs } from "../src/lib/fs/browser.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import VideoBlockView from "../src/components/VideoBlockView.vue"
+import { createVideoBlock } from "../src/lib/blocks.ts"
+import { blocksToHtml, parseHtml } from "../src/lib/html/index.ts"
+import { assetsPathOfNote, isBrowsableDir } from "../src/lib/fs/policy.ts"
+import { availableName, isAssetsFolder, toEmbedUrl, videoModeOf } from "../src/lib/video.ts"
+
+const out = document.querySelector("#out")
+const lines = []
+let failed = 0
+function log(s) { lines.push(s); out.textContent = lines.join("\n") }
+// 顶层 await 抛出来的异常不会自己出现在 #out 里，探针会表现为「输出断在半截」。
+window.addEventListener("unhandledrejection", (event) => log(`FAIL 未捕获：${event.reason?.message ?? event.reason}`))
+window.addEventListener("error", (event) => log(`FAIL 未捕获：${event.message}`))
+function check(name, ok, detail = "") {
+  if (!ok) failed += 1
+  log(`${ok ? "OK  " : "FAIL"} ${name}${ok || detail === "" ? "" : ` —— ${detail}`}`)
+}
+
+// ---- 1. 网络地址归一 ----
+check("B站页面链接转播放器",
+  toEmbedUrl("https://www.bilibili.com/video/BV1xx411c7mD/?spm_id_from=333.999&p=2") ===
+  "https://player.bilibili.com/player.html?bvid=BV1xx411c7mD&page=2&autoplay=0",
+  toEmbedUrl("https://www.bilibili.com/video/BV1xx411c7mD/?spm_id_from=333.999&p=2"))
+check("B站 av 号转 aid",
+  toEmbedUrl("https://www.bilibili.com/video/av170001") ===
+  "https://player.bilibili.com/player.html?aid=170001&page=1&autoplay=0",
+  toEmbedUrl("https://www.bilibili.com/video/av170001"))
+check("B站播放器地址保持原样",
+  toEmbedUrl("https://player.bilibili.com/player.html?bvid=BV1xx") === "https://player.bilibili.com/player.html?bvid=BV1xx")
+check("youtu.be 短链转 embed",
+  toEmbedUrl("https://youtu.be/dQw4w9WgXcQ?t=10") === "https://www.youtube.com/embed/dQw4w9WgXcQ")
+check("YouTube watch 转 embed",
+  toEmbedUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=RD") === "https://www.youtube.com/embed/dQw4w9WgXcQ")
+check("YouTube Shorts 转 embed",
+  toEmbedUrl("https://youtube.com/shorts/abc123") === "https://www.youtube.com/embed/abc123")
+check("Vimeo 转播放器",
+  toEmbedUrl("https://vimeo.com/123456") === "https://player.vimeo.com/video/123456")
+check("整段 iframe 代码取 src",
+  toEmbedUrl('<iframe src="https://player.bilibili.com/player.html?bvid=BV1zz" allowfullscreen></iframe>') ===
+  "https://player.bilibili.com/player.html?bvid=BV1zz")
+check("直链视频原样保留", toEmbedUrl("https://cdn.example.com/a.mp4") === "https://cdn.example.com/a.mp4")
+check("认不出的地址原样保留", toEmbedUrl("随便写点什么") === "随便写点什么")
+
+// ---- 2. 渲染形态判别 ----
+check("相对路径 → 文件", videoModeOf("笔记.assets/a.mp4") === "file")
+check("直链 mp4 → 文件", videoModeOf("https://cdn.example.com/a.mp4") === "file")
+check("播放器地址 → 嵌入", videoModeOf("https://player.bilibili.com/player.html?bvid=BV1") === "embed")
+
+// ---- 3. 落盘往返 ----
+const embed = createVideoBlock("https://player.bilibili.com/player.html?bvid=BV1xx&page=1")
+const embedHtml = blocksToHtml([embed])
+check("嵌入形态写成 iframe", embedHtml.includes('<iframe class="note-video"'))
+check("iframe 带 allow 与 allowfullscreen", embedHtml.includes("allowfullscreen") && embedHtml.includes("fullscreen"))
+const embedBack = parseHtml(embedHtml)
+check("嵌入形态读回一块视频", embedBack.length === 1 && embedBack[0].type === "video")
+check("嵌入地址往返一致", embedBack[0].type === "video" && embedBack[0].src === embed.src,
+  embedBack[0].type === "video" ? embedBack[0].src : `类型是 ${embedBack[0].type}`)
+
+const local = createVideoBlock("我的笔记.assets/切片 1.mp4")
+const localHtml = blocksToHtml([local])
+check("文件形态写成 video", localHtml.startsWith('<video class="note-video" controls src="我的笔记.assets/切片 1.mp4">'), localHtml)
+const localBack = parseHtml(localHtml)
+check("文件路径往返一致（中文与空格）", localBack.length === 1 && localBack[0].type === "video" && localBack[0].src === local.src,
+  JSON.stringify(localBack))
+
+const dirty = parseHtml('<video src="https://cdn.example.com/a.mp4"></video>')
+check("手写 <video> 也认领", dirty.length === 1 && dirty[0].type === "video" && dirty[0].src === "https://cdn.example.com/a.mp4")
+const foreign = parseHtml('<iframe src="https://ads.example.com/frame"></iframe>')
+check("别家 iframe 仍然跳过", foreign.length === 0, JSON.stringify(foreign.map((b) => b.type)))
+
+// ---- 4. 资源目录与重名 ----
+check("资源目录不进树", isBrowsableDir("我的笔记.assets") === false)
+check("普通目录照进树", isBrowsableDir("我的笔记") === true)
+check("后缀判定", isAssetsFolder("a.ASSETS") === true && isAssetsFolder("a.html") === false)
+// 导入时按它落盘、删笔记时按它收尾 —— 两边读同一个推导，这里钉住它的形状。
+check("笔记的资源目录在同级", assetsPathOfNote("笔记 / 我的笔记.html") === "笔记 / 我的笔记.assets",
+  assetsPathOfNote("笔记 / 我的笔记.html") ?? "null")
+check("根层笔记不拼出多余层级", assetsPathOfNote("我的笔记.HTML") === "我的笔记.assets",
+  assetsPathOfNote("我的笔记.HTML") ?? "null")
+check("非笔记没有资源目录",
+  assetsPathOfNote("笔记 / 客户.tbl") === null && assetsPathOfNote("笔记 / 说明.md") === null)
+check("资源目录自身的名字不当作笔记", assetsPathOfNote("笔记 / 我的笔记.assets") === null)
+const taken = new Set(["切片.mp4", "切片-2.mp4"])
+const picked = await availableName("切片.mp4", async (name) => taken.has(name))
+check("重名依次让位", picked === "切片-3.mp4", picked)
+check("文件名里的 # ? % 被换掉", (await availableName("录屏#1?.mp4", async () => false)) === "录屏-1-.mp4")
+
+// ---- 5. 本地视频真的写进盘（OPFS） ----
+const opfs = await navigator.storage.getDirectory()
+try { await opfs.removeEntry("video-check", { recursive: true }) } catch {}
+const rootDir = await opfs.getDirectoryHandle("video-check", { create: true })
+const fs = createBrowserFs()
+const root = { kind: "handle", handle: rootDir }
+const folder = "我的笔记.assets"
+const bytes = new Uint8Array([0, 1, 2, 3, 4, 5])
+await fs.createFolder(root, "笔记 / 我的笔记.assets")
+await fs.writeBinary(root, "笔记 / 我的笔记.assets / 切片.mp4", bytes)
+check("写进盘后 exists 为真", await fs.exists(root, "笔记 / 我的笔记.assets / 切片.mp4"))
+const readBack = await fs.readBinary(root, "笔记 / 我的笔记.assets / 切片.mp4")
+check("字节原样读回", readBack.length === bytes.length && readBack.every((v, i) => v === bytes[i]))
+check("浏览器端不提供流式地址", fs.streamUrl(root, "笔记 / 我的笔记.assets / 切片.mp4") === null)
+const alt = await availableName("切片.mp4", (name) => fs.exists(root, `笔记 / ${folder} / ${name}`))
+check("盘上重名让位到 -2", alt === "切片-2.mp4", alt)
+try { await opfs.removeEntry("video-check", { recursive: true }) } catch {}
+
+// ---- 6. 视图冒烟：嵌入形态渲染出 iframe ----
+const block = createVideoBlock("https://player.bilibili.com/player.html?bvid=BV1xx")
+const Root = defineComponent({
+  setup() {
+    provideWorkspace()
+    return () => h("div", { "data-probe": "" }, [h(VideoBlockView, { block })])
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+const frame = document.querySelector('[data-probe] iframe')
+check("视图渲染出 iframe", frame !== null)
+check("iframe 地址正确", frame?.getAttribute("src") === block.src, frame?.getAttribute("src") ?? "")
+check("iframe 有 16:9 比例类", (frame?.className ?? "").includes("aspect-video"), frame?.className ?? "")
+
+// ---- 7. 端到端：导入本地视频 → 块里存相对路径 → 视图读盘并包成 blob 地址 ----
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const workDir = await opfs.getDirectoryHandle("video-work", { create: true })
+const seed = await workDir.getFileHandle("我的笔记.html", { create: true })
+const writable = await seed.createWritable()
+await writable.write("<p>占位</p>")
+await writable.close()
+window.showDirectoryPicker = async () => workDir
+
+let workspace = null
+const localBlock = ref(createVideoBlock(""))
+const Root2 = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    return () => h("div", { "data-probe2": "" }, [h(VideoBlockView, { block: localBlock.value })])
+  },
+})
+const host2 = document.createElement("div")
+document.body.append(host2)
+createApp(Root2).mount(host2)
+await nextTick()
+await workspace.bootstrap()
+await workspace.openRoot()
+for (let i = 0; i < 40 && workspace.activePath.value === ""; i += 1) await wait(50)
+workspace.openFile("我的笔记.html")
+for (let i = 0; i < 40 && workspace.activePath.value === ""; i += 1) await wait(50)
+check("工作区打开了那篇笔记", workspace.activePath.value === "我的笔记.html", workspace.activePath.value)
+
+const rel = await workspace.importVideoFile(new File([bytes], "切片.mp4", { type: "video/mp4" }))
+check("导入返回相对路径", rel === "我的笔记.assets/切片.mp4", rel)
+check("盘上真的落了盘", await workspace.fs.value.exists(workspace.root.value, "我的笔记.assets / 切片.mp4"))
+
+// 换成指向那张片子的块：视图要自己把相对路径还原成工作区路径、读盘、包成 blob 地址。
+localBlock.value = createVideoBlock(rel)
+await nextTick()
+for (let i = 0; i < 40 && document.querySelector("[data-probe2] video") === null; i += 1) await wait(50)
+const video = document.querySelector("[data-probe2] video")
+check("本地视频渲染出 video 元素", video !== null)
+check("播放地址是 blob:", (video?.getAttribute("src") ?? "").startsWith("blob:"), video?.getAttribute("src") ?? "")
+check("没有落到「打不开」提示", document.querySelector("[data-probe2] .border-dashed") === null)
+
+// ---- 8. 删笔记连带收掉资源目录 ----
+const liveFs = () => workspace.fs.value
+const liveRoot = () => workspace.root.value
+const assetsDir = "我的笔记.assets"
+check("删之前资源目录在盘上", await liveFs().exists(liveRoot(), assetsDir))
+check("笔记删掉了",
+  (await workspace.deleteFile("我的笔记.html")) === true && !(await liveFs().exists(liveRoot(), "我的笔记.html")))
+check("资源目录跟着收掉", !(await liveFs().exists(liveRoot(), assetsDir)))
+check("收尾不影响别的文件", await liveFs().exists(liveRoot(), "我的笔记.assets / 切片.mp4") === false)
+
+// ---- 9. 有流式地址时不再整段读进内存（桌面端那条分支）----
+const streamDir = await opfs.getDirectoryHandle("video-stream", { create: true })
+const streamNote = await streamDir.getFileHandle("流式笔记.html", { create: true })
+const noteWriter = await streamNote.createWritable()
+await noteWriter.write("<p>占位</p>")
+await noteWriter.close()
+const streamAssets = await streamDir.getDirectoryHandle("流式笔记.assets", { create: true })
+const streamMp4 = await streamAssets.getFileHandle("a.mp4", { create: true })
+const mp4Writer = await streamMp4.createWritable()
+await mp4Writer.write(new Uint8Array([0, 0, 0, 0]))
+await mp4Writer.close()
+
+// 一个假的桌面端驱动：只多一条流式地址，其余照旧。`readBinary` 记账，
+// 用来证明视图拿到地址之后**没有**再去读字节 —— 那正是「流式」的全部意义。
+let readCalls = 0
+const plain = createBrowserFs()
+const streamedFs = {
+  ...plain,
+  streamUrl: () => "http://asset.localhost/probe.mp4",
+  readBinary(root, path) {
+    readCalls += 1
+    return plain.readBinary(root, path)
+  },
+}
+await workspace.attachForTest(streamedFs, { kind: "handle", handle: streamDir })
+workspace.openFile("流式笔记.html")
+for (let i = 0; i < 40 && workspace.activePath.value !== "流式笔记.html"; i += 1) await wait(50)
+check("工作区切到流式笔记", workspace.activePath.value === "流式笔记.html", workspace.activePath.value)
+
+localBlock.value = createVideoBlock("流式笔记.assets/a.mp4")
+await nextTick()
+for (let i = 0; i < 40 && (document.querySelector("[data-probe2] video")?.getAttribute("src") ?? "") === ""; i += 1) await wait(50)
+const streamedVideo = document.querySelector("[data-probe2] video")
+check("播放地址用的是流式地址", streamedVideo?.getAttribute("src") === "http://asset.localhost/probe.mp4",
+  streamedVideo?.getAttribute("src") ?? "没有 video")
+check("没有走整段读取", readCalls === 0, `readBinary 被调了 ${readCalls} 次`)
+
+try { await opfs.removeEntry("video-stream", { recursive: true }) } catch {}
+try { await opfs.removeEntry("video-work", { recursive: true }) } catch {}
+
+log(failed === 0 ? "全部通过" : `失败 ${failed} 项`)</script>
+</body>
+</html>

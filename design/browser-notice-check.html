@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>标题栏跨浏览器提醒探针</title>
+<style>
+  body { margin: 0; }
+  pre { position: fixed; right: 8px; bottom: 8px; z-index: 99; margin: 0; padding: 8px 10px; background: #fffbe6; border: 1px solid #f0d68a; border-radius: 8px; font: 12px/1.5 monospace; white-space: pre-wrap; max-width: 460px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, nextTick } from "vue"
+import App from "../src/App.vue"
+
+const out = document.querySelector("#out")
+const lines = []
+let failed = 0
+function log(s) { lines.push(s); out.textContent = lines.join("\n") }
+function check(name, ok, detail = "") {
+  if (!ok) failed += 1
+  log(`${ok ? "OK  " : "FAIL"} ${name}${ok || detail === "" ? "" : ` —— ${detail}`}`)
+}
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const notice = () =>
+  [...document.querySelectorAll("header span")].find((el) => el.textContent.includes("完整体验"))?.parentElement ?? null
+
+/** 挂一整个应用：提醒的位置、文案、关闭都在真实标题栏里验，而不是只验组件。 */
+let app = null
+async function boot() {
+  if (app !== null) {
+    app.unmount()
+    app = null
+    await nextTick()
+  }
+  document.querySelector("#app").innerHTML = ""
+  app = createApp(App)
+  app.mount("#app")
+  await nextTick()
+  await wait(150)
+}
+
+// ---- 场景一：模拟 Firefox（没有目录选择器）----
+Object.defineProperty(window, "showDirectoryPicker", { value: undefined, configurable: true })
+await boot()
+
+const bar = notice()
+check("标题栏里出现了提醒", bar !== null)
+check("提醒在 header 内", bar !== null && bar.closest("header") !== null)
+const text = bar?.textContent ?? ""
+check("文案用「本浏览器」开头", text.includes("本浏览器无法获得完整体验"), text)
+check("给出 Chrome 内核与桌面版两条出路", text.includes("Chrome 内核") && text.includes("桌面版"))
+check("没有技术术语（目录选择器 / OPFS / 站点数据）", !/目录选择器|OPFS|站点数据|内置存储/.test(text), text)
+
+const close = bar?.querySelector("button")
+check("有关闭按钮", close !== null && close.getAttribute("aria-label") === "关闭提示")
+close?.click()
+await nextTick()
+await wait(100)
+check("点关闭后消失", notice() === null)
+
+// ---- 场景二：重新进入仍要提示（关掉只管这一程）----
+await boot()
+check("重新进入照样出现", notice() !== null)
+
+// ---- 场景三：Chrome（有目录选择器）不渲染 ----
+Object.defineProperty(window, "showDirectoryPicker", { value: async () => null, configurable: true })
+await boot()
+check("Chrome 下不出现", notice() === null)
+
+log(failed === 0 ? "全部通过" : `失败 ${failed} 项`)
+</script>
+</body>
+</html>

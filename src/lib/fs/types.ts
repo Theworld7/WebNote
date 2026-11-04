@@ -71,8 +71,27 @@ export interface WorkspaceFs {
    * 原样字节 —— 前端再把它包成 object URL 交给 `<img>`。
    */
   readBinary(root: FsRoot, path: string): Promise<Uint8Array>
+  /**
+   * 能直接交给 `<video>` / `<img>` 取用的地址；拿不到返回 `null`。
+   *
+   * 桌面端返回 asset 协议的 `http://asset.localhost/…`：WebView 自己按 range 请求分片
+   * 读盘，内存占用与文件大小无关，拖进度条也只拉需要的那一段。浏览器端没有这条通道
+   * （`blob:` 必须先整段读进内存），返回 `null`，调用方退回 `readBinary`。
+   *
+   * 与 `absolutePath` 的分工：那个是给用户看的 / 交给系统外壳的路径，这个是给
+   * 页面自己去取的地址，能不能取由 scope 决定。
+   */
+  streamUrl(root: FsRoot, path: string): string | null
   /** 把 HTML 写回工作区路径。已有的覆盖，浏览器端不存在的会被创建。 */
   writeNote(root: FsRoot, path: string, html: string): Promise<void>
+  /**
+   * 把一段裸字节写进工作区路径。已有的覆盖，父目录必须已经存在（`createFolder` 先建）。
+   *
+   * 视频这类大文件不能像图片那样内联进笔记，只能留在盘上、块里存相对路径 ——
+   * 「把选中的片子搬进工作区」就是这条原语唯一的用处。不做流式写入：
+   * 调用方手里已经是一个 `File`，整个写下去比切段拼起来省事，也不会写出半个文件。
+   */
+  writeBinary(root: FsRoot, path: string, bytes: Uint8Array): Promise<void>
   /**
    * 新建一个笔记文件。已存在时必须抛错而不是覆盖 —— 冲突由调用方前置拦截
    * （`exists`），这一层只是不让「写」被误当成「建」。

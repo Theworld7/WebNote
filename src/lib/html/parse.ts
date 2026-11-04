@@ -1,5 +1,5 @@
-import type { Block, BookmarkBlock, ChatMessage, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, LedgerBlock, LedgerGroupMode, PlaylistBlock, StatBlock, SubscriptionBlock, TableAlign, TableBlock, TableCell, TextualBlockType } from "@/types/workspace"
-import { createBookmarkBlock, createChatBlock, createGalleryBlock, createHtmlBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createLedgerBlock, createMermaidBlock, createPlaylistBlockFrom, createSecretBlock, createStatBlock, createSubscriptionBlock, createTableBlock, createTextualBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
+import type { Block, BookmarkBlock, ChatMessage, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, LedgerBlock, LedgerGroupMode, PlaylistBlock, StatBlock, SubscriptionBlock, TableAlign, TableBlock, TableCell, TextualBlockType, VideoBlock } from "@/types/workspace"
+import { createBookmarkBlock, createChatBlock, createGalleryBlock, createHtmlBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createLedgerBlock, createMermaidBlock, createPlaylistBlockFrom, createSecretBlock, createStatBlock, createSubscriptionBlock, createTableBlock, createTextualBlock, createVideoBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
 import { STAT_PRECISION_DEFAULT, STAT_PRECISION_OPTIONS } from "@/lib/data-table"
 import { SUBSCRIPTION_ROLE_ATTRS, SUBSCRIPTION_ROLES } from "@/lib/subscription"
 import type { SubscriptionRole } from "@/lib/subscription"
@@ -8,8 +8,9 @@ import type { PlaylistRole } from "@/lib/playlist"
 import { runsText, textToRuns, trimRuns } from "@/lib/inline"
 import { isTableAlign } from "@/lib/table"
 import { docStyle } from "@/lib/typography"
+import { VIDEO_CLASS } from "@/lib/video"
 import { runsFromNodes } from "./runs-dom"
-import { BLOCK_TAGS, IMAGE_TAG, SKIPPED_TAGS } from "./tags"
+import { BLOCK_TAGS, IMAGE_TAG, SKIPPED_TAGS, VIDEO_TAG } from "./tags"
 
 /**
  * 静态 HTML → 块列表。
@@ -179,6 +180,16 @@ function parseContainer(container: Node, state: ParseState, depth: number): void
       continue
     }
     if (!(child instanceof Element)) continue
+
+    // 视频块要在跳过表之前认领：`VIDEO` / `IFRAME` 都在 SKIPPED_TAGS 里（剪藏页面
+    // 里这两个标签的文本不属于正文），而本程序的规范形态恰恰是它们。只认带
+    // `note-video` 类的 iframe —— 别人页面里的播放器仍然照旧跳过。
+    if (child.tagName === VIDEO_TAG || isEmbedVideoFrame(child)) {
+      flush()
+      state.blocks.push(videoBlockOf(child))
+      continue
+    }
+
     if (SKIPPED_TAGS.has(child.tagName)) continue
 
     // 图片虽是行内元素，但在笔记里永远是独立块：先冲掉攒着的正文再插图。
@@ -736,4 +747,23 @@ function imageBlockOf(element: Element): ImageBlock {
     element.getAttribute("alt") ?? "",
     element.getAttribute("title") ?? "",
   )
+}
+
+/** 规范形态的嵌入视频：带 `note-video` 类的 iframe（见 `serialize.ts` 的 `videoHtml`）。 */
+function isEmbedVideoFrame(element: Element): boolean {
+  return element.tagName === "IFRAME" && element.classList.contains(VIDEO_CLASS)
+}
+
+/**
+ * 视频块。取值只看 `src`：
+ *
+ * - `<video src="…">` 与 `<iframe class="note-video" src="…">` 落到同一个块的同一个字段，
+ *   之后由 `videoModeOf` 按地址自己判别该用哪种元素渲染 —— 模型里没有第二种真相；
+ * - `src` 缺失时留空串，视图把它当成「还没挑视频」的空白块。
+ *
+ * 内层节点（`<source>` / `<track>` / 播放器的 fallback 文本）一律不读：本程序只写
+ * 单 `src` 形态，读别的只会把一份手写 HTML 拆成半截。
+ */
+function videoBlockOf(element: Element): VideoBlock {
+  return createVideoBlock(element.getAttribute("src") ?? "")
 }

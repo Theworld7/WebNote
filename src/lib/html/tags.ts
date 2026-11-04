@@ -7,6 +7,14 @@
 export const IMAGE_TAG = "IMG"
 
 /**
+ * 视频标签。与图片同理：行内元素，但在笔记模型里永远是独立块。
+ *
+ * 它在 `SKIPPED_TAGS` 里也有一份（剪藏页面里 <video> 的文本不属于正文），
+ * 解析器必须先按这一条把它接走，再轮到那张跳过表 —— 顺序见 `parseContainer`。
+ */
+export const VIDEO_TAG = "VIDEO"
+
+/**
  * 块级标签：遇到就断行、开新块；集合外的标签按行内处理，连着攒进同一个文本块。
  *
  * `ASIDE` / `TABLE` / `PRE` / `HR` / `UL` / `OL` 在这一层会被各自的解析分支接走，

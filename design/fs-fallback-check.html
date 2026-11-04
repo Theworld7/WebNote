@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>无目录选择器时的浏览器端兜底</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>Firefox 兜底：没有 showDirectoryPicker 时落到 OPFS</h1>
+<pre id="out">running…</pre>
+<script type="module">
+import { createBrowserFs } from "../src/lib/fs/browser.ts"
+
+const out = document.querySelector("#out")
+const lines = []
+let failed = 0
+function log(s) { lines.push(s); out.textContent = lines.join("\n") }
+function check(name, ok, detail = "") {
+  if (!ok) failed += 1
+  log(`${ok ? "OK  " : "FAIL"} ${name}${ok || detail === "" ? "" : ` —— ${detail}`}`)
+}
+
+const opfs = await navigator.storage.getDirectory()
+try { await opfs.removeEntry("webnote-notes", { recursive: true }) } catch {}
+
+// 模拟 Firefox：把目录选择器摘掉。
+Object.defineProperty(window, "showDirectoryPicker", { value: undefined, configurable: true })
+check("前置：showDirectoryPicker 已不可用", typeof window.showDirectoryPicker !== "function")
+
+const fs = createBrowserFs()
+log(`提示文案：${fs.hint}`)
+check("提示里点明笔记落在内置存储", fs.hint.includes("浏览器内置存储"))
+
+const fresh = await fs.restoreRoot()
+check("从没建过时不自动冒出工作区", fresh === null)
+
+const root = await fs.pickRoot()
+check("pickRoot 拿到根", root !== null)
+check("根名是内置目录", root !== null && fs.rootName(root) === "webnote-notes")
+check("平台仍是浏览器端", fs.kind === "browser")
+
+if (root !== null) {
+  try {
+    await fs.writeNote(root, "a.html", "<p>hi</p>")
+    log("写 a.html 成功")
+    await fs.createFolder(root, "子目录")
+    log("建子目录成功")
+    await fs.writeNote(root, "子目录 / b.html", "<p>b</p>")
+    log("写 子目录/b.html 成功")
+
+    const tree = await fs.scanTree(root)
+    check("扫树看到两个节点", tree.length === 2, JSON.stringify(tree.map((node) => node.path)))
+    check("读回正文", (await fs.readNote(root, "a.html")).includes("hi"))
+    check("移动可用", await fs.move(root, "子目录 / b.html", "c.html").then(() => true, () => false))
+    check("删除可用", await fs.remove(root, "c.html").then(() => true, () => false))
+
+    const restored = await fs.restoreRoot()
+    check("下次启动直接接上", restored !== null && fs.rootName(restored) === "webnote-notes")
+  } catch (error) {
+    log(`FAIL 抛错：${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`)
+    failed += 1
+  }
+}
+
+log(failed === 0 ? "全部通过" : `失败 ${failed} 项`)
+
+try { await opfs.removeEntry("webnote-notes", { recursive: true }) } catch {}
+</script>
+</body>
+</html>

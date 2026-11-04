@@ -28,6 +28,7 @@ import BookmarkBlockView from "./BookmarkBlockView.vue"
 import ChatBlockView from "./ChatBlockView.vue"
 import SecretBlockView from "./SecretBlockView.vue"
 import ImageBlockView from "./ImageBlockView.vue"
+import VideoBlockView from "./VideoBlockView.vue"
 import InlineToolbar from "./InlineToolbar.vue"
 import LayoutBlockView from "./LayoutBlockView.vue"
 import LinkPopover from "./LinkPopover.vue"
@@ -507,13 +508,15 @@ const bodyClass = computed(() => {
 
     <Checkbox
       v-if="block.type === 'todo'"
-      class="absolute left-0.5 size-3.5 data-checked:border-selection-foreground data-checked:bg-selection-foreground"
+      class="absolute left-0.5 z-10 size-3.5 data-checked:border-selection-foreground data-checked:bg-selection-foreground"
       :style="{ top: CHECKBOX_TOP }"
       :model-value="block.checked === true"
       @update:model-value="() => toggleBlockChecked(block.id)"
     />
 
     <ImageBlockView v-if="block.type === 'image'" :block="block" />
+
+    <VideoBlockView v-else-if="block.type === 'video'" :block="block" />
 
     <TableBlockView v-else-if="block.type === 'table'" :block="block" />
 

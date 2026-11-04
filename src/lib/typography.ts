@@ -269,6 +269,7 @@ export const BLOCK_SPACING: Readonly<Record<BlockType, BlockSpacing>> = {
   code: { top: 16, bottom: 16 },
   callout: { top: 16, bottom: 16 },
   image: { top: 16, bottom: 16 },
+  video: { top: 16, bottom: 16 },
   table: { top: 16, bottom: 16 },
   mermaid: { top: 16, bottom: 16 },
   datatable: { top: 16, bottom: 16 },
@@ -502,6 +503,12 @@ ${headingRules}
     pre code { font-size: 0.86em; display: inline; padding: 0; background: none; }
     hr { height: 1px; margin: ${BLOCK_SPACING.divider.top}px 0; border: 0; background: var(--line); }
     img { display: block; max-width: 100%; margin: ${BLOCK_SPACING.image.top}px 0; border-radius: 0.6em; }
+    /* 视频块：满宽 + 16:9。两条形态（<video> / <iframe>）共用一套几何,
+       iframe 没有内在比例,不写 aspect-ratio 就只剩浏览器默认的 150px 高。 */
+    video.note-video, iframe.note-video { display: block; width: 100%; max-width: 100%;
+      margin: ${BLOCK_SPACING.video.top}px 0; border: 0; border-radius: 0.6em; background: #000; }
+    iframe.note-video { aspect-ratio: 16 / 9; }
+    video.note-video { height: auto; }
     table { width: 100%; margin: ${BLOCK_SPACING.table.top}px 0; border-collapse: separate; border-spacing: 0;
       border: 1px solid var(--line); border-radius: var(--radius-table); }
     th, td { padding: 0.45em 0.7em; text-align: left; vertical-align: top;
