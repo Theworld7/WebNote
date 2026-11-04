@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { CreateTarget } from "@/types/workspace"
-import { EllipsisIcon, FileDownIcon, FolderIcon, FolderOpenIcon, PlusIcon, RefreshCwIcon, SearchIcon } from "@lucide/vue"
+import { EllipsisIcon, FileDownIcon, FolderIcon, FolderOpenIcon, PlusIcon, RefreshCwIcon, SearchIcon, ServerIcon } from "@lucide/vue"
 import { computed } from "vue"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
@@ -25,8 +25,11 @@ import RenameDialog from "./RenameDialog.vue"
  */
 defineProps<{ width: number; overlay?: boolean }>()
 
-const { query, rootName, hasRoot, scanning, fsHint, openRoot, refreshTree, importMarkdownInto, exportMarkdownTree } = useWorkspace()
+const { query, rootName, hasRoot, root, scanning, fsHint, openRoot, refreshTree, importMarkdownInto, exportMarkdownTree, requestWebDav } = useWorkspace()
 const { notify } = useToast()
+
+/** 当前库在服务器上还是盘上。两条来源的「换一个」是不同的动作，菜单据此只露一条。 */
+const isWebDav = computed(() => root.value?.kind === "webdav")
 
 /**
  * 三个对话框的挂起目标住在 `useTreeDialogs`（模块作用域）—— 树上没有「导出全部」那一行，
@@ -176,6 +179,17 @@ function setQuery(value: string | number) {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <!-- 换库的两条来源。已经连在 WebDAV 上时只给「换回本地」：再点一次「连接」
+                 没有意义，而它紧跟在同一行里很容易被误点。 -->
+            <DropdownMenuItem v-if="isWebDav" class="gap-2 text-13" @select="openRoot">
+              <FolderOpenIcon class="size-3.5 text-muted-foreground" />
+              <span>换回本地目录…</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem v-else class="gap-2 text-13" @select="requestWebDav">
+              <ServerIcon class="size-3.5 text-muted-foreground" />
+              <span>连接 WebDAV…</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem class="gap-2 text-13" @select="requestExport">
               <FileDownIcon class="size-3.5 text-muted-foreground" />
               <span>导出整个工作区为 Markdown…</span>

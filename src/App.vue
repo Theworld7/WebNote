@@ -14,10 +14,11 @@ import EditorSurface from "@/components/EditorSurface.vue"
 import PaneResizer from "@/components/PaneResizer.vue"
 import TitleBar from "@/components/TitleBar.vue"
 import ToastStack from "@/components/ToastStack.vue"
+import WebDavDialog from "@/components/WebDavDialog.vue"
 import { suppressPageContextMenu } from "@/lib/dom"
 import { isTauriRuntime } from "@/lib/fs"
 
-const { hasDirty, bootstrap, fs, root, activePath, attachTableRegistry, attachIntegrateTables, attachAutoSave, save, attachCloseGuard, requestWindowClose, persistSession } =
+const { hasDirty, bootstrap, fs, root, activePath, attachTableRegistry, attachIntegrateTables, attachAutoSave, save, attachCloseGuard, requestWindowClose, persistSession, webDavDialogOpen, closeWebDav } =
   provideWorkspace()
 // 数据表注册表与工作区**共用同一对 driver / root**：切目录时两者必须一起换语境，
 // 各持一份引用迟早对不齐（见 useTables 的注释）。
@@ -189,6 +190,8 @@ onBeforeUnmount(() => {
     </Transition>
 
     <CloseWindowDialog />
+    <!-- 挂在这里而不是空状态里：侧栏的「更多操作」也能唤起它，那时编辑区可能正开着笔记。 -->
+    <WebDavDialog :open="webDavDialogOpen" @close="closeWebDav" />
     <ToastStack />
   </TooltipProvider>
 </template>

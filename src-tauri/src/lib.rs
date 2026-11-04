@@ -13,6 +13,8 @@
 //! 注意授权是**进程级**的、且只增不减：换目录会在旧目录的授权上再叠一个新目录。
 //! 对本应用（单窗口、用户自己的笔记库）这没问题，也就不做收回。
 
+mod webdav;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -25,6 +27,10 @@ use tauri_plugin_fs::FsExt;
 /// `~/Library/Application Support/com.webnote.app/`）。
 const CONFIG_FILE: &str = "workspace.json";
 
+/// WebDAV 连接记录。与工作区记录分开放：一个是「本地目录授权」，一个是「远端账号」，
+/// 生命周期也不同 —— 换回本地目录时不该把账号一起删掉（下次还想连）。
+const WEBDAV_FILE: &str = "webdav.json";
+
 /// Windows 长路径前缀。`\\?\UNC\host\share` 要还原成 `\\host\share`，所以两条分开判。
 const VERBATIM_PREFIX: &str = r"\\?\";
 const VERBATIM_UNC_PREFIX: &str = r"\\?\UNC\";
@@ -34,13 +40,32 @@ struct WorkspaceConfig {
     root: PathBuf,
 }
 
-fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
+/// WebDAV 工作区。`path` 是服务器上放笔记的目录（相对 `url`，空串表示就是它本身）；
+/// `active` 记录「上次打开的就是它」—— 启动时据此决定重连远端还是回到本地目录。
+///
+/// 密码是明文。这与「笔记本身也是明文 HTML」是同一个取舍：本地笔记库不该被锁进
+/// 某个加密容器，但界面会建议用应用专用密码而不是账号主密码（`webdav.json` 的
+/// 可读性同时也意味着可备份、可手改）。
+#[derive(Serialize, Deserialize, Clone)]
+struct WebDavConfig {
+    url: String,
+    username: String,
+    password: String,
+    path: String,
+    active: bool,
+}
+
+fn config_path_of(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
     let dir = app
         .path()
         .app_config_dir()
         .map_err(|error| format!("取不到应用配置目录：{error}"))?;
     fs::create_dir_all(&dir).map_err(|error| format!("创建配置目录失败：{error}"))?;
-    Ok(dir.join(CONFIG_FILE))
+    Ok(dir.join(name))
+}
+
+fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
+    config_path_of(app, CONFIG_FILE)
 }
 
 fn load_config(app: &AppHandle) -> Option<WorkspaceConfig> {
@@ -129,6 +154,35 @@ fn restore_workspace_root(app: AppHandle) -> Option<String> {
 #[tauri::command]
 fn set_workspace_root(app: AppHandle, path: String) -> Result<String, String> {
     adopt(&app, &path)
+}
+
+/// 上次连的 WebDAV。读不出来（首次运行、文件被手改坏）一律当没配过 ——
+/// 这里没有「配置损坏」这种需要用户处理的状态，重新填一遍就好。
+#[tauri::command]
+fn load_webdav_config(app: AppHandle) -> Option<WebDavConfig> {
+    let raw = fs::read_to_string(config_path_of(&app, WEBDAV_FILE).ok()?).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+/// 写入或清除 WebDAV 记录。传 `null` 表示忘掉这个账号。
+///
+/// 不在这里校验连通性：那需要联网，而「记住配置」与「现在能不能连上」是两件事 ——
+/// 服务器临时挂掉时用户仍应该能保留账号，下次再试。
+#[tauri::command]
+fn save_webdav_config(app: AppHandle, config: Option<WebDavConfig>) -> Result<(), String> {
+    let path = config_path_of(&app, WEBDAV_FILE)?;
+    match config {
+        Some(config) => {
+            let raw = serde_json::to_string_pretty(&config)
+                .map_err(|error| format!("序列化配置失败：{error}"))?;
+            fs::write(path, raw).map_err(|error| format!("写入配置失败：{error}"))
+        }
+        None => match fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!("删除配置失败：{error}")),
+        },
+    }
 }
 
 /// 关窗守卫。
@@ -324,6 +378,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             restore_workspace_root,
             set_workspace_root,
+            load_webdav_config,
+            save_webdav_config,
+            webdav::webdav_request,
             list_system_fonts,
             set_window_theme,
             set_close_guard,

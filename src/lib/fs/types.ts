@@ -12,13 +12,17 @@ import type { FileNode } from "@/types/workspace"
  * 工作区根句柄。可辨识联合，`kind` 是判别式。
  *
  * 之所以不统一成「一段标识字符串」：浏览器句柄是活对象，序列化不了；
- * 而 Tauri 侧真有个路径字符串。硬统一只会逼出一处类型断言。
+ * 而 Tauri 侧真有个路径字符串，WebDAV 侧真有个 URL。硬统一只会逼出一处类型断言。
+ *
+ * `webdav` 只带远端目录的 URL —— 账号密码留在驱动闭包里，句柄本身不背凭据。
+ * 这个 URL 同时是会话快照的键（`sessionKeyOf`），换服务器就是换语境。
  */
 export type FsRoot =
   | { kind: "path"; path: string }
   | { kind: "handle"; handle: FileSystemDirectoryHandle }
+  | { kind: "webdav"; url: string }
 
-export type FsKind = "tauri" | "browser"
+export type FsKind = "tauri" | "browser" | "webdav"
 
 /**
  * 浏览器端「已记住、但还差一次用户手势」的工作区。

@@ -10,6 +10,8 @@ import { describeError } from "@/lib/errors"
 import { parseNote, serializeHtml } from "@/lib/html"
 import type { DataTableLookup } from "@/lib/html"
 import { createWorkspaceFs, isTauriRuntime } from "@/lib/fs"
+import { createWebDavFs, loadWebDavConfig, saveWebDavConfig, setWebDavActive, webDavRootOf } from "@/lib/fs/webdav"
+import type { WebDavConfig } from "@/lib/fs/webdav"
 import { pickExportSink, pickMarkdownFiles, saveMarkdownFile, writeMarkdownTree } from "@/lib/fs/transfer"
 import type { ExportSink, MarkdownExportFile, MarkdownFile } from "@/lib/fs/transfer"
 import { linkTargetOf, resolveRelativePath } from "@/lib/link"
@@ -461,6 +463,20 @@ function createWorkspace() {
    */
   const restoreOffer = ref<RestoreOffer | null>(null)
 
+  /**
+   * 「连接 WebDAV」对话框。放在这里而不是某个组件内部：入口有两处（空状态与侧栏
+   * 的更多操作），两处各持一份开关就会出现「一处关不掉另一处」的怪状态。
+   */
+  const webDavDialogOpen = ref(false)
+
+  function requestWebDav(): void {
+    webDavDialogOpen.value = true
+  }
+
+  function closeWebDav(): void {
+    webDavDialogOpen.value = false
+  }
+
   /** 收下恢复结果：`invalid` 只提示一句，不把空状态换成错误页。 */
   function adoptRestoreOffer(offer: RestoreOffer | null): void {
     restoreOffer.value = offer?.kind === "grant" ? offer : null
@@ -470,23 +486,47 @@ function createWorkspace() {
   }
 
   /**
-   * 启动引导：挑驱动，能恢复就恢复。
+   * 启动引导：上次用的是 WebDAV 就先连它，否则挑本地驱动、能恢复就恢复。
    *
    * 恢复失败不是错误 —— 目录被移动或删除都是用户自己动过盘，静默回落到「请选择目录」。
    * 浏览器端还会多一步：权限掉回 `prompt` 时，`requestPermission` 必须在用户手势里调，
    * 于是把入口交给空状态，而不是在这里硬试。
+   *
+   * WebDAV 那条路失败（断网、密码改了、目录被删）**不自动改标记**：用户选的库就是它，
+   * 这一次先把界面交回本地，下次启动再试一次。要彻底不用它，点「打开文件夹」即可
+   * （那一步会把标记翻掉）。
    */
   async function bootstrap() {
+    let notice = ""
     try {
+      const saved = await loadWebDavConfig()
+      if (saved !== null && saved.active) {
+        const remote = createWebDavFs(saved)
+        fs.value = remote
+        try {
+          const restored = await remote.restoreRoot()
+          if (restored !== null) {
+            await adoptRoot(restored)
+            return
+          }
+          notice = `WebDAV 上的「${saved.path === "" ? "根目录" : saved.path}」已经找不到了，先回到本地目录`
+        } catch (error) {
+          notice = `连不上 WebDAV：${describeError(error)}`
+        }
+      }
+
       const driver = await createWorkspaceFs()
       fs.value = driver
-      if (!driver.canRestore) return
-      const restored = await driver.restoreRoot()
-      if (restored !== null) {
-        await adoptRoot(restored)
-        return
+      if (driver.canRestore) {
+        const restored = await driver.restoreRoot()
+        if (restored !== null) {
+          await adoptRoot(restored)
+          if (notice !== "") fsError.value = notice
+          return
+        }
+        adoptRestoreOffer((await driver.pendingRestore?.()) ?? null)
       }
-      adoptRestoreOffer((await driver.pendingRestore?.()) ?? null)
+      if (notice !== "") fsError.value = notice
     } catch (error) {
       fsError.value = `初始化文件系统失败：${describeError(error)}`
     }
@@ -585,20 +625,40 @@ function createWorkspace() {
     })
   }
 
-  /** 「打开文件夹」/「换目录」按钮。用户取消则什么都不做。 */
+  /**
+   * 「打开文件夹」/「换目录」按钮。用户取消则什么都不做。
+   *
+   * 当前连着 WebDAV 时，这个动作的语义是「换回本地目录」—— 先造一份本地驱动，
+   * 用户在原生选择器里按了取消就原地不动，避免取消一次把远端工作区弄丢。
+   */
   async function openRoot() {
-    const driver = fs.value
-    if (driver === null) return
     try {
+      const driver = fs.value !== null && fs.value.kind !== "webdav" ? fs.value : await createWorkspaceFs()
       const picked = await driver.pickRoot()
-      if (picked !== null) {
-        // 换了一个目录，上一次那份「恢复」入口就不再是当前语境了。
-        restoreOffer.value = null
-        await adoptRoot(picked)
-      }
+      if (picked === null) return
+      fs.value = driver
+      // 换了一个目录，上一次那份「恢复」入口就不再是当前语境了。
+      restoreOffer.value = null
+      await setWebDavActive(false)
+      await adoptRoot(picked)
     } catch (error) {
       fsError.value = `打开目录失败：${describeError(error)}`
     }
+  }
+
+  /**
+   * 把 WebDAV 上的一个目录接成工作区。
+   *
+   * 调用前对话框已经拿这套凭据真的连过、列过目录，所以这里不再探测，只做三件事：
+   * 换驱动、扫树、落盘。返回是否扫成功 —— 失败时对话框不该关，让用户看着原因改。
+   */
+  async function openWebDav(config: WebDavConfig): Promise<boolean> {
+    fs.value = createWebDavFs(config)
+    restoreOffer.value = null
+    await adoptRoot(webDavRootOf(config))
+    // 先落盘再判断：连不上也记住，下次启动会再试一次；要彻底弃用就点「打开文件夹」。
+    await saveWebDavConfig(config)
+    return fsError.value === ""
   }
 
   /**
@@ -2674,6 +2734,10 @@ function createWorkspace() {
     // workspace actions
     bootstrap,
     openRoot,
+    openWebDav,
+    webDavDialogOpen,
+    requestWebDav,
+    closeWebDav,
     restoreOffer,
     grantRestore,
     refreshTree,

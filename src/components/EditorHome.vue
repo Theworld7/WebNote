@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue"
-import { FolderOpenIcon, LoaderCircleIcon, RefreshCwIcon } from "@lucide/vue"
+import { FolderOpenIcon, LoaderCircleIcon, RefreshCwIcon, ServerIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { useWorkspace } from "@/composables/useWorkspace"
 
@@ -10,8 +10,17 @@ import { useWorkspace } from "@/composables/useWorkspace"
  * 四种情况都落在这里，是为了让它们**长得一样**（居中、一行说明）——
  * 分散到各组件里各写一份，间距和字号必然漂移。
  */
-const { hasRoot, scanning, isLoadingDocument, tabs, fsHint, openRoot, restoreOffer, grantRestore } =
-  useWorkspace()
+const {
+  hasRoot,
+  scanning,
+  isLoadingDocument,
+  tabs,
+  fsHint,
+  openRoot,
+  restoreOffer,
+  grantRestore,
+  requestWebDav,
+} = useWorkspace()
 
 /** 只在还缺一次授权时给按钮；目录已失效由顶部的 `fsError` 条提示，不在这里出入口。 */
 const pendingGrant = computed(() =>
@@ -50,6 +59,16 @@ const pendingGrant = computed(() =>
       >
         <FolderOpenIcon class="size-4" />
         <span>打开文件夹</span>
+      </Button>
+      <!-- 与「打开文件夹」并列而不是塞进它的下拉：这两条是同一件事的两种来源，
+           只是 WebDAV 还需要填地址与账号，点开是一张表单。 -->
+      <Button
+        variant="secondary"
+        class="h-8 gap-1.5 rounded-[10px] px-3.5 text-13"
+        @click="requestWebDav"
+      >
+        <ServerIcon class="size-4" />
+        <span>连接 WebDAV</span>
       </Button>
       <p class="max-w-[18.75rem] text-12 leading-relaxed text-muted-foreground/70">
         {{ pendingGrant !== null ? "上次的目录还记着，授权后即可继续" : fsHint }}

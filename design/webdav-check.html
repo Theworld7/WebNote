@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>WebDAV 自检</title>
+    <style>
+      body { margin: 0; padding: 16px; font: 12px/1.7 ui-monospace, Consolas, monospace; background: #fafafa; color: #111; }
+      pre { margin: 0; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <pre id="out">跑起来了…</pre>
+    <script type="module">
+      import { DavError, createDavClient, normalizeDavUrl } from "../src/lib/fs/webdav/client.ts"
+      import { createWebDavFs, webDavRootOf } from "../src/lib/fs/webdav/index.ts"
+
+      const out = document.querySelector("#out")
+      const lines = []
+      let failed = 0
+
+      function log(text) {
+        lines.push(text)
+        out.textContent = lines.join("\n")
+      }
+
+      function check(name, ok, detail = "") {
+        if (!ok) failed += 1
+        log(`${ok ? "OK  " : "FAIL"} ${name}${detail === "" ? "" : ` — ${detail}`}`)
+      }
+
+      /** 抛没抛、抛的是不是预期的状态码。 */
+      async function rejects(name, run, status) {
+        try {
+          await run()
+          check(name, false, "没有抛错")
+        } catch (error) {
+          const actual = error instanceof DavError ? error.status : -1
+          check(name, actual === status, `status=${actual} message=${error.message}`)
+        }
+      }
+
+      const BASE = "http://127.0.0.1:8099/dav/"
+      // 每次跑用一个新的文件夹，跑完删掉 —— 桩服务常驻时，重复运行不该互相污染。
+      const STAMP = Date.now().toString(36)
+      const WORK = `自检-${STAMP}`
+
+      // ---- 地址归一 ----
+      check("补协议与斜杠", normalizeDavUrl("dav.jianguoyun.com/dav") === "https://dav.jianguoyun.com/dav/")
+      check("已带协议不重复", normalizeDavUrl("http://127.0.0.1:8099/dav/") === BASE)
+      check("去掉查询串", normalizeDavUrl("https://a.example/dav/?x=1") === "https://a.example/dav/")
+      try {
+        normalizeDavUrl("   ")
+        check("空地址被拒", false)
+      } catch {
+        check("空地址被拒", true)
+      }
+
+      // ---- 列目录 ----
+      const client = createDavClient({ url: BASE, username: "u", password: "p" })
+      await client.makeFolder([WORK])
+
+      const rootEntries = await client.list([])
+      check(
+        "根目录列出刚建的文件夹",
+        rootEntries.some((entry) => entry.name === WORK && entry.isFolder),
+        JSON.stringify(rootEntries.map((entry) => entry.name)),
+      )
+      check("新建目录是空的", (await client.list([WORK])).length === 0)
+
+      await client.makeFolder([WORK, "子目录"])
+      await client.writeText([WORK, "a.html"], "<p>甲</p>")
+      await client.writeText([WORK, "说明.txt"], "not a note")
+      await client.makeFolder([WORK, "a.assets"])
+
+      const workEntries = await client.list([WORK])
+      check("列出直接子项", workEntries.length === 4, JSON.stringify(workEntries))
+      check("中文目录名解析正确", workEntries.some((entry) => entry.name === "子目录" && entry.isFolder))
+      check("文件与文件夹分得清", workEntries.filter((entry) => !entry.isFolder).length === 2)
+
+      // ---- 读 ----
+      check("读笔记原文", (await client.readText([WORK, "a.html"])) === "<p>甲</p>")
+
+      // ---- 多级目录 / 写 / 读回 ----
+      await client.makeFolder([WORK, "子目录", "更深"])
+      check("两级目录都建出来了", await client.stat([WORK, "子目录", "更深"]))
+      await client.makeFolder([WORK, "子目录"])
+      check("重复建目录不报错", true)
+
+      const textPath = [WORK, "子目录", "更深", "我的 笔记.html"]
+      await client.writeText(textPath, "<p>你好 &amp; 世界</p>")
+      check("中文加空格的文件名读回一致", (await client.readText(textPath)) === "<p>你好 &amp; 世界</p>")
+
+      await rejects("createOnly 撞上已有文件回 412", () => client.writeText(textPath, "x", { createOnly: true }), 412)
+      await client.writeText([WORK, "子目录", "全新.html"], "新", { createOnly: true })
+      check("createOnly 允许新文件", await client.stat([WORK, "子目录", "全新.html"]))
+
+      // ---- 二进制 ----
+      const bytes = new Uint8Array([0, 1, 2, 3, 250])
+      await client.writeBytes([WORK, "blob.bin"], bytes)
+      const readBack = await client.readBytes([WORK, "blob.bin"])
+      check("二进制原样回来", readBack.length === bytes.length && readBack.every((value, index) => value === bytes[index]))
+
+      // ---- 移动 ----
+      await client.move([WORK, "blob.bin"], [WORK, "搬过来.bin"])
+      check("移动后旧位置没了", (await client.stat([WORK, "blob.bin"])) === false)
+      check("移动后新位置在", await client.stat([WORK, "搬过来.bin"]))
+
+      // ---- 删除 ----
+      await client.remove([WORK, "子目录"])
+      check("目录连同后代一起删掉", (await client.stat([WORK, "子目录"])) === false)
+      check("删不存在的路径不报错", await client.remove([WORK, "子目录"]).then(() => true, () => false))
+
+      // ---- 驱动层 ----
+      const config = { url: BASE, username: "u", password: "p", path: WORK, active: true }
+      const fs = createWebDavFs(config)
+      const root = webDavRootOf(config)
+      check("根句柄是 webdav 形态", root.kind === "webdav", root.url)
+      check(
+        "根 URL 指向所选目录且带斜杠",
+        decodeURIComponent(root.url) === `${BASE}${WORK}/`,
+        decodeURIComponent(root.url),
+      )
+      check("根名取目录名", fs.rootName(root) === WORK)
+
+      // 树里放一个子文件夹，用来验证「文件夹排在文件前面」这条排序。
+      await client.makeFolder([WORK, "归档"])
+      const tree = await fs.scanTree(root)
+      const names = tree.map((node) => `${node.kind === "folder" ? "D" : "F"}:${node.name}`)
+      check("文件夹排最前", tree[0]?.kind === "folder", names.join(", "))
+      check("资源目录不进树", !names.includes("D:a.assets"))
+      check("非笔记文件不进树", !names.includes("F:说明.txt"))
+      check("笔记进树", names.includes("F:a.html"))
+
+      // 驱动层把 412 翻成了给人看的话，所以这里比文案而不是状态码。
+      try {
+        await fs.createNote(root, "a.html", "<p>x</p>")
+        check("新建同名笔记报已存在", false, "没有抛错")
+      } catch (error) {
+        check("新建同名笔记报已存在", error.message.includes("已存在"), error.message)
+      }
+
+      await fs.createFolder(root, "甲 / 乙 / 丙")
+      check("逐级建出三层目录", await fs.exists(root, "甲 / 乙 / 丙"))
+
+      await fs.rename(root, "甲", "改名后")
+      check("改名后旧路径没了", (await fs.exists(root, "甲")) === false)
+      check("改名后新路径在", await fs.exists(root, "改名后 / 乙 / 丙"))
+
+      check("流式地址取不到", fs.streamUrl(root, "a.html") === null)
+      check(
+        "绝对路径是可读 URL",
+        decodeURIComponent(fs.absolutePath(root, "a.html")) === `${BASE}${WORK}/a.html`,
+      )
+
+      const missing = createWebDavFs({ ...config, path: `没有这个目录-${STAMP}` })
+      check("根目录没了恢复返回 null", (await missing.restoreRoot()) === null)
+      check("根目录还在恢复返回句柄", (await fs.restoreRoot()) !== null)
+
+      await client.remove([WORK])
+      check("收尾清掉本次测试目录", (await client.stat([WORK])) === false)
+
+      log(failed === 0 ? "全部通过" : `失败 ${failed} 项`)
+      document.title = failed === 0 ? "PASS" : `FAIL ${failed}`
+    </script>
+  </body>
+</html>
