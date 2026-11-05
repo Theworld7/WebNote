@@ -60,6 +60,9 @@ export function normalizeDavUrl(raw: string): string {
   }
   url.search = ""
   url.hash = ""
+  // 手填的地址里常有多余斜杠（`/dav//`）。集合 URL 多一根，坚果云不回 301 而是直接
+  // 404，报出来是「服务器上找不到这个位置」—— 在归一这一步压掉，别等拼好再修。
+  url.pathname = url.pathname.replace(/\/{2,}/g, "/")
   if (!url.pathname.endsWith("/")) url.pathname = `${url.pathname}/`
   return url.toString()
 }
@@ -165,7 +168,10 @@ export function createDavClient(options: {
   }
 
   function folderUrlOf(segments: readonly string[]): string {
-    return `${urlOf(segments)}/`
+    // 根目录的 `urlOf([])` 就是 `baseUrl`，本身已带结尾斜杠；再补一根就成了 `//`，
+    // 坚果云对这个形态直接 404（不是 301），表现成「服务器上找不到这个位置」。
+    const url = urlOf(segments)
+    return url.endsWith("/") ? url : `${url}/`
   }
 
   async function send(

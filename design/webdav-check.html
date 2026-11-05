@@ -54,6 +54,19 @@
       } catch {
         check("空地址被拒", true)
       }
+      check(
+        "地址里的双斜杠被压掉",
+        normalizeDavUrl("https://a.example//dav//") === "https://a.example/dav/",
+        normalizeDavUrl("https://a.example//dav//"),
+      )
+
+      // ---- URL 形状 ----
+      // 根目录曾经拼成 `…/dav//`：坚果云对这种形态回 404 而不是 301，报出来是
+      // 「服务器上找不到这个位置」。桩服务会把斜杠归一，所以只能在这里直接量字符串。
+      const probe = createDavClient({ url: BASE, username: "u", password: "p" })
+      check("根目录 URL 不多斜杠", probe.folderUrlOf([]) === BASE, probe.folderUrlOf([]))
+      check("子目录 URL 带斜杠", probe.folderUrlOf(["甲"]) === `${BASE}%E7%94%B2/`, probe.folderUrlOf(["甲"]))
+      check("文件 URL 不带斜杠", probe.urlOf(["a.html"]) === `${BASE}a.html`, probe.urlOf(["a.html"]))
 
       // ---- 列目录 ----
       const client = createDavClient({ url: BASE, username: "u", password: "p" })
