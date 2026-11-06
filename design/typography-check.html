@@ -314,6 +314,38 @@ if (rows.length === 20) {
 
   const exportedCode = edoc.querySelector("p code")
   check("导出：行内 code 是 inline-block", exportedCode !== null && styleOf(exportedCode).display === "inline-block", `实际 ${exportedCode === null ? "没找到 <code>" : styleOf(exportedCode).display}`)
+
+  // 导出侧的字号是 rem，不是 px —— 读者把浏览器默认字号从 16 调到 20 时整篇等比放大。
+  // 这是这次 rem 化唯一的实质收益，写成 px 的话下面两条会红。必须放在本节最后：
+  // 改了根字号之后同一份文档的其余断言就都在 20px 基准上量了。
+  edoc.documentElement.style.fontSize = "20px"
+  check("导出：读者根字号 20 时正文 17.5px", near(parseFloat(styleOf(edoc.body).fontSize), 17.5, 0.1), `实际 ${styleOf(edoc.body).fontSize}`)
+  check("导出：读者根字号 20 时 h2 27.5px", near(parseFloat(styleOf(edoc.querySelector("h2")).fontSize), 27.5, 0.1), `实际 ${styleOf(edoc.querySelector("h2")).fontSize}`)
+
+  // ---- 十一、窄屏导出（手机浏览器）----
+  // 640px 以下换一套字号：正文 16px，标题整套按 16/14 等比放大（h4~h6 在桌面就与正文
+  // 只差 2px，只提正文会让四级以下标题与正文同号）。留白同时收窄。
+  step("narrow")
+  const narrow = document.createElement("iframe")
+  narrow.style.cssText = "position:absolute;left:-9999px;width:390px;height:900px;"
+  document.body.appendChild(narrow)
+  narrow.srcdoc = serializeHtml(workspace.activeDocument.value, { title: "窄屏自检" })
+  await new Promise((resolve) => narrow.addEventListener("load", resolve, { once: true }))
+
+  const nwin = narrow.contentWindow
+  const ndoc = narrow.contentDocument
+  const nstyle = (element) => nwin.getComputedStyle(element)
+  const nbody = nstyle(ndoc.body)
+  const nh4 = nstyle(ndoc.querySelector("h4"))
+
+  check("窄屏：正文 16px", near(parseFloat(nbody.fontSize), 16, 0.1), `实际 ${nbody.fontSize}`)
+  check("窄屏：h1 34px", near(parseFloat(nstyle(ndoc.querySelector("h1")).fontSize), 34, 0.1), `实际 ${nstyle(ndoc.querySelector("h1")).fontSize}`)
+  check("窄屏：h2 25px", near(parseFloat(nstyle(ndoc.querySelector("h2")).fontSize), 25, 0.1), `实际 ${nstyle(ndoc.querySelector("h2")).fontSize}`)
+  check("窄屏：h3 21px", near(parseFloat(nstyle(ndoc.querySelector("h3")).fontSize), 21, 0.1), `实际 ${nstyle(ndoc.querySelector("h3")).fontSize}`)
+  check("窄屏：h4 18px 且与正文不同号", near(parseFloat(nh4.fontSize), 18, 0.1) && nh4.fontSize !== nbody.fontSize, `实际 ${nh4.fontSize} vs 正文 ${nbody.fontSize}`)
+  check("窄屏：留白收到 1.5rem / 1rem / 3rem",
+    nbody.paddingTop === "24px" && nbody.paddingLeft === "16px" && nbody.paddingBottom === "48px",
+    `实际 ${nbody.paddingTop} / ${nbody.paddingLeft} / ${nbody.paddingBottom}`)
 }
 
 lines.push(`自检 ${passed}/${passed + failed} 通过`)

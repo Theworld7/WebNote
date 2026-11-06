@@ -65,7 +65,12 @@ export const LINE_HEIGHT = 1.6
  */
 export const DOC_MEASURE_PX = 720
 
-/** 上者的 rem 形式，只给导出侧的 CSS 用（浏览器根字号是 16px）。 */
+/**
+ * 上者的 rem 形式，只给导出侧的 CSS 用。
+ *
+ * 分母是浏览器根字号的**默认值** 16px：读者把默认字号调大时，版心会同比变宽，每行
+ * 仍停在那 51 个汉字 —— 这时他要的是更大的字，不是每行更多字。(ADR-0050)
+ */
 const DOC_MEASURE_REM = DOC_MEASURE_PX / 16
 
 /**
@@ -470,10 +475,61 @@ const RUN_COLOR_DARK_RULES = TEXT_COLORS.map((item, index) => {
   .filter((line) => line !== "")
   .join("\n")
 
+/**
+ * 窄屏断点，px —— 手机竖屏的上限（含折叠屏合上的 430 与平板竖屏的 768 之下）。
+ *
+ * 导出文件的字号到这道线以下才换一套，桌面窗口拖窄到 640 以内也会命中：那份文件
+ * 本来就是给任意浏览器看的，视口窄就是视口窄，不分设备。
+ */
+export const NARROW_VIEWPORT_PX = 640
+
+/**
+ * 窄屏下的正文字号，px（按 16px 根字号换算成 rem）。
+ *
+ * 手机上的中文正文惯例是 16~17px。桌面那份 14px 是给 720px 版心配的，手机上版心
+ * 根本用不满、只剩一列窄字，14px 读起来就是「小」。
+ */
+export const NARROW_BODY_FONT_SIZE = 16
+
+/**
+ * 窄屏下的六级标题字号，索引 0 对应 h1。
+ *
+ * **不是只把正文提上去，而是整套按 16/14 等比放大**：h4~h6 在桌面就是 16px，与正文
+ * 14px 只差 2px，正文单独提到 16 的话四级以下标题会与正文同号、层级当场消失。等比
+ * 放大后 30/22/18/16 变 34/25/21/18，相对关系一个不变。
+ */
+export const NARROW_HEADING_FONT_SIZES = [34, 25, 21, 18, 18, 18] as const
+
 export function docStyle(): string {
   const headingRules = HEADING_FONT_SIZES.map(
-    (size, index) => `    h${index + 1} { font-size: ${size}px; }`,
+    (size, index) => `    h${index + 1} { font-size: ${remOf(size)}; }`,
   ).join("\n")
+
+  /**
+   * 窄屏规则。**只换字号与几处会挤扁的宫格，不换根字号。**
+   *
+   * 改 `html { font-size }` 一行就能让全套字号等比放大，但那条 rem 也会带着
+   * `padding` / `45rem` 版心 / 空格子 `min-height` 一起缩放，留白反而更空。这里直接
+   * 给字号，几何的 rem 仍按 16px 基准算，改哪个数看着就是哪个 px。
+   */
+  const narrowRules = `    @media (max-width: ${NARROW_VIEWPORT_PX}px) {
+      body { padding: 1.5rem 1rem 3rem; font-size: ${remOf(NARROW_BODY_FONT_SIZE)}; }
+${NARROW_HEADING_FONT_SIZES.map((size, index) => `      h${index + 1} { font-size: ${remOf(size)}; }`).join("\n")}
+      /* 布局块：手机上多列等于每列几十像素，正文逐字竖排，直接落成一列。 */
+      .note-layout[data-layout="grid"],
+      .note-layout[data-layout="grid"][data-columns="3"],
+      .note-layout[data-layout="grid"][data-columns="4"] { grid-template-columns: minmax(0, 1fr); }
+      /* 书签宫格：用户选的 1 列不动，2~6 列统一收到两列 —— 再往上名称只剩省略号。 */
+      .note-bookmark[data-columns="2"] .note-bookmarks,
+      .note-bookmark[data-columns="3"] .note-bookmarks,
+      .note-bookmark[data-columns="4"] .note-bookmarks,
+      .note-bookmark[data-columns="5"] .note-bookmarks,
+      .note-bookmark[data-columns="6"] .note-bookmarks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      /* 订阅汇总条：横排四格各剩八十来像素，标签全被截断，改两行两列。
+         竖分隔线是 ::before 画的，左列那两个贴在外框上会成双划线，去掉。 */
+      .note-sub-summary { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .note-sub-stat:nth-child(odd)::before { display: none; }
+    }`
 
   const h = BLOCK_SPACING.h1
   const hTail = BLOCK_SPACING.h4
@@ -484,7 +540,7 @@ export function docStyle(): string {
 ${RUN_COLOR_DARK_RULES}
     }
     body { max-width: ${DOC_MEASURE_REM}rem; margin: 0 auto; padding: 3rem ${DOC_GUTTER_REM}rem 6rem; background: Canvas; color: var(--fg);
-      font: ${BODY_FONT_SIZE}px/${LINE_HEIGHT} ${SYSTEM_FONT_STACK}; -webkit-font-smoothing: antialiased; }
+      font: ${remOf(BODY_FONT_SIZE)}/${LINE_HEIGHT} ${SYSTEM_FONT_STACK}; -webkit-font-smoothing: antialiased; }
     h1, h2, h3, h4, h5, h6 { margin: ${h.top}px 0 ${h.bottom}px; font-weight: ${HEADING_FONT_WEIGHT}; }
 ${headingRules}
     h4, h5, h6 { margin-bottom: ${hTail.bottom}px; }
@@ -543,10 +599,10 @@ ${headingRules}
     .note-sub-stat + .note-sub-stat::before { position: absolute; top: 14px; bottom: 14px; left: 0;
       width: 1px; content: ""; background: var(--line); }
     .note-sub-stat .k { display: block; margin-bottom: 3px; color: var(--muted);
-      font-size: 11px; letter-spacing: .04em; }
-    .note-sub-stat .n { font-size: 20px; font-weight: 600; letter-spacing: -.03em;
+      font-size: ${remOf(11)}; letter-spacing: .04em; }
+    .note-sub-stat .n { font-size: ${remOf(20)}; font-weight: 600; letter-spacing: -.03em;
       font-variant-numeric: tabular-nums; }
-    .note-sub-stat .n small { margin-left: 4px; color: var(--muted); font-size: 11px;
+    .note-sub-stat .n small { margin-left: 4px; color: var(--muted); font-size: ${remOf(11)};
       font-weight: 500; letter-spacing: 0; }
     /* 卡片宫格:自适应列,窄窗口下卡片跟着收缩而不是横向溢出。 */
     .note-sub-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); }
@@ -567,48 +623,48 @@ ${headingRules}
       width: 44px; height: 44px; border-radius: 13px; overflow: hidden;
       border: 1px solid color-mix(in srgb, var(--sub-accent) 16%, transparent);
       background: color-mix(in srgb, var(--sub-accent) 11%, Canvas);
-      font-size: 16px; font-weight: 600; color: var(--sub-accent); }
+      font-size: ${remOf(16)}; font-weight: 600; color: var(--sub-accent); }
     .note-sub-icon img { display: block; width: 100%; height: 100%; margin: 0; border-radius: 0; object-fit: cover; }
     .note-sub-title { min-width: 0; flex: 1; }
-    .note-sub-name { font-size: 14px; font-weight: 600; line-height: 1.35;
+    .note-sub-name { font-size: ${remOf(14)}; font-weight: 600; line-height: 1.35;
       overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    .note-sub-caption { margin-top: 2px; font-size: 9px; font-weight: 600;
+    .note-sub-caption { margin-top: 2px; font-size: ${remOf(9)}; font-weight: 600;
       letter-spacing: .12em; line-height: 1.2; color: var(--muted); }
-    .note-sub-price { margin-top: 17px; font-size: 30px; font-weight: 600; line-height: 1;
+    .note-sub-price { margin-top: 17px; font-size: ${remOf(30)}; font-weight: 600; line-height: 1;
       letter-spacing: -.055em; font-variant-numeric: tabular-nums; }
-    .note-sub-cycle { margin-left: 5px; font-size: 11px; font-weight: 400;
+    .note-sub-cycle { margin-left: 5px; font-size: ${remOf(11)}; font-weight: 400;
       letter-spacing: 0; color: var(--muted); }
     .note-sub-state { flex: none; padding: 3px 8px; border-radius: 999px; background: var(--bg-soft);
-      font-size: 10px; color: var(--muted); white-space: nowrap; }
+      font-size: ${remOf(10)}; color: var(--muted); white-space: nowrap; }
     .note-sub-card[data-state="active"] .note-sub-state { color: var(--sub-ok-fg); background: var(--sub-ok-bg); }
     .note-sub-card[data-state="trial"] .note-sub-state { color: var(--accent-fg); background: var(--accent-bg); }
     .note-sub-card[data-state="soon"] .note-sub-state { color: var(--sub-warn-fg); background: var(--sub-warn-bg); }
     .note-sub-card[data-state="expired"] .note-sub-state { color: var(--sub-danger-fg); background: var(--sub-danger-bg); }
-    .note-sub-meta { display: grid; gap: 3px; margin-top: 15px; font-size: 11px; color: var(--muted); }
+    .note-sub-meta { display: grid; gap: 3px; margin-top: 15px; font-size: ${remOf(11)}; color: var(--muted); }
     .note-sub-meta .r { display: flex; justify-content: space-between; gap: 10px; }
     .note-sub-meta .v { font-variant-numeric: tabular-nums; color: color-mix(in srgb, var(--fg) 78%, transparent); }
     .note-sub-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 13px;
-      padding-top: 10px; border-top: 1px solid var(--line); font-size: 10px; color: var(--muted); }
+      padding-top: 10px; border-top: 1px solid var(--line); font-size: ${remOf(10)}; color: var(--muted); }
     /* 歌单与 PlaylistBlockView 对齐:头部一行曲目数 / 总时长,下面是序号 + 封面 +
        歌名 / 副标题 + 时长的行。行与行之间靠 1px 分隔线,不用卡片框 —— 一屏能多放几首。 */
     .note-pl-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px;
-      padding: 0 4px; font-size: 12px; color: var(--muted); }
-    .note-pl-head .n { font-weight: 600; font-size: 12px; color: var(--fg); }
+      padding: 0 4px; font-size: ${remOf(12)}; color: var(--muted); }
+    .note-pl-head .n { font-weight: 600; font-size: ${remOf(12)}; color: var(--fg); }
     .note-pl-list { margin: 0; padding: 0; list-style: none; }
     .note-pl-track { display: flex; align-items: center; gap: 10px; padding: 5px 4px;
       border-bottom: 1px solid var(--line); }
     .note-pl-track:last-child { border-bottom: 0; }
-    .note-pl-track .i { flex: none; width: 18px; text-align: right; font-size: 11px;
+    .note-pl-track .i { flex: none; width: 18px; text-align: right; font-size: ${remOf(11)};
       color: var(--muted); font-variant-numeric: tabular-nums; }
     .note-pl-track .c { flex: none; width: 34px; height: 34px; overflow: hidden;
       border-radius: 6px; background: var(--bg-soft); }
     .note-pl-track .c img { display: block; width: 100%; height: 100%; margin: 0;
       border-radius: 0; object-fit: cover; }
     .note-pl-track .t { display: flex; min-width: 0; flex: 1; flex-direction: column; }
-    .note-pl-track .n { font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    .note-pl-track .s { font-size: 12px; color: var(--muted); overflow: hidden;
+    .note-pl-track .n { font-size: ${remOf(13)}; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .note-pl-track .s { font-size: ${remOf(12)}; color: var(--muted); overflow: hidden;
       white-space: nowrap; text-overflow: ellipsis; }
-    .note-pl-track .d { flex: none; font-size: 12px; color: var(--muted);
+    .note-pl-track .d { flex: none; font-size: ${remOf(12)}; color: var(--muted);
       font-variant-numeric: tabular-nums; }
     /* 与 StatBlockView 应用内观感逐项对齐:满宽卡片、列名截断、合计下方还有
        一行参与求和的行数(.c)—— 静态页与笔记里看到的不该是两张脸。
@@ -617,21 +673,21 @@ ${headingRules}
     .note-stat { display: flex; flex-direction: column; gap: 2px;
       margin: ${BLOCK_SPACING.gallery.top}px 0; padding: 12px 16px;
       border: 1px solid var(--line); border-radius: 8px; background: var(--bg-soft); }
-    .note-stat .k { font-size: 11px; color: var(--muted);
+    .note-stat .k { font-size: ${remOf(11)}; color: var(--muted);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .note-stat .v { font-size: 26px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
-    .note-stat .c { font-size: 11px; color: var(--muted); opacity: 0.7; }
+    .note-stat .v { font-size: ${remOf(26)}; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+    .note-stat .c { font-size: ${remOf(11)}; color: var(--muted); opacity: 0.7; }
     .note-ledger table { margin: 0; }
     .note-ledger th, .note-ledger td { padding: 0.35em 0.7em; }
     .note-ledger .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
     .note-ledger .in { color: var(--ledger-in); }
     .note-ledger .ex { color: var(--ledger-ex); }
-    .note-ledger tr.note-ledger-group th { font-size: 12px; font-weight: 500; color: var(--muted); }
+    .note-ledger tr.note-ledger-group th { font-size: ${remOf(12)}; font-weight: 500; color: var(--muted); }
     .note-ledger tr.note-ledger-group th .s { margin-left: 10px; font-weight: 400; }
     .note-ledger tfoot td { font-weight: 500; background: var(--bg-soft); }
     .note-ledger tfoot .lbl, .note-ledger .lbl { color: var(--muted); font-weight: 400; }
     .note-bookmark, .note-gallery { display: flex; flex-direction: column; gap: 12px; }
-    .note-sec-title { margin: 0; padding-bottom: 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
+    .note-sec-title { margin: 0; padding-bottom: 4px; font-size: ${remOf(12)}; font-weight: 500; color: var(--muted); }
     .note-gallery-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
     .note-gcard { margin: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: Canvas; }
     .note-gcard img, .note-gposter { display: block; width: 100%; margin: 0; border-radius: 0; }
@@ -640,8 +696,8 @@ ${headingRules}
     .note-gposter { background: var(--bg-soft); }
     .note-gcard figcaption { padding: 4px 10px; }
     .note-gfield { display: flex; align-items: center; gap: 8px; min-height: 24px; padding: 2px 0; }
-    .note-gfield .k, .note-kfield .k { flex: none; font-size: 11px; color: var(--muted); opacity: .7; white-space: nowrap; }
-    .note-gfield .v { min-width: 0; padding: 0 2px; font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .note-gfield .k, .note-kfield .k { flex: none; font-size: ${remOf(11)}; color: var(--muted); opacity: .7; white-space: nowrap; }
+    .note-gfield .v { min-width: 0; padding: 0 2px; font-size: ${remOf(12)}; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .note-gstack { position: relative; padding-bottom: 12px; }
     .note-gstack::before { content: ""; position: absolute; left: 8px; right: 8px; bottom: 4px; height: 8px;
       border-radius: 0 0 8px 8px; background: rgba(128,128,128,.2); }
@@ -652,15 +708,15 @@ ${headingRules}
     .note-kcol { flex: none; width: 224px; padding: 8px; border-radius: 8px;
       background: color-mix(in srgb, var(--bg-soft) 35%, transparent); }
     .note-kcol header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding: 0 2px; }
-    .note-kcol header .t { font-size: 12px; font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .note-kcol header .t { font-size: ${remOf(12)}; font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .note-kcol header .n { flex: none; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--bg-soft);
-      font-size: 11px; color: var(--muted); }
+      font-size: ${remOf(11)}; color: var(--muted); }
     .note-kcard { margin: 0; padding: 6px 8px; border: 1px solid rgba(0,0,0,.05); border-radius: 6px;
       box-shadow: 0 1px 2px rgba(0,0,0,.1); color: #1c1c1e; }
     .note-kcard + .note-kcard { margin-top: 8px; }
     .note-kfield { display: flex; flex-direction: column; min-height: 16px; padding: 2px 0; }
-    .note-kfield .k { font-size: 11px; line-height: 1.25; color: rgba(0,0,0,.5); }
-    .note-kfield .v { font-size: 12px; line-height: 1.4; overflow-wrap: break-word; }
+    .note-kfield .k { font-size: ${remOf(11)}; line-height: 1.25; color: rgba(0,0,0,.5); }
+    .note-kfield .v { font-size: ${remOf(12)}; line-height: 1.4; overflow-wrap: break-word; }
     .note-kfield input[type="checkbox"] { width: 14px; height: 14px; margin: 0; accent-color: rgba(0,0,0,.7); }
     .note-empty { color: var(--muted); opacity: .6; }
     /* 密钥块与 SecretBlockView 对齐:一张灰底卡,上面一行名称、中间一行等宽掩码、
@@ -669,11 +725,11 @@ ${headingRules}
     .note-secret { margin: ${BLOCK_SPACING.secret.top}px 0; padding: 10px 14px;
       border: 1px solid var(--line); border-radius: 8px; background: var(--bg-soft); }
     .note-secret p { margin: 0; }
-    .note-secret-name { font-size: 13px; font-weight: 600; line-height: 1.5; }
+    .note-secret-name { font-size: ${remOf(13)}; font-weight: 600; line-height: 1.5; }
     .note-secret-value { margin-top: 6px; padding: 5px 8px; border-radius: 6px;
       background: Canvas; font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
-      font-size: 12px; letter-spacing: .12em; color: var(--muted); }
-    .note-secret-note { margin-top: 6px; font-size: 11px; color: var(--muted); }
+      font-size: ${remOf(12)}; letter-spacing: .12em; color: var(--muted); }
+    .note-secret-note { margin-top: 6px; font-size: ${remOf(11)}; color: var(--muted); }
     .note-bookmark .note-bookmarks { margin: 0; padding: 0; list-style: none;
       display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
     .note-bookmark[data-columns="1"] .note-bookmarks { grid-template-columns: repeat(1, minmax(0, 1fr)); }
@@ -691,14 +747,14 @@ ${headingRules}
       color: var(--fg); text-decoration: none; line-height: 1.35; }
     .note-bm-card::before { content: attr(data-icon); display: inline-flex; align-items: center;
       justify-content: center; width: 32px; height: 32px; border-radius: 8px; flex: none;
-      background: var(--accent-bg); color: var(--accent-fg); font-weight: 600; font-size: 14px; }
+      background: var(--accent-bg); color: var(--accent-fg); font-weight: 600; font-size: ${remOf(14)}; }
     /* 图标盒不受上面那条 img 的上下外边距影响:书签卡里的图标是卡片的零件,不是一块
        图片内容 —— 带 16px 上下外边距会把卡撑高一个图标位,宫格参差。 */
     .note-bm-card img.note-bookmark-icon { display: block; margin: 0; width: 32px; height: 32px;
       border-radius: 8px; object-fit: cover; flex: none; }
     .note-bm-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-    .note-bm-name { font-size: 13px; line-height: 17px; font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    .note-bm-domain { font-size: 11px; line-height: 14px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .note-bm-name { font-size: ${remOf(13)}; line-height: ${remOf(17)}; font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .note-bm-domain { font-size: ${remOf(11)}; line-height: ${remOf(14)}; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     mark { background-color: var(--mark-bg); color: inherit; }
     /* 行内链接。与编辑器 style.css 的同名规则同一副样子:品牌蓝 + 细下划线,悬停收满。
        下面那条卡片形态的规则把颜色和装饰都改回本体,两条不冲突(带属性的选择器高于裸
@@ -713,6 +769,7 @@ ${headingRules}
     a[data-link-shape="card"]::before { content: attr(data-icon); display: inline-flex; align-items: center;
       justify-content: center; width: 28px; height: 28px; border-radius: 6px; flex: none;
       background: var(--accent-bg); color: var(--accent-fg); font-weight: 600; }
-    body > :first-child { margin-top: 0; } body > :last-child { margin-bottom: 0; }`
+    body > :first-child { margin-top: 0; } body > :last-child { margin-bottom: 0; }
+${narrowRules}`
 }
 

@@ -32,10 +32,12 @@ standard" stay indistinguishable in the DOM — the same stance as `data-corners
 **Two layers do not follow the preference, on purpose.**
 
 - *The exported file.* It is a snapshot for someone else, opened by a browser we know nothing
-  about. Its type stays in px (and its measure in `45rem` against a browser default of 16). Letting
-  a setting in my app change how the file looks on their machine is the wrong kind of magic. At the
-  default step the promise from ADR-0027 — *editor and export look the same* — still holds exactly;
-  at 18 or 20 it does not, and that is the user's own doing, visible the moment they open the file.
+  about. Letting a setting in my app change how the file looks on their machine is the wrong kind of
+  magic. At the default step the promise from ADR-0027 — *editor and export look the same* — still
+  holds exactly; at 18 or 20 it does not, and that is the user's own doing, visible the moment they
+  open the file. *(Its type was px here; ADR-0050 made it rem so the file follows the reader's
+  browser default instead of us — the constraint above is unchanged, since `DOC_STYLE` still reads
+  no settings. The narrow-screen sizes and the measure's `45rem` came from that decision.)*
 - *The measure.* 720px is a decision about how many Han characters fit on a line (ADR-0027). Scaling
   the column alongside the type would silently keep the count fixed and hide the cost of a bigger
   step. At 20 the line holds ~36 characters instead of 51; the "content width" preference is right
