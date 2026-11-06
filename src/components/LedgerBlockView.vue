@@ -107,6 +107,9 @@ const frozenSections = ref<{ key: string; title: string; rowIds: string[] }[] | 
  */
 const draftRowId = ref("")
 
+/** 这张表 —— 交焦点时在这一棵里找格子(同一张数据表可能被两个块同时引用,行 id 会重)。 */
+const tableEl = ref<HTMLTableElement | null>(null)
+
 /** 草稿行。按 id 从当前表里取 —— 它可能刚被删掉,也可能还没写进去。 */
 const draftRow = computed<DataRow | null>(() => {
   const id = draftRowId.value
@@ -287,7 +290,8 @@ function commitOnEnter(row: DataRow, column: DataColumn, event: Event): void {
  * 草稿行里「这一格填完了,往下走」—— 提交当前格,把编辑态挪到同一行的下一个输入格;
  * 后面没有能打字的格了,就收工归位。
  *
- * 回车与 Tab 共用这一条:同一个动作不该因为按了哪颗键而分成两件事。
+ * 这是**回车**走的路:一条记录从左往右走完,走到最后一个输入格就收工。Tab 走
+ * `onRowKeydown` —— 它还要停在选择格 / 勾选格上,两件事,两条路。
  */
 function advanceDraft(row: DataRow, column: DataColumn, value: string): void {
   commit(row, column, value)
@@ -296,9 +300,17 @@ function advanceDraft(row: DataRow, column: DataColumn, value: string): void {
     editing.value = cellKey(row, next)
     return
   }
-  // 收工。松手放在退出编辑态之前:此刻焦点还在这一格里,靠焦点判「有没有离开这一行」
-  // 会判成没离开(输入框是拆掉之后才失焦的),而拆输入框那一瞬间的 focusout 落在渲染
-  // 过程中 —— 在那里改状态就会再触发一次渲染。
+  finishDraft()
+}
+
+/**
+ * 收工:退出编辑态,再松开这一条。
+ *
+ * 顺序有讲究 —— 松手放在退出编辑态之前:此刻焦点还在这一格里,靠焦点判「有没有离开
+ * 这一行」会判成没离开(输入框是拆掉之后才失焦的),而拆输入框那一瞬间的 focusout
+ * 落在渲染过程中 —— 在那里改状态就会再触发一次渲染。
+ */
+function finishDraft(): void {
   editing.value = ""
   releaseDraft()
 }
@@ -308,10 +320,78 @@ function isInputColumn(column: DataColumn): boolean {
   return column.type === "text" || column.type === "number" || column.type === "date"
 }
 
-/** 某列之后的第一个输入列。草稿行靠它一格一格往右走。 */
+/** 某列之后的第一个输入列。草稿行里的回车靠它一格一格往右走。 */
 function nextInputColumn(column: DataColumn): DataColumn | null {
   const start = columns.value.findIndex((item) => item.id === column.id)
   return columns.value.slice(start + 1).find(isInputColumn) ?? null
+}
+
+/**
+ * 草稿行里的 Tab —— 与回车**不是**同一条路。
+ *
+ * 回车只走输入格(见 `advanceDraft`):录一列金额靠它连续提交。Tab 要走到**每一格**上,
+ * 包括没有输入态的选择格与勾选格 —— 一条记录的每个字段都该能只用键盘填完,「类型」
+ * 这种一格一组选项的字段尤其如此。Tab 落到选择格,它自己会把面板展开(那是
+ * `OptionCell` 的约定),这里只管把焦点交过去。
+ *
+ * 不接管不行:这一行其余的格此刻都没有输入态,浏览器去找的下一个可聚焦元素在表外,
+ * 焦点一出去 `editing` 就空,草稿行当场按排序归位(见 ADR-0035)。所以 Tab 一律拦下,
+ * 由我们自己交给下一格,走到最后一个能落焦点的格就收工。往回走(Shift+Tab)不接管。
+ */
+function onRowKeydown(row: DataRow, event: KeyboardEvent): void {
+  if (event.key !== "Tab" || event.shiftKey) return
+  if (row.id !== draftRowId.value) return
+  const column = columnAt(event.target)
+  if (column === null) return
+  event.preventDefault()
+  // 当前格的值先落地。选择格 / 勾选格是即时提交,没有待办的值。
+  const target = event.target
+  if (isInputColumn(column) && target instanceof HTMLInputElement) commit(row, column, target.value)
+  const next = nextTabColumn(column)
+  if (next === null) {
+    finishDraft()
+    return
+  }
+  focusCell(row, next)
+}
+
+/** 事件落在哪一格 —— 每个数据格的 `<td>` 上都挂着它的列 id。 */
+function columnAt(target: EventTarget | null): DataColumn | null {
+  if (!(target instanceof Element)) return null
+  const id = target.closest("[data-column-id]")?.getAttribute("data-column-id") ?? ""
+  return columns.value.find((column) => column.id === id) ?? null
+}
+
+/** Tab 能落到的列:输入格 + 选择格 + 勾选格。图片格没有可聚焦的控件。 */
+function isTabColumn(column: DataColumn): boolean {
+  return isInputColumn(column) || column.type === "select" || column.type === "checkbox"
+}
+
+/** 某列之后的第一个能落焦点的列。 */
+function nextTabColumn(column: DataColumn): DataColumn | null {
+  const start = columns.value.findIndex((item) => item.id === column.id)
+  return columns.value.slice(start + 1).find(isTabColumn) ?? null
+}
+
+/**
+ * 把焦点交到某一格。输入格靠编辑态(输入框挂上就拿焦点);选择格 / 勾选格没有编辑态 ——
+ * 先把编辑态收掉、等这一帧把上一格的输入框拆干净,再直接给控件焦点。
+ */
+function focusCell(row: DataRow, column: DataColumn): void {
+  if (isInputColumn(column)) {
+    editing.value = cellKey(row, column)
+    return
+  }
+  editing.value = ""
+  void nextTick(() => {
+    cellElement(row, column)?.querySelector<HTMLElement>("button, input")?.focus()
+  })
+}
+
+/** 某一格在文档里的那个 `<td>`。行与列都按它们的 id 认,不靠下标对位。 */
+function cellElement(row: DataRow, column: DataColumn): Element | null {
+  const cell = `[data-row-id="${CSS.escape(row.id)}"] [data-column-id="${CSS.escape(column.id)}"]`
+  return tableEl.value?.querySelector(cell) ?? null
 }
 
 // ---- 编辑期间钉住顺序 ----
@@ -471,25 +551,38 @@ const {
  * 格子的键盘。日期格把方向键与回车让给月历(高亮那天、回车确认)，其余键照常
  * 进输入框打日期;非日期格就是原来的「回车提交 + 跳下一行同列」。
  *
- * 草稿行里的 Tab 由我们自己接着走 —— 理由见下面那一支。
+ * Tab 不在这里 —— 它挂在这一行上(`onRowKeydown`),因为它要走到别的格上,
+ * 而其中一些格根本没有输入框。
  */
 function onCellKeydown(row: DataRow, column: DataColumn, event: KeyboardEvent): void {
-  if (column.type === "date" && dateKeydown(event)) return
+  if (column.type === "date") {
+    if (dateKeydown(event)) return
+    // 草稿行里回车 = 确认月历上**高亮的那一天**(空格子就是今天)。面板既然把高亮
+    // 画在那一格上,回车就该照着它落值 —— 否则日期留在空里、光标已经跑到金额上,
+    // 这一笔归位时会因为没有日期排到末尾。手敲过日期时不接管(判据见
+    // `picksHighlight`):那时的回车还是「提交我打的字,然后往下一格」。
+    if (event.key === "Enter" && row.id === draftRowId.value && picksHighlight(event)) {
+      event.preventDefault()
+      const current = calendarPanel.value
+      if (current !== null) pickDate(current.focus)
+      return
+    }
+  }
   if (event.key === "Enter") {
     event.preventDefault()
     commitOnEnter(row, column, event)
-    return
   }
-  // 草稿行里的 Tab 必须自己接住。交回浏览器的话，它会去找**下一个可聚焦元素**，而这一行
-  // 其余的格此刻都没有输入态（都是 span）—— 焦点直接跳出表格，`editing` 变空，草稿行
-  // 当场按排序归位，后面几格再也没地方填（「填完名称 Tab 一下就重排了」就是这么来的）。
-  // 往回走（Shift+Tab）不接管：草稿行前面没有「上一格」可言。
-  if (event.key === "Tab" && !event.shiftKey && row.id === draftRowId.value) {
-    const target = event.target
-    if (!(target instanceof HTMLInputElement)) return
-    event.preventDefault()
-    advanceDraft(row, column, target.value)
-  }
+}
+
+/**
+ * 这个回车是不是「确认月历上高亮的那一天」:面板开着,而且输入框里的字**没被手改过**。
+ * 与 `useDateCellPanel` 里那道判据同源 —— 手敲了日期,回车就该提交那几个字。
+ */
+function picksHighlight(event: KeyboardEvent): boolean {
+  const current = calendarPanel.value
+  const target = event.target
+  if (current === null || !(target instanceof HTMLInputElement)) return false
+  return target.value === current.value
 }
 
 // ---- 选择格 ----
@@ -768,7 +861,7 @@ const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent 
       从圆角底边推开。
     -->
     <div class="table-scrollbar overflow-x-auto rounded-lg border border-line pb-2">
-      <table class="w-max min-w-full whitespace-nowrap border-collapse text-12">
+      <table ref="tableEl" class="w-max min-w-full whitespace-nowrap border-collapse text-12">
         <thead>
           <tr class="border-b border-line bg-muted/40 text-left text-muted-foreground">
             <!-- 行号列(空表头):宽度定死,行号与悬停删除钮共用这一格。 -->
@@ -796,6 +889,7 @@ const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent 
               class="group/lrow border-b border-line transition-colors last:border-b-0"
               :class="flashRow === row.id && 'bg-tint'"
               @focusout="onRowFocusOut(row, $event)"
+              @keydown="onRowKeydown(row, $event)"
             >
               <!-- 行号 / 删除同占一格(与数据表编辑页同一手法):悬停换成 ✕,列宽不变、行不跳。 -->
               <th class="relative w-7 px-2 py-1 text-right align-top font-mono text-11 font-normal text-muted-foreground/60">
@@ -812,6 +906,7 @@ const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent 
               <td
                 v-for="column in columns"
                 :key="column.id"
+                :data-column-id="column.id"
                 class="px-2.5 py-1 align-top"
                 :class="isNumberish(column) && 'text-right tabular-nums'"
               >

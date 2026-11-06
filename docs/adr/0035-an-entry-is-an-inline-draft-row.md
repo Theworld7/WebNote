@@ -104,3 +104,30 @@ section that catches rows outside the snapshot, until the next release sorted ev
 re-takes it from the current order — one line of ordering, no separate path. The tag-along section
 stays as pure defence: with the pin and the snapshot now released together, nothing adds a row to a
 frozen table.
+
+**Amended — Tab walks every cell, and a draft date cell takes the highlighted day.**
+
+Daily use found two gaps in the keyboard path. Tab only reached input columns, because it went
+through `advanceDraft` / `isInputColumn`; a select column ("类型") was therefore unreachable by
+keyboard inside a draft row — the cell is focusable and opens its panel on focus, but nothing ever
+put the caret there. And an empty date cell opened its calendar with the highlight on today, while
+Enter kept its "commit and go rightwards" meaning and left the date empty; a row released without a
+date sorts to the bottom, which is exactly what the person was looking at when they pressed it.
+
+Tab is now the **row's** keymap (`onRowKeydown`) rather than the input's: it commits the pending
+value, then hands focus to the next cell that can take it — input, select, checkbox — and finishes
+the entry after the last one. Select and checkbox cells have no editing state, so focus goes to the
+control itself, once the previous input has been unmounted. Enter keeps to input columns
+(`advanceDraft`), and on a date cell of a draft row it now confirms the day the calendar highlights
+(`picksHighlight`: panel open **and** the input text untouched — a typed date still commits what was
+typed and moves on, as before).
+
+So the two keys no longer mean the same thing inside a draft row: Tab walks the record, Enter ends
+the field. The "one action, one meaning" line above is narrowed to Enter; Tab needed a meaning of its
+own because a record has fields that are not typed into. Tab into the select cell lands on the
+current value, which for an empty cell is 未选择 — a record that wants an option still presses ↓
+once.
+
+`design/ledger-entry-check.html` carries both: the Tab walk now stops on the select cell (panel
+open, then on to the next input), and a fresh draft's empty date cell fills with today on Enter,
+keeping the caret in the cell so Tab can move on.

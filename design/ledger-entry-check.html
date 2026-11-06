@@ -28,6 +28,7 @@ import { provideTables } from "../src/composables/useTables.ts"
 import { createBlock, createLedgerBlock } from "../src/lib/blocks.ts"
 import { blocksToHtml } from "../src/lib/html/serialize.ts"
 import { tableFromJson } from "../src/lib/data-table.ts"
+import { todayKey } from "../src/lib/date-key.ts"
 
 const lines = []
 let passed = 0
@@ -209,7 +210,7 @@ const nameInput = cellInput(rows2[0], 1)
 type(nameInput, "新客")
 await enter(nameInput)
 const rows3 = tableRows()
-check("回车跳过选择格，落到收入格（选择不是一个输入态）",
+check("回车跳过选择格，落到收入格（输入走输入列，Tab 才停选择格）",
   cellInput(rows3[0], 2) === null && focusIs(rows3[0], 3),
   `分类格 ${cellInput(rows3[0], 2) === null ? "没有输入框" : "有输入框"}，焦点 ${document.activeElement?.tagName ?? "无"}`)
 
@@ -365,12 +366,14 @@ if (retargetDate !== null) {
 check("删掉草稿行之后改旧账日期，行照样按新日期归位到首位",
   cellText(tableRows()[0], 0) === "2026-12-31", tableRows().map((row) => cellText(row, 0)).join(","))
 
-// Tab 要和回车一样横着走：填完名称按 Tab 不该把这一行交出去。
+// Tab 要走完这一行的**每一格**，包括没有输入态的选择格 —— 一条记录的每个字段都该能只用
+// 键盘填完（Tab 落到选择格，它自己把面板展开）。
 //
-// 不接管的话，浏览器的默认 Tab 去找**下一个可聚焦元素**，而这一行里其余的格此刻都没有
-// 输入态（都是 span）—— 焦点直接跳出表格，`editing` 跟着变空，草稿行当场按排序飞走，
-// 后面的字段再也没地方填。这正是「输入完名称 Tab 后就重新排序了」的来路。
+// 不接管的话，浏览器的默认 Tab 去找**下一个可聚焦元素**，而这一行此刻没有输入态的格都是
+// span —— 焦点直接跳出表格，`editing` 跟着变空，草稿行当场按排序飞走，后面的字段再也没
+// 地方填。这正是「输入完名称 Tab 后就重新排序了」的来路。
 step("tab-through")
+const tabKey = () => new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })
 addButton()?.click()
 await settle()
 const tabDraft = () => tableRows()[0]
@@ -382,19 +385,28 @@ const tabName = cellInput(tabDraft(), 1)
 check("点人员格进编辑态", tabName !== null, "没有输入框")
 if (tabName !== null) {
   type(tabName, "阿飞")
-  const tabEvent = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })
+  const tabEvent = tabKey()
   tabName.dispatchEvent(tabEvent)
   await settle()
   check("草稿行里 Tab 被接管（不让浏览器把焦点扔出这一行）", tabEvent.defaultPrevented)
-  check("Tab 落到同一行的下一个输入格（跳过选择格，到收入）", focusIs(tabDraft(), 3),
-    `焦点在 ${document.activeElement?.tagName ?? "无"} / 第 3 格有输入框 ${cellInput(tabDraft(), 3) === null ? "否" : "是"}`)
+  check("Tab 落到同一行的下一格（分类，选择格）", document.activeElement === cellButton(tabDraft(), 2),
+    `焦点在 ${document.activeElement?.tagName ?? "无"} / ${cellButton(tabDraft(), 2)?.textContent?.trim() ?? "缺按钮"}`)
+  check("Tab 到选择格即展开面板（键盘能填这一列）", document.querySelector("[role='listbox']") !== null)
   check("Tab 之后这一行仍是草稿（钉在顶端、还没有行号）",
     rowNumber(tabDraft()) === "" && cellText(tabDraft(), 1) === "阿飞",
     `行号「${rowNumber(tabDraft())}」 / 人员「${cellText(tabDraft(), 1)}」`)
 }
 
-// 再一个 Tab 落到最后一个输入格（支出），在它上面 Tab 才算这一笔记完。
-const tabKey = () => new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })
+// 从选择格再一个 Tab：走到收入格（面板随失焦收起）。
+const tabSelect = cellButton(tabDraft(), 2)
+if (tabSelect !== null) {
+  tabSelect.dispatchEvent(tabKey())
+  await settle()
+}
+check("再一个 Tab 从选择格走到收入格", focusIs(tabDraft(), 3),
+  `焦点在 ${document.activeElement?.tagName ?? "无"} / 第 3 格有输入框 ${cellInput(tabDraft(), 3) === null ? "否" : "是"}`)
+check("离开选择格后它的面板收起", document.querySelector("[role='listbox']") === null)
+
 const tabIncome = cellInput(tabDraft(), 3)
 if (tabIncome !== null) {
   tabIncome.dispatchEvent(tabKey())
@@ -411,6 +423,24 @@ if (tabLast !== null) {
 check("最后一个输入格上 Tab 退出编辑态", tableRows().every((row) => cells(row).every((td) => td.querySelector("input") === null)))
 check("Tab 走完才归位（拿到行号，不再是草稿）", rowNumber(tableRows()[0]) !== "",
   tableRows().map(rowNumber).join(","))
+
+// 草稿行的日期格：面板上高亮停在今天，回车就该确认那一天 —— 不是把光标送去金额、
+// 把日期留空（留空的下场是这一笔归位时排到末尾）。
+step("date-enter")
+addButton()?.click()
+await settle()
+const freshDate = cellInput(tableRows()[0], 0)
+check("新草稿行从日期格开始，月历跟着展开",
+  freshDate !== null && document.querySelector("[data-date-calendar]") !== null)
+if (freshDate !== null) {
+  freshDate.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
+  await settle()
+  check("回车确认高亮那天（今天）", cellText(tableRows()[0], 0) === todayKey(),
+    `「${cellText(tableRows()[0], 0)}」/ 期望 ${todayKey()}`)
+  check("确认后仍留在日期格（Tab 才往下一格走）", focusIs(tableRows()[0], 0),
+    `焦点在 ${document.activeElement?.tagName ?? "无"}`)
+  check("面板收起", document.querySelector("[data-date-calendar]") === null)
+}
 
 lines.push(failed === 0 ? `自检 ${passed}/${passed}` : `自检 ${passed} 过 / ${failed} 败`)
 document.getElementById("out").textContent = lines.join("\n")</script>
