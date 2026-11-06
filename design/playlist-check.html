@@ -38,6 +38,7 @@ import {
 import { emptyColumn, emptyRow, setCell } from "../src/lib/data-table.ts"
 import { blocksToHtml } from "../src/lib/html/serialize.ts"
 import { parseHtml } from "../src/lib/html/parse.ts"
+import { ListMusicIcon } from "@lucide/vue"
 
 const lines = []
 let passed = 0
@@ -60,7 +61,7 @@ note(step)
 
 const meta = BLOCK_TYPES.find((m) => m.type === "playlist")
 check("BLOCK_TYPES 里有 playlist", meta !== undefined)
-check("marker 是 ♪", meta?.marker === "♪", `实际 ${meta?.marker}`)
+check("图标是 ListMusicIcon（图标库，不再是字符）", meta?.icon === ListMusicIcon)
 check("label 是 歌单", meta?.label === "歌单", `实际 ${meta?.label}`)
 check("紧挨 subscription（在它后面）",
   BLOCK_TYPES.findIndex((m) => m.type === "playlist") === BLOCK_TYPES.findIndex((m) => m.type === "subscription") + 1)

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { BlockInsertPosition, BlockMenuKind, BlockType } from "@/types/workspace"
 import { computed, nextTick, ref, watch } from "vue"
-import { PlusIcon } from "@lucide/vue"
+import { ArrowDownIcon, ArrowRightLeftIcon, ArrowUpIcon, ClipboardCopyIcon, CopyIcon, PlusIcon, Trash2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import BlockTypeMenuItems from "./BlockTypeMenuItems.vue"
+import MenuIcon from "./MenuIcon.vue"
 import TypeQueryEcho from "./TypeQueryEcho.vue"
 import { blockTypeMeta, blockTypeOptions } from "@/lib/blocks"
 import { arrowTargetIndex, type MenuArrow } from "@/lib/menu-nav"
@@ -23,7 +24,7 @@ import { TYPE_OPTION_SELECTOR, flushPendingEditableFocus } from "@/lib/dom"
 import { useSettings } from "@/composables/useSettings"
 
 const props = defineProps<{
-  /** 块类型：把类型标识（BLOCK_TYPES 的 marker）嵌进拖拽把手，hover 时就知道这是块什么。 */
+  /** 块类型：把类型图标（BLOCK_TYPES 的 icon）嵌进拖拽把手，hover 时就知道这是块什么。 */
   blockType: BlockType
   /** 当前打开的是哪个菜单，由父级 BlockItem 持有 —— 因为 `/` 输入也要程序化打开类型菜单。 */
   openMenu: BlockMenuKind
@@ -50,7 +51,7 @@ const emit = defineEmits<{
 
 const { menuGroupLayout } = useSettings()
 
-/** 类型标识字符。与类型菜单左列同源（都取 BLOCK_TYPES 的 marker），不另立一套图标。 */
+/** 类型图标。与类型菜单左列同源（都取 BLOCK_TYPES 的 icon），不另立一套图标。 */
 const meta = computed(() => blockTypeMeta(props.blockType))
 
 /**
@@ -77,7 +78,7 @@ watch(
 const TOOL = "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foreground"
 
 /**
- * 拖拽手柄：块类型标识（marker）独自成一颗按钮 —— 与类型菜单左列同源，不另立一套图标。
+ * 拖拽手柄：块类型图标独自成一颗按钮 —— 与类型菜单左列同源，不另立一套图标。
  * 尺寸与「＋」一致（24px 方形），工具条左偏移随之为 `left:-52px`
  * （＋24 + gap 2 + 把手 24，再让 2px 呼吸位，见模板）。
  *
@@ -102,12 +103,10 @@ const MENU = computed(() =>
 
 const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
 
-const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foreground"
-
-/** 位置两项的公共数据：方向、符号、文案一次定义，纵向横向两个排布共用。 */
+/** 位置两项的公共数据：方向、图标、文案一次定义，纵向横向两个排布共用。 */
 const POSITIONS = [
-  { above: true, marker: "↑", label: "在上方插入" },
-  { above: false, marker: "↓", label: "在下方插入" },
+  { above: true, icon: ArrowUpIcon, label: "在上方插入" },
+  { above: false, icon: ArrowDownIcon, label: "在下方插入" },
 ] as const
 
 /** 按键 → 方向。只认这四个方向键：Esc 关菜单归菜单自己，检索键走 `onQueryKey`。 */
@@ -304,11 +303,11 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
             <div class="flex flex-col">
               <DropdownMenuItem
                 v-for="position in POSITIONS"
-                :key="position.marker"
+                :key="String(position.above)"
                 :class="ITEM"
                 @select.prevent="insertAbove = position.above"
               >
-                <span :class="MARKER">{{ position.marker }}</span>
+                <MenuIcon :icon="position.icon" />
                 <span>{{ position.label }}</span>
                 <DropdownMenuShortcut v-if="insertAbove === position.above" class="tracking-normal">✓</DropdownMenuShortcut>
               </DropdownMenuItem>
@@ -321,11 +320,11 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
               <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">位置</DropdownMenuLabel>
               <DropdownMenuItem
                 v-for="position in POSITIONS"
-                :key="position.marker"
+                :key="String(position.above)"
                 :class="ITEM"
                 @select.prevent="insertAbove = position.above"
               >
-                <span :class="MARKER">{{ position.marker }}</span>
+                <MenuIcon :icon="position.icon" />
                 <span>{{ position.label }}</span>
                 <DropdownMenuShortcut v-if="insertAbove === position.above" class="tracking-normal">✓</DropdownMenuShortcut>
               </DropdownMenuItem>
@@ -337,8 +336,8 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
       </DropdownMenuContent>
     </DropdownMenu>
 
-    <!-- 类型标识（¶ / H1 / • / </> / ⊞ …）：点击开块操作菜单，按住拖动则是排序手柄。
-         与类型菜单左列同源（都取 BLOCK_TYPES 的 marker）—— hover 上来一眼就知道在操作什么块。
+    <!-- 类型图标：点击开块操作菜单，按住拖动则是排序手柄。
+         与类型菜单左列同源（都取 BLOCK_TYPES 的 icon）—— hover 上来一眼就知道在操作什么块。
          拖拽由 BlockEditor 在容器上统一接管（pointerdown 冒泡到那里，过阈值才算拖），
          这里只负责按下点与 `data-drag-handle` 这个契约属性 —— 别加 `draggable`，
          原生拖拽会吞掉滚轮事件。 -->
@@ -353,7 +352,7 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
           data-drag-handle="true"
           :aria-label="`${meta.label}块操作菜单，拖动可重排`"
         >
-          <span class="text-center font-mono text-12 leading-none">{{ meta.marker }}</span>
+          <component :is="meta.icon" class="size-3.5" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -363,18 +362,18 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
         @close-auto-focus="keepFocusInBlock"
       >
         <DropdownMenuItem :class="ITEM" @select="emit('duplicate')">
-          <span :class="MARKER">⧉</span>
+          <MenuIcon :icon="CopyIcon" />
           <span>复制块</span>
         </DropdownMenuItem>
 
         <DropdownMenuItem :class="ITEM" @select="emit('copy-content')">
-          <span :class="MARKER">⎘</span>
+          <MenuIcon :icon="ClipboardCopyIcon" />
           <span>复制内容</span>
         </DropdownMenuItem>
 
         <DropdownMenuSub @update:open="onSubOpen">
           <DropdownMenuSubTrigger :class="ITEM">
-            <span :class="MARKER">↻</span>
+            <MenuIcon :icon="ArrowRightLeftIcon" />
             <span>转为…</span>
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent :class="MENU" @keydown.capture="onSubMenuKey" @close-auto-focus="keepFocusInBlock">
@@ -387,7 +386,7 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
         <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
 
         <DropdownMenuItem variant="destructive" :class="ITEM" @select="emit('remove')">
-          <span :class="MARKER">✕</span>
+          <MenuIcon :icon="Trash2Icon" />
           <span>删除块</span>
         </DropdownMenuItem>
       </DropdownMenuContent>

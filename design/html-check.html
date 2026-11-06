@@ -22,6 +22,7 @@ import { blocksToHtml, serializeHtml } from "../src/lib/html/serialize.ts"
 import { buildHtmlFrameDoc } from "../src/lib/html-frame.ts"
 import { createHtmlBlock, createLayoutBlock, createTextualBlock, blockText, cloneBlock, retypeBlock, BLOCK_TYPES, blockTypeMeta } from "../src/lib/blocks.ts"
 import { textToRuns } from "../src/lib/inline.ts"
+import { FileCodeIcon } from "@lucide/vue"
 
 const lines = []
 let passed = 0
@@ -57,9 +58,9 @@ check("登记表含 html 条目（内容组，紧挨 mermaid）", (() => {
   const meta = BLOCK_TYPES.find((entry) => entry.type === "html")
   return meta !== undefined && meta.group === "内容" && meta.label === "HTML"
 })())
-check("blockTypeMeta 认领 html", (() => {
+check("blockTypeMeta 认领 html（图标取自图标库）", (() => {
   try {
-    return blockTypeMeta("html").marker === "<>"
+    return blockTypeMeta("html").icon === FileCodeIcon
   } catch {
     return false
   }

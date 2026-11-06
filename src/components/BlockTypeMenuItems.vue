@@ -2,6 +2,7 @@
 import type { BlockType, BlockTypeMeta } from "@/types/workspace"
 import { computed } from "vue"
 import { DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+import MenuIcon from "./MenuIcon.vue"
 import { blockTypeOptions } from "@/lib/blocks"
 import { useSettings } from "@/composables/useSettings"
 
@@ -63,9 +64,7 @@ const empty = computed(() => groups.value.length === 0)
         data-type-option="true"
         @select="emit('pick', meta.type)"
       >
-        <span class="w-5.5 shrink-0 text-center font-mono text-12 text-muted-foreground">
-          {{ meta.marker }}
-        </span>
+        <MenuIcon :icon="meta.icon" />
         <span class="min-w-0 flex-1 truncate">{{ meta.label }}</span>
       </DropdownMenuItem>
     </template>
@@ -88,9 +87,7 @@ const empty = computed(() => groups.value.length === 0)
         data-type-option="true"
         @select="emit('pick', meta.type)"
       >
-        <span class="w-5.5 shrink-0 text-center font-mono text-12 text-muted-foreground">
-          {{ meta.marker }}
-        </span>
+        <MenuIcon :icon="meta.icon" />
         <span class="min-w-0 flex-1 truncate">{{ meta.label }}</span>
       </DropdownMenuItem>
     </div>

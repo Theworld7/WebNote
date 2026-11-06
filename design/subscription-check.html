@@ -36,6 +36,7 @@ import {
 } from "../src/lib/subscription.ts"
 import { blocksToHtml } from "../src/lib/html/serialize.ts"
 import { parseHtml } from "../src/lib/html/parse.ts"
+import { RefreshCwIcon } from "@lucide/vue"
 
 const lines = []
 let passed = 0
@@ -58,7 +59,7 @@ note(step)
 
 const meta = BLOCK_TYPES.find((m) => m.type === "subscription")
 check("BLOCK_TYPES 里有 subscription", meta !== undefined)
-check("marker 是 ↻", meta?.marker === "↻", `实际 ${meta?.marker}`)
+check("图标是 RefreshCwIcon（图标库，不再是字符）", meta?.icon === RefreshCwIcon)
 check("label 是 订阅", meta?.label === "订阅", `实际 ${meta?.label}`)
 check("紧挨 stat（在它后面）",
   BLOCK_TYPES.findIndex((m) => m.type === "subscription") === BLOCK_TYPES.findIndex((m) => m.type === "stat") + 1)

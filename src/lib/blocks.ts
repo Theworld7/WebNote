@@ -1,3 +1,36 @@
+import {
+  BookmarkIcon,
+  CodeIcon,
+  Columns2Icon,
+  DatabaseIcon,
+  FileCodeIcon,
+  Heading1Icon,
+  Heading2Icon,
+  Heading3Icon,
+  Heading4Icon,
+  Heading5Icon,
+  Heading6Icon,
+  ImageIcon,
+  KanbanIcon,
+  KeyRoundIcon,
+  LayoutGridIcon,
+  ListIcon,
+  ListMusicIcon,
+  ListOrderedIcon,
+  MegaphoneIcon,
+  MessagesSquareIcon,
+  MinusIcon,
+  PilcrowIcon,
+  QuoteIcon,
+  ReceiptTextIcon,
+  RefreshCwIcon,
+  SigmaIcon,
+  SquareCheckIcon,
+  TableIcon,
+  VideoIcon,
+  WorkflowIcon,
+} from "@lucide/vue"
+
 import type {
   Block,
   BlockType,
@@ -49,7 +82,7 @@ type MenuGroup = (typeof MENU_GROUPS)[number]
  * 块类型登记表 —— 类型标识符的唯一真源。
  *
  * `satisfies` 只做校验、不改推断类型：写错或改名某个 type 会在这里报错，
- * 而菜单、marker、序列化都从这张表派生，不存在第二处需要同步的清单。
+ * 而菜单、图标、序列化都从这张表派生，不存在第二处需要同步的清单。
  *
  * 登记表的**完备性**由下面的 `assertRegistryComplete` 在编译期保证 ——
  * 新增一个块类型却忘了登记，会当场编译报错（`satisfies` 本身查不出漏登记）。
@@ -61,51 +94,51 @@ type MenuGroup = (typeof MENU_GROUPS)[number]
 type BlockTypeMenuEntry = BlockTypeMeta & { group: MenuGroup }
 
 export const BLOCK_TYPES = [
-  { type: "text", group: "基础", marker: "¶", label: "文本", initials: "wb" },
-  { type: "h1", group: "基础", marker: "H1", label: "标题 1", initials: "bt1" },
-  { type: "h2", group: "基础", marker: "H2", label: "标题 2", initials: "bt2" },
-  { type: "h3", group: "基础", marker: "H3", label: "标题 3", initials: "bt3" },
-  { type: "h4", group: "基础", marker: "H4", label: "标题 4", initials: "bt4" },
-  { type: "h5", group: "基础", marker: "H5", label: "标题 5", initials: "bt5" },
-  { type: "h6", group: "基础", marker: "H6", label: "标题 6", initials: "bt6" },
-  { type: "todo", group: "列表", marker: "[ ]", label: "待办列表", initials: "dbl" },
-  { type: "ul", group: "列表", marker: "•", label: "无序列表", initials: "wxl" },
-  { type: "ol", group: "列表", marker: "1.", label: "有序列表", initials: "yxl" },
-  { type: "quote", group: "内容", marker: '"', label: "引用", initials: "yy" },
-  { type: "code", group: "内容", marker: "</>", label: "代码块", initials: "dmk" },
+  { type: "text", group: "基础", icon: PilcrowIcon, label: "文本", initials: "wb" },
+  { type: "h1", group: "基础", icon: Heading1Icon, label: "标题 1", initials: "bt1" },
+  { type: "h2", group: "基础", icon: Heading2Icon, label: "标题 2", initials: "bt2" },
+  { type: "h3", group: "基础", icon: Heading3Icon, label: "标题 3", initials: "bt3" },
+  { type: "h4", group: "基础", icon: Heading4Icon, label: "标题 4", initials: "bt4" },
+  { type: "h5", group: "基础", icon: Heading5Icon, label: "标题 5", initials: "bt5" },
+  { type: "h6", group: "基础", icon: Heading6Icon, label: "标题 6", initials: "bt6" },
+  { type: "todo", group: "列表", icon: SquareCheckIcon, label: "待办列表", initials: "dbl" },
+  { type: "ul", group: "列表", icon: ListIcon, label: "无序列表", initials: "wxl" },
+  { type: "ol", group: "列表", icon: ListOrderedIcon, label: "有序列表", initials: "yxl" },
+  { type: "quote", group: "内容", icon: QuoteIcon, label: "引用", initials: "yy" },
+  { type: "code", group: "内容", icon: CodeIcon, label: "代码块", initials: "dmk" },
   // 紧挨 code：mermaid 的心智来源就是「用代码块写图」，摆一起最容易找。
-  { type: "mermaid", group: "内容", marker: "◇", label: "Mermaid 图", initials: "mermaidt" },
+  { type: "mermaid", group: "内容", icon: WorkflowIcon, label: "Mermaid 图", initials: "mermaidt" },
   // 紧挨 mermaid：HTML 块的心智来源同为「写一段源码」，只是源码直接渲染成内容。
-  { type: "html", group: "内容", marker: "<>", label: "HTML", initials: "html" },
-  { type: "callout", group: "内容", marker: "!", label: "标注", initials: "bz" },
-  { type: "divider", group: "内容", marker: "—", label: "分割线", initials: "fgx" },
-  { type: "image", group: "媒体与数据", marker: "▧", label: "图片", initials: "tp" },
+  { type: "html", group: "内容", icon: FileCodeIcon, label: "HTML", initials: "html" },
+  { type: "callout", group: "内容", icon: MegaphoneIcon, label: "标注", initials: "bz" },
+  { type: "divider", group: "内容", icon: MinusIcon, label: "分割线", initials: "fgx" },
+  { type: "image", group: "媒体与数据", icon: ImageIcon, label: "图片", initials: "tp" },
   // 紧挨 image：两者都是「一块媒体」，心智同族。
-  { type: "video", group: "媒体与数据", marker: "▷", label: "视频", initials: "sp" },
-  { type: "table", group: "媒体与数据", marker: "⊞", label: "表格", initials: "bg" },
+  { type: "video", group: "媒体与数据", icon: VideoIcon, label: "视频", initials: "sp" },
+  { type: "table", group: "媒体与数据", icon: TableIcon, label: "表格", initials: "bg" },
   // 紧挨 table：数据表在用户眼里就是「更正式的表格」，摆一起最容易找。
-  { type: "datatable", group: "媒体与数据", marker: "▤", label: "数据表", initials: "sjb" },
+  { type: "datatable", group: "媒体与数据", icon: DatabaseIcon, label: "数据表", initials: "sjb" },
   // 紧挨 datatable：画册展示的就是数据表的数据，只是换了一身衣服。
-  { type: "gallery", group: "媒体与数据", marker: "▦", label: "画册", initials: "hc" },
+  { type: "gallery", group: "媒体与数据", icon: LayoutGridIcon, label: "画册", initials: "hc" },
   // 紧挨 gallery：书签块同样吃数据表的数据，渲染成链接卡片宫格。
-  { type: "bookmark", group: "媒体与数据", marker: "⚑", label: "书签", initials: "sq" },
+  { type: "bookmark", group: "媒体与数据", icon: BookmarkIcon, label: "书签", initials: "sq" },
   // 紧挨 bookmark：看板块同样吃数据表的数据,按某列分组铺成几列,卡片可拖拽改值。
-  { type: "kanban", group: "媒体与数据", marker: "☰", label: "看板", initials: "kb" },
+  { type: "kanban", group: "媒体与数据", icon: KanbanIcon, label: "看板", initials: "kb" },
   // 紧挨 kanban：账目块同样吃数据表的数据,按财务口径渲染成流水账(收入/支出/余额/小计)。
-  { type: "ledger", group: "媒体与数据", marker: "¥", label: "账目", initials: "zm" },
+  { type: "ledger", group: "媒体与数据", icon: ReceiptTextIcon, label: "账目", initials: "zm" },
   // 紧挨 ledger：统计块同样吃数据表的数据,把某列的数值求和成一个大数字。
-  { type: "stat", group: "媒体与数据", marker: "Σ", label: "统计", initials: "tj" },
+  { type: "stat", group: "媒体与数据", icon: SigmaIcon, label: "统计", initials: "tj" },
   // 紧挨 stat：订阅块同样吃数据表的数据,把每行渲染成一张订阅卡并汇总月 / 年支出。
-  { type: "subscription", group: "媒体与数据", marker: "↻", label: "订阅", initials: "dy" },
+  { type: "subscription", group: "媒体与数据", icon: RefreshCwIcon, label: "订阅", initials: "dy" },
   // 紧挨 subscription：歌单块同样吃数据表的数据,把每行排成一行曲目。
-  { type: "playlist", group: "媒体与数据", marker: "♪", label: "歌单", initials: "gd" },
+  { type: "playlist", group: "媒体与数据", icon: ListMusicIcon, label: "歌单", initials: "gd" },
   // 紧挨 kanban 之后、布局压轴之前:聊天记录是内容块,不是版面级重结构。
-  { type: "chat", group: "媒体与数据", marker: "◌", label: "聊天记录", initials: "ltjl" },
+  { type: "chat", group: "媒体与数据", icon: MessagesSquareIcon, label: "聊天记录", initials: "ltjl" },
   // 紧挨 chat:两者都是「自成一体的内容块」,不吃数据表。密钥块摆在内容块族末尾、
   // 容器块之前 —— 它是这一族里唯一会把东西藏起来的那个。
-  { type: "secret", group: "媒体与数据", marker: "⌘", label: "密钥", initials: "my" },
+  { type: "secret", group: "媒体与数据", icon: KeyRoundIcon, label: "密钥", initials: "my" },
   // 压轴：容器块是「版面级」的重结构,跟在内容块族的最后。
-  { type: "layout", group: "版面", marker: "⬚", label: "布局", initials: "bj" },
+  { type: "layout", group: "版面", icon: Columns2Icon, label: "布局", initials: "bj" },
 ] satisfies readonly BlockTypeMenuEntry[]
 
 /**

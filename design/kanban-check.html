@@ -20,6 +20,7 @@
 import { BLOCK_TYPES, createBlock, createKanbanBlock, createGalleryBlock, blockText, cloneBlock, retypeBlock } from "../src/lib/blocks.ts"
 import { blocksToHtml } from "../src/lib/html/serialize.ts"
 import { parseHtml } from "../src/lib/html/parse.ts"
+import { KanbanIcon } from "@lucide/vue"
 
 const lines = []
 let passed = 0
@@ -45,7 +46,7 @@ const bookmarkIdx = BLOCK_TYPES.findIndex((m) => m.type === "bookmark")
 const kanbanIdx = BLOCK_TYPES.findIndex((m) => m.type === "kanban")
 
 check("BLOCK_TYPES 里有 kanban", kanbanMeta !== undefined)
-check("kanban marker 是 ☰", kanbanMeta?.marker === "☰", `实际 ${kanbanMeta?.marker}`)
+check("kanban 的图标是 KanbanIcon（图标库，不再是字符）", kanbanMeta?.icon === KanbanIcon)
 check("kanban label 是 看板", kanbanMeta?.label === "看板", `实际 ${kanbanMeta?.label}`)
 check("kanban 紧挨 bookmark（在它后面）", kanbanIdx === bookmarkIdx + 1, `bookmark=${bookmarkIdx} kanban=${kanbanIdx}`)
 

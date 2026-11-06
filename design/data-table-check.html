@@ -76,7 +76,7 @@ check(
 )
 // 数字故意写死：加一个块类型就该来改这一行，顺便走一遍「类型 / 登记表 / 造块 /
 // 克隆 / 投影 / 序列化 / 解析 / 导出样式」这份接入清单。
-check("BLOCK_TYPES 共 29 种", BLOCK_TYPES.length === 29, `实际 ${BLOCK_TYPES.length}`)
+check("BLOCK_TYPES 共 30 种", BLOCK_TYPES.length === 30, `实际 ${BLOCK_TYPES.length}`)
 
 const refBlock = createDataTableBlock("客户.tbl")
 check("引用块是 datatable 且带路径", refBlock.type === "datatable" && refBlock.path === "客户.tbl")
@@ -760,7 +760,7 @@ const rowsBeforeDelete = editorRows().length
 editorRows()[0]?.querySelector('[aria-label="删除本行"]')?.click()
 await settleEditor()
 const asRow = dialogEl()
-check("编辑器里点 ✕ 先弹确认框", asRow !== null)
+check("编辑器里点删除图标先弹确认框", asRow !== null)
 check("确认框说清删的是哪一行", asRow?.textContent.includes("进行中") === true, asRow?.textContent ?? "")
 check("确认框有「取消」「删除」两个钮", dialogBtn(asRow, "取消") !== undefined && dialogBtn(asRow, "删除") !== undefined)
 dialogBtn(asRow, "取消")?.click()

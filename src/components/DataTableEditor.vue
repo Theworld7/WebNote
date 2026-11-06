@@ -5,6 +5,7 @@ import type { DataColumnType, DataSelectOption } from "@/types/data-table"
 import { computed, ref } from "vue"
 import { ImagePlusIcon, PlusIcon, Trash2Icon, XIcon } from "@lucide/vue"
 import { isFileDrag, isImageFile, pickImageFile, readImageFile } from "@/lib/image"
+import MenuIcon from "@/components/MenuIcon.vue"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -413,7 +414,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
                       :disabled="columns.length <= 1"
                       @select="removeColumn(column.id)"
                     >
-                      <span :class="MARKER">✕</span>
+                      <MenuIcon :icon="Trash2Icon" />
                       <span>删除本列</span>
                     </DropdownMenuItem>
                   </DropdownMenuContent>

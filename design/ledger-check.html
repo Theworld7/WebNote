@@ -23,6 +23,7 @@ import { createLedgerPreset, formatAmount, formatExpense, formatIncome, formatYu
 import { sumColumn, formatGrouped } from "../src/lib/data-table.ts"
 import { blocksToHtml } from "../src/lib/html/serialize.ts"
 import { parseHtml } from "../src/lib/html/parse.ts"
+import { ReceiptTextIcon, SigmaIcon } from "@lucide/vue"
 
 const lines = []
 let passed = 0
@@ -48,7 +49,7 @@ const kanbanIdx = BLOCK_TYPES.findIndex((m) => m.type === "kanban")
 const ledgerIdx = BLOCK_TYPES.findIndex((m) => m.type === "ledger")
 
 check("BLOCK_TYPES 里有 ledger", ledgerMeta !== undefined)
-check("ledger marker 是 ¥", ledgerMeta?.marker === "¥", `实际 ${ledgerMeta?.marker}`)
+check("ledger 的图标是 ReceiptTextIcon（图标库，不再是字符）", ledgerMeta?.icon === ReceiptTextIcon)
 check("ledger label 是 账目", ledgerMeta?.label === "账目", `实际 ${ledgerMeta?.label}`)
 check("ledger 紧挨 kanban（在它后面）", ledgerIdx === kanbanIdx + 1, `kanban=${kanbanIdx} ledger=${ledgerIdx}`)
 
@@ -204,7 +205,7 @@ check("data-ledger 不被当 gallery/kanban", parseHtml(html)[0].type === "ledge
 // ---------- 十、统计块 ----------
 
 note("统计块:求和口径 / 快照+指针往返")
-check("BLOCK_TYPES 里有 stat, marker Σ, label 统计", BLOCK_TYPES.some((m) => m.type === "stat" && m.marker === "Σ" && m.label === "统计"))
+check("BLOCK_TYPES 里有 stat, 图标 SigmaIcon, label 统计", BLOCK_TYPES.some((m) => m.type === "stat" && m.icon === SigmaIcon && m.label === "统计"))
 check("stat 紧挨 ledger（在它后面）", BLOCK_TYPES.findIndex((m) => m.type === "stat") === ledgerIdx + 1, `ledger=${ledgerIdx} stat=${BLOCK_TYPES.findIndex((m) => m.type === "stat")}`)
 check("sumColumn 收入 12510", sumColumn(rows, income) === 12510, String(sumColumn(rows, income)))
 check("sumColumn 非数字按空(支出列 r2=3800 其余空)", sumColumn(rows, expense) === 3800, String(sumColumn(rows, expense)))

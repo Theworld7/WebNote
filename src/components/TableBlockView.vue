@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { TableAlign, TableBlock } from "@/types/workspace"
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import { PlusIcon, TableIcon } from "@lucide/vue"
+import { AlignLeftIcon, ArrowDownToLineIcon, ArrowLeftToLineIcon, ArrowRightToLineIcon, ArrowUpToLineIcon, PlusIcon, TableIcon, TablePropertiesIcon, Trash2Icon } from "@lucide/vue"
+import MenuIcon from "@/components/MenuIcon.vue"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -270,26 +271,26 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
           </DropdownMenuLabel>
 
           <DropdownMenuItem :class="ITEM" @select="insertRowAt(anchor.row)">
-            <span :class="MARKER">↑+</span>
+            <MenuIcon :icon="ArrowUpToLineIcon" />
             <span>在上方插入行</span>
           </DropdownMenuItem>
           <DropdownMenuItem :class="ITEM" @select="insertRowAt(anchor.row + 1)">
-            <span :class="MARKER">↓+</span>
+            <MenuIcon :icon="ArrowDownToLineIcon" />
             <span>在下方插入行</span>
           </DropdownMenuItem>
           <DropdownMenuItem :class="ITEM" @select="insertColumnAt(anchor.column)">
-            <span :class="MARKER">←+</span>
+            <MenuIcon :icon="ArrowLeftToLineIcon" />
             <span>在左侧插入列</span>
           </DropdownMenuItem>
           <DropdownMenuItem :class="ITEM" @select="insertColumnAt(anchor.column + 1)">
-            <span :class="MARKER">→+</span>
+            <MenuIcon :icon="ArrowRightToLineIcon" />
             <span>在右侧插入列</span>
           </DropdownMenuItem>
 
           <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
 
           <DropdownMenuItem :class="ITEM" @select="toggleHeader">
-            <span :class="MARKER">▤</span>
+            <MenuIcon :icon="TablePropertiesIcon" />
             <span>{{ headerRow ? "取消表头行" : "设首行为表头" }}</span>
           </DropdownMenuItem>
 
@@ -298,7 +299,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
           <!-- 对齐挂在「列」上是使用口径：整列一起写，插行时新格继承同列，列内不会半截。 -->
           <DropdownMenuSub>
             <DropdownMenuSubTrigger :class="ITEM">
-              <span :class="MARKER">↔</span>
+              <MenuIcon :icon="AlignLeftIcon" />
               <span>第 {{ anchor.column + 1 }} 列对齐</span>
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent :class="SUB_MENU">
@@ -317,11 +318,11 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
           <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
 
           <DropdownMenuItem variant="destructive" :class="ITEM" @select="deleteRow">
-            <span :class="MARKER">✕</span>
+            <MenuIcon :icon="Trash2Icon" />
             <span>删除本行</span>
           </DropdownMenuItem>
           <DropdownMenuItem variant="destructive" :class="ITEM" @select="deleteColumn">
-            <span :class="MARKER">✕</span>
+            <MenuIcon :icon="Trash2Icon" />
             <span>删除本列</span>
           </DropdownMenuItem>
         </DropdownMenuContent>

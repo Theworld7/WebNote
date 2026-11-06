@@ -102,6 +102,13 @@ if (contentOf() !== null) {
   const columns = new Set(items.map((item) => Math.round(leftOf(item))))
   check("菜单真的排成多列", columns.size >= 5, `列数 ${columns.size}`)
 
+  // 每项左边都是一颗 14px 的图标（ADR-0051）：字符时代那几颗线描字符偏细偏小，替掉的就是它们。
+  const iconBoxes = items.map((item) => item.querySelector("svg"))
+  check("每一项左侧都有一颗图标", iconBoxes.every((svg) => svg !== null), `实际 ${iconBoxes.filter((svg) => svg !== null).length}/${items.length}`)
+  check("图标统一 14px、同一 24 网格（视觉重量一致的前提）",
+    iconBoxes.every((svg) => Math.round(svg.getBoundingClientRect().width) === 14 && svg.getAttribute("viewBox") === "0 0 24 24"),
+    iconBoxes.map((svg) => Math.round(svg.getBoundingClientRect().width)).join(","))
+
   const first = items[0]
   first.focus()
   check("首项（位置列第一行）能落焦点", document.activeElement === first, `text=${textOf(document.activeElement)}`)
@@ -134,7 +141,7 @@ if (contentOf() !== null) {
   check("← 回到原列原项", document.activeElement === afterDown, `落到 ${textOf(document.activeElement)}`)
 
   // 类型列里 ↓ 逐项下移，而不是按完一列就串到下一列（这页要防的老毛病）。
-  // 菜单项的文字是「marker + 标签」两段，按标签包含匹配。
+  // 菜单项的文字只有标签一段（图标是 svg，不产文字），按标签包含匹配。
   const byLabel = (label) => items.find((item) => textOf(item).includes(label))
   const textBlock = byLabel("文本")
   textBlock.focus()

@@ -3,7 +3,7 @@
  *
  * 三条约定：
  *
- * 1. **类型标识符只有一个真源**。菜单项、marker、`/` 转换菜单全部从 `BLOCK_TYPES`
+ * 1. **类型标识符只有一个真源**。菜单项、图标、`/` 转换菜单全部从 `BLOCK_TYPES`
  *    （见 `@/lib/blocks`）派生，避免原型阶段出现过的「类型定义 / CSS / 菜单三处标识符
  *    不一致」问题。
  * 2. **`Block` 是四形态可辨识联合**，`type` 同时充当判别式：`image` / `table` / `mermaid`
@@ -14,6 +14,8 @@
  *    需要纯文本时用 `runsText()` / `blockText()` 投影，不要再另存一份字符串字段 ——
  *    两份表达同一内容必然漂移。
  */
+
+import type { Component } from "vue"
 
 /** 行内标记。链接不在此列 —— 它由 `InlineRun.href` 表达，避免「有 link 标记却没地址」的非法态。 */
 export type InlineMark = "bold" | "highlight" | "italic" | "underline" | "strike" | "code"
@@ -518,8 +520,15 @@ export interface BlockTypeMeta {
   type: BlockType
   /** 所属菜单分组的名字。同名组在登记表里必须相邻，菜单按此切段渲染小标题。 */
   group: string
-  /** 菜单左侧的等宽字符标记，替代图标 SVG。 */
-  marker: string
+  /**
+   * 菜单左侧的图标：`@lucide/vue` 里的一个组件（ADR-0051）。
+   *
+   * 取整库而不是挑字符：lucide 全部落在 24×24 网格上、同一条 stroke，按 14px 渲染
+   * 出来天然等重；等宽字符做不到这点 —— 13px 下几何符号的笔画恒为 1 物理像素，
+   * `▧ ▤ ▦ ☰ ◌ ▷` 这类线描字符的墨量只有实心字形的一半，摆在菜单里就是小一圈。
+   * 新增块类型时挑「一眼能认出这是什么块」的图标，别挑纯几何方块（跟邻居分不开）。
+   */
+  icon: Component
   label: string
   /**
    * 检索词：拼音首字母（简拼），`/` 菜单里敲 `dmk` 筛出代码块。

@@ -3,7 +3,7 @@ import type { DataTableBlock } from "@/types/workspace"
 import type { DataColumn, DataColumnType, DataRow } from "@/types/data-table"
 import type { TableEffectClasses } from "@/lib/typography"
 import { computed } from "vue"
-import { ExternalLinkIcon, PlusIcon } from "@lucide/vue"
+import { ExternalLinkIcon, PlusIcon, Trash2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -13,6 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import MenuIcon from "@/components/MenuIcon.vue"
 import TableRefNotice from "@/components/TableRefNotice.vue"
 import OptionCell from "@/components/OptionCell.vue"
 import { useSettings } from "@/composables/useSettings"
@@ -211,7 +212,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
                     :disabled="columns.length <= 1"
                     @select="removeColumn(column.id)"
                   >
-                    <span :class="MARKER">✕</span>
+                    <MenuIcon :icon="Trash2Icon" />
                     <span>删除本列</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
