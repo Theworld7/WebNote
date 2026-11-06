@@ -1,6 +1,6 @@
 [package]
 name = "webnote"
-version = "0.11.2"
+version = "0.11.3"
 description = "玉简 —— 本地优先的块式笔记编辑器"
 authors = ["you"]
 edition = "2021"
