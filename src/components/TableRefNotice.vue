@@ -15,8 +15,8 @@ import { fileName } from "@/lib/paths"
  * 地方不必重复摆。
  */
 const props = defineProps<{
-  /** `unset` 空指针(未指定表) / `missing` 引用的表读不到 / `loading` 读取中。 */
-  kind: "unset" | "missing" | "loading"
+  /** `unset` 空指针(未指定表) / `missing` 引用的表读不到 / `loading` 读取中 / `locked` 引用的是密码本且已锁定。 */
+  kind: "unset" | "missing" | "loading" | "locked"
   /** 块的显示名,进文案:「画册未指定数据表…」。 */
   label: string
   /** `missing` 态展示的路径。 */
@@ -55,6 +55,20 @@ function onReselect(event: Event): void {
   >
     <DatabaseIcon class="size-3.5 shrink-0 animate-pulse text-muted-foreground" />
     <span class="text-12 text-muted-foreground">正在读取数据表…</span>
+  </div>
+
+  <!--
+    锁着的密码本。文件好好的 —— 只是它是加密的，而这一个视图没有解锁的入口
+    （解锁在密码本块 / 数据表编辑页里）。所以这里说清「去哪开」，而不是停在转圈上。
+  -->
+  <div
+    v-else-if="kind === 'locked'"
+    class="my-4 flex items-center gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
+  >
+    <DatabaseIcon class="size-3.5 shrink-0 text-muted-foreground" />
+    <span class="min-w-0 flex-1 text-12 text-muted-foreground">
+      这是密码本，已锁定 —— 用「密码本」块打开它来输口令。
+    </span>
   </div>
 
   <div

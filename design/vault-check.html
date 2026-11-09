@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>密码本块自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { height: 520px; display: flex; flex-direction: column; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>密码本块自检（挂真实编辑器 + OPFS：口令不落盘、盘上是密文、导出里没有凭据）</h1>
+<!-- 脚本里有顶层 await（真实读盘），--dump-dom 抓不到结果，用 CDP 驱动跑：
+     node design/cdp-dump.mjs http://localhost:1420/design/vault-check.html -->
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { provideTables } from "../src/composables/useTables.ts"
+import { useToast } from "../src/composables/useToast.ts"
+import { createVaultBlock } from "../src/lib/blocks.ts"
+import { blocksToHtml } from "../src/lib/html/serialize.ts"
+import { emptyColumn } from "../src/lib/data-table.ts"
+import { SECRET_MASK } from "../src/lib/secret.ts"
+import {
+  createVault,
+  createVaultPreset,
+  decryptVault,
+  decryptVaultWithKey,
+  deriveKeyForEnvelope,
+  isVaultEnvelope,
+  readVaultEnvelope,
+  resealVault,
+  resolveVaultRoles,
+  vaultText,
+} from "../src/lib/vault.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+/** 提示是模块级单例，这里先取到它的状态 —— ToastStack 组件不在这页里。 */
+const { toasts } = useToast()
+
+function report(kind, detail) {
+  document.getElementById("out").textContent = [kind, "", detail, "", ...lines].join("\n")
+}
+window.addEventListener("unhandledrejection", (e) => report("REJECT", e.reason?.stack ?? String(e.reason)))
+window.addEventListener("error", (e) => report("ERROR", (e.error && e.error.stack) || e.message))
+function step(name) {
+  document.getElementById("out").textContent = `running: ${name}\n${lines.join("\n")}`
+}
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+
+// ============================================================
+// 第零节：纯函数（不碰 DOM，也不碰盘）
+// ============================================================
+
+const PASSPHRASE = "正确口令"
+const WRONG = "错误口令"
+
+/** 夹具表：五列，一行，值里各有一处能认出来的字样。 */
+function fixtureTable() {
+  const columns = [
+    emptyColumn("账号", "text"),
+    emptyColumn("密码", "text"),
+    emptyColumn("图标", "image"),
+    emptyColumn("网站", "text"),
+    emptyColumn("名称", "text"),
+  ]
+  return {
+    version: 1,
+    columns,
+    rows: [{
+      id: "r1",
+      values: {
+        [columns[0].id]: "zhang@example.com",
+        [columns[1].id]: "sup3r-s3cret-pw",
+        [columns[2].id]: null,
+        [columns[3].id]: "https://example.com",
+        [columns[4].id]: "示例账号",
+      },
+    }],
+  }
+}
+
+step("crypto")
+const table = fixtureTable()
+const { envelope, key } = createVault(table, PASSPHRASE)
+const envelopeText = vaultText(envelope)
+
+// 一、信封的形状
+check("信封是合法 JSON", (() => { try { JSON.parse(envelopeText); return true } catch { return false } })())
+check("信封带格式标记", envelope["webnote-vault"] === 1, String(envelope["webnote-vault"]))
+check("信封认得出来", isVaultEnvelope(envelopeText))
+check("普通数据表不会被误认成信封", isVaultEnvelope(JSON.stringify(table)) === false)
+check("解析信封拿得到盐与 IV", typeof envelope.kdf.salt === "string" && envelope.kdf.salt.length > 0 && typeof envelope.cipher.iv === "string" && envelope.cipher.iv.length > 0)
+
+// 二、密文里没有明文
+check("信封里没有密码明文", envelopeText.includes("sup3r-s3cret-pw") === false)
+check("信封里没有账号明文", envelopeText.includes("zhang@example.com") === false)
+check("信封里没有名称明文", envelopeText.includes("示例账号") === false)
+check("信封里没有列名", envelopeText.includes("账号") === false)
+
+// 三、往返
+const back = decryptVault(envelopeText, PASSPHRASE)
+check("口令对了能解开", JSON.stringify(back) === JSON.stringify(table), JSON.stringify(back).slice(0, 120))
+let wrongFailed = false
+try { decryptVault(envelopeText, WRONG) } catch { wrongFailed = true }
+check("口令错了解不开", wrongFailed)
+
+// 四、同一张表加密两遍不一样（盐与 IV 都新）
+const again = vaultText(createVault(table, PASSPHRASE).envelope)
+check("两次加密的密文不同", again !== envelopeText)
+check("两次加密的盐不同", readVaultEnvelope(again).kdf.salt !== envelope.kdf.salt)
+
+// 五、重新加密：盐不变、IV 换新
+const resealed = resealVault(table, key)
+check("重新加密后盐不变", resealed.kdf.salt === envelope.kdf.salt)
+check("重新加密后 IV 变了", resealed.cipher.iv !== envelope.cipher.iv)
+check("重新加密后仍是同一张表", JSON.stringify(decryptVaultWithKey(resealed, key.key)) === JSON.stringify(table))
+
+// 六、按信封参数派生密钥 → 同一个信封两种路径解出同一张表
+const derived = deriveKeyForEnvelope(PASSPHRASE, envelope)
+check("按信封派生出的密钥能解开", JSON.stringify(decryptVaultWithKey(envelope, derived.key)) === JSON.stringify(table))
+
+// 七、默认预置列
+const preset = createVaultPreset()
+check("预置五列", preset.table.columns.length === 5, String(preset.table.columns.length))
+check("预置列名按用户给的那一串", preset.table.columns.map((c) => c.name).join(",") === "账号,密码,图标,网站,名称", preset.table.columns.map((c) => c.name).join(","))
+check("图标列是图片型", preset.table.columns.find((c) => c.name === "图标")?.type === "image")
+check("预置指好了密码列", preset.table.columns.some((c) => c.id === preset.passwordColumn))
+
+// 八、列角色
+const roles = resolveVaultRoles(preset.table, preset.passwordColumn)
+check("认得出名称列", preset.table.columns.find((c) => c.id === roles.name)?.name === "名称")
+check("认得出账号列", preset.table.columns.find((c) => c.id === roles.account)?.name === "账号")
+check("认得出密码列", preset.table.columns.find((c) => c.id === roles.password)?.name === "密码")
+check("认得出图标列", preset.table.columns.find((c) => c.id === roles.icon)?.name === "图标")
+check("认得出网站列", preset.table.columns.find((c) => c.id === roles.site)?.name === "网站")
+const rolesByName = resolveVaultRoles(preset.table, "")
+check("没指列时按列名认密码", preset.table.columns.find((c) => c.id === rolesByName.password)?.name === "密码")
+const rolesStale = resolveVaultRoles(preset.table, "不存在的列id")
+check("列 id 失效时退回按列名认", preset.table.columns.find((c) => c.id === rolesStale.password)?.name === "密码")
+
+// ============================================================
+// 第一节：真实编辑器 + 真实盘（OPFS）
+// ============================================================
+
+step("opfs")
+const opfs = await navigator.storage.getDirectory()
+const dir = await opfs.getDirectoryHandle("vault-probe", { create: true })
+
+/** 盘上那份 `.tbl`：一个信封。 */
+const tableHandle = await dir.getFileHandle("密码本.tbl", { create: true })
+const tableWritable = await tableHandle.createWritable()
+await tableWritable.write(envelopeText)
+await tableWritable.close()
+
+/** 那篇笔记：一个密码本块，指向 `密码本.tbl`。 */
+const NOTE_HTML = blocksToHtml([createVaultBlock("密码本.tbl", preset.passwordColumn)], () => null)
+const noteHandle = await dir.getFileHandle("密码本.html", { create: true })
+const writable = await noteHandle.createWritable()
+await writable.write(NOTE_HTML)
+await writable.close()
+window.showDirectoryPicker = async () => dir
+
+/** 等真实 I/O 与 Vue 重渲染落地：microtask 轮询等不到读盘。 */
+async function settle() {
+  for (let i = 0; i < 4; i += 1) {
+    await nextTick()
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
+
+// 剪贴板：无头窗口没有焦点，真写会被拒。换成记账本，验「复制走的是真值」。
+let clipboardText = null
+Object.defineProperty(navigator, "clipboard", {
+  configurable: true,
+  value: { writeText: async (text) => { clipboardText = text } },
+})
+
+step("mount")
+let workspace = null
+let tables = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    provideTheme(provideSettings())
+    tables = provideTables(workspace.fs, workspace.root)
+    workspace.attachTableRegistry({
+      preload: (paths) => tables.preload(paths),
+      peek: (path) => tables.peek(path),
+      flush: (path) => tables.flush(path),
+      reload: (path) => tables.reload(path),
+      dirtyPaths: () => tables.dirtyPaths(),
+      create: () => Promise.reject(new Error("本页不新建数据表")),
+      createVault: () => Promise.reject(new Error("本页不新建密码本")),
+      ensureVault: (path, passphrase) => tables.ensureVault(path, passphrase),
+    })
+    return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
+  },
+})
+createApp(Root).mount("#app")
+await nextTick()
+
+step("bootstrap")
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+const note = (function find(nodes) {
+  for (const node of nodes) {
+    if (node.kind === "note" && node.name === "密码本.html") return node
+    const hit = node.children ? find(node.children) : null
+    if (hit) return hit
+  }
+  return null
+})(workspace.tree.value)
+check("扫到了预置笔记", note !== null, JSON.stringify(workspace.tree.value.map((n) => n.name)))
+
+step("openFile")
+if (note !== null) {
+  workspace.openFile(note.id)
+  for (let i = 0; i < 60 && workspace.activeDocument.value.length < 1; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  await settle()
+}
+
+// ---- DOM 取景 ----
+
+function root() {
+  return document.querySelector("[data-block-id]") ?? null
+}
+function passphraseInput() {
+  const input = document.querySelector("[data-vault-passphrase]")
+  return input instanceof HTMLInputElement ? input : null
+}
+function unlockButton() {
+  return document.querySelector("[data-vault-unlock]")
+}
+function entries() {
+  return [...document.querySelectorAll("[data-vault-entry]")]
+}
+function maskButton(index) {
+  const entry = entries()[index]
+  const button = entry?.querySelector("[data-vault-mask]")
+  return button ?? null
+}
+function secretInput(index) {
+  const entry = entries()[index]
+  const input = entry?.querySelector("[data-vault-secret-input]")
+  return input instanceof HTMLInputElement ? input : null
+}
+function nameInput(index) {
+  const entry = entries()[index]
+  const input = entry?.querySelector('input[placeholder="名称"]')
+  return input instanceof HTMLInputElement ? input : null
+}
+function eyeButton(index) {
+  const entry = entries()[index]
+  return entry?.querySelector('button[title="显示明文"], button[title="收起明文"]') ?? null
+}
+function copyButton(index) {
+  const entry = entries()[index]
+  return entry?.querySelector('button[title="复制密码"], button[title="已复制"]') ?? null
+}
+function accountInput(index) {
+  const entry = entries()[index]
+  const input = entry?.querySelector('input[placeholder="账号"]')
+  return input instanceof HTMLInputElement ? input : null
+}
+/** 改一格：受控输入靠 `change`（失焦）回写。 */
+async function type(input, text) {
+  input.value = text
+  input.dispatchEvent(new Event("input", { bubbles: true }))
+  input.dispatchEvent(new Event("change", { bubbles: true }))
+  await settle()
+}
+
+// ---- 九、未解锁：锁着，且不泄露任何东西 ----
+
+check("密码本块渲染出来了", root() !== null)
+check("没输口令前是锁着的", passphraseInput() !== null, String(passphraseInput() !== null))
+check("锁着的时候看不到条目", entries().length === 0, `${entries().length} 条`)
+check("锁着的时候看不到明文", (root()?.textContent ?? "").includes("sup3r-s3cret-pw") === false)
+
+// ---- 十、口令不对 ----
+
+if (passphraseInput() !== null) await type(passphraseInput(), WRONG)
+unlockButton()?.click()
+
+// 提示是模块级的单例（渲染它的 ToastStack 不在这页里）—— 直接问那份状态。
+// 提示 2 秒后自动消失，所以**边等边看**：等满了 2 秒再问，它已经没了。
+let toastSeen = null
+for (let i = 0; i < 40; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  const hit = toasts.value.find((toast) => toast.message.includes("口令不对"))
+  if (hit !== undefined) {
+    toastSeen = hit.message
+    break
+  }
+}
+check("口令不对时提示是「口令不对」", toastSeen !== null, JSON.stringify(toasts.value.map((toast) => toast.message)))
+
+for (let i = 0; i < 40 && entries().length === 0; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 50))
+}
+await settle()
+check("口令不对仍然解不开", entries().length === 0, `${entries().length} 条`)
+
+// ---- 十一、口令对了 ----
+
+if (passphraseInput() !== null) await type(passphraseInput(), PASSPHRASE)
+unlockButton()?.click()
+for (let i = 0; i < 40 && entries().length === 0; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 50))
+}
+await settle()
+check("口令对了就解开", entries().length === 1, `${entries().length} 条`)
+check("解开后能看到账号", accountInput(0)?.value === "zhang@example.com", accountInput(0)?.value ?? "")
+check("解开后能看到名称", nameInput(0)?.value === "示例账号", nameInput(0)?.value ?? "")
+
+// ---- 十二、掩码：明文默认不上屏 ----
+
+check("密码格默认是掩码", maskButton(0)?.textContent.trim() === SECRET_MASK, maskButton(0)?.textContent ?? "")
+check("明文不在可见文本里", (root()?.textContent ?? "").includes("sup3r-s3cret-pw") === false, root()?.textContent ?? "")
+check("掩码态没有明文输入框", secretInput(0) === null)
+
+// ---- 十三、眼睛 ----
+
+eyeButton(0)?.click()
+await settle()
+const opened = secretInput(0)
+check("点眼睛后出现明文输入框", opened !== null)
+check("输入框里是明文", opened?.value === "sup3r-s3cret-pw", opened?.value ?? "")
+check("打开就把光标放进去", document.activeElement === opened, document.activeElement?.tagName ?? "")
+check("掩码按钮同期消失", maskButton(0) === null)
+
+opened?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+await settle()
+check("Esc 收起明文", secretInput(0) === null && maskButton(0)?.textContent.trim() === SECRET_MASK)
+
+// ---- 十四、复制走明文 ----
+
+copyButton(0)?.click()
+await settle()
+check("复制拿的是明文而不是掩码", clipboardText === "sup3r-s3cret-pw", String(clipboardText))
+check("复制后按钮换成「已复制」", copyButton(0)?.title === "已复制", copyButton(0)?.title ?? "")
+
+// ---- 十五、改值写回 ----
+
+eyeButton(0)?.click()
+await settle()
+const editing = secretInput(0)
+if (editing !== null) await type(editing, "sup3r-s3cret-pw-2")
+
+/** 表在注册表里（内存那份）。改完的值要落在这里 —— 视图显示对了不算数。 */
+function tableCell(columnName) {
+  const table = tables?.peek("密码本.tbl")
+  if (table === null || table === undefined) return null
+  const column = table.columns.find((item) => item.name === columnName)
+  if (column === undefined) return null
+  const row = table.rows[0]
+  if (row === undefined) return null
+  const value = row.values[column.id]
+  return typeof value === "string" ? value : null
+}
+
+check("改完的密码写回了表", tableCell("密码") === "sup3r-s3cret-pw-2", String(tableCell("密码")))
+
+if (nameInput(0) !== null) await type(nameInput(0), "示例账号（改过）")
+check("改完的名称写回了表", tableCell("名称") === "示例账号（改过）", String(tableCell("名称")))
+
+// ---- 十六、锁回去：先落盘再锁，锁之前的改动不丢 ----
+
+document.querySelector("[data-vault-lock]")?.click()
+for (let i = 0; i < 40 && entries().length > 0; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 50))
+}
+await settle()
+check("锁回去之后回到锁着态", passphraseInput() !== null && entries().length === 0, `${entries().length} 条`)
+
+// 再解锁一次：改动必须还在 —— 这说明锁之前**已经落盘**了（锁了就拿不到密钥）。
+if (passphraseInput() !== null) await type(passphraseInput(), PASSPHRASE)
+unlockButton()?.click()
+for (let i = 0; i < 40 && entries().length === 0; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 50))
+}
+await settle()
+check("重新解锁后改动还在（锁之前落过盘）", tableCell("密码") === "sup3r-s3cret-pw-2", String(tableCell("密码")))
+check("重新解锁后名称也在", tableCell("名称") === "示例账号（改过）", String(tableCell("名称")))
+
+// ---- 十七、导出：`.html` 里没有凭据 ----
+
+const exported = blocksToHtml(workspace.activeDocument.value, () => null)
+check("导出的 HTML 里没有密码明文", exported.includes("sup3r-s3cret-pw") === false)
+check("导出的 HTML 里没有账号明文", exported.includes("zhang@example.com") === false)
+check("导出的 HTML 里没有名称明文", exported.includes("示例账号") === false)
+check("导出的 HTML 里没有密码列的内容", exported.includes("密码本.tbl") === true)
+
+// ---- 十八、盘上那份是密文 ----
+
+const onDisk = await (await (await dir.getFileHandle("密码本.tbl")).getFile()).text()
+check("盘上的 .tbl 是信封不是明文 JSON", isVaultEnvelope(onDisk))
+check("盘上的 .tbl 里没有密码明文", onDisk.includes("sup3r-s3cret-pw") === false)
+check("盘上的 .tbl 里没有账号明文", onDisk.includes("zhang@example.com") === false)
+
+lines.push(failed === 0 ? `自检 ${passed}/${passed}` : `自检 ${passed} 过 / ${failed} 败`)
+document.getElementById("out").textContent = lines.join("\n")
+</script>
+</body>
+</html>

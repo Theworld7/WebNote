@@ -25,6 +25,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
+import { useTables } from "@/composables/useTables"
+import { useToast } from "@/composables/useToast"
 import { markImageBroken, usableImage } from "@/lib/broken-images"
 import * as dt from "@/lib/data-table"
 import { MAX_DATA_TABLE_COLUMNS } from "@/types/data-table"
@@ -52,6 +54,31 @@ import { MAX_DATA_TABLE_COLUMNS } from "@/types/data-table"
 const { activePath } = useWorkspace()
 
 const { state, table, columns, rows, change } = useTableEntry(() => activePath.value)
+
+const tables = useTables()
+const { notify } = useToast()
+
+/**
+ * 密码本被锁着时的口令框。
+ *
+ * 数据表编辑页也能打开一张密码本 `.tbl`（从文件树双击就能开）—— 那时这张表是加密的，
+ * 没口令读不出来，于是先停在这儿，而不是那句「这个数据表读不到」：
+ * **文件好好的，只是锁着**，两件事不能混成一句。
+ */
+const passphrase = ref("")
+const unlocking = ref(false)
+
+async function unlock(): Promise<void> {
+  if (activePath.value === "" || passphrase.value === "") return
+  unlocking.value = true
+  try {
+    const failure = await tables.unlockVault(activePath.value, passphrase.value)
+    if (failure !== null) notify(failure, "error")
+    else passphrase.value = ""
+  } finally {
+    unlocking.value = false
+  }
+}
 
 /** 单行统计，给状态栏用。 */
 const summary = computed(() => {
@@ -288,8 +315,38 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
 </script>
 
 <template>
+  <!-- 锁着。文件好好的，只是没口令 —— 与「读不到」是两件事，不能混成一句。 -->
+  <div v-if="state === 'locked'" class="flex flex-1 items-center justify-center p-8">
+    <div class="max-w-sm text-center">
+      <p class="text-13 text-foreground/80">这个密码本已锁定</p>
+      <p class="mt-1.5 font-mono text-12 text-muted-foreground">{{ activePath }}</p>
+      <p class="mt-3 text-12 text-muted-foreground">
+        口令不保存在应用里 —— 关掉应用就得重新输。
+      </p>
+      <div class="mt-4 flex items-center gap-1.5">
+        <input
+          v-model="passphrase"
+          type="password"
+          class="min-w-0 flex-1 rounded-md bg-card px-2 py-1 text-13 outline-none ring-1 ring-line/70"
+          placeholder="口令"
+          autocomplete="off"
+          spellcheck="false"
+          @keydown.enter.prevent="unlock"
+        >
+        <Button
+          size="sm"
+          class="h-7 shrink-0 text-12"
+          :disabled="passphrase === '' || unlocking"
+          @click="unlock"
+        >
+          解锁
+        </Button>
+      </div>
+    </div>
+  </div>
+
   <!-- 读不到。文件被删或移走 —— 与引用块同一个立场：说明白，不喊错。 -->
-  <div v-if="state !== 'loading' && table === null" class="flex flex-1 items-center justify-center p-8">
+  <div v-else-if="state !== 'loading' && table === null" class="flex flex-1 items-center justify-center p-8">
     <div class="max-w-sm text-center">
       <p class="text-13 text-foreground/80">这个数据表读不到</p>
       <p class="mt-1.5 font-mono text-12 text-muted-foreground">{{ activePath }}</p>

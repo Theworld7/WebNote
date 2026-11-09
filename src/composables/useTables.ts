@@ -1,8 +1,10 @@
 import type { InjectionKey, Ref } from "vue"
 import type { DataColumnType, DataRow, DataTable } from "@/types/data-table"
 import type { FsRoot, WorkspaceFs } from "@/lib/fs"
+import type { VaultEnvelope, VaultKey } from "@/lib/vault"
 import { inject, provide, ref } from "vue"
 import * as dt from "@/lib/data-table"
+import { createVault, decryptVaultWithKey, deriveKeyForEnvelope, readVaultEnvelope, resealVault, vaultText } from "@/lib/vault"
 import { describeError } from "@/lib/errors"
 import { TABLE_EXTENSION, fileStem, isTableFile } from "@/lib/fs/policy"
 
@@ -25,27 +27,46 @@ import { TABLE_EXTENSION, fileStem, isTableFile } from "@/lib/fs/policy"
  * 1. **注册表本身是 `shallowRef` 之外的普通对象**，而每张表是 `ref`。表内部要深度响应
  *    （改一个格子要重渲染），但「有哪些表」不需要被追踪 —— 引用计数与增删都是我们自己
  *    触发的，靠 `revision` 计数器通知视图。
- * 2. **读失败是有状态的结果**，不是异常。引用块要能区分「没读」「读失败」「表不存在」，
- *    因为三者的提示文案不同，而「文件不存在」是这个功能里的**正常状态**（可能被移走了）。
+ * 2. **读失败是有状态的结果**，不是异常。引用块要能区分「没读」「读失败」「表不存在」
+ *    「已锁定」，因为四者的提示文案不同，而「文件不存在」「已锁定」都是这个功能里的
+ *    **正常状态**（可能被移走了 / 还没输口令）。
  * 3. **写盘整体替换 + 延迟落盘**。编辑只进内存并记脏,真正写盘发生在标签的统一保存
  *    （`flush`）—— 与笔记编辑共用「改动 → 脏标记 → 保存」这一条出口。没有行级增量写,
  *    一次落盘就是整个文件,盘上永远是一份完整一致的 JSON。
+ *
+ * **密码本（加密表）也在这个注册表里。** 加密的是**落盘形态**（ADR-0052）：盘上是信封，
+ * 内存里仍是一张普通数据表，所以改表、排序、求和这些逻辑一行都不用改。
+ * 密钥只活在内存里（`vaultKeys`）—— 应用一关就没了，下次要重新输口令。
  */
 
 /** 一张表在某处的加载状态。 */
-export type TableLoadState = "idle" | "loading" | "loaded" | "missing" | "failed"
+export type TableLoadState = "idle" | "loading" | "loaded" | "missing" | "failed" | "locked"
 
 export interface TableEntry {
-  /** 已解析的表。`null` 表示还没读到（或读失败）。 */
+  /** 已解析的表。`null` 表示还没读到（或读失败、已锁定）。 */
   table: Ref<DataTable | null>
   state: Ref<TableLoadState>
-  /** 读失败或文件不存在时的原因。给用户看。 */
+  /** 读失败、文件不存在或已锁定时的原因。给用户看。 */
   message: Ref<string>
   /** 有未落盘的改动。置位在 `mutate`,清位在 `flush`（写成功）或 `reload`（丢弃）。 */
   dirty: Ref<boolean>
+  /** 这张表在盘上是**加密信封**（密码本）。 */
+  vault: Ref<boolean>
+  /** 盘上那份信封。解锁要用它取盐。 */
+  envelope: Ref<VaultEnvelope | null>
 }
 
 function createTables(driver: Ref<WorkspaceFs | null>, root: Ref<FsRoot | null>) {
+  /**
+   * 已解锁的密码本：路径 → 密钥。
+   *
+   * **只活在内存里。** 应用一关，进程一退，全没了 —— 下次打开这个密码本要重新输口令。
+   * 这不是偷懒，是「口令不落盘」这条决定的直接后果（ADR-0052）。
+   *
+   * 键是普通 `Map` 而不是响应式的：谁解锁了不需要重渲染谁，视图靠 `state` 那个 ref 知道。
+   */
+  const vaultKeys = new Map<string, VaultKey>()
+
   /**
    * 按路径索引的条目。用普通 `Map` 而不是响应式的：条目的值是 `ref`，响应性在条目内部。
    * 对外暴露的 `entries` 是让视图能对「有哪些表」做响应式查询的只读视图。
@@ -66,6 +87,8 @@ function createTables(driver: Ref<WorkspaceFs | null>, root: Ref<FsRoot | null>)
       state: ref<TableLoadState>("idle"),
       message: ref(""),
       dirty: ref(false),
+      vault: ref(false),
+      envelope: ref<VaultEnvelope | null>(null),
     }
     registry.set(path, entry)
     revision.value += 1
@@ -88,6 +111,27 @@ function createTables(driver: Ref<WorkspaceFs | null>, root: Ref<FsRoot | null>)
     entry.state.value = "loading"
     try {
       const text = await fsDriver.readNote(current, path)
+      // 先问一句「这是不是密码本」：是的话走解密那条路，不是的话走普通数据表那条路。
+      // 两者的分岔只在这一处 —— 落盘形态不同，内存里的东西完全一样。
+      const envelope = readVaultEnvelope(text)
+      if (envelope !== null) {
+        entry.vault.value = true
+        entry.envelope.value = envelope
+        const key = vaultKeys.get(path)
+        if (key === undefined) {
+          // 没有密钥 = 还锁着。这是**正常状态**，不是错误：用户还没输口令。
+          entry.table.value = null
+          entry.state.value = "locked"
+          entry.message.value = "密码本已锁定"
+          return
+        }
+        entry.table.value = decryptVaultWithKey(envelope, key.key)
+        entry.state.value = "loaded"
+        entry.message.value = ""
+        return
+      }
+      entry.vault.value = false
+      entry.envelope.value = null
       entry.table.value = dt.tableFromJson(text)
       entry.state.value = "loaded"
       entry.message.value = ""
@@ -190,6 +234,9 @@ function createTables(driver: Ref<WorkspaceFs | null>, root: Ref<FsRoot | null>)
   /**
    * 把一张脏表落盘。只在有未落盘改动时写;写失败**保持脏态**（内存里那份仍是最新的,
    * 用户可以再存一次）,返回失败原因给调用方提示;成功或无事可做返回 `null`。
+   *
+   * 密码本走的是同一条路，只是**落盘的形态不同**：不是明文 JSON，是一个信封。
+   * 密钥与盐是这张表自己的（`vaultKeys`），每次写盘换新的 IV、保留原来的盐。
    */
   async function flush(path: string): Promise<string | null> {
     const entry = registry.get(path)
@@ -203,7 +250,15 @@ function createTables(driver: Ref<WorkspaceFs | null>, root: Ref<FsRoot | null>)
     const current = root.value
     if (fsDriver === null || current === null) return "工作区还没有就绪"
     try {
-      await fsDriver.writeNote(current, path, dt.tableToJson(table))
+      if (entry.vault.value) {
+        const key = vaultKeys.get(path)
+        if (key === undefined) return "密码本已锁定,没法落盘"
+        const envelope = resealVault(table, key)
+        entry.envelope.value = envelope
+        await fsDriver.writeNote(current, path, vaultText(envelope))
+      } else {
+        await fsDriver.writeNote(current, path, dt.tableToJson(table))
+      }
       entry.dirty.value = false
       return null
     } catch (error) {
@@ -262,6 +317,113 @@ function createTables(driver: Ref<WorkspaceFs | null>, root: Ref<FsRoot | null>)
     return dt.createEmptyTable(["名称", "数值"])
   }
 
+  // ---- 密码本（加密表）----
+
+  /**
+   * 把一张**普通数据表**转成密码本：用口令把它加密后原样写回。
+   *
+   * 数据一行不少 —— 转的是**落盘形态**，不是内容。用户拿已有的表当密码本时走这条。
+   * 已经��密码本的表原样放过（返回 `null`），不重复加密。
+   */
+  async function convertToVault(path: string, passphrase: string): Promise<string | null> {
+    const entry = registry.get(path)
+    if (entry === undefined) return "这张表还没读到"
+    if (entry.vault.value) return null
+    const table = entry.table.value
+    if (table === null) return "这张表还没读到"
+    if (passphrase === "") return "口令不能为空"
+    const fsDriver = driver.value
+    const current = root.value
+    if (fsDriver === null || current === null) return "工作区还没有就绪"
+    try {
+      const { envelope, key } = createVault(table, passphrase)
+      await fsDriver.writeNote(current, path, vaultText(envelope))
+      vaultKeys.set(path, key)
+      entry.vault.value = true
+      entry.envelope.value = envelope
+      entry.dirty.value = false
+      return null
+    } catch (error) {
+      return describeError(error)
+    }
+  }
+
+  /**
+   * 把一张表「认领」成密码本。
+   *
+   * 已经是密码本就原样放过 —— **不用口令**：那张表有自己的口令，用户想开的时候
+   * 自己输；插块这一步不该拦住他引用一张存在的密码本。
+   * 不是密码本就用给的口令把它转成密码本。
+   */
+  async function ensureVault(path: string, passphrase: string): Promise<string | null> {
+    const entry = entryOf(path)
+    // 还没读到就先读一次 —— 判断「是不是密码本」得看盘上那份。
+    if (entry.table.value === null && !entry.vault.value) await load(path)
+    if (entry.vault.value) return null
+    return convertToVault(path, passphrase)
+  }
+
+  /**
+   * 解锁一个密码本。返回 `null` = 成功，否则是一句人话。
+   *
+   * 口令错与文件坏在这里是**同一个结果**：GCM 的认证标签过了才会解出明文，
+   * 所以「口令错」和「密文被改过」都表现为「解不开」。告诉对方是哪一种没有意义 ——
+   * 对攻击者而言，「你猜对了口令但文件被动过」本身也是一条信息。
+   */
+  async function unlockVault(path: string, passphrase: string): Promise<string | null> {
+    const entry = registry.get(path)
+    if (entry === undefined) return "这张表还没读到"
+    const envelope = entry.envelope.value
+    if (envelope === null) return "这不是一个密码本"
+    if (passphrase === "") return "口令不能为空"
+    const derived = deriveKeyForEnvelope(passphrase, envelope)
+    try {
+      const table = decryptVaultWithKey(envelope, derived.key)
+      vaultKeys.set(path, derived)
+      entry.table.value = table
+      entry.state.value = "loaded"
+      entry.message.value = ""
+      return null
+    } catch {
+      return "口令不对 —— 这个密码本解不开"
+    }
+  }
+
+  /**
+   * 锁回去：丢掉密钥，内存里那份表也清掉。
+   *
+   * 盘上那份**没动** —— 它本来就是加密的。锁住只是让这一份数据不再在手边。
+   */
+  function lockVault(path: string): void {
+    vaultKeys.delete(path)
+    const entry = registry.get(path)
+    if (entry === undefined) return
+    entry.table.value = null
+    entry.state.value = "locked"
+    entry.message.value = "密码本已锁定"
+  }
+
+  /** 这张密码本解锁了吗。 */
+  function isVaultUnlocked(path: string): boolean {
+    return vaultKeys.has(path)
+  }
+
+  /**
+   * 盘上刚建好一个密码本：把内存里那份填上，连带记住它的信封与密钥。
+   *
+   * 与 `adopt` 同一件事的加密版本 —— 调用方（App.vue 的注册表适配层）已经写好了
+   * 盘上那份，这里只补内存状态。密钥是那次创建时派生出来的，所以**已经解锁**。
+   */
+  function adoptVault(path: string, table: DataTable, envelope: VaultEnvelope, key: VaultKey): void {
+    const entry = entryOf(path)
+    vaultKeys.set(path, key)
+    entry.table.value = table
+    entry.vault.value = true
+    entry.envelope.value = envelope
+    entry.state.value = "loaded"
+    entry.message.value = ""
+  }
+
   return {
     revision,
     references,
@@ -279,7 +441,13 @@ function createTables(driver: Ref<WorkspaceFs | null>, root: Ref<FsRoot | null>)
     dirtyPaths,
     create,
     adopt,
+    adoptVault,
     defaultTable,
+    unlockVault,
+    lockVault,
+    isVaultUnlocked,
+    ensureVault,
+    convertToVault,
     /** 序列化 —— 工作区新建数据表时用它写初始内容。 */
     toJson: (table: DataTable): string => dt.tableToJson(table),
     isTablePath: (path: string): boolean => isTableFile(path),

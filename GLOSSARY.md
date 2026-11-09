@@ -34,9 +34,10 @@ The atomic unit a Note is made of. Blocks are a flat list, not a tree.
 _Avoid_: Element, node, item, paragraph
 
 **Block type**:
-One of twenty-eight identifiers. Fourteen are *textual* — they carry body content. Fourteen are
-*structural* and carry their own fields: `image`, `table`, `mermaid`, `datatable`,
-`gallery`, `bookmark`, `kanban`, `ledger`, `stat`, `subscription`, `playlist`, `chat`, `layout`, `html`.
+One of thirty identifiers. Fourteen are *textual* — they carry body content. Sixteen are
+*structural* and carry their own fields: `image`, `video`, `table`, `mermaid`, `datatable`,
+`gallery`, `bookmark`, `kanban`, `ledger`, `stat`, `subscription`, `playlist`, `vault`, `chat`,
+`layout`, `html`.
 _Avoid_: Kind, variant, tag
 
 **Textual block**:
@@ -151,7 +152,8 @@ _Avoid_: Normalised form, sanitised runs
 A workspace file holding structured records — a column list plus a row list — stored as JSON
 in a `.tbl` file. It is a document in its own right, not an attachment: its path is a
 workspace path like a Note's, it gets its own Tab, and it can be pointed at by any number of
-Notes at once.
+Notes at once. A **vault**'s table is the one exception to "stored as JSON": it is stored as an
+**encrypted envelope** instead, which changes the file's form and nothing about the data model.
 _Avoid_: Database, sheet, spreadsheet, csv, dataset
 
 **Data table file**:
@@ -319,6 +321,18 @@ follow it. On disk it travels as a snapshot **with** a pointer (`data-ledger` + 
 numbers in the `.tbl`; formatting is the view's job.
 _Avoid_: Account block, bookkeeping view, money column (there is no money column type),
 balance column in the table (it is view-derived, not a Data column)
+
+**Vault block**:
+A structural Block that renders an encrypted Data table as a list of credentials — one row per
+account, with the password masked until the eye is clicked. It points at the same `.tbl` a Data
+table block would, and stores only **field mappings** (which column is the password); an unset
+mapping falls back to name detection. The table it points at is **encrypted at rest** (ADR-0052):
+the key comes from a passphrase, lives in memory only, and is gone when the app closes. On disk
+it travels as a **pointer with no content** — the exception to the Gallery block's
+snapshot-plus-pointer rule, because a snapshot would put the credentials in plaintext into a
+file meant to be shared.
+_Avoid_: Password block, keychain block, credential block (the block is a view of an encrypted
+Data table, not a separate store), secret block (that one is deleted)
 
 **Missing Data table**:
 The state of a Data table block whose path no longer resolves. It is a normal, recoverable

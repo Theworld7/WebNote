@@ -462,6 +462,8 @@ const SEARCH =
       @reselect="(path: string) => rebindTable(props.block.id, path)"
     />
 
+    <TableRefNotice v-else-if="state === 'locked'" kind="locked" label="歌单" />
+
     <TableRefNotice v-else-if="table === null" kind="loading" label="歌单" />
 
     <template v-else>

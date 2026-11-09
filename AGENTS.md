@@ -49,9 +49,11 @@
   才弹菜单、按压态是自己算的 `data-pressed` 而非 `:active`、底色在 500ms 里推到
   `muted-strong` 且菜单开着时整行保持(0049)、导出文件的字号是 rem、根字号留给读者不动、
   窄屏(≤640)只换字号与三处宫格列数而不改根字号、标题整套按 16/14 等比放大(0050)、
-  块类型标识取 `@lucide/vue` 的图标组件(24 网格 / stroke 2 / 14px)、不再挑等宽字符(0051)。
+  块类型标识取 `@lucide/vue` 的图标组件(24 网格 / stroke 2 / 14px)、不再挑等宽字符(0051)、
+  密码本块是一张**加密落盘**的数据表(口令派生密钥且只活在内存里、导出只留指针)、旧密钥块
+  整个删掉(读到旧文件只降级成提示、不把明文读回来)(0052)。
   改对应行为前先读那篇。(0029 的标签位置已被 0033 取代,0034 的模态表单已被 0035 取代,0043
-  里「导出字号是 px」那段已被 0050 取代)
+  里「导出字号是 px」那段已被 0050 取代,0047「密钥块只是显示开关」已被 0052 取代)
 
 ## 验证
 
@@ -61,7 +63,7 @@
    用类型收窄和类型守卫表达。
 2. **自检页**:`design/*.html` 是能直接跑的回归页,每个用例输出 `OK` / `FAIL` 行。
    `pnpm dev` 后访问 `/design/<名字>.html`;其中 `drag-check`、`typography-check`、
-   `data-table-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-date-check`、`kanban-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check`、`tab-housing-check`、`undo-paint-check`、`table-ref-check`、`context-menu-check`、`secret-check`、`sidebar-overlay-check` 含顶层 `await`,要抓结果用
+   `data-table-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-date-check`、`kanban-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check`、`tab-housing-check`、`undo-paint-check`、`table-ref-check`、`context-menu-check`、`vault-check`、`sidebar-overlay-check` 含顶层 `await`,要抓结果用
    `node design/cdp-dump.mjs http://localhost:1420/design/<名字>.html`。
    **挂进来的是复用组件时,把 `App.vue` 提供的上下文补齐** —— `provideWorkspace()`、
    `provideSettings()`、`TooltipProvider`(提示气泡走 reka-ui 的注入)。缺一层不会报在结果里:
@@ -142,8 +144,9 @@
 (`lib/monaco-theme.ts`)→ `html-drawer-check`;动右键菜单(网页菜单的拦截与 Monaco 例外、
 `FileMenuItems` 的三处入口、`useTreeDialogs` 的共享目标,见 ADR-0046)或触摸长按与按压底色
 (`composables/usePressHold.ts`、`lib/touch.ts` 的 `LONG_PRESS_MS`,见 ADR-0049)→
-`context-menu-check`(挂真实侧栏与标签,走 CDP 驱动);动密钥块(掩码 / 明文切换、复制、导出属性,见 ADR-0047)→
-`secret-check`(挂真实编辑器 + OPFS,走 CDP)与 `parse-check` 的密钥往返样本;动 Monaco 的
+`context-menu-check`(挂真实侧栏与标签,走 CDP 驱动);动密码本块(掩码 / 明文切换、复制、锁与解锁、加密落盘、导出只留指针,见 ADR-0052)→
+`vault-check`(挂真实编辑器 + OPFS,走 CDP:真加解密 + 锁屏 + 明文不上屏 + 盘上是密文)与
+`parse-check` 的密码本往返样本与旧密钥块降级样本;动 Monaco 的
 按需加载(块内编辑态与源码抽屉的 loading 态,见 ADR-0017)→ `code-edit-check` 与
 `html-drawer-check` 的首次打开用例。
 自检页清单见 README「自检」一节,每页具体断言读该页脚本里的 `check(...)` 用例。

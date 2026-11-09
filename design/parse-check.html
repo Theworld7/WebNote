@@ -121,14 +121,10 @@ const BUILTIN = [
     '<div data-chat>\n  <p data-role="you">你好，我叫小明</p>\n  <p data-role="agent">你好！第一行<br>第二行</p>\n  <p data-role="you"></p>\n</div>',
   ],
   [
-    // 密钥块的真值在属性里、可见文本只有掩码。往返要逐字符带回（值里带 `& < "` 时
-    // 靠实体转义那一环），可见文本那两行是快照，解析端不读它。
-    "内置：密钥块（属性往返，可见文本是掩码）",
-    '<div class="note-secret" data-secret="sk-a&amp;b&lt;c&quot;d" data-name="OpenAI" data-note="2026 换">\n' +
-      '  <p class="note-secret-name">OpenAI</p>\n' +
-      '  <p class="note-secret-value">••••••••</p>\n' +
-      '  <p class="note-secret-note">2026 换</p>\n' +
-      '</div>',
+    // 密码本块**只留指针**：内容在加密的 `.tbl` 里，不在这个文件里（ADR-0052）。
+    // 往返要带回路径与密码列的列 id —— 属性里的实体转义那一环照样要过。
+    "内置：密码本块（只留指针，不带内容）",
+    '<div class="note-vault" data-vault="凭据.tbl" data-vault-column="col-7">密码本（内容未导出）</div>',
   ],
 ]
 
@@ -152,11 +148,22 @@ check(
   `本地 ${paths.length} 篇，内置 ${BUILTIN.length} 篇`,
 )
 
-// 密钥块的安全约定：**明文只许待在属性里**。导出的 HTML 双击就能用浏览器打开，
-// 可见文本是唯一会被人看见的那一层，那里出现明文就等于没有掩码。
-const secretExported = blocksToHtml(parseHtml('<div data-secret="sk-plain-123" data-name="K"></div>'))
-check("密钥块：可见文本是掩码", secretExported.includes("••••••••"), secretExported)
-check("密钥块：明文只在 data-secret 里", !secretExported.replace(/data-secret="sk-plain-123"/, "").includes("sk-plain-123"), secretExported)
+// 密码本块的安全约定：**导出的 HTML 里不能有凭据**。
+// 那份文件双击就能用浏览器打开、随手就能转发，所以凭据的明文绝不能落在里面 ——
+// 指针可以，内容不行。
+const vaultExported = blocksToHtml(parseHtml('<div data-vault="凭据.tbl" data-vault-column="col-7">密码本（内容未导出）</div>'))
+check("密码本块：导出里留着指针", vaultExported.includes("凭据.tbl"), vaultExported)
+check("密码本块：导出里没有内容", !vaultExported.includes("col-7\">密码本") || vaultExported.includes("data-vault-column=\"col-7\""), vaultExported)
+check("密码本块：导出里只有一句说明", vaultExported.includes("密码本（内容未导出）"), vaultExported)
+
+// 旧版的密钥块已经**整个删掉**了（ADR-0047）。老文件上可能还有 —— 解析端要认出来，
+// 但**不把明文读回来**：读回来就等于「打开一篇老笔记」这个动作把密钥摊开了。
+// 它降级成一段提示文字。
+const legacyParsed = parseHtml('<div class="note-secret" data-secret="sk-plain-123" data-name="K"></div>')
+check("旧密钥块降级成提示而不是密钥块", legacyParsed.length === 1 && legacyParsed[0].type === "callout", JSON.stringify(legacyParsed.map((b) => b.type)))
+check("旧密钥块的明文没有被读回内存", !JSON.stringify(legacyParsed).includes("sk-plain-123"), JSON.stringify(legacyParsed))
+const legacyReExported = blocksToHtml(legacyParsed)
+check("旧密钥块再导出时不再带明文", !legacyReExported.includes("sk-plain-123"), legacyReExported)
 
 for (const path of paths) {
   const parsed = parseHtml(SOURCES[path])

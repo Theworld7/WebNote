@@ -52,13 +52,13 @@ import type {
   MermaidBlock,
   PlaylistBlock,
   PlaylistSource,
-  SecretBlock,
   StatBlock,
   SubscriptionBlock,
   TableBlock,
   TableCell,
   TextualBlock,
   TextualBlockType,
+  VaultBlock,
   VideoBlock,
 } from "@/types/workspace"
 import type { SubscriptionRole } from "@/lib/subscription"
@@ -68,6 +68,7 @@ import { cloneRuns, runsText, textToRuns } from "@/lib/inline"
 import { createLedgerPreset } from "@/lib/ledger"
 import { createPlaylistPreset, createPlaylistSource } from "@/lib/playlist"
 import { createSubscriptionPreset } from "@/lib/subscription"
+import { createVaultPreset } from "@/lib/vault"
 import { cloneCell } from "@/lib/table"
 
 /**
@@ -132,11 +133,10 @@ export const BLOCK_TYPES = [
   { type: "subscription", group: "媒体与数据", icon: RefreshCwIcon, label: "订阅", initials: "dy" },
   // 紧挨 subscription：歌单块同样吃数据表的数据,把每行排成一行曲目。
   { type: "playlist", group: "媒体与数据", icon: ListMusicIcon, label: "歌单", initials: "gd" },
-  // 紧挨 kanban 之后、布局压轴之前:聊天记录是内容块,不是版面级重结构。
+  // 紧挨 playlist：密码本块也吃数据表的数据,只是那张表在盘上是**加密**的（ADR-0052）。
+  { type: "vault", group: "媒体与数据", icon: KeyRoundIcon, label: "密码本", initials: "mmb" },
+  // 紧挨 vault 之后、布局压轴之前:聊天记录是内容块,不是版面级重结构。
   { type: "chat", group: "媒体与数据", icon: MessagesSquareIcon, label: "聊天记录", initials: "ltjl" },
-  // 紧挨 chat:两者都是「自成一体的内容块」,不吃数据表。密钥块摆在内容块族末尾、
-  // 容器块之前 —— 它是这一族里唯一会把东西藏起来的那个。
-  { type: "secret", group: "媒体与数据", icon: KeyRoundIcon, label: "密钥", initials: "my" },
   // 压轴：容器块是「版面级」的重结构,跟在内容块族的最后。
   { type: "layout", group: "版面", icon: Columns2Icon, label: "布局", initials: "bj" },
 ] satisfies readonly BlockTypeMenuEntry[]
@@ -257,8 +257,8 @@ export function isTextualBlock(block: Block): block is TextualBlock {
     block.type !== "stat" &&
     block.type !== "subscription" &&
     block.type !== "playlist" &&
+    block.type !== "vault" &&
     block.type !== "chat" &&
-    block.type !== "secret" &&
     block.type !== "layout" &&
     block.type !== "html"
   )
@@ -271,7 +271,7 @@ export function isTextualBlock(block: Block): block is TextualBlock {
  * 这张表派生。serialize / parse 各自的读写分派虽仍逐块列出（编译器靠穷尽性兜住），
  * 但**凡是凭「有没有 path」区分的行为**都必须走这张表，不再各持一份会腐烂的清单。
  */
-export const REFERENCE_BLOCK_TYPES = ["datatable", "gallery", "bookmark", "kanban", "ledger", "stat", "subscription", "playlist"] as const
+export const REFERENCE_BLOCK_TYPES = ["datatable", "gallery", "bookmark", "kanban", "ledger", "stat", "subscription", "playlist", "vault"] as const
 export type ReferenceBlockType = (typeof REFERENCE_BLOCK_TYPES)[number]
 
 /** 带 `path` 指针的引用块本体 —— `isReferenceBlock` 收窄后的结果。 */
@@ -480,11 +480,11 @@ export function createChatBlock(messages: ChatMessage[] = []): ChatBlock {
 }
 
 /**
- * 造密钥块。缺省三个字段全空 = 刚插进来的一张空白卡，名字那一格就是入口。
+ * 造密码本块。缺省不指列 —— 视图按列名「密码」自动认（ADR-0052）。
  * 带全参数的调用来自解析器 —— 盘上属性宽容读取后的值在这里收口。
  */
-export function createSecretBlock(name = "", value = "", note = ""): SecretBlock {
-  return { id: createBlockId(), type: "secret", name, value, note }
+export function createVaultBlock(path = "", passwordColumn = ""): VaultBlock {
+  return { id: createBlockId(), type: "vault", path, passwordColumn }
 }
 
 /** 造统计块。缺省不指列 —— 视图显示提示态引导去设置;解析器带全参数调用在此收口。 */
@@ -574,9 +574,9 @@ export interface ReferenceInsertSpec {
 /**
  * 引用块的建造表 —— 键就是 `REFERENCE_BLOCK_TYPES`，漏一种或写错名字都编译不过。
  *
- * 两种块带预置表：订阅（十列参考表）与账目（日期 / 摘要 / 收入 / 支出）。
- * 它们只在**真的新建**时指列；撞名引用别人的表时列 id 对不上，走 `create` 的留空形态，
- * 交给视图的自动识别 / 「未设置」提示。
+ * 三种块带预置表：订阅（十列参考表）、账目（日期 / 摘要 / 收入 / 支出）与密码本
+ * （账号 / 密码 / 图标 / 网站 / 名称）。它们只在**真的新建**时指列；撞名引用别人的表时
+ * 列 id 对不上，走 `create` 的留空形态，交给视图的自动识别 / 「未设置」提示。
  */
 export const REFERENCE_INSERT_SPEC: Record<ReferenceBlockType, ReferenceInsertSpec> = {
   datatable: { create: (path) => createDataTableBlock(path) },
@@ -596,6 +596,13 @@ export const REFERENCE_INSERT_SPEC: Record<ReferenceBlockType, ReferenceInsertSp
     preset: () => {
       const preset = createSubscriptionPreset()
       return { table: preset.table, create: (path) => createSubscriptionBlock(path, preset.roles) }
+    },
+  },
+  vault: {
+    create: (path) => createVaultBlock(path),
+    preset: () => {
+      const preset = createVaultPreset()
+      return { table: preset.table, create: (path) => createVaultBlock(path, preset.passwordColumn) }
     },
   },
   ledger: {
@@ -635,8 +642,8 @@ export function createBlock(type: BlockType, text = ""): Block {
   if (type === "stat") return createStatBlock()
   if (type === "subscription") return createSubscriptionBlock()
   if (type === "playlist") return createPlaylistBlock()
+  if (type === "vault") return createVaultBlock()
   if (type === "chat") return createChatBlock()
-  if (type === "secret") return createSecretBlock()
   if (type === "layout") return createLayoutBlock()
   if (type === "html") return createHtmlBlock()
   return createTextualBlock(type, textToRuns(text))
@@ -658,7 +665,7 @@ export function retypeBlock(block: Block, type: BlockType): Block {
     const source = isTextualBlock(block) ? runsText(block.runs) : blockText(block)
     return type === "mermaid" ? { ...createMermaidBlock(), source } : { ...createHtmlBlock(), source }
   }
-  if (type === "image" || type === "video" || type === "table" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat" || type === "subscription" || type === "playlist" || type === "chat" || type === "secret" || type === "layout") {
+  if (type === "image" || type === "video" || type === "table" || type === "datatable" || type === "gallery" || type === "bookmark" || type === "kanban" || type === "ledger" || type === "stat" || type === "subscription" || type === "playlist" || type === "vault" || type === "chat" || type === "layout") {
     return createBlock(type)
   }
   if (!isTextualBlock(block)) return createTextualBlock(type, textToRuns(blockText(block)))
@@ -677,7 +684,7 @@ export function retypeBlock(block: Block, type: BlockType): Block {
  */
 export function cloneBlock(block: Block, id: string): Block {
   // 平坦形态浅拷即可：账目块与数据表 / 书签 / 统计一样全是原始值字段。
-  if (block.type === "image" || block.type === "video" || block.type === "mermaid" || block.type === "html" || block.type === "secret" || block.type === "datatable" || block.type === "bookmark" || block.type === "ledger" || block.type === "stat" || block.type === "subscription") {
+  if (block.type === "image" || block.type === "video" || block.type === "mermaid" || block.type === "html" || block.type === "vault" || block.type === "datatable" || block.type === "bookmark" || block.type === "ledger" || block.type === "stat" || block.type === "subscription") {
     return { ...block, id }
   }
   // 歌单的 sources 是对象数组：整体替换,但拷贝不该共享同一批绑定项。
@@ -761,9 +768,9 @@ export function blockText(block: Block): string {
   if (block.type === "chat") {
     return block.messages.map((message) => message.text).join("\n")
   }
-  // 密钥块只取名称与备注 —— **值不进投影**。字数统计与将来的任何摘要都走这条路,
-  // 让一串凭据摊进去等于把它拉进「读的东西」那一类,而它不是。
-  if (block.type === "secret") return `${block.name} ${block.note}`.trim()
+  // 密码本块只取路径 —— 凭据在加密的 `.tbl` 里,投影拿不到它,也不该为此去读盘
+  // （字数统计是同步的纯函数）。取路径是这里唯一诚实的选择。
+  if (block.type === "vault") return block.path
   if (block.type === "table") {
     return block.rows.map((row) => row.map((cell) => runsText(cell.runs)).join(" ")).join("\n")
   }

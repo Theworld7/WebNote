@@ -90,6 +90,10 @@ export function rebindBlock(block: Block, path: string): Block | null {
       }
     }
 
+    // 密码本块的密码列 id 属于旧表 —— 换表后清空，回到「按列名自动认」那一档。
+    case "vault":
+      return { ...block, path, passwordColumn: "" }
+
     default: {
       // 新增引用块类型时这里编译不过 —— 漏一种就是漏一条恢复出路。
       const unhandled: never = block

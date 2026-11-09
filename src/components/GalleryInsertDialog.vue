@@ -25,7 +25,7 @@ import { fileName } from "@/lib/paths"
  */
 const props = defineProps<{
   /** 落哪种引用块。 */
-  kind: "gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "subscription" | "playlist"
+  kind: "gallery" | "bookmark" | "kanban" | "ledger" | "stat" | "subscription" | "playlist" | "vault"
   /** 插入位置(插入模式)。null 表示不是插入模式。与 `retypeId` 同时为 null 即关闭。 */
   index: number | null
   /** 转换模式:待转换的块 id。null 表示不是转换模式。 */
@@ -57,6 +57,8 @@ watch(open, async (value) => {
   if (!value) return
   selection.value = NEW
   newName.value = defaultName.value
+  passphrase.value = ""
+  passphraseConfirm.value = ""
   await nextTick()
   nameInput.value?.$el?.focus()
 })
@@ -65,21 +67,39 @@ const tableOptions = computed(() =>
   tablePaths.value.map((path) => ({ path, label: fileName(path).replace(/\.tbl$/i, "") })),
 )
 
-const KIND_LABEL = { gallery: "画册", bookmark: "书签", kanban: "看板", ledger: "账目", stat: "统计卡", subscription: "订阅", playlist: "歌单" } as const
+const KIND_LABEL = { gallery: "画册", bookmark: "书签", kanban: "看板", ledger: "账目", stat: "统计卡", subscription: "订阅", playlist: "歌单", vault: "密码本" } as const
+
+/**
+ * 密码本的口令与它的确认。
+ *
+ * **两个字段都要** —— 打错一个字，那份数据就永远读不出来了（ADR-0052：口令不落盘，
+ * 忘了就没有找回的路径）。所以这里宁可多敲一遍。
+ */
+const passphrase = ref("")
+const passphraseConfirm = ref("")
+
+/** 两个口令不一致时的一句话。空串 = 一致（或是还没填）。 */
+const passphraseMismatch = computed(() => {
+  if (passphrase.value === "" || passphraseConfirm.value === "") return ""
+  return passphrase.value === passphraseConfirm.value ? "" : "两次输入的口令不一致"
+})
 
 /** 确认。插入落了块、或转换真的换了块,才关。 */
 async function confirm() {
   const target = selection.value === NEW ? "" : selection.value
   const stem = newName.value.trim()
 
+  // 密码本：口令不一致就别往下走 —— 这一步拦不住，后面就再也读不回来了。
+  if (props.kind === "vault" && passphraseMismatch.value !== "") return
+
   if (props.retypeId !== null) {
-    const converted = await convertBlockToFileType(props.retypeId, props.kind, target, stem)
+    const converted = await convertBlockToFileType(props.retypeId, props.kind, target, stem, passphrase.value)
     if (converted !== "") emit("close")
     return
   }
 
   if (props.index === null) return
-  const blockId = await insertReferenceBlock(props.index, props.kind, target, stem)
+  const blockId = await insertReferenceBlock(props.index, props.kind, target, stem, passphrase.value)
   if (blockId !== "") emit("close")
 }
 </script>
@@ -128,6 +148,36 @@ async function confirm() {
         class="h-8 text-13"
         @keydown.enter.prevent="confirm"
       />
+
+      <!--
+        密码本要多两个字段：**口令**与**确认口令**。
+        引用一张**已有的密码本**时不用填（那张表有自己的口令，要开的时候自己输）；
+        新建、或把一张普通表转成密码本时才用得上 —— 那两种情况口令是必须的。
+      -->
+      <template v-if="props.kind === 'vault'">
+        <p class="mt-3 text-11 text-muted-foreground">
+          新建密码本（或把选中的普通表转成密码本）需要一个口令。口令不保存在应用里 ——
+          忘了，这张表就再也读不出来了。
+        </p>
+        <Input
+          v-model="passphrase"
+          type="password"
+          placeholder="口令"
+          class="mt-1.5 h-8 text-13"
+          autocomplete="new-password"
+          spellcheck="false"
+        />
+        <Input
+          v-model="passphraseConfirm"
+          type="password"
+          placeholder="再输一遍"
+          class="mt-1.5 h-8 text-13"
+          autocomplete="new-password"
+          spellcheck="false"
+          @keydown.enter.prevent="confirm"
+        />
+        <p v-if="passphraseMismatch !== ''" class="mt-1 text-11 text-destructive">{{ passphraseMismatch }}</p>
+      </template>
 
       <AlertDialogFooter>
         <AlertDialogCancel as-child>

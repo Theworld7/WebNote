@@ -1,5 +1,5 @@
 import type { Block, BookmarkBlock, ChatMessage, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, LedgerBlock, LedgerGroupMode, PlaylistBlock, StatBlock, SubscriptionBlock, TableAlign, TableBlock, TableCell, TextualBlockType, VideoBlock } from "@/types/workspace"
-import { createBookmarkBlock, createChatBlock, createGalleryBlock, createHtmlBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createLedgerBlock, createMermaidBlock, createPlaylistBlockFrom, createSecretBlock, createStatBlock, createSubscriptionBlock, createTableBlock, createTextualBlock, createVideoBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
+import { createBookmarkBlock, createChatBlock, createGalleryBlock, createHtmlBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createLedgerBlock, createMermaidBlock, createPlaylistBlockFrom, createStatBlock, createSubscriptionBlock, createTableBlock, createTextualBlock, createVaultBlock, createVideoBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
 import { STAT_PRECISION_DEFAULT, STAT_PRECISION_OPTIONS } from "@/lib/data-table"
 import { SUBSCRIPTION_ROLE_ATTRS, SUBSCRIPTION_ROLES } from "@/lib/subscription"
 import type { SubscriptionRole } from "@/lib/subscription"
@@ -271,9 +271,14 @@ function parseBlockElement(element: Element, state: ParseState, depth: number): 
         state.blocks.push(parseChat(element))
         return
       }
-      // 密钥块以 data-secret 指针认领（真值就在这个属性里，可见文本是掩码）。
+      // 密码本块以 data-vault 指针认领（内容在加密的 `.tbl` 里，不在这个文件里）。
+      if (element.hasAttribute("data-vault")) {
+        state.blocks.push(parseVault(element))
+        return
+      }
+      // 旧版密钥块（ADR-0047）已删除：认出来是为了**降级**，不是为了把明文读回来。
       if (element.hasAttribute("data-secret")) {
-        state.blocks.push(parseSecret(element))
+        state.blocks.push(parseLegacySecret())
         return
       }
       // 布局块（ADR-0007）以 data-layout 指针认领；没有指针的 div 照旧穿透 ——
@@ -459,17 +464,30 @@ function parseChat(element: Element): Block {
 }
 
 /**
- * 密钥块：三个字段全在属性里，子节点是渲染出来的快照，一律不读。
+ * 密码本块：指针与密码列都在属性里，子节点是给人看的那句话，一律不读。
  *
- * 宽容口径与其它块一致：属性缺失归空串，不猜。于是手工把可见文本改掉、或者把
- * 属性写坏了，坏掉的那一段只是变成空值，不会解析出一段来历不明的正文。
+ * 宽容口径与其它块一致：属性缺失归空串，不猜。
  */
-function parseSecret(element: Element): Block {
-  return createSecretBlock(
-    element.getAttribute("data-name") ?? "",
-    element.getAttribute("data-secret") ?? "",
-    element.getAttribute("data-note") ?? "",
+function parseVault(element: Element): Block {
+  return createVaultBlock(
+    element.getAttribute("data-vault") ?? "",
+    element.getAttribute("data-vault-column") ?? "",
   )
+}
+
+/**
+ * 旧版的密钥块（ADR-0047）已经**整个删掉**了 —— 凭据不再以明文躺在 `.html` 的属性里。
+ *
+ * 但盘上可能还有那样的文件：属性 `data-secret` 里就是明文密钥。这里**不把它读回来** ——
+ * 读回来就等于把明文又搬回内存，于是「打开一篇老笔记」这个动作把它重新摊开了。
+ * 所以旧块降级成一段提示文字：原值不可再读，文件里那份明文在下次保存时随块一起消失。
+ *
+ * 这是一次**有意的数据丢失**，换来的是「打开老笔记不会把密钥摊到屏幕上」。
+ */
+function parseLegacySecret(): Block {
+  const block = createTextualBlock("callout")
+  block.runs = textToRuns("这里原来有一个密钥块，已被移除（原值不可再读）")
+  return block
 }
 
 function parseTable(table: HTMLTableElement): TableBlock {

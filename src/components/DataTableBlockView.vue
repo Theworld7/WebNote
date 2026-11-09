@@ -163,6 +163,13 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
     @reselect="(path: string) => rebindTable(props.block.id, path)"
   />
 
+  <!-- 引用的是密码本且锁着：说清去哪开，而不是停在「正在读取」。 -->
+  <TableRefNotice
+    v-else-if="state === 'locked'"
+    kind="locked"
+    label="引用块"
+  />
+
   <!-- 还没读完。 -->
   <TableRefNotice
     v-else-if="table === null"

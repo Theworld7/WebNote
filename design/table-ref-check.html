@@ -119,9 +119,9 @@ check("loading 态没有下拉", select() === null)
 
 const OLD = "笔记/已删掉的.tbl"
 
-const missPath = ["datatable", "gallery", "bookmark", "kanban", "ledger", "stat", "subscription", "playlist"]
+const missPath = ["datatable", "gallery", "bookmark", "kanban", "ledger", "stat", "subscription", "playlist", "vault"]
   .filter((type) => rebindBlock({ ...createBlock(type), path: OLD }, TABLE_A)?.path !== TABLE_A)
-check("八种引用块都换得动 path", missPath.length === 0, missPath.join(","))
+check("九种引用块都换得动 path", missPath.length === 0, missPath.join(","))
 check("非引用块不接（返回 null，调用方据此不落脏）", rebindBlock(createBlock("text"), TABLE_A) === null)
 
 const bookmark = { ...createBlock("bookmark"), path: OLD, nameColumn: "c1", urlColumn: "c2", iconColumn: "c3", groupBy: "c4", columns: 3 }
@@ -167,6 +167,11 @@ check("歌单：其它绑定项原样", toNewTable.sources[1].path === TABLE_A &
 const toBoundTable = rebindBlock(playlist, TABLE_A)
 check("歌单：换到已绑的表就丢掉失效项（不冒出两个同名标签）", toBoundTable.sources.length === 1 && toBoundTable.sources[0].path === TABLE_A)
 check("歌单：切到已绑的表不动它的映射", toBoundTable.sources[0].titleColumnId === "ta")
+const vaultBefore = { ...createBlock("vault"), path: OLD, passwordColumn: "col-7" }
+const vaultAfter = rebindBlock(vaultBefore, TABLE_A)
+check("密码本：换表后密码列 id 清空（列 id 属于旧表）", vaultAfter?.passwordColumn === "", String(vaultAfter?.passwordColumn))
+check("密码本：换表后 path 换掉", vaultAfter?.path === TABLE_A, String(vaultAfter?.path))
+
 check("歌单：原块的绑定没被改动（纯函数）", playlist.sources.length === 2 && playlist.sources[0].path === OLD)
 
 lines.push(`\n${failed === 0 ? "全部通过" : "有失败"}：${passed} 通过 / ${failed} 失败`)

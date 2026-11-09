@@ -113,15 +113,11 @@ function blockToMarkdown(block: Block, lookup: DataTableLookup): string {
       return statMarkdown(block, lookup(block.path))
     case "chat":
       return chatMarkdown(block.messages)
-    case "secret": {
-      // 值落成一段代码围栏 —— 复制到别的工具里仍是原样的一串字符，不会被 Markdown 的
-      // 强调 / 列表语法啃掉。名称与备注照抄，掩码不进来:能写明文的地方就没必要藏。
-      const parts: string[] = []
-      if (block.name !== "") parts.push(`**${block.name}**`)
-      parts.push(fencedCode("", block.value))
-      if (block.note !== "") parts.push(escapeLineStarts(block.note))
-      return parts.join("\n\n")
-    }
+    case "vault":
+      // 密码本**不导出内容** —— 与 `.html` 导出同一个立场（ADR-0052）：凭据的明文
+      // 不该出现在一个会被复制、转发、存进网盘的文本文件里。Markdown 连属性位都没有，
+      // 藏都无处藏，所以这里只留一句说明，指着那张加密的 `.tbl`。
+      return `密码本（内容未导出，见 ${block.path}）`
     case "layout":
       return layoutMarkdown(block.cells, lookup)
     case "html":

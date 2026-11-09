@@ -1,9 +1,9 @@
 import type { InjectionKey, Ref } from "vue"
-import type { Block, BlockSettingsPatch, BlockType, ChatMessage, CloseStrategy, CreateTarget, FileNode, InlineRun, LayoutMode, OpenTab, PlaylistSource, SecretBlock, TableAlign, TableCell, TreeTarget } from "@/types/workspace"
+import type { Block, BlockSettingsPatch, BlockType, ChatMessage, CloseStrategy, CreateTarget, FileNode, InlineRun, LayoutMode, OpenTab, PlaylistSource, TableAlign, TableCell, TreeTarget } from "@/types/workspace"
 import type { FsRoot, RestoreOffer, WorkspaceFs } from "@/lib/fs"
 import { computed, inject, provide, ref, watch } from "vue"
 import { adoptScrollTops, readSession, scrollTopsSnapshot, sessionKeyOf, writeSession } from "@/composables/useSession"
-import { CELL_EXCLUDED_TYPES, REFERENCE_INSERT_SPEC, cloneBlock, countChars, createBlock, createBlockId, isReferenceBlock, isTextualBlock, refPathsOf, retypeBlock, snapshotBlock } from "@/lib/blocks"
+import { CELL_EXCLUDED_TYPES, REFERENCE_INSERT_SPEC, cloneBlock, countChars, createBlock, createBlockId, createVaultBlock, isReferenceBlock, isTextualBlock, refPathsOf, retypeBlock, snapshotBlock } from "@/lib/blocks"
 import type { ReferenceBlock, ReferenceBlockType } from "@/lib/blocks"
 import type { DataTable } from "@/types/data-table"
 import { describeError } from "@/lib/errors"
@@ -20,6 +20,7 @@ import type { ExportSummary, ImportSummary } from "@/lib/markdown"
 import { bytesToBlob, imageDataUriOf, imageMimeOf } from "@/lib/image"
 import { openExternalUrl } from "@/lib/open-external"
 import { createPlaylistPreset, createPlaylistSource } from "@/lib/playlist"
+import { createVaultPreset } from "@/lib/vault"
 import { rebindBlock } from "@/lib/rebind"
 import { MARKDOWN_EXTENSION, NOTE_EXTENSION, TABLE_EXTENSION, assetsPathOfNote, checkName, defaultExpanded, fileStem, isMarkdownFile, isNoteFile, isTableFile } from "@/lib/fs/policy"
 import * as table from "@/lib/table"
@@ -120,6 +121,17 @@ export interface TableRegistry {
   reload(path: string): Promise<void>
   /** 新建一张 `.tbl`。`initial` 缺省时由注册表给默认内容。 */
   create(driver: WorkspaceFs, root: FsRoot, path: string, initial?: DataTable): Promise<void>
+  /**
+   * 新建一张**加密的** `.tbl`（密码本）。落盘的是信封，明文只在内存里。
+   * 新建的密码本立刻是解锁的 —— 用户刚设的口令就是它的口令。
+   */
+  createVault(driver: WorkspaceFs, root: FsRoot, path: string, initial: DataTable, passphrase: string): Promise<void>
+  /**
+   * 把一张表「认领」成密码本：已经是密码本就原样放过（不用口令）；
+   * 不是就用地给的口令把它**转成**密码本，数据一行不少。
+   * 返回错误描述；`null` 表示成了。
+   */
+  ensureVault(path: string, passphrase: string): Promise<string | null>
   /** 当前有未落盘改动的表。在 `computed` 里读会跟着变。 */
   dirtyPaths(): string[]
 }
@@ -2121,7 +2133,9 @@ function createWorkspace() {
    * 返回新块的 id，调用方（菜单 / 对话框）拿它做聚焦；解析不出路径时返回空串、不插块
    * （没有工作区、写盘失败），原文档保持不动。
    */
-  async function insertReferenceBlock(index: number, type: ReferenceBlockType, target = "", stem = ""): Promise<string> {
+  async function insertReferenceBlock(index: number, type: ReferenceBlockType, target = "", stem = "", passphrase = ""): Promise<string> {
+    // 密码本有自己的落盘规则（加密 + 口令），走自己那条路。
+    if (type === "vault") return insertVaultBlock(index, target, stem, passphrase)
     const blocks = activeDocument.value
     const spec = REFERENCE_INSERT_SPEC[type]
 
@@ -2143,6 +2157,77 @@ function createWorkspace() {
   }
 
   /**
+   * 插一个**密码本块**。
+   *
+   * 与其它引用块有两处不同，都是「密码本在盘上是加密的」这件事逼出来的：
+   *
+   * 1. **口令是必填的**（新建时）。密码本没有口令就是一堆解不开的字节，
+   *    所以这里不提供「先建着，回头再设」的路径 —— 那等于建出一份谁也读不了的数据。
+   * 2. **新建时不撞名复用**。别处撞名会引用已有那张表（`客户.html` 就认准 `客户.tbl`），
+   *    密码本不行：同名文件若是一张**普通**表，复用它就等于把用户没要求加密的数据
+   *    悄悄改了落盘形态。宁可拒绝，让他换个名字 —— 这与 ADR-0002「重名直接拒绝」同一条立场。
+   *    用户**明确挑了**那张表时才会转成密码本，那是另一条路（`ensureVault`）。
+   *
+   * 返回新块的 id；失败返回空串，原文档保持不动，失败原因写进 `fsError`。
+   */
+  async function insertVaultBlock(index: number, target: string, stem: string, passphrase: string): Promise<string> {
+    const blocks = activeDocument.value
+    const prepared = await prepareVault(target, stem, passphrase)
+    if (prepared === null) return ""
+
+    const block = createVaultBlock(prepared.path, prepared.passwordColumn)
+    const at = Math.min(Math.max(index, 0), blocks.length)
+    blocks.splice(at, 0, block)
+    markDirty()
+    return block.id
+  }
+
+  /**
+   * 备好一个密码本块要指的那张表。
+   *
+   * 两种落点：
+   * - `target` 为空 → **新建**一张密码本表（要口令；同名文件已存在就拒绝）。
+   * - `target` 非空 → 引用一张已有的表：它得已经是密码本；不是的话就地转成密码本
+   *   （数据一行不少，转的是落盘形态）。
+   *
+   * 返回 `null` = 没成，失败原因写进 `fsError`。
+   */
+  async function prepareVault(
+    target: string,
+    stem: string,
+    passphrase: string,
+  ): Promise<{ path: string; passwordColumn: string } | null> {
+    const tables = registry.value
+    if (tables === null) {
+      fsError.value = "数据表注册表未接上"
+      return null
+    }
+
+    if (target !== "") {
+      const failure = await tables.ensureVault(target, passphrase)
+      if (failure !== null) {
+        fsError.value = failure
+        return null
+      }
+      // 已有表的列 id 不在这儿（可能是别人的表），密码列留空 → 视图按列名自动认。
+      return { path: target, passwordColumn: "" }
+    }
+
+    if (passphrase === "") {
+      fsError.value = "新建密码本需要一个口令 —— 忘了口令，这份数据就再也读不出来了"
+      return null
+    }
+    const preset = createVaultPreset()
+    const resolved = await resolveDataTableForNote(activePath.value, stem, preset.table, passphrase)
+    if (resolved.path === "") return null
+    if (!resolved.created) {
+      fsError.value = `「${stem}${TABLE_EXTENSION}」已经存在。换个名字，或者先把它删掉 —— 已有文件不会被悄悄改成密码本。`
+      return null
+    }
+    return { path: resolved.path, passwordColumn: preset.passwordColumn }
+  }
+
+  /**
    * 把已有块**原地转换**成数据表引用块或画册块,返回新块 id(失败返回空串)。
    *
    * 转换与插入遵守同一条规则:**先有文件才能指**。`/` 菜单与手柄的「转换为」走的是
@@ -2154,10 +2239,21 @@ function createWorkspace() {
     type: ReferenceBlockType,
     target = "",
     stem = "",
+    passphrase = "",
   ): Promise<string> {
     const blocks = activeDocument.value
     const index = blocks.findIndex((item) => item.id === id)
     if (index === -1) return ""
+
+    // 密码本走自己那条路：新建要口令，引用已有的表要把它**转成**密码本。
+    if (type === "vault") {
+      const prepared = await prepareVault(target, stem, passphrase)
+      if (prepared === null) return ""
+      const block = createVaultBlock(prepared.path, prepared.passwordColumn)
+      blocks[index] = block
+      markDirty()
+      return block.id
+    }
 
     let path = target
     if (path === "") {
@@ -2185,7 +2281,12 @@ function createWorkspace() {
    * 它被无视 —— 不能往别人已有的表里塞列。返回 `created` 让调用方区分两种落点：
    * 只有**真的新建**才谈得上「按预置列指好金额列」，撞名引用留给用户自己挑。
    */
-  async function resolveDataTableForNote(notePath: string, stem = "", initial?: DataTable): Promise<{ path: string; created: boolean }> {
+  async function resolveDataTableForNote(
+    notePath: string,
+    stem = "",
+    initial?: DataTable,
+    vaultPassphrase?: string,
+  ): Promise<{ path: string; created: boolean }> {
     const driver = fs.value
     const current = root.value
     if (driver === null || current === null) return { path: "", created: false }
@@ -2207,7 +2308,16 @@ function createWorkspace() {
       return { path: "", created: false }
     }
     try {
-      await tables.create(driver, current, candidate, initial)
+      // 给了口令就建一张**加密的**表（密码本）；没给就是普通数据表。
+      if (vaultPassphrase !== undefined && vaultPassphrase !== "") {
+        if (initial === undefined) {
+          fsError.value = "新建密码本缺少初始内容"
+          return { path: "", created: false }
+        }
+        await tables.createVault(driver, current, candidate, initial, vaultPassphrase)
+      } else {
+        await tables.create(driver, current, candidate, initial)
+      }
     } catch (error) {
       fsError.value = `新建数据表「${name}${TABLE_EXTENSION}」失败：${describeError(error)}`
       return { path: "", created: false }
@@ -2547,23 +2657,6 @@ function createWorkspace() {
     markDirty()
   }
 
-  // ---- 密钥 ----
-
-  /**
-   * 改密钥块的某几个字段。
-   *
-   * 三格各自失焦提交,所以按 patch 写 —— 一次只动改过的那一格,不把另外两格的旧值
-   * 一起回写(写盘的那一路是整体替换,拿旧值覆盖会把同时发生的另一格改动吃掉)。
-   */
-  function setSecretFields(id: string, patch: Partial<Pick<SecretBlock, "name" | "value" | "note">>): void {
-    const block = activeBlock(id)
-    if (block === undefined || block.type !== "secret") return
-    if (patch.name !== undefined) block.name = patch.name
-    if (patch.value !== undefined) block.value = patch.value
-    if (patch.note !== undefined) block.note = patch.note
-    markDirty()
-  }
-
   // ---- 表格 ----
 
   /**
@@ -2834,7 +2927,6 @@ function createWorkspace() {
     // chat actions
     setChatMessages,
     // secret actions
-    setSecretFields,
     // table actions
     defineTable,
     setTableCellRuns,

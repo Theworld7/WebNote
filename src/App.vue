@@ -16,6 +16,7 @@ import TitleBar from "@/components/TitleBar.vue"
 import ToastStack from "@/components/ToastStack.vue"
 import WebDavDialog from "@/components/WebDavDialog.vue"
 import { suppressPageContextMenu } from "@/lib/dom"
+import { createVault, vaultText } from "@/lib/vault"
 import { isTauriRuntime } from "@/lib/fs"
 
 const { hasDirty, bootstrap, fs, root, activePath, attachTableRegistry, attachIntegrateTables, attachAutoSave, save, attachCloseGuard, requestWindowClose, persistSession, webDavDialogOpen, closeWebDav } =
@@ -40,6 +41,14 @@ attachTableRegistry({
     // 盘上建好了，把内存也填上 —— 否则紧接着打开它还要多读一次盘。
     tables.adopt(path, start)
   },
+  // 密码本：盘上写的是**信封**，不是明文 JSON（ADR-0052）。密钥在这儿派生一次，
+  // 跟着注册表走 —— 新建的密码本立刻是解锁的，用户刚设的口令就是它的口令。
+  createVault: async (fsDriver, fsRoot, path, initial, passphrase) => {
+    const { envelope, key } = createVault(initial, passphrase)
+    await fsDriver.createNote(fsRoot, path, vaultText(envelope))
+    tables.adoptVault(path, initial, envelope, key)
+  },
+  ensureVault: (path, passphrase) => tables.ensureVault(path, passphrase),
 })
 // 设置与工作区正交：它只装用户偏好，不参与任何笔记读写，所以在根组件独立 provide 一次。
 // 接上 driver / root 这对引用后，偏好才多落一份到工作区根的 webnote.json（换目录重读）。

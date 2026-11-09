@@ -223,6 +223,8 @@ const MENU = "w-[12.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
       @reselect="(path: string) => rebindTable(props.block.id, path)"
     />
 
+    <TableRefNotice v-else-if="state === 'locked'" kind="locked" label="统计卡" />
+
     <TableRefNotice v-else-if="table === null" kind="loading" label="统计卡" />
 
     <!-- 未选统计列(或列已被删):引导去设。 -->

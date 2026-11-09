@@ -68,6 +68,8 @@ function openTable(): void {
   />
 
   <!-- 还没读完。 -->
+  <TableRefNotice v-else-if="state === 'locked'" kind="locked" :label="label" />
+
   <TableRefNotice v-else-if="state !== 'loaded'" kind="loading" :label="label" />
 
   <div v-else ref="root" class="group/ref relative my-4">

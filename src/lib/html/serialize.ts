@@ -1,4 +1,4 @@
-import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, HtmlBlock, ImageBlock, KanbanBlock, LayoutBlock, LedgerBlock, MermaidBlock, PlaylistBlock, SecretBlock, StatBlock, SubscriptionBlock, TableCell, TextualBlock, VideoBlock } from "@/types/workspace"
+import type { Block, BookmarkBlock, ChatBlock, DataTableBlock, GalleryBlock, HtmlBlock, ImageBlock, KanbanBlock, LayoutBlock, LedgerBlock, MermaidBlock, PlaylistBlock, StatBlock, SubscriptionBlock, TableCell, TextualBlock, VaultBlock, VideoBlock } from "@/types/workspace"
 import type { DataColumn, DataTable, DataRow } from "@/types/data-table"
 import { GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT, LAYOUT_COLUMNS_DEFAULT, isListBlock } from "@/lib/blocks"
 import type { ListBlockType } from "@/lib/blocks"
@@ -8,7 +8,6 @@ import type { GalleryUnit } from "@/lib/gallery"
 import { balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, ledgerSort, sortRows, sumRows } from "@/lib/ledger"
 import type { LedgerSection, LedgerTotals } from "@/lib/ledger"
 import { escapeHtml, escapeTextToHtml, linkDomain, linkIcon, runsText, runsToHtml } from "@/lib/inline"
-import { SECRET_MASK } from "@/lib/secret"
 import {
   SUBSCRIPTION_ROLE_ATTRS,
   SUBSCRIPTION_ROLE_FIELDS,
@@ -157,8 +156,8 @@ export function blocksToHtml(blocks: readonly Block[], lookupTables?: DataTableL
       out.push(chatHtml(block))
       continue
     }
-    if (block.type === "secret") {
-      out.push(secretHtml(block))
+    if (block.type === "vault") {
+      out.push(vaultHtml(block))
       continue
     }
     if (block.type === "html") {
@@ -1009,25 +1008,25 @@ function chatHtml(block: ChatBlock): string {
 }
 
 /**
- * 密钥块 → `<div class="note-secret" data-secret="…" data-name="…" data-note="…">`。
+ * 密码本块 → `<div class="note-vault" data-vault="…" data-vault-column="…">`。
  *
- * 真值放在**属性**里，可见文本只写掩码：这份文件双击就能用浏览器打开，看得见的是
- * 可见文本 —— 那里必须是掩码，而且这一层不依赖任何 CSS（属性里的值不会自己显示出来）。
- * 里面那两行（名称 / 掩码）是给人看的快照，解析端一律按属性重建，不读它们。
+ * **只写指针，不写内容** —— 这是 ADR-0006「快照 + 指针」的唯一例外。
  *
- * 不做加密：笔记是普通 HTML，把一段密文塞进去就得再给出一份密钥管理的设计 ——
- * 而用户要的是「别在屏幕上晃着」。这一点写在 ADR-0047 里。
+ * 那条 ADR 的理由是「导出的文件要自足」：读者双击就能看到表里的数据。密码本不能这样 ——
+ * 自足就意味着把凭据明文写进一个可以直接双击打开、可以直接发出去的文件里。
+ * 密码本的内容在**加密的 `.tbl`** 里，那才是它的家；导出的 `.html` 里只留一个指针，
+ * 指向那个文件。
+ *
+ * 可见文本写「密码本（内容未导出）」：它说明这里**有一张**密码本，但不泄露有几条、
+ * 叫什么、密码是什么。样式与解析端都按这个约定走。
  */
-function secretHtml(block: SecretBlock): string {
-  const name = block.name === "" ? "" : `\n  <p class="note-secret-name">${escapeHtml(block.name)}</p>`
-  const note = block.note === "" ? "" : `\n  <p class="note-secret-note">${escapeHtml(block.note)}</p>`
+function vaultHtml(block: VaultBlock): string {
   const attrs = [
-    'class="note-secret"',
-    `data-secret="${escapeHtml(block.value)}"`,
-    `data-name="${escapeHtml(block.name)}"`,
-    `data-note="${escapeHtml(block.note)}"`,
+    'class="note-vault"',
+    `data-vault="${escapeHtml(block.path)}"`,
+    `data-vault-column="${escapeHtml(block.passwordColumn)}"`,
   ].join(" ")
-  return `<div ${attrs}>${name}\n  <p class="note-secret-value">${SECRET_MASK}</p>${note}\n</div>`
+  return `<div ${attrs}>密码本（内容未导出）</div>`
 }
 
 /**
