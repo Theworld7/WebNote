@@ -68,7 +68,8 @@ encryption only mean something against someone who copied the `.tbl` and not the
 **The salt is per-vault and permanent; the IV rotates on every write.** The salt belongs to the
 key, so it cannot change without re-deriving the key (which needs the passphrase). The IV must be
 unique per message under one key, so it changes every time. Same table, two writes, two different
-ciphertexts.
+ciphertexts. Permanent **except when the passphrase itself changes** — that is the one moment a new
+key can be derived, so the salt is replaced then (ADR-0053).
 
 **The exported `.html` contains a pointer and nothing else.** This is the one exception to
 ADR-0006, which writes a snapshot *with* a pointer so the exported file stands alone. A snapshot

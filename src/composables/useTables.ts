@@ -4,7 +4,7 @@ import type { FsRoot, WorkspaceFs } from "@/lib/fs"
 import type { VaultEnvelope, VaultKey } from "@/lib/vault"
 import { inject, provide, ref } from "vue"
 import * as dt from "@/lib/data-table"
-import { createVault, decryptVaultWithKey, deriveKeyForEnvelope, readVaultEnvelope, resealVault, vaultText } from "@/lib/vault"
+import { createVault, decryptVaultWithKey, deriveKeyForEnvelope, passphraseProblem, readVaultEnvelope, resealVault, vaultText } from "@/lib/vault"
 import { describeError } from "@/lib/errors"
 import { TABLE_EXTENSION, fileStem, isTableFile } from "@/lib/fs/policy"
 
@@ -390,6 +390,51 @@ function createTables(driver: Ref<WorkspaceFs | null>, root: Ref<FsRoot | null>)
   }
 
   /**
+   * 换口令（ADR-0053）。
+   *
+   * **换口令就是换盐、换密钥、重新加密一遍**：盐属于密钥，密钥属于口令 ——
+   * 沿用旧盐再派生就等于让旧口令算出的那把钥仍与新密文同源，且两份文件共享一个盐。
+   *
+   * 三件事的次序不能倒：
+   * 1. 先用**原口令**解一次盘上那份 —— 解不开就是原口令不对，一个字节都不动。
+   * 2. 加密的是**内存里那张表**，不是盘上那份：用户可能刚改了几格还没落盘，
+   *    拿盘上那份重写会把那些改动一起抹掉。
+   * 3. 写盘成功才更新内存里的信封与密钥；失败保持原样，用户还能再试。
+   */
+  async function changeVaultPassphrase(path: string, oldPassphrase: string, newPassphrase: string): Promise<string | null> {
+    const entry = registry.get(path)
+    if (entry === undefined) return "这张表还没读到"
+    if (!entry.vault.value) return "这不是一个密码本"
+    const envelope = entry.envelope.value
+    if (envelope === null) return "这不是一个密码本"
+    const table = entry.table.value
+    if (table === null) return "密码本还没解锁 —— 先解锁再换口令"
+    if (oldPassphrase === "") return "请先填原口令"
+    const problem = passphraseProblem(newPassphrase)
+    if (problem !== "") return problem
+
+    try {
+      decryptVaultWithKey(envelope, deriveKeyForEnvelope(oldPassphrase, envelope).key)
+    } catch {
+      return "原口令不对 —— 这个密码本解不开"
+    }
+
+    const fsDriver = driver.value
+    const current = root.value
+    if (fsDriver === null || current === null) return "工作区还没有就绪"
+    try {
+      const { envelope: next, key } = createVault(table, newPassphrase)
+      await fsDriver.writeNote(current, path, vaultText(next))
+      vaultKeys.set(path, key)
+      entry.envelope.value = next
+      entry.dirty.value = false
+      return null
+    } catch (error) {
+      return describeError(error)
+    }
+  }
+
+  /**
    * 锁回去：丢掉密钥，内存里那份表也清掉。
    *
    * 盘上那份**没动** —— 它本来就是加密的。锁住只是让这一份数据不再在手边。
@@ -445,6 +490,7 @@ function createTables(driver: Ref<WorkspaceFs | null>, root: Ref<FsRoot | null>)
     defaultTable,
     unlockVault,
     lockVault,
+    changeVaultPassphrase,
     isVaultUnlocked,
     ensureVault,
     convertToVault,

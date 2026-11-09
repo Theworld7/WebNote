@@ -36,7 +36,9 @@ import {
   decryptVault,
   decryptVaultWithKey,
   deriveKeyForEnvelope,
+  generatePassphrase,
   isVaultEnvelope,
+  passphraseProblem,
   readVaultEnvelope,
   resealVault,
   resolveVaultRoles,
@@ -153,6 +155,22 @@ const rolesByName = resolveVaultRoles(preset.table, "")
 check("没指列时按列名认密码", preset.table.columns.find((c) => c.id === rolesByName.password)?.name === "密码")
 const rolesStale = resolveVaultRoles(preset.table, "不存在的列id")
 check("列 id 失效时退回按列名认", preset.table.columns.find((c) => c.id === rolesStale.password)?.name === "密码")
+
+// 九、口令的规矩
+check("太短的口令被拦下", passphraseProblem("Ab1!").includes("8 位"), passphraseProblem("Ab1!"))
+check("缺大写被拦下", passphraseProblem("abcd1234!").includes("大写字母"), passphraseProblem("abcd1234!"))
+check("缺小写被拦下", passphraseProblem("ABCD1234!").includes("小写字母"), passphraseProblem("ABCD1234!"))
+check("缺数字被拦下", passphraseProblem("Abcdefg!!").includes("数字"), passphraseProblem("Abcdefg!!"))
+check("缺符号被拦下", passphraseProblem("Abcd1234").includes("符号"), passphraseProblem("Abcd1234"))
+check("四类齐全就放行", passphraseProblem("Abcd1234!") === "", passphraseProblem("Abcd1234!"))
+
+// 十、一键生成
+const generatedOne = generatePassphrase()
+const generatedTwo = generatePassphrase()
+check("生成的是 16 位", generatedOne.length === 16, String(generatedOne.length))
+check("生成的口令合规矩", passphraseProblem(generatedOne) === "", passphraseProblem(generatedOne))
+check("两次生成的不一样", generatedOne !== generatedTwo)
+check("生成的口令里有符号", /[^A-Za-z0-9]/.test(generatedOne), generatedOne)
 
 // ============================================================
 // 第一节：真实编辑器 + 真实盘（OPFS）
@@ -290,6 +308,21 @@ async function type(input, text) {
   await settle()
 }
 
+/** 盘上那份 `.tbl` 的原文。换口令前后的对照都读它。 */
+async function diskText() {
+  return await (await (await dir.getFileHandle("密码本.tbl")).getFile()).text()
+}
+
+/** 等一条提示出现。提示 2 秒后自散，所以要边等边看。 */
+async function waitToast(fragment) {
+  for (let i = 0; i < 40; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const hit = toasts.value.find((toast) => toast.message.includes(fragment))
+    if (hit !== undefined) return hit.message
+  }
+  return null
+}
+
 // ---- 九、未解锁：锁着，且不泄露任何东西 ----
 
 check("密码本块渲染出来了", root() !== null)
@@ -403,7 +436,90 @@ await settle()
 check("重新解锁后改动还在（锁之前落过盘）", tableCell("密码") === "sup3r-s3cret-pw-2", String(tableCell("密码")))
 check("重新解锁后名称也在", tableCell("名称") === "示例账号（改过）", String(tableCell("名称")))
 
-// ---- 十七、导出：`.html` 里没有凭据 ----
+// ---- 十七、一键生成口令：明文只摊这一次 ----
+
+function panel() {
+  return document.querySelector("[data-vault-passphrase-panel]")
+}
+function field(selector) {
+  const input = document.querySelector(selector)
+  return input instanceof HTMLInputElement ? input : null
+}
+/** 生成出来的明文那一块。 */
+function generatedBox() {
+  return document.querySelector("[data-vault-generated]")
+}
+
+document.querySelector("[data-vault-change-passphrase]")?.click()
+await settle()
+check("点「改口令」打开口令面板", panel() !== null)
+
+// 三个框必须是同一个字号：`Input` 自带 `md:text-sm`，只写 `text-13` 会在宽屏下漏成 14px。
+const passphraseSizes = ["[data-vault-old-passphrase]", "[data-vault-new-passphrase]", "[data-vault-new-passphrase-confirm]"].map((selector) => {
+  const input = document.querySelector(selector)
+  return input === null ? "" : getComputedStyle(input).fontSize
+})
+check(
+  "三个口令框字号一致",
+  passphraseSizes.every((size) => size !== "" && size === passphraseSizes[0]),
+  passphraseSizes.join(" / "),
+)
+
+document.querySelector("[data-vault-generate]")?.click()
+await settle()
+const generated = generatedBox()?.querySelector("code")?.textContent?.trim() ?? ""
+check("生成后把明文摊开", generated.length === 16, `${generated.length} 位`)
+check("生成的口令合规矩", passphraseProblem(generated) === "", passphraseProblem(generated))
+check(
+  "两个框都填上了生成的同一条口令",
+  field("[data-vault-new-passphrase]")?.value === generated && field("[data-vault-new-passphrase-confirm]")?.value === generated,
+)
+
+document.querySelector("[data-vault-generated-copy]")?.click()
+await settle()
+check("复制拿到的是生成的明文", clipboardText === generated, String(clipboardText))
+
+// 手动改一个字符，明文就收起 —— 它已经不是刚生成的那个了。
+if (field("[data-vault-new-passphrase-confirm]") !== null) await type(field("[data-vault-new-passphrase-confirm]"), `${generated}X`)
+check("手动改动后明文收起", generatedBox() === null, String(generatedBox() !== null))
+if (field("[data-vault-new-passphrase-confirm]") !== null) await type(field("[data-vault-new-passphrase-confirm]"), generated)
+
+// ---- 十八、换口令：旧口令作废，盐与密钥都换新的 ----
+
+const beforeText = await diskText()
+const beforeEnvelope = readVaultEnvelope(beforeText)
+
+if (field("[data-vault-old-passphrase]") !== null) await type(field("[data-vault-old-passphrase]"), WRONG)
+document.querySelector("[data-vault-change-submit]")?.click()
+const wrongOld = await waitToast("原口令不对")
+check("原口令不对时拒绝并说明", wrongOld !== null, JSON.stringify(toasts.value.map((toast) => toast.message)))
+check("原口令不对时面板还开着", panel() !== null)
+check("原口令不对时盘上一个字节都没动", (await diskText()) === beforeText)
+
+if (field("[data-vault-old-passphrase]") !== null) await type(field("[data-vault-old-passphrase]"), PASSPHRASE)
+document.querySelector("[data-vault-change-submit]")?.click()
+for (let i = 0; i < 40 && panel() !== null; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 50))
+}
+await settle()
+check("口令换完面板收起", panel() === null)
+
+const afterText = await diskText()
+const afterEnvelope = readVaultEnvelope(afterText)
+check("换口令后盘上仍是信封", isVaultEnvelope(afterText))
+check("换口令后盐换了", afterEnvelope.kdf.salt !== beforeEnvelope.kdf.salt)
+check("换口令后旧口令解不开", (() => {
+  try { decryptVault(afterText, PASSPHRASE); return false } catch { return true }
+})())
+const redecrypted = decryptVault(afterText, generated)
+check("新口令能解开", redecrypted.rows.length === 1, `${redecrypted.rows.length} 行`)
+check(
+  "换口令没有丢数据",
+  redecrypted.rows[0]?.values[redecrypted.columns.find((column) => column.name === "密码")?.id] === "sup3r-s3cret-pw-2",
+  String(redecrypted.rows[0]?.values[redecrypted.columns.find((column) => column.name === "密码")?.id]),
+)
+
+// ---- 十九、导出：`.html` 里没有凭据 ----
 
 const exported = blocksToHtml(workspace.activeDocument.value, () => null)
 check("导出的 HTML 里没有密码明文", exported.includes("sup3r-s3cret-pw") === false)
@@ -411,12 +527,30 @@ check("导出的 HTML 里没有账号明文", exported.includes("zhang@example.c
 check("导出的 HTML 里没有名称明文", exported.includes("示例账号") === false)
 check("导出的 HTML 里没有密码列的内容", exported.includes("密码本.tbl") === true)
 
-// ---- 十八、盘上那份是密文 ----
+// ---- 二十、盘上那份是密文 ----
 
-const onDisk = await (await (await dir.getFileHandle("密码本.tbl")).getFile()).text()
+const onDisk = await diskText()
 check("盘上的 .tbl 是信封不是明文 JSON", isVaultEnvelope(onDisk))
 check("盘上的 .tbl 里没有密码明文", onDisk.includes("sup3r-s3cret-pw") === false)
 check("盘上的 .tbl 里没有账号明文", onDisk.includes("zhang@example.com") === false)
+
+// ---- 廿一、换完口令，注册表手里的也是新密钥 ----
+// 改一格再锁回去（锁定前先落盘）：盘上那份此刻必须能用**新**口令解开，
+// 说明内存里的密钥跟着换了 —— 否则下一次保存就写出一份谁也打不开的文件。
+
+if (nameInput(0) !== null) await type(nameInput(0), "换口令之后改的名字")
+document.querySelector("[data-vault-lock]")?.click()
+for (let i = 0; i < 40 && entries().length > 0; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 50))
+}
+await settle()
+const afterFlush = decryptVault(await diskText(), generated)
+const flushedNameColumn = afterFlush.columns.find((column) => column.name === "名称")
+check(
+  "换口令之后落盘用的仍是新密钥",
+  afterFlush.rows[0]?.values[flushedNameColumn?.id] === "换口令之后改的名字",
+  String(afterFlush.rows[0]?.values[flushedNameColumn?.id]),
+)
 
 lines.push(failed === 0 ? `自检 ${passed}/${passed}` : `自检 ${passed} 过 / ${failed} 败`)
 document.getElementById("out").textContent = lines.join("\n")

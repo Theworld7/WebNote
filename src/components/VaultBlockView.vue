@@ -3,6 +3,8 @@ import type { DataColumn, DataRow } from "@/types/data-table"
 import type { VaultBlock } from "@/types/workspace"
 import { computed, nextTick, ref } from "vue"
 import { CheckIcon, CopyIcon, DatabaseIcon, EyeIcon, EyeOffIcon, KeyRoundIcon, LockIcon, PlusIcon, Trash2Icon } from "@lucide/vue"
+import PassphraseFields from "@/components/PassphraseFields.vue"
+import { Input } from "@/components/ui/input"
 import { useCopied } from "@/composables/useCopied"
 import { useTableEntry } from "@/composables/useTableEntry"
 import { useTables } from "@/composables/useTables"
@@ -11,7 +13,7 @@ import { useWorkspace } from "@/composables/useWorkspace"
 import { describeError } from "@/lib/errors"
 import * as dt from "@/lib/data-table"
 import { SECRET_MASK } from "@/lib/secret"
-import { resolveVaultRoles } from "@/lib/vault"
+import { passphraseProblem, resolveVaultRoles } from "@/lib/vault"
 
 /**
  * 密码本块：一张凭据清单，每行一条账号。
@@ -127,6 +129,70 @@ async function lock(): Promise<void> {
   }
   tables.lockVault(props.block.path)
   passphrase.value = ""
+}
+
+// ---- 换口令 ----
+
+/**
+ * 换口令的面板（ADR-0053）。
+ *
+ * 换口令要重新加密整张表，所以这一步不是「改一个字段」而是**一次写盘**：
+ * 原口令先验，验过了才动盘上那份。填完提交，成功就收起面板 —— 口令不进任何状态，
+ * 关掉面板也一并清掉输入框里的字符。
+ */
+const changingPassphrase = ref(false)
+const oldPassphrase = ref("")
+const newPassphrase = ref("")
+const newPassphraseConfirm = ref("")
+const savingPassphrase = ref(false)
+
+/** 新口令不合规矩的那句话。空串 = 合规，或还没填。 */
+const newPassphraseProblem = computed(() =>
+  newPassphrase.value === "" ? "" : passphraseProblem(newPassphrase.value),
+)
+
+/** 三个字段都到位才让按 —— 少一个都只会换来一句「口令不对」。 */
+const canChangePassphrase = computed(
+  () =>
+    oldPassphrase.value !== "" &&
+    newPassphrase.value !== "" &&
+    passphraseProblem(newPassphrase.value) === "" &&
+    newPassphrase.value === newPassphraseConfirm.value,
+)
+
+function openPassphraseChange(): void {
+  changingPassphrase.value = true
+  oldPassphrase.value = ""
+  newPassphrase.value = ""
+  newPassphraseConfirm.value = ""
+}
+
+function closePassphraseChange(): void {
+  changingPassphrase.value = false
+  oldPassphrase.value = ""
+  newPassphrase.value = ""
+  newPassphraseConfirm.value = ""
+}
+
+async function submitPassphraseChange(): Promise<void> {
+  if (savingPassphrase.value) return
+  if (oldPassphrase.value === "") {
+    notify("先填原口令 —— 换口令要先证明这是你的密码本", "error")
+    return
+  }
+  if (newPassphraseProblem.value !== "" || newPassphrase.value !== newPassphraseConfirm.value) return
+  savingPassphrase.value = true
+  try {
+    const failure = await tables.changeVaultPassphrase(props.block.path, oldPassphrase.value, newPassphrase.value)
+    if (failure !== null) {
+      notify(failure, "error")
+      return
+    }
+    closePassphraseChange()
+    notify("口令已换 —— 下次要用新口令才打得开")
+  } finally {
+    savingPassphrase.value = false
+  }
 }
 
 // ---- 明文开关 ----
@@ -324,12 +390,69 @@ function confirmDelete(): void {
       <button
         type="button"
         class="shrink-0 rounded px-1.5 py-0.5 text-12 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        title="换一个口令 —— 会用新口令把这张表重新加密一遍"
+        data-vault-change-passphrase
+        @click="changingPassphrase ? closePassphraseChange() : openPassphraseChange()"
+      >
+        改口令
+      </button>
+      <button
+        type="button"
+        class="shrink-0 rounded px-1.5 py-0.5 text-12 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         title="锁回去（关掉应用也会自动失效）"
         data-vault-lock
         @click="lock()"
       >
         锁定
       </button>
+    </div>
+
+    <!--
+      换口令：原口令 + 新口令 + 确认，提交时先把原口令解一次盘上那份。
+      面板就嵌在标题行下面 —— 不用弹层：这个动作只有三个字段，弹层反而多一个要关的东西。
+    -->
+    <div
+      v-if="changingPassphrase"
+      class="border-b border-line bg-card px-3 py-2"
+      data-vault-passphrase-panel
+    >
+      <p class="text-11 text-muted-foreground">
+        换口令会用新口令把这张表重新加密一遍 —— 旧口令之后再也打不开它。
+      </p>
+      <Input
+        v-model="oldPassphrase"
+        type="password"
+        placeholder="原口令"
+        class="mt-1.5 h-8 text-13 md:text-13"
+        autocomplete="off"
+        spellcheck="false"
+        data-vault-old-passphrase
+        @keydown.enter.prevent="submitPassphraseChange"
+      />
+      <PassphraseFields
+        v-model:passphrase="newPassphrase"
+        v-model:confirm="newPassphraseConfirm"
+        @keydown.enter.prevent="submitPassphraseChange"
+      />
+      <div class="mt-2 flex items-center gap-2">
+        <span class="min-w-0 flex-1" />
+        <button
+          type="button"
+          class="shrink-0 rounded px-2 py-1 text-12 text-muted-foreground transition-colors hover:text-foreground"
+          @click="closePassphraseChange"
+        >
+          取消
+        </button>
+        <button
+          type="button"
+          class="shrink-0 rounded-md bg-card px-2.5 py-1 text-12 ring-1 ring-line/70 transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+          :disabled="savingPassphrase || !canChangePassphrase"
+          data-vault-change-submit
+          @click="submitPassphraseChange"
+        >
+          改口令
+        </button>
+      </div>
     </div>
 
     <div v-if="rows.length === 0" class="px-3 py-4 text-12 text-muted-foreground/70">

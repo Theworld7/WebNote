@@ -4,9 +4,11 @@ import { DatabaseIcon, PlusIcon } from "@lucide/vue"
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import PassphraseFields from "@/components/PassphraseFields.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { fileStem } from "@/lib/fs/policy"
 import { fileName } from "@/lib/paths"
+import { passphraseProblem } from "@/lib/vault"
 
 /**
  * 插引用块前的「选表」对话框(插入与转换共用)。
@@ -73,15 +75,20 @@ const KIND_LABEL = { gallery: "画册", bookmark: "书签", kanban: "看板", le
  * 密码本的口令与它的确认。
  *
  * **两个字段都要** —— 打错一个字，那份数据就永远读不出来了（ADR-0052：口令不落盘，
- * 忘了就没有找回的路径）。所以这里宁可多敲一遍。
+ * 忘了就没有找回的路径）。所以这里宁可多敲一遍。规矩与一键生成在 `PassphraseFields`，
+ * 块里换口令用的是同一个组件。
  */
 const passphrase = ref("")
 const passphraseConfirm = ref("")
 
-/** 两个口令不一致时的一句话。空串 = 一致（或是还没填）。 */
-const passphraseMismatch = computed(() => {
-  if (passphrase.value === "" || passphraseConfirm.value === "") return ""
-  return passphrase.value === passphraseConfirm.value ? "" : "两次输入的口令不一致"
+/**
+ * 口令填了、但不合规矩（或两次不一致）—— 拦下。
+ *
+ * **留空放行**：引用一张已有的密码本时不必填（那张表有自己的口令），那时空口令是合法的。
+ */
+const passphraseRejected = computed(() => {
+  if (props.kind !== "vault" || passphrase.value === "") return false
+  return passphraseProblem(passphrase.value) !== "" || passphrase.value !== passphraseConfirm.value
 })
 
 /** 确认。插入落了块、或转换真的换了块,才关。 */
@@ -89,8 +96,8 @@ async function confirm() {
   const target = selection.value === NEW ? "" : selection.value
   const stem = newName.value.trim()
 
-  // 密码本：口令不一致就别往下走 —— 这一步拦不住，后面就再也读不回来了。
-  if (props.kind === "vault" && passphraseMismatch.value !== "") return
+  // 密码本：口令不合规矩就别往下走 —— 这一步拦不住，后面就再也读不回来了。
+  if (passphraseRejected.value) return
 
   if (props.retypeId !== null) {
     const converted = await convertBlockToFileType(props.retypeId, props.kind, target, stem, passphrase.value)
@@ -145,7 +152,7 @@ async function confirm() {
         ref="nameInput"
         v-model="newName"
         placeholder="数据表名(不必写 .tbl)"
-        class="h-8 text-13"
+        class="h-8 text-13 md:text-13"
         @keydown.enter.prevent="confirm"
       />
 
@@ -156,27 +163,10 @@ async function confirm() {
       -->
       <template v-if="props.kind === 'vault'">
         <p class="mt-3 text-11 text-muted-foreground">
-          新建密码本（或把选中的普通表转成密码本）需要一个口令。口令不保存在应用里 ——
-          忘了，这张表就再也读不出来了。
+          新建密码本（或把选中的普通表转成密码本）需要一个口令：至少 8 位，含大写字母、小写字母、
+          数字与符号。口令不保存在应用里 —— 忘了，这张表就再也读不出来了。可以直接生成一个。
         </p>
-        <Input
-          v-model="passphrase"
-          type="password"
-          placeholder="口令"
-          class="mt-1.5 h-8 text-13"
-          autocomplete="new-password"
-          spellcheck="false"
-        />
-        <Input
-          v-model="passphraseConfirm"
-          type="password"
-          placeholder="再输一遍"
-          class="mt-1.5 h-8 text-13"
-          autocomplete="new-password"
-          spellcheck="false"
-          @keydown.enter.prevent="confirm"
-        />
-        <p v-if="passphraseMismatch !== ''" class="mt-1 text-11 text-destructive">{{ passphraseMismatch }}</p>
+        <PassphraseFields v-model:passphrase="passphrase" v-model:confirm="passphraseConfirm" />
       </template>
 
       <AlertDialogFooter>

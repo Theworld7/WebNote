@@ -327,12 +327,22 @@ A structural Block that renders an encrypted Data table as a list of credentials
 account, with the password masked until the eye is clicked. It points at the same `.tbl` a Data
 table block would, and stores only **field mappings** (which column is the password); an unset
 mapping falls back to name detection. The table it points at is **encrypted at rest** (ADR-0052):
-the key comes from a passphrase, lives in memory only, and is gone when the app closes. On disk
+the key comes from a passphrase, lives in memory only, and is gone when the app closes. Changing
+that passphrase re-keys the table — new salt, new key, one re-encrypt — and the old passphrase stops
+working (ADR-0053). On disk
 it travels as a **pointer with no content** — the exception to the Gallery block's
 snapshot-plus-pointer rule, because a snapshot would put the credentials in plaintext into a
 file meant to be shared.
 _Avoid_: Password block, keychain block, credential block (the block is a view of an encrypted
 Data table, not a separate store), secret block (that one is deleted)
+
+**Passphrase**:
+The one secret a Vault block depends on: it derives the key, is never stored, and is gone when the
+app closes. A **new** passphrase must be at least 8 characters with one uppercase letter, one
+lowercase letter, one digit and one symbol; it can be generated instead (16 characters, shown once
+at the moment of generation — that is the only time it is visible anywhere). Changing it re-encrypts
+the table and retires the old one (ADR-0053).
+_Avoid_: Password (that is a cell in the vault's table), master password, PIN, passcode
 
 **Missing Data table**:
 The state of a Data table block whose path no longer resolves. It is a normal, recoverable

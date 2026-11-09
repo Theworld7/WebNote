@@ -82,6 +82,75 @@ function randomBytes(length: number): Uint8Array {
   return bytes
 }
 
+// ---- 口令的规矩（ADR-0053）----
+
+/** 口令最短长度。 */
+export const PASSPHRASE_MIN_LENGTH = 8
+
+/**
+ * 生成口令时的四组字符。
+ *
+ * 排除 `I` `O` `l` `0` `1` —— 这五个在等宽字体里互相认不出来，而口令是要人抄写的
+ * （抄在纸上、抄进另一台设备）。剩下的 90 来个字符仍然远超暴力猜测的范围。
+ */
+const PASSPHRASE_UPPER = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+const PASSPHRASE_LOWER = "abcdefghijkmnopqrstuvwxyz"
+const PASSPHRASE_DIGITS = "23456789"
+const PASSPHRASE_SYMBOLS = "!@#$%^&*-_=+?"
+const PASSPHRASE_ALPHABET = PASSPHRASE_UPPER + PASSPHRASE_LOWER + PASSPHRASE_DIGITS + PASSPHRASE_SYMBOLS
+
+/** 一键生成的口令长度。 */
+export const GENERATED_PASSPHRASE_LENGTH = 16
+
+/**
+ * 一句口令合不合规矩。空串 = 合规，否则是一句人话，**说清缺什么**。
+ *
+ * 规矩是四类各至少一个：大写、小写、数字、符号（取 `[^A-Za-z0-9]`，任何符号都算）。
+ * 一行正则校验一类，不给「必须包含特殊字符一栏」那种说法 —— 用户不知道该填哪个。
+ */
+export function passphraseProblem(passphrase: string): string {
+  if (passphrase.length < PASSPHRASE_MIN_LENGTH) return `口令至少要 ${PASSPHRASE_MIN_LENGTH} 位`
+  const missing: string[] = []
+  if (!/[A-Z]/.test(passphrase)) missing.push("大写字母")
+  if (!/[a-z]/.test(passphrase)) missing.push("小写字母")
+  if (!/[0-9]/.test(passphrase)) missing.push("数字")
+  if (!/[^A-Za-z0-9]/.test(passphrase)) missing.push("符号")
+  return missing.length === 0 ? "" : `口令还缺${missing.join("、")}`
+}
+
+/** 无偏地取一个 `[0, size)` 的随机整数。拒绝采样 —— 直接取模会让靠前的字符多出一点概率。 */
+function randomIndex(size: number): number {
+  const limit = Math.floor(0x1_0000_0000 / size) * size
+  const buffer = new Uint32Array(1)
+  for (;;) {
+    crypto.getRandomValues(buffer)
+    if (buffer[0] < limit) return buffer[0] % size
+  }
+}
+
+/**
+ * 生成一个合规矩的口令。
+ *
+ * 四组各先放一个（保证四类齐全），剩下的从全集取，最后洗一遍牌 —— 不洗的话
+ * 前四位永远是「大写、小写、数字、符号」，看一眼就知道第几位是什么类别。
+ */
+export function generatePassphrase(length = GENERATED_PASSPHRASE_LENGTH): string {
+  const chars = [
+    PASSPHRASE_UPPER[randomIndex(PASSPHRASE_UPPER.length)],
+    PASSPHRASE_LOWER[randomIndex(PASSPHRASE_LOWER.length)],
+    PASSPHRASE_DIGITS[randomIndex(PASSPHRASE_DIGITS.length)],
+    PASSPHRASE_SYMBOLS[randomIndex(PASSPHRASE_SYMBOLS.length)],
+  ]
+  while (chars.length < length) chars.push(PASSPHRASE_ALPHABET[randomIndex(PASSPHRASE_ALPHABET.length)])
+  for (let i = chars.length - 1; i > 0; i -= 1) {
+    const j = randomIndex(i + 1)
+    const swap = chars[i]
+    chars[i] = chars[j]
+    chars[j] = swap
+  }
+  return chars.join("")
+}
+
 /**
  * 口令 → 密钥。
  *
