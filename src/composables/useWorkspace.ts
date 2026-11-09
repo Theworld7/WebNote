@@ -879,7 +879,14 @@ function createWorkspace() {
     if (activePath.value !== path) return
     // 关掉的是当前标签：落到右邻，没有右邻则落到左邻，都没有就清空。
     const next = tabs.value[index] ?? tabs.value[index - 1]
-    activePath.value = next ? next.path : ""
+    if (next === undefined) {
+      activePath.value = ""
+      return
+    }
+    // 落到的那篇**未必读过盘**：会话恢复只读当前那篇，其余标签是「打开着但从没读过」
+    // （ADR-0038）。只改 `activePath` 会让编辑区停在一份空文档上 —— 空白画布，与「这篇
+    // 本来就是空的」看起来一模一样。落到邻标签等同一次切标签，走同一条路去读盘。
+    activateTab(next.path)
   }
 
   /**

@@ -206,7 +206,30 @@ await launch()
 check("字段类型全错也不炸", workspace.tabs.value.length === 0 && workspace.expandedIds.value.has(subPath) === true,
   JSON.stringify({ tabs: workspace.tabs.value.length, expanded: [...workspace.expandedIds.value] }))
 
-// ---------- 七、滚动记忆本身 ----------
+// ---------- 七、关掉激活标签：落到的那一篇要当场读盘 ----------
+//
+// 「一排标签里只有当前那篇读过盘」只有会话恢复才造得出来 —— 这正是本页才配测它的理由。
+// 落到邻标签只改 activePath 的话，编辑区停在空文档上：空白画布，与「这篇本来就是空的」
+// 看起来一模一样，用户只会以为文件坏了。
+
+window.localStorage.setItem(SESSION_KEY, JSON.stringify({
+  tabs: [aPath, bPath],
+  activePath: bPath,
+  expandedIds: [],
+  scrollTops: {},
+}))
+await launch()
+check("恢复后激活的是 b 且读到了正文", workspace.activePath.value === bPath && workspace.activeDocument.value.length > 0,
+  `active=${workspace.activePath.value} blocks=${workspace.activeDocument.value.length}`)
+
+workspace.requestCloseTab(bPath)
+await tick()
+for (let i = 0; i < 40 && workspace.activeDocument.value.length === 0; i += 1) await tick()
+check("关掉 b 之后落到 a", workspace.activePath.value === aPath, workspace.activePath.value)
+check("落到的 a 当场读盘了", workspace.activeDocument.value.length > 0,
+  `blocks=${workspace.activeDocument.value.length}`)
+
+// ---------- 八、滚动记忆本身 ----------
 
 rememberScrollTop(aPath, 128)
 rememberScrollTop(aPath, Number.NaN)
