@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { fileStem } from "@/lib/fs/policy"
 import { fileName } from "@/lib/paths"
+import { BTN_TEXT } from "@/components/ui/button/recipes"
 
 /**
  * 重命名对话框。
@@ -77,9 +78,9 @@ async function confirm() {
 
       <AlertDialogFooter>
         <AlertDialogCancel as-child>
-          <Button variant="ghost" size="sm" class="text-13">取消</Button>
+          <Button variant="ghost" size="sm" :class="BTN_TEXT">取消</Button>
         </AlertDialogCancel>
-        <Button size="sm" class="text-13" @click="confirm">重命名</Button>
+        <Button size="sm" :class="BTN_TEXT" @click="confirm">重命名</Button>
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>

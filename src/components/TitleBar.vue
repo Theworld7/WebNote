@@ -11,6 +11,7 @@ import BrowserNotice from "./BrowserNotice.vue"
 import NewVersionButton from "./NewVersionButton.vue"
 import PageStyleButton from "./PageStyleButton.vue"
 import SettingsPanel from "./SettingsPanel.vue"
+import { BTN_ICON } from "@/components/ui/button/recipes"
 
 /**
  * 窗口 chrome —— 无装饰窗口（`tauri.conf.json` 里 `decorations: false`）里自己画的那一条
@@ -29,8 +30,7 @@ defineProps<{ sidebarCollapsed: boolean }>()
 const emit = defineEmits<{ (event: "toggle-sidebar"): void }>()
 
 /** 与标签栏那批小按钮同一个体量，两个位置的按钮不该长得不一样。 */
-const ACTION =
-  "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foreground disabled:opacity-35 disabled:hover:text-muted-foreground"
+const ACTION = `${BTN_ICON} disabled:opacity-35 disabled:hover:text-muted-foreground`
 
 /**
  * 主题开关。图标画的是**点下去会变成什么**（深色时给太阳），不是当前状态 ——

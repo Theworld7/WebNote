@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { MARK_REGISTRY, TEXT_COLORS, textColorSlot } from "@/lib/inline"
 import { cn } from "@/lib/utils"
+import { BTN_ICON } from "@/components/ui/button/recipes"
 
 /**
  * 选中文本后浮在选区上方的行内格式条。
@@ -94,7 +95,7 @@ function pickColor(value: string) {
 }
 
 /** 24px 见方的图标按钮，与块左侧手柄同规格。 */
-const TOOL = "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foreground"
+const TOOL = BTN_ICON
 
 const ACTIVE = "bg-accent text-foreground"
 

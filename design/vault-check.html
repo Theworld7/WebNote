@@ -417,6 +417,72 @@ check("改完的密码写回了表", tableCell("密码") === "sup3r-s3cret-pw-2"
 if (nameInput(0) !== null) await type(nameInput(0), "示例账号（改过）")
 check("改完的名称写回了表", tableCell("名称") === "示例账号（改过）", String(tableCell("名称")))
 
+// ---- 十五·补、图标就地配置（弹窗：本地图片 / 在线地址，即时预览）----
+
+function iconButton(index) {
+  const entry = entries()[index]
+  return entry?.querySelector("[data-vault-icon]") ?? null
+}
+function iconDialog() {
+  return document.querySelector("[data-vault-icon-preview]")
+}
+function iconUrlInput() {
+  const input = document.querySelector("[data-vault-icon-url]")
+  return input instanceof HTMLInputElement ? input : null
+}
+function iconFileInput() {
+  const input = document.querySelector("[data-vault-icon-file]")
+  return input instanceof HTMLInputElement ? input : null
+}
+function iconSave() {
+  return document.querySelector("[data-vault-icon-save]")
+}
+function iconClear() {
+  return document.querySelector("[data-vault-icon-clear]")
+}
+/** 等弹窗收起（保存 / 清除都会关它）。 */
+async function waitIconDialogClosed() {
+  for (let i = 0; i < 40 && iconDialog() !== null; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  await settle()
+}
+
+check("条目里有可点的图标按钮", iconButton(0) !== null)
+iconButton(0)?.click()
+await settle()
+check("点图标弹出配置弹窗", iconDialog() !== null)
+check("弹窗起于在线地址形态", iconUrlInput() !== null)
+
+// 二选一切到本地图片：出现选文件入口；切回来刚才填的地址还在。
+document.querySelector("[data-vault-icon-mode-local]")?.click()
+await settle()
+check("切到本地图片形态出现选文件入口", iconFileInput() !== null)
+document.querySelector("[data-vault-icon-mode-url]")?.click()
+await settle()
+check("切回在线地址形态", iconUrlInput() !== null)
+
+// 填一个在线地址：预览即时脱离空态（地址在自检环境里加载不出来也算 —— 关键是它反应了）。
+const ICON_URL = "https://example.com/icon.png"
+if (iconUrlInput() !== null) await type(iconUrlInput(), ICON_URL)
+check("填了地址后预览脱离空态", (iconDialog()?.textContent ?? "").includes("还没有图标") === false)
+
+iconSave()?.click()
+await waitIconDialogClosed()
+check("保存后弹窗收起", iconDialog() === null)
+check("地址写回了图标列", tableCell("图标") === ICON_URL, String(tableCell("图标")))
+
+// 重开：带着刚存的值，且因为已有图标而给出「清除」。
+iconButton(0)?.click()
+await settle()
+check("重开弹窗带着已存的地址", iconUrlInput()?.value === ICON_URL, iconUrlInput()?.value ?? "")
+check("已有图标时给出清除按钮", iconClear() !== null)
+
+iconClear()?.click()
+await waitIconDialogClosed()
+check("清除后弹窗收起", iconDialog() === null)
+check("清除后图标列回到空", tableCell("图标") === null, String(tableCell("图标")))
+
 // ---- 十六、锁回去：先落盘再锁，锁之前的改动不丢 ----
 
 document.querySelector("[data-vault-lock]")?.click()

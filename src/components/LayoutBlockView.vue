@@ -5,8 +5,6 @@ import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ChevronDownIcon, Grid2x2PlusIcon, Grid2x2XIcon } from "@lucide/vue"
@@ -15,6 +13,7 @@ import { LAYOUT_COLUMNS, orderedIndexes as orderedIndexesOf } from "@/lib/blocks
 import { dragOverCell } from "@/lib/block-drag"
 import { focusBlockById, findEditable } from "@/lib/dom"
 import BlockItem from "@/components/BlockItem.vue"
+import { BlockMenu, MenuSection, TOOL_PILL } from "@/components/settings-menu"
 
 /**
  * 布局块视图（ADR-0007）：笔记里唯一的容器块。
@@ -40,11 +39,6 @@ const isGrid = computed(() => props.block.mode === "grid")
 const gridStyle = computed(() =>
   isGrid.value ? { gridTemplateColumns: `repeat(${props.block.columns ?? 2}, minmax(0, 1fr))` } : undefined,
 )
-
-/** 菜单外框，与块手柄菜单同一套参数。 */
-const MENU = "w-[9.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
-const TOOL_BUTTON =
-  "h-6 gap-1 rounded-full px-2 text-12 text-muted-foreground hover:text-foreground"
 
 /** 格子内回车/+ 菜单新增块,上方(0)/下方(1)共用。菜单已在格子内滤掉引用块/容器块,落到这里的都是普通类型。 */
 function onInsertAt(id: string, type: BlockType, offset: 0 | 1) {
@@ -191,7 +185,7 @@ function isDropTarget(cellIndex: number): boolean {
       <Button
         variant="ghost"
         size="sm"
-        :class="TOOL_BUTTON"
+        :class="TOOL_PILL"
         aria-label="添加格子"
         title="添加格子"
         @click="addLayoutCell(block.id)"
@@ -201,7 +195,7 @@ function isDropTarget(cellIndex: number): boolean {
       <Button
         variant="ghost"
         size="sm"
-        :class="TOOL_BUTTON"
+        :class="TOOL_PILL"
         :disabled="block.cells.length <= 1"
         aria-label="删除末尾格子"
         title="删除末尾格子"
@@ -214,15 +208,15 @@ function isDropTarget(cellIndex: number): boolean {
 
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" :class="TOOL_BUTTON">
+          <Button variant="ghost" size="sm" :class="TOOL_PILL">
             {{ isGrid ? "网格" : "弹性" }}
             <ChevronDownIcon class="size-3 text-muted-foreground/70" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent :class="MENU" :side-offset="6">
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+        <BlockMenu :width="9.25" :side-offset="6">
+          <MenuSection>
             布局方式
-          </DropdownMenuLabel>
+          </MenuSection>
           <DropdownMenuCheckboxItem
             :checked="isGrid"
             @select="pickMode('grid')"
@@ -235,20 +229,20 @@ function isDropTarget(cellIndex: number): boolean {
           >
             弹性
           </DropdownMenuCheckboxItem>
-        </DropdownMenuContent>
+        </BlockMenu>
       </DropdownMenu>
 
       <DropdownMenu v-if="isGrid">
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" :class="TOOL_BUTTON">
+          <Button variant="ghost" size="sm" :class="TOOL_PILL">
             {{ block.columns ?? 2 }} 列
             <ChevronDownIcon class="size-3 text-muted-foreground/70" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent :class="MENU" :side-offset="6">
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+        <BlockMenu :width="9.25" :side-offset="6">
+          <MenuSection>
             每行列数
-          </DropdownMenuLabel>
+          </MenuSection>
           <DropdownMenuCheckboxItem
             v-for="count in LAYOUT_COLUMNS"
             :key="count"
@@ -257,7 +251,7 @@ function isDropTarget(cellIndex: number): boolean {
           >
             {{ count }} 列
           </DropdownMenuCheckboxItem>
-        </DropdownMenuContent>
+        </BlockMenu>
       </DropdownMenu>
     </div>
   </div>

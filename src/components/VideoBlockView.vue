@@ -11,6 +11,7 @@ import { openExternalUrl } from "@/lib/open-external"
 import { fromSegments, toSegments } from "@/lib/paths"
 import { isFileDrag, isRemoteVideo, pickVideoFile, videoMimeOf, videoModeOf } from "@/lib/video"
 import VideoSourcePanel from "./VideoSourcePanel.vue"
+import { NOTICE_INLINE_COMPACT } from "@/components/ui/notice/recipes"
 
 /**
  * 视频块。
@@ -167,7 +168,7 @@ async function onDrop(event: DragEvent) {
       </div>
       <div
         v-else
-        class="my-1 flex items-start gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
+        :class="NOTICE_INLINE_COMPACT"
       >
         <VideoIcon class="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
         <div class="min-w-0">

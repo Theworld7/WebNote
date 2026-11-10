@@ -41,6 +41,9 @@ import { dayOf, sunTimes } from "@/lib/sun"
 import { minutesOf } from "@/lib/theme-mode"
 import FontPicker from "./FontPicker.vue"
 import NewVersionButton from "./NewVersionButton.vue"
+import { BTN_ICON } from "@/components/ui/button/recipes"
+import ChoiceGroup from "@/components/settings/ChoiceGroup.vue"
+import { optionRowClass } from "@/components/settings/recipes"
 
 /**
  * 设置面板。
@@ -314,7 +317,7 @@ function commitHeadingNavMin(event: Event) {
 }
 
 /** 抽屉标题栏的关闭按钮，与工具栏那批小按钮同一体量。 */
-const CLOSE = "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foreground"
+const CLOSE = BTN_ICON
 
 /** 分区项。选中态走 `bg-selection`，与标签条 / 保存按钮同一个强调色。 */
 function sectionClass(isActive: boolean): string {
@@ -323,15 +326,6 @@ function sectionClass(isActive: boolean): string {
     : "text-muted-foreground hover:bg-muted hover:text-foreground"
 }
 
-/**
- * 选项行。选中时用边框 + 底色，不用对勾 —— 对勾放在左侧会与图标打架，
- * 放右侧又离文字太远；整行高亮更直白。
- */
-function optionClass(isActive: boolean): string {
-  return isActive
-    ? "border-foreground/25 bg-muted"
-    : "border-line hover:border-foreground/15 hover:bg-muted/50"
-}
 </script>
 
 <template>
@@ -373,37 +367,22 @@ function optionClass(isActive: boolean): string {
                 宽表格超出正文宽度时如何排布。
               </SheetDescription>
 
-              <div class="mt-0.5 flex flex-col gap-1.5">
-                <button
-                  v-for="option in TABLE_EFFECT_OPTIONS"
-                  :key="option.value"
-                  type="button"
-                  role="radio"
-                  :aria-checked="tableEffect === option.value"
-                  :class="[
-                    'flex items-start gap-2.5 rounded-[9px] border p-2.5 text-left transition-colors',
-                    optionClass(tableEffect === option.value),
-                  ]"
-                  @click="setTableEffect(option.value)"
-                >
-                  <component
-                    :is="option.icon"
-                    class="mt-0.5 size-4 flex-none text-muted-foreground"
-                  />
+              <ChoiceGroup
+                :model-value="tableEffect"
+                :options="TABLE_EFFECT_OPTIONS"
+                label="表格效果"
+                item-class="flex items-start gap-2.5"
+                @update:model-value="setTableEffect"
+              >
+                <template #default="{ option, active }">
+                  <component :is="option.icon" class="mt-0.5 size-4 flex-none text-muted-foreground" />
                   <span class="flex min-w-0 flex-col gap-0.5">
-                    <span class="text-13 leading-[1.4] text-foreground">
-                      {{ option.label }}
-                    </span>
-                    <span class="text-12 leading-[1.45] text-muted-foreground">
-                      {{ option.hint }}
-                    </span>
+                    <span class="text-13 leading-[1.4] text-foreground">{{ option.label }}</span>
+                    <span class="text-12 leading-[1.45] text-muted-foreground">{{ option.hint }}</span>
                   </span>
-                  <CheckIcon
-                    v-if="tableEffect === option.value"
-                    class="ml-auto mt-0.5 size-3.5 flex-none text-foreground"
-                  />
-                </button>
-              </div>
+                  <CheckIcon v-if="active" class="ml-auto mt-0.5 size-3.5 flex-none text-foreground" />
+                </template>
+              </ChoiceGroup>
             </section>
 
             <section class="flex flex-col gap-2">
@@ -411,33 +390,25 @@ function optionClass(isActive: boolean): string {
               <SheetDescription>编辑器里正文内容的最大宽度。</SheetDescription>
 
               <!-- 三档横排:窄 → 宽本身是个一维刻度,横排比竖叠更读得出「档位」。 -->
-              <div class="mt-0.5 grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="内容宽度">
-                <button
-                  v-for="option in CONTENT_WIDTH_OPTIONS"
-                  :key="option.value"
-                  type="button"
-                  role="radio"
-                  :aria-checked="contentWidth === option.value"
-                  :class="[
-                    'flex flex-col items-center gap-1.5 rounded-[9px] border p-2.5 transition-colors',
-                    optionClass(contentWidth === option.value),
-                  ]"
-                  @click="setContentWidth(option.value)"
-                >
-                  <!-- 档位条:宽度随档位递增,条本身就在回答「这档有多宽」。 -->
+              <ChoiceGroup
+                :model-value="contentWidth"
+                :options="CONTENT_WIDTH_OPTIONS"
+                label="内容宽度"
+                :columns="3"
+                item-class="flex flex-col items-center gap-1.5"
+                @update:model-value="setContentWidth"
+              >
+                <!-- 档位条:宽度随档位递增,条本身就在回答「这档有多宽」。 -->
+                <template #default="{ option }">
                   <span class="flex h-1 items-center">
-                    <span
-                      :class="['h-1 rounded-full bg-muted-foreground', CONTENT_WIDTH_BAR[option.value]]"
-                    />
+                    <span :class="['h-1 rounded-full bg-muted-foreground', CONTENT_WIDTH_BAR[option.value]]" />
                   </span>
-                  <span class="text-13 leading-[1.4] text-foreground">
-                    {{ option.label }}
-                  </span>
+                  <span class="text-13 leading-[1.4] text-foreground">{{ option.label }}</span>
                   <span class="text-12 leading-[1.45] text-muted-foreground">
                     {{ CONTENT_WIDTH_PX[option.value] }}px
                   </span>
-                </button>
-              </div>
+                </template>
+              </ChoiceGroup>
             </section>
 
             <section class="flex flex-col gap-2">
@@ -445,24 +416,20 @@ function optionClass(isActive: boolean): string {
               <SheetDescription>插入块与「转为…」菜单里分组的排布方向。</SheetDescription>
 
               <!-- 两档横排:方向本身是二维的,用图标画出组的走向比文字更直白。 -->
-              <div class="mt-0.5 grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="块菜单分组排布">
-                <button
-                  v-for="option in MENU_GROUP_LAYOUT_OPTIONS"
-                  :key="option.value"
-                  type="button"
-                  role="radio"
-                  :aria-checked="menuGroupLayout === option.value"
-                  :class="[
-                    'flex flex-col items-start gap-1 rounded-[9px] border p-2.5 text-left transition-colors',
-                    optionClass(menuGroupLayout === option.value),
-                  ]"
-                  @click="setMenuGroupLayout(option.value)"
-                >
+              <ChoiceGroup
+                :model-value="menuGroupLayout"
+                :options="MENU_GROUP_LAYOUT_OPTIONS"
+                label="块菜单分组排布"
+                :columns="2"
+                item-class="flex flex-col items-start gap-1"
+                @update:model-value="setMenuGroupLayout"
+              >
+                <template #default="{ option }">
                   <component :is="option.icon" class="size-4 text-muted-foreground" />
                   <span class="text-13 leading-[1.4] text-foreground">{{ option.label }}</span>
                   <span class="text-12 leading-[1.45] text-muted-foreground">{{ option.hint }}</span>
-                </button>
-              </div>
+                </template>
+              </ChoiceGroup>
             </section>
 
             <section class="flex flex-col gap-2">
@@ -476,7 +443,7 @@ function optionClass(isActive: boolean): string {
                 :aria-checked="integrateTables"
                 :class="[
                   'mt-0.5 flex items-start gap-2.5 rounded-[9px] border p-2.5 text-left transition-colors',
-                  optionClass(integrateTables),
+                  optionRowClass(integrateTables),
                 ]"
                 @click="setIntegrateTables(!integrateTables)"
               >
@@ -497,7 +464,7 @@ function optionClass(isActive: boolean): string {
                 :aria-checked="treeGuides"
                 :class="[
                   'mt-0.5 flex items-start gap-2.5 rounded-[9px] border p-2.5 text-left transition-colors',
-                  optionClass(treeGuides),
+                  optionRowClass(treeGuides),
                 ]"
                 @click="setTreeGuides(!treeGuides)"
               >
@@ -523,7 +490,7 @@ function optionClass(isActive: boolean): string {
                 :aria-checked="headingNav"
                 :class="[
                   'mt-0.5 flex items-start gap-2.5 rounded-[9px] border p-2.5 text-left transition-colors',
-                  optionClass(headingNav),
+                  optionRowClass(headingNav),
                 ]"
                 @click="setHeadingNav(!headingNav)"
               >
@@ -571,7 +538,7 @@ function optionClass(isActive: boolean): string {
                 :aria-checked="autoSave"
                 :class="[
                   'mt-0.5 flex items-start gap-2.5 rounded-[9px] border p-2.5 text-left transition-colors',
-                  optionClass(autoSave),
+                  optionRowClass(autoSave),
                 ]"
                 @click="setAutoSave(!autoSave)"
               >
@@ -623,37 +590,22 @@ function optionClass(isActive: boolean): string {
               <h3 class="text-13 font-medium text-foreground">主题</h3>
               <SheetDescription>界面配色。标签栏最右那颗按钮也能就地手动切。</SheetDescription>
 
-              <div class="mt-0.5 flex flex-col gap-1.5" role="radiogroup" aria-label="主题">
-                <button
-                  v-for="option in THEME_MODE_OPTIONS"
-                  :key="option.value"
-                  type="button"
-                  role="radio"
-                  :aria-checked="theme.mode === option.value"
-                  :class="[
-                    'flex items-start gap-2.5 rounded-[9px] border p-2.5 text-left transition-colors',
-                    optionClass(theme.mode === option.value),
-                  ]"
-                  @click="setTheme({ mode: option.value })"
-                >
-                  <component
-                    :is="option.icon"
-                    class="mt-0.5 size-4 flex-none text-muted-foreground"
-                  />
+              <ChoiceGroup
+                :model-value="theme.mode"
+                :options="THEME_MODE_OPTIONS"
+                label="主题"
+                item-class="flex items-start gap-2.5"
+                @update:model-value="(mode: ThemeMode) => setTheme({ mode })"
+              >
+                <template #default="{ option, active }">
+                  <component :is="option.icon" class="mt-0.5 size-4 flex-none text-muted-foreground" />
                   <span class="flex min-w-0 flex-col gap-0.5">
-                    <span class="text-13 leading-[1.4] text-foreground">
-                      {{ option.label }}
-                    </span>
-                    <span class="text-12 leading-[1.45] text-muted-foreground">
-                      {{ option.hint }}
-                    </span>
+                    <span class="text-13 leading-[1.4] text-foreground">{{ option.label }}</span>
+                    <span class="text-12 leading-[1.45] text-muted-foreground">{{ option.hint }}</span>
                   </span>
-                  <CheckIcon
-                    v-if="theme.mode === option.value"
-                    class="ml-auto mt-0.5 size-3.5 flex-none text-foreground"
-                  />
-                </button>
-              </div>
+                  <CheckIcon v-if="active" class="ml-auto mt-0.5 size-3.5 flex-none text-foreground" />
+                </template>
+              </ChoiceGroup>
             </section>
 
             <section class="flex flex-col gap-2">
@@ -661,47 +613,40 @@ function optionClass(isActive: boolean): string {
               <SheetDescription>卡片、菜单与输入框的圆角档位。</SheetDescription>
 
               <!-- 四档横排：方块的弧度随档位递增，一排看过去就是这条刻度。 -->
-              <div class="mt-0.5 grid grid-cols-4 gap-1.5" role="radiogroup" aria-label="界面圆角">
-                <button
-                  v-for="option in CORNER_STYLE_OPTIONS"
-                  :key="option.value"
-                  type="button"
-                  role="radio"
-                  :aria-checked="corners === option.value"
-                  :class="[
-                    'flex flex-col items-center gap-1.5 rounded-[9px] border p-2.5 transition-colors',
-                    optionClass(corners === option.value),
-                  ]"
-                  @click="setCorners(option.value)"
-                >
-                  <!-- 示意方块：弧度只是「这一档大概长什么样」，七个真值在 style.css 的 --rad-*。 -->
+              <ChoiceGroup
+                :model-value="corners"
+                :options="CORNER_STYLE_OPTIONS"
+                label="界面圆角"
+                :columns="4"
+                item-class="flex flex-col items-center gap-1.5"
+                @update:model-value="setCorners"
+              >
+                <template #default="{ option }">
+                  <!-- 示意方块：弧度只是「这一档大概长什么样」，七个真值在 style.css 的 --rad-*。
+                       这里的 3 / 8 / 13px 是**故意写死**的：换成刻度类就四档一个样了。 -->
                   <span :class="['size-4 border border-muted-foreground', option.preview]" />
                   <span class="text-13 leading-[1.4] text-foreground">{{ option.label }}</span>
-                </button>
-              </div>
+                </template>
+              </ChoiceGroup>
             </section>
 
             <section class="flex flex-col gap-2">
               <h3 class="text-13 font-medium text-foreground">基础字号</h3>
               <SheetDescription>整套界面与正文一起缩放。导出文件不跟这一档走。</SheetDescription>
 
-              <div class="mt-0.5 grid grid-cols-4 gap-1.5" role="radiogroup" aria-label="基础字号">
-                <button
-                  v-for="option in BASE_FONT_OPTIONS"
-                  :key="option.value"
-                  type="button"
-                  role="radio"
-                  :aria-checked="baseFont === option.value"
-                  :class="[
-                    'flex flex-col items-center gap-0.5 rounded-[9px] border px-1 py-2 transition-colors',
-                    optionClass(baseFont === option.value),
-                  ]"
-                  @click="setBaseFont(option.value)"
-                >
+              <ChoiceGroup
+                :model-value="baseFont"
+                :options="BASE_FONT_OPTIONS"
+                label="基础字号"
+                :columns="4"
+                item-class="flex flex-col items-center gap-0.5 px-1 py-2"
+                @update:model-value="setBaseFont"
+              >
+                <template #default="{ option }">
                   <span class="text-14 leading-[1.2] text-foreground">{{ option.value }}</span>
                   <span class="text-11 leading-[1.3] text-muted-foreground">{{ option.label }}</span>
-                </button>
-              </div>
+                </template>
+              </ChoiceGroup>
             </section>
 
             <!-- 固定时间：只有两个时刻。先后顺序不限 —— 调度按时刻排序后取「最近一个已过」。 -->

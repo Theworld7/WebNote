@@ -3,6 +3,7 @@ import type { LinkShape } from "@/types/workspace"
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { BTN_COMPACT } from "@/components/ui/button/recipes"
 
 /**
  * 链接编辑浮层：显示内容、地址、形态（文本链接 / 书签卡片），可移除、可取消。
@@ -106,8 +107,7 @@ function onKeydown(event: KeyboardEvent) {
 }
 
 /** 与格式条按钮同一规格的文字按钮。 */
-const FORM_BUTTON =
-  "h-6 rounded-[5px] px-2 text-12 text-muted-foreground hover:text-foreground"
+const FORM_BUTTON = BTN_COMPACT
 const FORM_ACTIVE = "bg-accent text-foreground"
 </script>
 

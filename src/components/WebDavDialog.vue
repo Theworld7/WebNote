@@ -9,6 +9,7 @@ import { describeError } from "@/lib/errors"
 import { loadWebDavConfig } from "@/lib/fs/webdav"
 import { createDavClient, normalizeDavUrl } from "@/lib/fs/webdav/client"
 import type { DavClient } from "@/lib/fs/webdav/client"
+import { BTN_TEXT } from "@/components/ui/button/recipes"
 
 /**
  * 连接 WebDAV 的对话框。
@@ -266,7 +267,7 @@ async function confirm(): Promise<void> {
 
       <AlertDialogFooter>
         <AlertDialogCancel as-child>
-          <Button variant="ghost" size="sm" class="text-13">取消</Button>
+          <Button variant="ghost" size="sm" :class="BTN_TEXT">取消</Button>
         </AlertDialogCancel>
         <Button
           v-if="phase === 'form'"

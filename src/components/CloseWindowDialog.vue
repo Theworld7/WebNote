@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { useWorkspace } from "@/composables/useWorkspace"
+import { BTN_DIALOG } from "@/components/ui/button/recipes"
 
 /**
  * 关窗确认。
@@ -25,7 +26,6 @@ import { useWorkspace } from "@/composables/useWorkspace"
 const { windowClosePending, dirtyTabs, resolveWindowClose, cancelWindowClose } = useWorkspace()
 
 /** 确认框里的按钮：h-7、13px，跟工具栏那批小按钮同一个体量。 */
-const DIALOG_BTN = "h-7 px-3 text-13"
 
 const count = computed(() => dirtyTabs.value.length)
 </script>
@@ -38,9 +38,9 @@ const count = computed(() => dirtyTabs.value.length)
         <AlertDialogDescription>关闭窗口后这些修改将会丢失。</AlertDialogDescription>
       </AlertDialogHeader>
       <AlertDialogFooter class="mx-0 mb-0 gap-2 rounded-none border-t-0 bg-transparent p-0 pt-1">
-        <Button variant="ghost" :class="DIALOG_BTN" @click="cancelWindowClose">取消</Button>
-        <Button variant="destructive" :class="DIALOG_BTN" @click="resolveWindowClose('discard')">不保存</Button>
-        <Button :class="DIALOG_BTN" @click="resolveWindowClose('save')">全部保存并关闭</Button>
+        <Button variant="ghost" :class="BTN_DIALOG" @click="cancelWindowClose">取消</Button>
+        <Button variant="destructive" :class="BTN_DIALOG" @click="resolveWindowClose('discard')">不保存</Button>
+        <Button :class="BTN_DIALOG" @click="resolveWindowClose('save')">全部保存并关闭</Button>
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>

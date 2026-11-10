@@ -15,9 +15,6 @@ import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import ReferenceBlockShell from "@/components/ReferenceBlockShell.vue"
@@ -28,6 +25,15 @@ import * as dt from "@/lib/data-table"
 import { galleryUnits } from "@/lib/gallery"
 import type { GalleryUnit } from "@/lib/gallery"
 import { markImageBroken, usableImage } from "@/lib/broken-images"
+import {
+  BlockMenu,
+  MenuSection,
+  MenuField,
+  MenuSeparator,
+  MENU_ITEM,
+  MENU_CONTROL,
+  TOOL_PILL,
+} from "@/components/settings-menu"
 
 /**
  * 画册块:把一张数据表渲染成海报卡片宫格。
@@ -283,10 +289,6 @@ function commitColumnCount(event: Event): void {
   setColumns(Number.isFinite(parsed) ? Math.min(12, Math.max(1, Math.round(parsed))) : 6)
 }
 
-/** 菜单外框与菜单项,与块手柄的两套菜单同一套参数。 */
-const MENU = "w-[12.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
-const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
-
 const FIT_ITEMS = [
   { value: "cover", label: "裁剪填充" },
   { value: "contain", label: "完整显示" },
@@ -326,23 +328,23 @@ const WIDTH_ITEMS = [
     <template #actions>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" :class="TOOL_PILL">
             <Settings2Icon class="size-3" />设置
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent :class="MENU" align="end">
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+        <BlockMenu :width="12.25" align="end">
+          <MenuSection>
             布局
-          </DropdownMenuLabel>
+          </MenuSection>
           <DropdownMenuCheckboxItem
-            :class="ITEM"
+            :class="MENU_ITEM"
             :model-value="props.block.columns === 'auto'"
             @update:model-value="(checked: boolean) => { if (checked) setColumns('auto') }"
           >
             <span>响应式列数</span>
           </DropdownMenuCheckboxItem>
           <DropdownMenuCheckboxItem
-            :class="ITEM"
+            :class="MENU_ITEM"
             :model-value="props.block.columns !== 'auto'"
             @update:model-value="(checked: boolean) => { if (!checked) return }"
             @select.prevent
@@ -359,72 +361,72 @@ const WIDTH_ITEMS = [
               @blur="commitColumnCount"
             >
           </DropdownMenuCheckboxItem>
-          <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+          <MenuSeparator />
+          <MenuSection>
             图片填充
-          </DropdownMenuLabel>
+          </MenuSection>
           <DropdownMenuCheckboxItem
             v-for="item in FIT_ITEMS"
             :key="item.value"
-            :class="ITEM"
+            :class="MENU_ITEM"
             :model-value="props.block.fit === item.value"
             @update:model-value="(checked: boolean) => { if (checked) setFit(item.value) }"
           >
             <span>{{ item.label }}</span>
           </DropdownMenuCheckboxItem>
-          <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+          <MenuSeparator />
+          <MenuSection>
             图片比例
-          </DropdownMenuLabel>
-          <div class="px-2 pb-1.5">
+          </MenuSection>
+          <MenuField>
             <select
               v-model="ratioSelection"
-              class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
+              :class="MENU_CONTROL"
             >
               <option v-for="item in RATIO_ITEMS" :key="item.value" :value="item.value">
                 {{ item.label }}
               </option>
             </select>
-          </div>
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+          </MenuField>
+          <MenuSection>
             图片宽度
-          </DropdownMenuLabel>
-          <div class="px-2 pb-1.5">
+          </MenuSection>
+          <MenuField>
             <select
               v-model="widthSelection"
-              class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
+              :class="MENU_CONTROL"
             >
               <option v-for="item in WIDTH_ITEMS" :key="item.value" :value="item.value">
                 {{ item.label }}
               </option>
             </select>
-          </div>
+          </MenuField>
           <template v-if="columns.some((column) => column.type !== 'image')">
-            <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+            <MenuSeparator />
+            <MenuSection>
               聚合展示
-            </DropdownMenuLabel>
-            <div class="px-2 pb-1.5">
+            </MenuSection>
+            <MenuField>
               <select
                 v-model="groupSelection"
-                class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
+                :class="MENU_CONTROL"
               >
                 <option value="">关闭(平铺展示)</option>
                 <option v-for="column in columns.filter((c) => c.type !== 'image')" :key="column.id" :value="column.id">
                   {{ column.name }}
                 </option>
               </select>
-            </div>
+            </MenuField>
           </template>
           <template v-if="columns.some((column) => column.type !== 'image')">
-            <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+            <MenuSeparator />
+            <MenuSection>
               分组展示
-            </DropdownMenuLabel>
-            <div class="px-2 pb-1.5">
+            </MenuSection>
+            <MenuField>
               <select
                 v-model="groupBySelection"
-                class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
+                :class="MENU_CONTROL"
               >
                 <option value="">关闭</option>
                 <option v-for="column in columns.filter((c) => c.type !== 'image')" :key="column.id" :value="column.id">
@@ -454,18 +456,18 @@ const WIDTH_ITEMS = [
                   </button>
                 </div>
               </div>
-            </div>
+            </MenuField>
           </template>
           <template v-if="columns.some((column) => column.type !== 'image')">
-            <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+            <MenuSeparator />
+            <MenuSection>
               字段
-            </DropdownMenuLabel>
+            </MenuSection>
             <DropdownMenuCheckboxItem
               v-for="column in columns"
               :key="column.id"
               v-show="column.type !== 'image'"
-              :class="ITEM"
+              :class="MENU_ITEM"
               :model-value="!props.block.hiddenFields.includes(column.id)"
               @update:model-value="(checked: boolean) => toggleField(column.id, checked)"
               @select.prevent
@@ -473,7 +475,7 @@ const WIDTH_ITEMS = [
               <span class="truncate">{{ column.name }}</span>
             </DropdownMenuCheckboxItem>
           </template>
-        </DropdownMenuContent>
+        </BlockMenu>
       </DropdownMenu>
     </template>
 

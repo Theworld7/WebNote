@@ -5,13 +5,9 @@ import { ArrowDownIcon, ArrowRightLeftIcon, ArrowUpIcon, ClipboardCopyIcon, Copy
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuSub,
-  DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -22,6 +18,8 @@ import { blockTypeMeta, blockTypeOptions } from "@/lib/blocks"
 import { arrowTargetIndex, type MenuArrow } from "@/lib/menu-nav"
 import { TYPE_OPTION_SELECTOR, flushPendingEditableFocus } from "@/lib/dom"
 import { useSettings } from "@/composables/useSettings"
+import { BlockMenu, MenuSection, MenuSeparator, MENU_ITEM } from "@/components/settings-menu"
+import { BTN_ICON } from "@/components/ui/button/recipes"
 
 const props = defineProps<{
   /** 块类型：把类型图标（BLOCK_TYPES 的 icon）嵌进拖拽把手，hover 时就知道这是块什么。 */
@@ -75,7 +73,7 @@ watch(
 )
 
 /** 手柄按钮：24px 见方，比 shadcn 默认图标按钮更小，靠 class 覆盖 size variant。 */
-const TOOL = "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foreground"
+const TOOL = BTN_ICON
 
 /**
  * 拖拽手柄：块类型图标独自成一颗按钮 —— 与类型菜单左列同源，不另立一套图标。
@@ -88,20 +86,13 @@ const TOOL = "size-6 rounded-[5px] p-0 text-muted-foreground hover:text-foregrou
 const GRIP = `${TOOL} cursor-grab active:cursor-grabbing`
 
 /**
- * 菜单外框：浮岛圆角、双层阴影。原来这里还有一条 `ring-0`，把 shadcn 默认的 1px ring
- * 一起关掉 —— 浅色下没问题（白纸靠阴影就能分层），但深色下菜单底与编辑器卡片同色
- * （见 style.css 的 .dark --popover 段），阴影是黑的、也压不出边界，菜单等于没有边框。
- * 现在留着这圈 hairline：颜色走 `--color-line`，两套外观都成立。
- * 宽度随「块菜单」设置走 —— 纵向 244px 定宽；横向组要并排，改 `w-max`
- * 让内容撑开（定宽会把横排的组挤换行，「横向」就不成立了）。
+ * 菜单外框的浮岛圆角、双层阴影与 hairline 归 `settings-menu/recipes.ts` 一处管。
+ * 这里只决定宽度：纵向 244px 定宽；横向组要并排，按内容撑开
+ * （定宽会把横排的组挤换行，「横向」就不成立了）。
  */
-const MENU = computed(() =>
-  menuGroupLayout.value === "horizontal"
-    ? "w-max rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
-    : "w-[15.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70",
+const MENU_WIDTH = computed<number | "max">(() =>
+  menuGroupLayout.value === "horizontal" ? "max" : 15.25,
 )
-
-const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
 
 /** 位置两项的公共数据：方向、图标、文案一次定义，纵向横向两个排布共用。 */
 const POSITIONS = [
@@ -284,17 +275,16 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
           <PlusIcon class="size-3.5" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        :class="MENU"
+      <BlockMenu :width="MENU_WIDTH"
         :side-offset="6"
         @keydown.capture="onTypeMenuKey"
         @close-auto-focus="keepFocusInBlock"
-      >
+>
         <!-- 检索回显：菜单里没有输入框，敲的字母得在这儿看得见（空词时是提示语）。 -->
         <TypeQueryEcho :query="typeQuery" />
-        <DropdownMenuLabel v-if="typeMenuMode === 'convert'" class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+        <MenuSection v-if="typeMenuMode === 'convert'">
           转换为
-        </DropdownMenuLabel>
+        </MenuSection>
         <!-- 插入位置：方向已由 ↑/↓ 表明，不再放顶部提示。纵向竖叠在最上；横向并成
              第一列（带「位置」列头），与类型组同构。选中项右侧标 ✓；select.prevent
              让菜单保持打开，接着挑块类型才真正落块。 -->
@@ -304,7 +294,7 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
               <DropdownMenuItem
                 v-for="position in POSITIONS"
                 :key="String(position.above)"
-                :class="ITEM"
+                :class="MENU_ITEM"
                 @select.prevent="insertAbove = position.above"
               >
                 <MenuIcon :icon="position.icon" />
@@ -312,16 +302,16 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
                 <DropdownMenuShortcut v-if="insertAbove === position.above" class="tracking-normal">✓</DropdownMenuShortcut>
               </DropdownMenuItem>
             </div>
-            <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
+            <MenuSeparator />
             <BlockTypeMenuItems :query="typeQuery" :exclude="excludeTypes" @pick="(type: BlockType) => emit('insert', type, insertAbove ? 'above' : 'below')" />
           </template>
           <div v-else class="flex items-start gap-x-3">
             <div class="flex min-w-[6.5rem] shrink-0 flex-col">
-              <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">位置</DropdownMenuLabel>
+              <MenuSection>位置</MenuSection>
               <DropdownMenuItem
                 v-for="position in POSITIONS"
                 :key="String(position.above)"
-                :class="ITEM"
+                :class="MENU_ITEM"
                 @select.prevent="insertAbove = position.above"
               >
                 <MenuIcon :icon="position.icon" />
@@ -333,7 +323,7 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
           </div>
         </template>
         <BlockTypeMenuItems v-else :query="typeQuery" :exclude="excludeTypes" @pick="(type: BlockType) => emit('retype', type)" />
-      </DropdownMenuContent>
+      </BlockMenu>
     </DropdownMenu>
 
     <!-- 类型图标：点击开块操作菜单，按住拖动则是排序手柄。
@@ -355,41 +345,40 @@ function onQueryKey(event: KeyboardEvent, pick: (type: BlockType) => void) {
           <component :is="meta.icon" class="size-3.5" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        :class="MENU"
+      <BlockMenu :width="MENU_WIDTH"
         :side-offset="6"
         @keydown.capture="onMenuArrow"
         @close-auto-focus="keepFocusInBlock"
-      >
-        <DropdownMenuItem :class="ITEM" @select="emit('duplicate')">
+>
+        <DropdownMenuItem :class="MENU_ITEM" @select="emit('duplicate')">
           <MenuIcon :icon="CopyIcon" />
           <span>复制块</span>
         </DropdownMenuItem>
 
-        <DropdownMenuItem :class="ITEM" @select="emit('copy-content')">
+        <DropdownMenuItem :class="MENU_ITEM" @select="emit('copy-content')">
           <MenuIcon :icon="ClipboardCopyIcon" />
           <span>复制内容</span>
         </DropdownMenuItem>
 
         <DropdownMenuSub @update:open="onSubOpen">
-          <DropdownMenuSubTrigger :class="ITEM">
+          <DropdownMenuSubTrigger :class="MENU_ITEM">
             <MenuIcon :icon="ArrowRightLeftIcon" />
             <span>转为…</span>
           </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent :class="MENU" @keydown.capture="onSubMenuKey" @close-auto-focus="keepFocusInBlock">
+          <BlockMenu sub :width="MENU_WIDTH" @keydown.capture="onSubMenuKey" @close-auto-focus="keepFocusInBlock">
             <!-- 子菜单里敲的也是同一个检索词，回显跟着走一份，别让人以为没敲进去。 -->
             <TypeQueryEcho :query="typeQuery" />
             <BlockTypeMenuItems :query="typeQuery" :exclude="excludeTypes" @pick="(type: BlockType) => emit('retype', type)" />
-          </DropdownMenuSubContent>
+          </BlockMenu>
         </DropdownMenuSub>
 
-        <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
+        <MenuSeparator />
 
-        <DropdownMenuItem variant="destructive" :class="ITEM" @select="emit('remove')">
+        <DropdownMenuItem variant="destructive" :class="MENU_ITEM" @select="emit('remove')">
           <MenuIcon :icon="Trash2Icon" />
           <span>删除块</span>
         </DropdownMenuItem>
-      </DropdownMenuContent>
+      </BlockMenu>
     </DropdownMenu>
   </div>
 </template>

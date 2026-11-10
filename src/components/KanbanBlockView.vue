@@ -7,9 +7,6 @@ import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import ReferenceBlockShell from "@/components/ReferenceBlockShell.vue"
@@ -20,6 +17,16 @@ import { useTableEntry } from "@/composables/useTableEntry"
 import { useCellEditing } from "@/composables/useCellEditing"
 import { useDateCellPanel } from "@/composables/useDateCellPanel"
 import * as dt from "@/lib/data-table"
+import {
+  BlockMenu,
+  MenuSection,
+  MenuField,
+  MenuSeparator,
+  MENU_ITEM,
+  MENU_CONTROL,
+  TOOL_PILL,
+} from "@/components/settings-menu"
+import { NOTICE_TEXT } from "@/components/ui/notice/recipes"
 
 /**
  * 看板块:把一张数据表按某列的值分成若干列,每行一张便签贴纸卡,卡片可跨列拖拽
@@ -242,8 +249,6 @@ function toggleField(column: DataColumn, checked: boolean): void {
   updateBlockSettings(props.block.id, { displayColumnIds: collapsesToAll ? [] : next })
 }
 
-const MENU = "w-[12.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
-const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
 </script>
 
 <template>
@@ -257,18 +262,18 @@ const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
     <template #actions>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" :class="TOOL_PILL">
             <Settings2Icon class="size-3" />设置
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent :class="MENU" align="end">
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+        <BlockMenu :width="12.25" align="end">
+          <MenuSection>
             分组字段
-          </DropdownMenuLabel>
-          <div class="px-2 pb-1.5">
+          </MenuSection>
+          <MenuField>
             <select
               v-model="groupSelection"
-              class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
+              :class="MENU_CONTROL"
             >
               <option value="">未选择(看板未分组)</option>
               <option v-for="column in columns" :key="column.id" :value="column.id">
@@ -298,24 +303,24 @@ const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
                 </button>
               </div>
             </div>
-          </div>
+          </MenuField>
           <template v-if="props.block.groupColumnId !== ''">
-            <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
+            <MenuSeparator />
             <DropdownMenuCheckboxItem
-              :class="ITEM"
+              :class="MENU_ITEM"
               :model-value="props.block.showEmptyGroups"
               @update:model-value="(checked: boolean) => updateBlockSettings(props.block.id, { showEmptyGroups: checked })"
               @select.prevent
             >
               <span class="truncate">显示空分组</span>
             </DropdownMenuCheckboxItem>
-            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+            <MenuSection>
               卡片显示字段
-            </DropdownMenuLabel>
+            </MenuSection>
             <DropdownMenuCheckboxItem
               v-for="column in columns"
               :key="column.id"
-              :class="ITEM"
+              :class="MENU_ITEM"
               :model-value="isFieldShown(column)"
               @update:model-value="(checked: boolean) => toggleField(column, checked)"
               @select.prevent
@@ -323,14 +328,14 @@ const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
               <span class="truncate">{{ column.name }}</span>
             </DropdownMenuCheckboxItem>
           </template>
-        </DropdownMenuContent>
+        </BlockMenu>
       </DropdownMenu>
     </template>
 
     <!-- 未选分组列:引导去设。 -->
     <p
       v-if="props.block.groupColumnId === '' || groupColumn === null"
-      class="rounded-lg border border-dashed border-line bg-muted/30 px-3 py-2.5 text-12 text-muted-foreground"
+      :class="NOTICE_TEXT"
     >
       看板尚未选择分组字段 —— 点右上角「设置」选一列,卡片会按它的值分列。
     </p>

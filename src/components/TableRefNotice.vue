@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { DatabaseIcon } from "@lucide/vue"
 import { fileName } from "@/lib/paths"
+import { NOTICE_INLINE } from "@/components/ui/notice/recipes"
 
 /**
  * 引用块的三段提示态（空指针 / 读不到 / 读取中）。
@@ -63,7 +64,7 @@ function onReselect(event: Event): void {
   -->
   <div
     v-else-if="kind === 'locked'"
-    class="my-4 flex items-center gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
+    :class="NOTICE_INLINE"
   >
     <DatabaseIcon class="size-3.5 shrink-0 text-muted-foreground" />
     <span class="min-w-0 flex-1 text-12 text-muted-foreground">
@@ -73,7 +74,7 @@ function onReselect(event: Event): void {
 
   <div
     v-else
-    class="my-4 flex items-center gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
+    :class="NOTICE_INLINE"
   >
     <DatabaseIcon class="size-3.5 shrink-0 text-muted-foreground" />
     <span class="min-w-0 flex-1 text-12 text-muted-foreground">

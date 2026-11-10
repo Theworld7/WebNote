@@ -7,10 +7,7 @@ import { ExternalLinkIcon, PlusIcon, Trash2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import MenuIcon from "@/components/MenuIcon.vue"
@@ -22,6 +19,13 @@ import { useWorkspace } from "@/composables/useWorkspace"
 import { markImageBroken, usableImage } from "@/lib/broken-images"
 import * as dt from "@/lib/data-table"
 import { tableEffectClasses } from "@/lib/typography"
+import {
+  BlockMenu,
+  MenuSection,
+  MenuSeparator,
+  MENU_ITEM,
+  TOOL_PILL_PLAIN,
+} from "@/components/settings-menu"
 
 /**
  * 数据表引用块。
@@ -139,9 +143,7 @@ function removeColumn(columnId: string) {
   void change((current) => dt.removeColumn(current, columnId))
 }
 
-/** 菜单外框与菜单项，与块手柄的两套菜单同一套参数。 */
-const MENU = "w-[11rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
-const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
+/** 菜单项左侧勾选标记的固定宽度，和文字列对齐。 */
 const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foreground"
 </script>
 
@@ -199,30 +201,30 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
                     </span>
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent :class="MENU" align="start">
-                  <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+                <BlockMenu :width="11" align="start">
+                  <MenuSection>
                     列类型
-                  </DropdownMenuLabel>
+                  </MenuSection>
                   <DropdownMenuItem
                     v-for="item in COLUMN_TYPE_ITEMS"
                     :key="item.type"
-                    :class="ITEM"
+                    :class="MENU_ITEM"
                     @select="setColumnType(column.id, item.type)"
                   >
                     <span :class="MARKER">{{ column.type === item.type ? "✓" : "" }}</span>
                     <span>{{ item.label }}</span>
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
+                  <MenuSeparator />
                   <DropdownMenuItem
                     variant="destructive"
-                    :class="ITEM"
+                    :class="MENU_ITEM"
                     :disabled="columns.length <= 1"
                     @select="removeColumn(column.id)"
                   >
                     <MenuIcon :icon="Trash2Icon" />
                     <span>删除本列</span>
                   </DropdownMenuItem>
-                </DropdownMenuContent>
+                </BlockMenu>
               </DropdownMenu>
             </th>
           </tr>
@@ -297,7 +299,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full px-2 text-12 text-muted-foreground hover:text-foreground"
+        :class="TOOL_PILL_PLAIN"
         @click="addRow"
       >
         <PlusIcon class="size-3" />行
@@ -305,7 +307,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full px-2 text-12 text-muted-foreground hover:text-foreground"
+        :class="TOOL_PILL_PLAIN"
         @click="addColumn"
       >
         <PlusIcon class="size-3" />列
@@ -313,7 +315,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full px-2 text-12 text-muted-foreground hover:text-foreground"
+        :class="TOOL_PILL_PLAIN"
         @click="openTable"
       >
         <ExternalLinkIcon class="size-3" />打开

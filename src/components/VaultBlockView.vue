@@ -4,6 +4,7 @@ import type { VaultBlock } from "@/types/workspace"
 import { computed, nextTick, ref } from "vue"
 import { CheckIcon, CopyIcon, DatabaseIcon, EyeIcon, EyeOffIcon, KeyRoundIcon, LockIcon, PlusIcon, Trash2Icon } from "@lucide/vue"
 import PassphraseFields from "@/components/PassphraseFields.vue"
+import VaultIconDialog from "@/components/VaultIconDialog.vue"
 import { Input } from "@/components/ui/input"
 import { useCopied } from "@/composables/useCopied"
 import { useTableEntry } from "@/composables/useTableEntry"
@@ -14,6 +15,7 @@ import { describeError } from "@/lib/errors"
 import * as dt from "@/lib/data-table"
 import { SECRET_MASK } from "@/lib/secret"
 import { passphraseProblem, resolveVaultRoles } from "@/lib/vault"
+import { NOTICE_INLINE } from "@/components/ui/notice/recipes"
 
 /**
  * 密码本块：一张凭据清单，每行一条账号。
@@ -67,12 +69,54 @@ function cellText(row: DataRow, column: DataColumn | null): string {
   return typeof value === "string" ? value : value === null ? "" : String(value)
 }
 
-/** 图标格：只读（换图去数据表编辑页 —— 与数据表引用块同一口径）。 */
+/** 图标格当前画出来的地址（data URI 或 URL）；空串 = 还没有图标。 */
 function iconSrc(row: DataRow): string {
   const column = iconColumn.value
   if (column === null) return ""
   const value = dt.cellValue(row, column)
   return typeof value === "string" ? value : ""
+}
+
+// ---- 配置图标 ----
+
+/**
+ * 正在配置图标的那一行（行 id）；空串 = 弹窗关着。
+ *
+ * 图标就地可配（不必绕去数据表编辑页）：点条目左边那颗图标就弹表单，本地图片与
+ * 在线地址二选一，输完即时预览。落进图标格的仍是一个能当 `<img src>` 用的字符串 ——
+ * 与数据表图片列同一口径，没有图标列（表里那张 image 列被删了）时这颗图标不可点。
+ */
+const iconRowId = ref("")
+
+const iconDialogOpen = computed(() => iconRowId.value !== "")
+
+/** 弹窗里编辑的当前值：打开那一刻那一行的图标。 */
+const iconDialogValue = computed(() => {
+  if (iconRowId.value === "") return ""
+  const row = rows.value.find((item) => item.id === iconRowId.value)
+  return row === undefined ? "" : iconSrc(row)
+})
+
+function openIconDialog(row: DataRow): void {
+  if (iconColumn.value === null) return
+  iconRowId.value = row.id
+}
+
+function closeIconDialog(): void {
+  iconRowId.value = ""
+}
+
+/** 提交图标：空串落 `null`（清除），其余原样存进图标格。 */
+function commitIcon(value: string): void {
+  const rowId = iconRowId.value
+  iconRowId.value = ""
+  const column = iconColumn.value
+  if (rowId === "" || column === null) return
+  const row = rows.value.find((item) => item.id === rowId)
+  if (row === undefined) return
+  const next = value === "" ? null : value
+  if (next === dt.cellValue(row, column)) return
+  void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, next)))
 }
 
 /**
@@ -306,7 +350,7 @@ function confirmDelete(): void {
   <!-- 空指针：如实说没指定，而不是永远转圈。 -->
   <div
     v-if="props.block.path === ''"
-    class="my-4 flex items-center gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
+    :class="NOTICE_INLINE"
   >
     <DatabaseIcon class="size-3.5 shrink-0 text-muted-foreground" />
     <span class="text-12 text-muted-foreground">密码本未指定数据表 —— 删掉这个块，用 / 菜单重新插入。</span>
@@ -315,7 +359,7 @@ function confirmDelete(): void {
   <!-- 引用的文件读不到：提示态，不是错误态。 -->
   <div
     v-else-if="state === 'missing' || state === 'failed'"
-    class="my-4 flex items-center gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
+    :class="NOTICE_INLINE"
   >
     <DatabaseIcon class="size-3.5 shrink-0 text-muted-foreground" />
     <span class="min-w-0 flex-1 text-12 text-muted-foreground">
@@ -467,21 +511,26 @@ function confirmDelete(): void {
         :data-row-id="row.id"
         class="group/entry flex items-center gap-2.5 px-3 py-2"
       >
-        <!-- 图标：只读。 -->
-        <img
-          v-if="iconSrc(row) !== ''"
-          :src="iconSrc(row)"
-          alt=""
-          loading="lazy"
-          decoding="async"
-          class="size-6 shrink-0 rounded-md object-cover"
+        <!-- 图标：点它就地配置（本地图片 / 在线地址，弹窗里即时预览）。没有图标列时不可点。 -->
+        <button
+          type="button"
+          class="grid size-6 shrink-0 place-items-center overflow-hidden rounded-md transition-opacity hover:opacity-75 disabled:cursor-default disabled:hover:opacity-100"
+          :class="iconSrc(row) === '' && 'bg-muted text-10 text-muted-foreground'"
+          :disabled="iconColumn === null"
+          :title="iconColumn === null ? '没有图标列' : '配置图标'"
+          data-vault-icon
+          @click="openIconDialog(row)"
         >
-        <div
-          v-else
-          class="grid size-6 shrink-0 place-items-center rounded-md bg-muted text-10 text-muted-foreground"
-        >
-          <KeyRoundIcon class="size-3" />
-        </div>
+          <img
+            v-if="iconSrc(row) !== ''"
+            :src="iconSrc(row)"
+            alt=""
+            loading="lazy"
+            decoding="async"
+            class="size-full object-cover"
+          >
+          <KeyRoundIcon v-else class="size-3" />
+        </button>
 
         <!-- 名称。 -->
         <input
@@ -619,5 +668,13 @@ function confirmDelete(): void {
         删掉
       </button>
     </div>
+
+    <!-- 配置图标的弹窗：本地图片 / 在线地址二选一，即时预览。 -->
+    <VaultIconDialog
+      :open="iconDialogOpen"
+      :value="iconDialogValue"
+      @close="closeIconDialog"
+      @confirm="commitIcon"
+    />
   </div>
 </template>

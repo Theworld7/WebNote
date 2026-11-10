@@ -8,6 +8,7 @@ import { useWorkspace } from "@/composables/useWorkspace"
 import { markImageBroken, usableImage } from "@/lib/broken-images"
 import { isFileDrag, pickImageFile, readImageFile } from "@/lib/image"
 import ImageSourcePanel from "./ImageSourcePanel.vue"
+import { NOTICE_INLINE_COMPACT } from "@/components/ui/notice/recipes"
 
 /**
  * 图片块。
@@ -82,7 +83,7 @@ async function onDrop(event: DragEvent) {
          是链接写错了还是对方不让外链。换图入口仍走下面的浮层。 -->
     <div
       v-else-if="hasSource"
-      class="my-1 flex items-start gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
+      :class="NOTICE_INLINE_COMPACT"
     >
       <ImageOffIcon class="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
       <div class="min-w-0">

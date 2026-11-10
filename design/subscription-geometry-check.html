@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>订阅卡几何一致性自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  p.lead { margin: 0 0 16px; color: #6b7280; max-width: 760px; }
+  .probes { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 16px; }
+  .probe { border: 1px solid #e5e5e7; border-radius: 10px; padding: 12px; }
+  .probe h2 { font-size: 12px; margin: 0 0 10px; font-weight: 600; }
+  #editor-probe { width: 220px; }
+  iframe { width: 420px; height: 300px; border: 0; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+  pre { margin: 16px 0 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>订阅卡几何一致性自检</h1>
+<p class="lead">
+  同一个订阅块有两套 CSS：编辑器的 <span class="mono">.subs-*</span>（scoped）与导出快照的
+  <span class="mono">.note-sub-*</span>（docStyle）。数值真源只有
+  <span class="mono">lib/subscription-geometry.ts</span> 一份：导出侧是模板字符串直接插值，
+  编辑器侧 CSS 取不到 TS 常量、保留字面量副本（与 SYSTEM_FONT_STACK ↔ --font-sans 同一惯例）。
+  这一页先读两侧源码逐项比对真源，再把两套 CSS 挂到真实 DOM 上量 computed，
+  把「改一边漏另一边」钉死。设计预览页是独立画板规格，不参与运行时几何。
+</p>
+<div class="probes">
+  <section class="probe">
+    <h2>编辑器侧 · scoped CSS 副本</h2>
+    <div id="editor-probe"></div>
+  </section>
+  <section class="probe">
+    <h2>导出侧 · docStyle() 插值</h2>
+    <iframe id="export-probe" title="导出快照探针"></iframe>
+  </section>
+</div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import subSource from "../src/components/SubscriptionBlockView.vue?raw"
+import typographySource from "../src/lib/typography.ts?raw"
+import { docStyle } from "../src/lib/typography.ts"
+import {
+  SUB_GEOMETRY as G,
+  SUB_EDITOR_GEOMETRY as E,
+  SUB_EXPORT_GEOMETRY as X,
+} from "../src/lib/subscription-geometry.ts"
+import { createHarness } from "./harness.js"
+
+const { check, done, note } = createHarness()
+
+/** 取一条非嵌套的 class 规则体。 */
+function rule(css, selector) {
+  const at = css.indexOf(selector + " {")
+  if (at < 0) return ""
+  const open = css.indexOf("{", at)
+  const close = css.indexOf("}", open)
+  return close < 0 ? "" : css.slice(open + 1, close)
+}
+
+/** 规则体里某个长度属性，返回 px 数值；缺失返回 NaN。 */
+function px(text, prop) {
+  const m = text.match(new RegExp("(?:^|[;\\s])" + prop + ":\\s*(-?[\\d.]+)px"))
+  return m ? Number(m[1]) : NaN
+}
+
+/** padding 简写拆成上 / 左右 / 下三个数。 */
+function padding(text) {
+  const m = text.match(/padding:\s*(-?[\d.]+)px\s+(-?[\d.]+)px\s+(-?[\d.]+)px/)
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : []
+}
+
+function minmax(text) {
+  const m = text.match(/minmax\((-?[\d.]+)px,\s*1fr\)/)
+  return m ? Number(m[1]) : NaN
+}
+
+/** 从探针文档里量一套几何。iframe 的样式表要用它自己的 window 取 computed。 */
+function probe(win, root, prefix, iconClass) {
+  const q = (suffix) => root.querySelector("." + prefix + suffix)
+  const style = (el, pseudo) => win.getComputedStyle(el, pseudo)
+  const grid = q("-grid")
+  const card = q("-card")
+  const icon = q(iconClass)
+  const summary = q("-summary")
+  const stats = root.querySelectorAll("." + prefix + "-stat")
+  const cardBefore = style(card, "::before")
+  const statBefore = style(stats[1], "::before")
+  const rect = icon.getBoundingClientRect()
+  return {
+    gap: parseFloat(style(grid).columnGap),
+    columns: style(grid).gridTemplateColumns,
+    iconWidth: Math.round(rect.width),
+    iconHeight: Math.round(rect.height),
+    iconRadius: style(icon).borderRadius,
+    ornamentWidth: cardBefore.width,
+    ornamentHeight: cardBefore.height,
+    summaryRadius: style(summary).borderRadius,
+    summaryMargin: parseFloat(style(summary).marginBottom),
+    cardRadius: style(card).borderRadius,
+    cardPadding: parseFloat(style(card).paddingTop),
+    cardMinHeight: style(card).minHeight,
+    statPadTop: parseFloat(style(stats[0]).paddingTop),
+    statPadInline: parseFloat(style(stats[0]).paddingLeft),
+    statPadBottom: parseFloat(style(stats[0]).paddingBottom),
+    dividerTop: statBefore.top,
+    dividerBottom: statBefore.bottom,
+  }
+}
+
+/** 宫格容器压到 200px，minmax 下限会把列撑到 248px —— 这样能量出真正的下限值。 */
+function editorDom() {
+  return `<div class="subs-summary"><div class="subs-stat"></div><div class="subs-stat"></div></div>
+    <div class="subs-grid" style="width:200px"><div class="subs-card">
+      <div class="subs-head"><div class="subs-identity"><div class="subs-logo">A</div></div></div>
+    </div></div>`
+}
+
+function exportDom() {
+  return `<div class="note-sub-summary"><div class="note-sub-stat"></div><div class="note-sub-stat"></div></div>
+    <div class="note-sub-grid" style="width:200px"><div class="note-sub-card">
+      <div class="note-sub-head"><div class="note-sub-icon">A</div><div class="note-sub-title"></div></div>
+    </div></div>`
+}
+
+try {
+  note("读取两套 CSS")
+  const scopedMatch = subSource.match(/<style scoped>([\s\S]*?)<\/style>/)
+  check("能读到编辑器 scoped CSS", scopedMatch !== null)
+  const scoped = scopedMatch ? scopedMatch[1] : ""
+  const doc = docStyle()
+
+  // ---------- 一、导出侧必须走常量插值，不能退回写死 ----------
+  const seg = typographySource.slice(
+    typographySource.indexOf(".note-sub-summary"),
+    typographySource.indexOf(".note-pl-head"),
+  )
+  check("导出侧订阅段存在", seg.length > 500, `段长 ${seg.length}`)
+  for (const field of ["gridMinPx", "gridGapPx", "iconSizePx", "iconRadiusPx", "ornamentSizePx", "summaryRadiusPx"]) {
+    check(`导出侧引用 SUB_GEOMETRY.${field}`, seg.includes("${SUB_GEOMETRY." + field + "}"))
+  }
+  check("导出侧没把宫格下限写死", !/minmax\(\d+px, 1fr\)/.test(seg))
+  check("导出侧差异项引用 SUB_EXPORT_GEOMETRY", (seg.match(/SUB_EXPORT_GEOMETRY\./g) || []).length >= 6)
+
+  // ---------- 二、共享几何：两侧源码都等于真源 ----------
+  const sharedPairs = [
+    [".subs-grid", ".note-sub-grid", "宫格下限", minmax, G.gridMinPx],
+    [".subs-grid", ".note-sub-grid", "宫格间距", (r) => px(r, "gap"), G.gridGapPx],
+    [".subs-logo", ".note-sub-icon", "图标宽", (r) => px(r, "width"), G.iconSizePx],
+    [".subs-logo", ".note-sub-icon", "图标高", (r) => px(r, "height"), G.iconSizePx],
+    [".subs-logo", ".note-sub-icon", "图标圆角", (r) => px(r, "border-radius"), G.iconRadiusPx],
+    [".subs-card::before", ".note-sub-card::before", "装饰圆宽", (r) => px(r, "width"), G.ornamentSizePx],
+    [".subs-card::before", ".note-sub-card::before", "装饰圆高", (r) => px(r, "height"), G.ornamentSizePx],
+    [".subs-card::before", ".note-sub-card::before", "装饰圆右偏移", (r) => px(r, "right"), G.ornamentRightPx],
+    [".subs-card::before", ".note-sub-card::before", "装饰圆下偏移", (r) => px(r, "bottom"), G.ornamentBottomPx],
+    [".subs-summary", ".note-sub-summary", "汇总条圆角", (r) => px(r, "border-radius"), G.summaryRadiusPx],
+  ]
+  for (const [editorSel, exportSel, label, read, expected] of sharedPairs) {
+    const a = read(rule(scoped, editorSel))
+    const b = read(rule(doc, exportSel))
+    check(`共享 · ${label} · 编辑器`, a === expected, `读到 ${a}，应为 ${expected}`)
+    check(`共享 · ${label} · 导出`, b === expected, `读到 ${b}，应为 ${expected}`)
+  }
+
+  // ---------- 三、有意不同的规格：各自对齐，且不许被「顺手统一」 ----------
+  const edPad = padding(rule(scoped, ".subs-stat"))
+  const exPad = padding(rule(doc, ".note-sub-stat"))
+  const editors = [
+    ["卡片圆角", px(rule(scoped, ".subs-card"), "border-radius"), E.cardRadiusPx],
+    ["卡片内边距", px(rule(scoped, ".subs-card"), "padding"), E.cardPaddingPx],
+    ["卡片最小高", px(rule(scoped, ".subs-card"), "min-height"), E.cardMinHeightPx],
+    ["汇总条下边距", px(rule(scoped, ".subs-summary"), "margin-bottom"), E.summaryMarginBottomPx],
+    ["指标格上留白", edPad[0], E.statPaddingTopPx],
+    ["指标格左右留白", edPad[1], E.statPaddingInlinePx],
+    ["指标格下留白", edPad[2], E.statPaddingBottomPx],
+    ["分隔线上留白", px(rule(scoped, ".subs-stat + .subs-stat::before"), "top"), E.dividerInsetPx],
+    ["分隔线下留白", px(rule(scoped, ".subs-stat + .subs-stat::before"), "bottom"), E.dividerInsetPx],
+  ]
+  const exports = [
+    ["卡片圆角", px(rule(doc, ".note-sub-card"), "border-radius"), X.cardRadiusPx],
+    ["卡片内边距", px(rule(doc, ".note-sub-card"), "padding"), X.cardPaddingPx],
+    ["汇总条下边距", px(rule(doc, ".note-sub-summary"), "margin-bottom"), X.summaryMarginBottomPx],
+    ["指标格上留白", exPad[0], X.statPaddingTopPx],
+    ["指标格左右留白", exPad[1], X.statPaddingInlinePx],
+    ["指标格下留白", exPad[2], X.statPaddingBottomPx],
+    ["分隔线上留白", px(rule(doc, ".note-sub-stat + .note-sub-stat::before"), "top"), X.dividerInsetPx],
+    ["分隔线下留白", px(rule(doc, ".note-sub-stat + .note-sub-stat::before"), "bottom"), X.dividerInsetPx],
+  ]
+  for (const [label, got, expected] of editors) {
+    check(`差异 · 编辑器 · ${label}`, got === expected, `读到 ${got}，应为 ${expected}`)
+  }
+  for (const [label, got, expected] of exports) {
+    check(`差异 · 导出 · ${label}`, got === expected, `读到 ${got}，应为 ${expected}`)
+  }
+  check("有意差异没被抹平 · 卡片圆角", E.cardRadiusPx !== X.cardRadiusPx)
+  check("有意差异没被抹平 · 卡片内边距", E.cardPaddingPx !== X.cardPaddingPx)
+  check("有意差异没被抹平 · 汇总条下边距", E.summaryMarginBottomPx !== X.summaryMarginBottomPx)
+  check("有意差异没被抹平 · 指标格留白", E.statPaddingTopPx !== X.statPaddingTopPx)
+  check("有意差异没被抹平 · 分隔线留白", E.dividerInsetPx !== X.dividerInsetPx)
+
+  // ---------- 四、真实渲染：两套 CSS 挂到同构 DOM 上量 computed ----------
+  note("挂真实 DOM 量 computed")
+  const editorHost = document.getElementById("editor-probe")
+  const editorStyleTag = document.createElement("style")
+  editorStyleTag.textContent = scoped
+  document.head.appendChild(editorStyleTag)
+  editorHost.innerHTML = editorDom()
+
+  const frame = document.getElementById("export-probe")
+  // 探针环境与编辑器一致：Tailwind preflight 给全页加的 border-box，iframe 里要补上，
+  // 否则 content-box 会让量到的图标外框差 2px，那不是几何规格的差异。
+  frame.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><style>
+    *, ::before, ::after { box-sizing: border-box; }
+    ${doc}
+    </style></head><body>${exportDom()}</body></html>`
+  await new Promise((resolve) => frame.addEventListener("load", resolve, { once: true }))
+
+  const a = probe(window, editorHost, "subs", "-logo")
+  const b = probe(frame.contentWindow, frame.contentDocument.body, "note-sub", "-icon")
+
+  const computedShared = [
+    ["宫格间距", a.gap, b.gap, G.gridGapPx],
+    ["图标宽", a.iconWidth, b.iconWidth, G.iconSizePx],
+    ["图标高", a.iconHeight, b.iconHeight, G.iconSizePx],
+    ["汇总条圆角", parseFloat(a.summaryRadius), parseFloat(b.summaryRadius), G.summaryRadiusPx],
+    ["卡片装饰圆宽", parseFloat(a.ornamentWidth), parseFloat(b.ornamentWidth), G.ornamentSizePx],
+    ["卡片装饰圆高", parseFloat(a.ornamentHeight), parseFloat(b.ornamentHeight), G.ornamentSizePx],
+  ]
+  for (const [label, ea, eb, expected] of computedShared) {
+    check(`computed · ${label} · 两边一致`, ea === eb, `编辑器 ${ea} / 导出 ${eb}`)
+    check(`computed · ${label} · 等于真源`, ea === expected, `量到 ${ea}，应为 ${expected}`)
+  }
+  check("computed · 宫格下限（200px 容器撑到下限）", a.columns === `${G.gridMinPx}px` && b.columns === `${G.gridMinPx}px`, `编辑器 ${a.columns} / 导出 ${b.columns}`)
+  check("computed · 图标圆角", a.iconRadius === `${G.iconRadiusPx}px` && b.iconRadius === `${G.iconRadiusPx}px`, `编辑器 ${a.iconRadius} / 导出 ${b.iconRadius}`)
+
+  const computedDiff = [
+    ["卡片圆角", parseFloat(a.cardRadius), parseFloat(b.cardRadius), E.cardRadiusPx, X.cardRadiusPx],
+    ["卡片内边距", a.cardPadding, b.cardPadding, E.cardPaddingPx, X.cardPaddingPx],
+    ["汇总条下边距", a.summaryMargin, b.summaryMargin, E.summaryMarginBottomPx, X.summaryMarginBottomPx],
+    ["指标格上留白", a.statPadTop, b.statPadTop, E.statPaddingTopPx, X.statPaddingTopPx],
+    ["指标格左右留白", a.statPadInline, b.statPadInline, E.statPaddingInlinePx, X.statPaddingInlinePx],
+    ["指标格下留白", a.statPadBottom, b.statPadBottom, E.statPaddingBottomPx, X.statPaddingBottomPx],
+    ["分隔线上留白", parseFloat(a.dividerTop), parseFloat(b.dividerTop), E.dividerInsetPx, X.dividerInsetPx],
+    ["分隔线下留白", parseFloat(a.dividerBottom), parseFloat(b.dividerBottom), E.dividerInsetPx, X.dividerInsetPx],
+  ]
+  for (const [label, ea, eb, wantA, wantB] of computedDiff) {
+    check(`computed · 差异 · ${label}`, ea === wantA && eb === wantB && ea !== eb, `编辑器 ${ea} / 导出 ${eb}，应为 ${wantA} / ${wantB}`)
+  }
+  check("computed · 卡片最小高只属编辑器", a.cardMinHeight === `${E.cardMinHeightPx}px` && b.cardMinHeight !== `${E.cardMinHeightPx}px`, `编辑器 ${a.cardMinHeight} / 导出 ${b.cardMinHeight}`)
+} catch (error) {
+  check("自检执行完成", false, error?.stack ?? String(error))
+}
+
+done()
+</script>
+</body>
+</html>

@@ -15,9 +15,6 @@ import {
 } from "@/components/ui/alert-dialog"
 import {
   DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -27,6 +24,15 @@ import { useTableEntry } from "@/composables/useTableEntry"
 import { isImageFile, readImageFile } from "@/lib/image"
 import { linkDomain, linkIcon } from "@/lib/inline"
 import * as dt from "@/lib/data-table"
+import {
+  BlockMenu,
+  MenuSection,
+  MenuField,
+  MenuSeparator,
+  MENU_CONTROL,
+  TOOL_PILL_ELEVATED,
+} from "@/components/settings-menu"
+import { BTN_DIALOG } from "@/components/ui/button/recipes"
 
 /**
  * 书签块:把一张数据表的每一行渲染成一张横向信息卡 —— 左图标,右侧名称与域名。
@@ -354,13 +360,8 @@ watch(
   { immediate: true },
 )
 
-/** 菜单外框与下拉框,与画册设置菜单同一套参数。 */
-const MENU = "w-48 rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
-/** 下拉框观感照搬画册设置里的 select,两处菜单放一起看不出差别。 */
-const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
-/** 编辑模态框的输入框(与 SELECT 同一套观感)与底部按钮(与关标签确认框同一体量)。 */
+/** 编辑模态框的输入框(与菜单下拉同一套观感)与底部按钮(与关标签确认框同一体量)。 */
 const FIELD = "w-full rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
-const DIALOG_BTN = "h-7 px-3 text-13"
 
 const COLUMN_COUNTS = [1, 2, 3, 4, 5, 6] as const
 
@@ -419,80 +420,80 @@ const columnsSelection = computed({
         v-if="nameColumn !== null && urlColumn !== null"
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground shadow-sm hover:text-foreground"
+        :class="TOOL_PILL_ELEVATED"
         @click="addBookmark"
       >
         <PlusIcon class="size-3" />添加书签
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground shadow-sm hover:text-foreground">
+          <Button variant="ghost" size="sm" :class="TOOL_PILL_ELEVATED">
             <Settings2Icon class="size-3" />设置
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent :class="MENU" align="end">
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+        <BlockMenu :width="12" align="end">
+          <MenuSection>
             名称列
-          </DropdownMenuLabel>
-          <div class="px-2 pb-1.5">
-            <select v-model="nameSelection" :class="SELECT">
+          </MenuSection>
+          <MenuField>
+            <select v-model="nameSelection" :class="MENU_CONTROL">
               <option value="">未设置</option>
               <option v-for="column in columns" :key="`name-${column.id}`" :value="column.id">
                 {{ column.name }}
               </option>
             </select>
-          </div>
+          </MenuField>
 
-          <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+          <MenuSeparator />
+          <MenuSection>
             链接列
-          </DropdownMenuLabel>
-          <div class="px-2 pb-1.5">
-            <select v-model="urlSelection" :class="SELECT">
+          </MenuSection>
+          <MenuField>
+            <select v-model="urlSelection" :class="MENU_CONTROL">
               <option value="">未设置</option>
               <option v-for="column in columns" :key="`url-${column.id}`" :value="column.id">
                 {{ column.name }}
               </option>
             </select>
-          </div>
+          </MenuField>
 
-          <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+          <MenuSeparator />
+          <MenuSection>
             图标列
-          </DropdownMenuLabel>
-          <div class="px-2 pb-1.5">
-            <select v-model="iconSelection" :class="SELECT">
+          </MenuSection>
+          <MenuField>
+            <select v-model="iconSelection" :class="MENU_CONTROL">
               <option value="">按链接派生</option>
               <option v-for="column in columns" :key="`icon-${column.id}`" :value="column.id">
                 {{ column.name }}
               </option>
             </select>
-          </div>
+          </MenuField>
 
-          <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+          <MenuSeparator />
+          <MenuSection>
             分组
-          </DropdownMenuLabel>
-          <div class="px-2 pb-1.5">
-            <select v-model="groupSelection" :class="SELECT">
+          </MenuSection>
+          <MenuField>
+            <select v-model="groupSelection" :class="MENU_CONTROL">
               <option value="">不分组</option>
               <option v-for="column in columns.filter((c) => c.type !== 'image')" :key="`group-${column.id}`" :value="column.id">
                 {{ column.name }}
               </option>
             </select>
-          </div>
+          </MenuField>
 
-          <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+          <MenuSeparator />
+          <MenuSection>
             布局
-          </DropdownMenuLabel>
-          <div class="px-2 pb-1.5">
-            <select v-model="columnsSelection" :class="SELECT">
+          </MenuSection>
+          <MenuField>
+            <select v-model="columnsSelection" :class="MENU_CONTROL">
               <option value="auto">响应式列数</option>
               <option v-for="count in COLUMN_COUNTS" :key="count" :value="String(count)">{{ count }} 列</option>
             </select>
-          </div>
-        </DropdownMenuContent>
+          </MenuField>
+        </BlockMenu>
       </DropdownMenu>
     </template>
 
@@ -640,8 +641,8 @@ const columnsSelection = computed({
           </div>
         </div>
         <AlertDialogFooter class="mx-0 mb-0 gap-2 rounded-none border-t-0 bg-transparent p-0 pt-3">
-          <Button variant="ghost" :class="DIALOG_BTN" @click="closeEdit">取消</Button>
-          <Button :class="DIALOG_BTN" @click="saveEdit">保存</Button>
+          <Button variant="ghost" :class="BTN_DIALOG" @click="closeEdit">取消</Button>
+          <Button :class="BTN_DIALOG" @click="saveEdit">保存</Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
@@ -658,8 +659,8 @@ const columnsSelection = computed({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter class="mx-0 mb-0 gap-2 rounded-none border-t-0 bg-transparent p-0 pt-3">
-          <Button variant="ghost" :class="DIALOG_BTN" @click="closeDelete">取消</Button>
-          <Button variant="destructive" :class="DIALOG_BTN" @click="confirmDelete">删除</Button>
+          <Button variant="ghost" :class="BTN_DIALOG" @click="closeDelete">取消</Button>
+          <Button variant="destructive" :class="BTN_DIALOG" @click="confirmDelete">删除</Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

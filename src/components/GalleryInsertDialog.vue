@@ -9,6 +9,7 @@ import { useWorkspace } from "@/composables/useWorkspace"
 import { fileStem } from "@/lib/fs/policy"
 import { fileName } from "@/lib/paths"
 import { passphraseProblem } from "@/lib/vault"
+import { BTN_TEXT } from "@/components/ui/button/recipes"
 
 /**
  * 插引用块前的「选表」对话框(插入与转换共用)。
@@ -171,9 +172,9 @@ async function confirm() {
 
       <AlertDialogFooter>
         <AlertDialogCancel as-child>
-          <Button variant="ghost" size="sm" class="text-13">取消</Button>
+          <Button variant="ghost" size="sm" :class="BTN_TEXT">取消</Button>
         </AlertDialogCancel>
-        <Button size="sm" class="text-13" @click="confirm">插入</Button>
+        <Button size="sm" :class="BTN_TEXT" @click="confirm">插入</Button>
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>

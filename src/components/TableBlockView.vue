@@ -6,12 +6,8 @@ import MenuIcon from "@/components/MenuIcon.vue"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuSub,
-  DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -22,6 +18,13 @@ import { columnAlign, isHeaderRow } from "@/lib/table"
 import { tableEffectClasses } from "@/lib/typography"
 import TableCellEditor from "./TableCellEditor.vue"
 import TableSizePicker from "./TableSizePicker.vue"
+import {
+  BlockMenu,
+  MenuSection,
+  MenuSeparator,
+  MENU_ITEM,
+  TOOL_PILL_PLAIN,
+} from "@/components/settings-menu"
 
 /**
  * 表格块。
@@ -184,10 +187,7 @@ function alignColumn(align: TableAlign) {
   setTableColumnAlign(props.block.id, anchor.value.column, align)
 }
 
-/** 菜单外框与菜单项，与块手柄的两套菜单同一套参数。 */
-const MENU = "w-[15.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
-const SUB_MENU = "w-[9.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
-const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
+/** 菜单项左侧勾选标记的固定宽度，和文字列对齐。 */
 const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foreground"
 </script>
 
@@ -240,7 +240,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full px-2 text-12 text-muted-foreground hover:text-foreground"
+        :class="TOOL_PILL_PLAIN"
         @click="addRow"
       >
         <PlusIcon class="size-3" />行
@@ -248,7 +248,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full px-2 text-12 text-muted-foreground hover:text-foreground"
+        :class="TOOL_PILL_PLAIN"
         @click="addColumn"
       >
         <PlusIcon class="size-3" />列
@@ -265,67 +265,67 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
             <TableIcon class="size-3.5" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent :class="MENU" side="top" :side-offset="8" align="center">
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+        <BlockMenu :width="15.25" side="top" :side-offset="8" align="center">
+          <MenuSection>
             第 {{ anchor.row + 1 }} 行 · 第 {{ anchor.column + 1 }} 列
-          </DropdownMenuLabel>
+          </MenuSection>
 
-          <DropdownMenuItem :class="ITEM" @select="insertRowAt(anchor.row)">
+          <DropdownMenuItem :class="MENU_ITEM" @select="insertRowAt(anchor.row)">
             <MenuIcon :icon="ArrowUpToLineIcon" />
             <span>在上方插入行</span>
           </DropdownMenuItem>
-          <DropdownMenuItem :class="ITEM" @select="insertRowAt(anchor.row + 1)">
+          <DropdownMenuItem :class="MENU_ITEM" @select="insertRowAt(anchor.row + 1)">
             <MenuIcon :icon="ArrowDownToLineIcon" />
             <span>在下方插入行</span>
           </DropdownMenuItem>
-          <DropdownMenuItem :class="ITEM" @select="insertColumnAt(anchor.column)">
+          <DropdownMenuItem :class="MENU_ITEM" @select="insertColumnAt(anchor.column)">
             <MenuIcon :icon="ArrowLeftToLineIcon" />
             <span>在左侧插入列</span>
           </DropdownMenuItem>
-          <DropdownMenuItem :class="ITEM" @select="insertColumnAt(anchor.column + 1)">
+          <DropdownMenuItem :class="MENU_ITEM" @select="insertColumnAt(anchor.column + 1)">
             <MenuIcon :icon="ArrowRightToLineIcon" />
             <span>在右侧插入列</span>
           </DropdownMenuItem>
 
-          <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
+          <MenuSeparator />
 
-          <DropdownMenuItem :class="ITEM" @select="toggleHeader">
+          <DropdownMenuItem :class="MENU_ITEM" @select="toggleHeader">
             <MenuIcon :icon="TablePropertiesIcon" />
             <span>{{ headerRow ? "取消表头行" : "设首行为表头" }}</span>
           </DropdownMenuItem>
 
-          <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
+          <MenuSeparator />
 
           <!-- 对齐挂在「列」上是使用口径：整列一起写，插行时新格继承同列，列内不会半截。 -->
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger :class="ITEM">
+            <DropdownMenuSubTrigger :class="MENU_ITEM">
               <MenuIcon :icon="AlignLeftIcon" />
               <span>第 {{ anchor.column + 1 }} 列对齐</span>
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent :class="SUB_MENU">
+            <BlockMenu sub :width="9.25">
               <DropdownMenuItem
                 v-for="item in ALIGN_ITEMS"
                 :key="item.align"
-                :class="ITEM"
+                :class="MENU_ITEM"
                 @select="alignColumn(item.align)"
               >
                 <span :class="MARKER">{{ alignment === item.align ? "✓" : "" }}</span>
                 <span>{{ item.label }}</span>
               </DropdownMenuItem>
-            </DropdownMenuSubContent>
+            </BlockMenu>
           </DropdownMenuSub>
 
-          <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
+          <MenuSeparator />
 
-          <DropdownMenuItem variant="destructive" :class="ITEM" @select="deleteRow">
+          <DropdownMenuItem variant="destructive" :class="MENU_ITEM" @select="deleteRow">
             <MenuIcon :icon="Trash2Icon" />
             <span>删除本行</span>
           </DropdownMenuItem>
-          <DropdownMenuItem variant="destructive" :class="ITEM" @select="deleteColumn">
+          <DropdownMenuItem variant="destructive" :class="MENU_ITEM" @select="deleteColumn">
             <MenuIcon :icon="Trash2Icon" />
             <span>删除本列</span>
           </DropdownMenuItem>
-        </DropdownMenuContent>
+        </BlockMenu>
       </DropdownMenu>
     </div>
   </div>

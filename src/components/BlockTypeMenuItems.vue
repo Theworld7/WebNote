@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import type { BlockType, BlockTypeMeta } from "@/types/workspace"
 import { computed } from "vue"
-import { DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+import {
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu"
 import MenuIcon from "./MenuIcon.vue"
 import { blockTypeOptions } from "@/lib/blocks"
 import { useSettings } from "@/composables/useSettings"
+import { MenuSection, MENU_ITEM, MENU_SEPARATOR } from "@/components/settings-menu"
 
 /**
  * 块类型列表项。插入菜单与「转为…」子菜单共用，避免两处各写一遍类型表。
@@ -53,14 +58,14 @@ const empty = computed(() => groups.value.length === 0)
   <!-- 纵向：组竖叠，组间用分隔线。 -->
   <template v-if="menuGroupLayout === 'vertical'">
     <template v-for="(section, index) in groups" :key="section.title">
-      <DropdownMenuSeparator v-if="index > 0" class="mx-2 my-1 bg-line" />
-      <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+      <DropdownMenuSeparator v-if="index > 0" :class="MENU_SEPARATOR" />
+      <MenuSection>
         {{ section.title }}
-      </DropdownMenuLabel>
+      </MenuSection>
       <DropdownMenuItem
         v-for="meta in section.items"
         :key="meta.type"
-        class="gap-2.5 rounded-[7px] px-2 py-1"
+        :class="MENU_ITEM"
         data-type-option="true"
         @select="emit('pick', meta.type)"
       >
@@ -77,13 +82,13 @@ const empty = computed(() => groups.value.length === 0)
   <!-- 横向：组并排，每组一列（标题在列顶、条目竖排在列内），菜单宽度交给内容撑。 -->
   <div v-else class="flex items-start gap-x-3">
     <div v-for="section in groups" :key="section.title" class="flex min-w-[6.5rem] flex-col">
-      <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+      <MenuSection>
         {{ section.title }}
-      </DropdownMenuLabel>
+      </MenuSection>
       <DropdownMenuItem
         v-for="meta in section.items"
         :key="meta.type"
-        class="gap-2.5 rounded-[7px] px-2 py-1"
+        :class="MENU_ITEM"
         data-type-option="true"
         @select="emit('pick', meta.type)"
       >

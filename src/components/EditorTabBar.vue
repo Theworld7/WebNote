@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { useWorkspace } from "@/composables/useWorkspace"
 import EditorTab from "./EditorTab.vue"
+import { BTN_DIALOG } from "@/components/ui/button/recipes"
 
 const {
   tabs,
@@ -27,7 +28,6 @@ const {
 } = useWorkspace()
 
 /** 确认框里的按钮：h-7、13px，跟工具栏那批小按钮同一个体量。 */
-const DIALOG_BTN = "h-7 px-3 text-13"
 
 /**
  * 标签条两端的渐变遮罩：某一侧还有内容可滚时才显示，
@@ -163,9 +163,9 @@ watch(activePath, () => nextTick(revealActiveThenMeasure))
           <AlertDialogDescription>这个文件有未保存的修改，关闭后将会丢失。</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter class="mx-0 mb-0 gap-2 rounded-none border-t-0 bg-transparent p-0 pt-1">
-          <Button variant="ghost" :class="DIALOG_BTN" @click="cancelPendingClose">取消</Button>
-          <Button variant="destructive" :class="DIALOG_BTN" @click="resolveClose('discard')">不保存</Button>
-          <Button :class="DIALOG_BTN" @click="resolveClose('save')">保存</Button>
+          <Button variant="ghost" :class="BTN_DIALOG" @click="cancelPendingClose">取消</Button>
+          <Button variant="destructive" :class="BTN_DIALOG" @click="resolveClose('discard')">不保存</Button>
+          <Button :class="BTN_DIALOG" @click="resolveClose('save')">保存</Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

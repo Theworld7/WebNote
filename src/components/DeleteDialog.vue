@@ -5,6 +5,7 @@ import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescript
 import { Button } from "@/components/ui/button"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { fileName, isUnder } from "@/lib/paths"
+import { BTN_TEXT } from "@/components/ui/button/recipes"
 
 /**
  * 删除确认框。
@@ -55,11 +56,11 @@ async function confirm() {
 
       <AlertDialogFooter>
         <AlertDialogCancel as-child>
-          <Button variant="ghost" size="sm" class="text-13">取消</Button>
+          <Button variant="ghost" size="sm" :class="BTN_TEXT">取消</Button>
         </AlertDialogCancel>
         <!-- 不用 `AlertDialogAction`：它点击即关闭对话框，`target` 随之清空，
              `confirm` 再读就什么都没有了。删除失败（脏数据表被拦）时要让用户重试。 -->
-        <Button variant="destructive" size="sm" class="text-13" @click="confirm">删除</Button>
+        <Button variant="destructive" size="sm" :class="BTN_TEXT" @click="confirm">删除</Button>
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>

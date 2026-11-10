@@ -5,6 +5,7 @@ import { DatabaseIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import TableRefNotice from "@/components/TableRefNotice.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
+import { TOOL_PILL } from "@/components/settings-menu"
 
 /**
  * 引用块的外壳:三段提示态(空指针 / 读不到 / 读取中),以及读完之后的悬停工具条
@@ -34,9 +35,7 @@ const props = defineProps<{
   lifted?: boolean
 }>()
 
-const TOOL_BUTTON = "h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground"
-
-const buttonClass = computed(() => (props.lifted === true ? `${TOOL_BUTTON} shadow-sm` : TOOL_BUTTON))
+const buttonClass = computed(() => (props.lifted === true ? `${TOOL_PILL} shadow-sm` : TOOL_PILL))
 
 const { openFile, rebindTable, tablePaths } = useWorkspace()
 

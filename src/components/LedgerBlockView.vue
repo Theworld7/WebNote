@@ -16,9 +16,6 @@ import {
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import ReferenceBlockShell from "@/components/ReferenceBlockShell.vue"
@@ -30,6 +27,17 @@ import { useCellEditing } from "@/composables/useCellEditing"
 import { useDateCellPanel } from "@/composables/useDateCellPanel"
 import * as dt from "@/lib/data-table"
 import { balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, ledgerSort, sortRows, sumRows } from "@/lib/ledger"
+import {
+  BlockMenu,
+  MenuSection,
+  MenuField,
+  MenuSeparator,
+  MENU_ITEM,
+  MENU_CONTROL,
+  TOOL_PILL,
+} from "@/components/settings-menu"
+import { BTN_DIALOG } from "@/components/ui/button/recipes"
+import { NOTICE_TEXT_TIGHT } from "@/components/ui/notice/recipes"
 
 /**
  * 账目块:把一张数据表按财务口径渲染成流水账 —— 收入列 / 支出列带符号的金额、
@@ -761,9 +769,6 @@ const dateColumns = computed(() => columns.value.filter((column) => column.type 
 /** 可排序列:图片列除外(data URI 排序没有意义,投影也是空串)。 */
 const sortableColumns = computed(() => columns.value.filter((column) => column.type !== "image"))
 
-const MENU = "w-[13.125rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
-const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
-const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
 </script>
 
 <template>
@@ -779,50 +784,50 @@ const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent 
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground"
+        :class="TOOL_PILL"
         @click="addEntry"
       >
         <PlusIcon class="size-3" />记一笔
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" :class="TOOL_PILL">
             <Settings2Icon class="size-3" />设置
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent :class="MENU" align="end">
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">收入列</DropdownMenuLabel>
-          <div class="px-2 pb-1.5">
-            <select :class="SELECT" :value="props.block.incomeColumnId" @change="setIncomeColumn">
+        <BlockMenu :width="13.125" align="end">
+          <MenuSection>收入列</MenuSection>
+          <MenuField>
+            <select :class="MENU_CONTROL" :value="props.block.incomeColumnId" @change="setIncomeColumn">
               <option value="">未设置</option>
               <option v-for="column in columns" :key="column.id" :value="column.id">{{ column.name }}</option>
             </select>
-          </div>
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">支出列</DropdownMenuLabel>
-          <div class="px-2 pb-1.5">
-            <select :class="SELECT" :value="props.block.expenseColumnId" @change="setExpenseColumn">
+          </MenuField>
+          <MenuSection>支出列</MenuSection>
+          <MenuField>
+            <select :class="MENU_CONTROL" :value="props.block.expenseColumnId" @change="setExpenseColumn">
               <option value="">未设置</option>
               <option v-for="column in columns" :key="column.id" :value="column.id">{{ column.name }}</option>
             </select>
-          </div>
-          <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">分组</DropdownMenuLabel>
-          <div class="px-2 pb-1.5">
-            <select v-model="groupSelection" :class="SELECT">
+          </MenuField>
+          <MenuSeparator />
+          <MenuSection>分组</MenuSection>
+          <MenuField>
+            <select v-model="groupSelection" :class="MENU_CONTROL">
               <option value="">不分组</option>
               <option v-for="column in dateColumns" :key="'m' + column.id" :value="'month:' + column.id">按月 · {{ column.name }}</option>
               <option v-for="column in columns" :key="'c' + column.id" :value="column.id">按列 · {{ column.name }}</option>
             </select>
-          </div>
-          <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">排序</DropdownMenuLabel>
+          </MenuField>
+          <MenuSeparator />
+          <MenuSection>排序</MenuSection>
           <div class="flex gap-1 px-2 pb-1.5">
-            <select class="min-w-0 flex-1 cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none" :value="props.block.sortColumnId" @change="setSortColumn">
+            <select :class="[MENU_CONTROL, 'min-w-0 flex-1']" :value="props.block.sortColumnId" @change="setSortColumn">
               <option value="">不排序</option>
               <option v-for="column in sortableColumns" :key="column.id" :value="column.id">{{ column.name }}</option>
             </select>
             <select
-              class="w-[3.875rem] cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none disabled:opacity-40"
+              :class="[MENU_CONTROL, 'w-[3.875rem] disabled:opacity-40']"
               :value="props.block.sortDirection"
               :disabled="props.block.sortColumnId === ''"
               @change="setSortDirection"
@@ -831,9 +836,9 @@ const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent 
               <option value="asc">正序</option>
             </select>
           </div>
-          <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
+          <MenuSeparator />
           <DropdownMenuCheckboxItem
-            :class="ITEM"
+            :class="MENU_ITEM"
             :model-value="props.block.showBalance"
             :disabled="!hasMoney"
             @update:model-value="(checked: boolean) => toggleBalance(checked)"
@@ -841,14 +846,14 @@ const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent 
           >
             <span class="truncate">显示余额列</span>
           </DropdownMenuCheckboxItem>
-        </DropdownMenuContent>
+        </BlockMenu>
       </DropdownMenu>
     </template>
 
     <!-- 未设收入 / 支出列:引导去设,表格照常渲染(不做金额格式化与合计)。 -->
     <p
       v-if="!hasMoney"
-      class="mb-2 rounded-lg border border-dashed border-line bg-muted/30 px-3 py-2.5 text-12 text-muted-foreground"
+      :class="NOTICE_TEXT_TIGHT"
     >
       账目尚未设置收入 / 支出列 —— 点右上角「设置」各挑一列(只设收入就是礼账的记法),
       金额求和、余额与合计才会出现。
@@ -1032,8 +1037,8 @@ const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent 
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter class="mx-0 mb-0 gap-2 rounded-none border-t-0 bg-transparent p-0 pt-3">
-          <Button variant="ghost" class="h-7 px-3 text-13" @click="closeDelete">取消</Button>
-          <Button variant="destructive" class="h-7 px-3 text-13" @click="confirmDelete">删除</Button>
+          <Button variant="ghost" :class="BTN_DIALOG" @click="closeDelete">取消</Button>
+          <Button variant="destructive" :class="BTN_DIALOG" @click="confirmDelete">删除</Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

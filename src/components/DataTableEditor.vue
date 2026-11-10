@@ -17,10 +17,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import {
   DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useWorkspace } from "@/composables/useWorkspace"
@@ -30,6 +27,8 @@ import { useToast } from "@/composables/useToast"
 import { markImageBroken, usableImage } from "@/lib/broken-images"
 import * as dt from "@/lib/data-table"
 import { MAX_DATA_TABLE_COLUMNS } from "@/types/data-table"
+import { BlockMenu, MenuSection, MenuSeparator, MENU_ITEM } from "@/components/settings-menu"
+import { BTN_FIELD, BTN_DIALOG } from "@/components/ui/button/recipes"
 
 /**
  * 数据表编辑器 —— 编辑那**一个** `.tbl` 文件的界面。
@@ -308,9 +307,7 @@ const COLUMN_TYPE_ITEMS = [
   { type: "image", label: "图片" },
 ] satisfies readonly { type: DataColumnType; label: string }[]
 
-/** 菜单外框与菜单项，与块手柄的两套菜单同一套参数。 */
-const MENU = "w-[11rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
-const ITEM = "gap-2.5 rounded-[7px] px-2 py-1"
+/** 菜单项左侧勾选标记的固定宽度，和文字列对齐。 */
 const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foreground"
 </script>
 
@@ -362,7 +359,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
       <Button
         variant="ghost"
         size="sm"
-        class="h-7 gap-1 rounded-[7px] px-2 text-12 text-muted-foreground hover:text-foreground"
+        :class="BTN_FIELD"
         @click="addRow"
       >
         <PlusIcon class="size-3" />行
@@ -370,7 +367,7 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
       <Button
         variant="ghost"
         size="sm"
-        class="h-7 gap-1 rounded-[7px] px-2 text-12 text-muted-foreground hover:text-foreground disabled:opacity-40"
+        :class="[BTN_FIELD, 'disabled:opacity-40']"
         :disabled="atColumnLimit"
         @click="addColumn"
       >
@@ -413,24 +410,24 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
                       {{ dt.columnTypeLabel(column.type) }}
                     </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent :class="MENU" align="end">
-                    <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+                  <BlockMenu :width="11" align="end">
+                    <MenuSection>
                       列类型
-                    </DropdownMenuLabel>
+                    </MenuSection>
                     <DropdownMenuItem
                       v-for="item in COLUMN_TYPE_ITEMS"
                       :key="item.type"
-                      :class="ITEM"
+                      :class="MENU_ITEM"
                       @select="setColumnType(column.id, item.type)"
                     >
                       <span :class="MARKER">{{ column.type === item.type ? "✓" : "" }}</span>
                       <span>{{ item.label }}</span>
                     </DropdownMenuItem>
                     <template v-if="column.type === 'select'">
-                      <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-                      <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+                      <MenuSeparator />
+                      <MenuSection>
                         选项
-                      </DropdownMenuLabel>
+                      </MenuSection>
                       <!-- 选项维护就地下拉里做:改名的格子存的是 id,改名不动任何一行;
                            删除会把引用它的格子清空(见 lib/data-table 的 removeOption)。
                            输入框上的 @keydown.stop 是**必须**的:不挡住冒泡,菜单的 typeahead
@@ -464,17 +461,17 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
                         >
                       </div>
                     </template>
-                    <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
+                    <MenuSeparator />
                     <DropdownMenuItem
                       variant="destructive"
-                      :class="ITEM"
+                      :class="MENU_ITEM"
                       :disabled="columns.length <= 1"
                       @select="removeColumn(column.id)"
                     >
                       <MenuIcon :icon="Trash2Icon" />
                       <span>删除本列</span>
                     </DropdownMenuItem>
-                  </DropdownMenuContent>
+                  </BlockMenu>
                 </DropdownMenu>
               </div>
             </th>
@@ -609,8 +606,8 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter class="mx-0 mb-0 gap-2 rounded-none border-t-0 bg-transparent p-0 pt-3">
-          <Button variant="ghost" class="h-7 px-3 text-13" @click="closeDelete">取消</Button>
-          <Button variant="destructive" class="h-7 px-3 text-13" @click="confirmDelete">删除</Button>
+          <Button variant="ghost" :class="BTN_DIALOG" @click="closeDelete">取消</Button>
+          <Button variant="destructive" :class="BTN_DIALOG" @click="confirmDelete">删除</Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

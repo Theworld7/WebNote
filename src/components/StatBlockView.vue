@@ -4,16 +4,20 @@ import type { DataColumn, DataRow } from "@/types/data-table"
 import { computed } from "vue"
 import { DatabaseIcon, Settings2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+  BlockMenu,
+  MENU_CONTROL,
+  MenuField,
+  MenuSection,
+  MenuSelect,
+  TOOL_PILL,
+} from "@/components/settings-menu"
 import TableRefNotice from "@/components/TableRefNotice.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
 import * as dt from "@/lib/data-table"
+import { NOTICE_INLINE, NOTICE_TEXT } from "@/components/ui/notice/recipes"
 
 /**
  * 统计块:引用一张数据表的某一列,把列下的数值求和成一个大数字。
@@ -78,7 +82,9 @@ function pickFilterColumn(value: string) {
 
 /** 筛选值是自由文本:change(失焦/回车)才提交,不逐字符写盘。 */
 function commitFilterValue(event: Event) {
-  updateBlockSettings(props.block.id, { filterValue: (event.target as HTMLInputElement).value })
+  const target = event.target
+  if (!(target instanceof HTMLInputElement)) return
+  updateBlockSettings(props.block.id, { filterValue: target.value })
 }
 
 /** 表名只取路径去扩展名 —— 菜单里摆全路径太长，扩展名没有信息量。 */
@@ -86,12 +92,30 @@ function tableLabel(path: string): string {
   return path.replace(/\.tbl$/i, "")
 }
 
+/** 菜单里的表选项与列选项。控件只认 `{ value, label }`，映射留在这里。 */
+const tableOptions = computed(() =>
+  tablePaths.value.map((path) => ({ value: path, label: tableLabel(path) })),
+)
+
+const columnOptions = computed(() =>
+  columns.value.map((column) => ({ value: column.id, label: column.name })),
+)
+
+const precisionOptions = dt.STAT_PRECISION_OPTIONS.map((value) => ({
+  value: String(value),
+  label: `${value} 位`,
+}))
+
+/** 小数位数的下拉只看字符串，写回时再折回数字。 */
+const precisionSelection = computed({
+  get: () => String(precision.value),
+  set: (value: string) => updateBlockSettings(props.block.id, { precision: Number(value) }),
+})
+
 function openTable() {
   if (props.block.path === "") return
   openFile(props.block.path)
 }
-
-const MENU = "w-[12.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 </script>
 
 <template>
@@ -110,92 +134,58 @@ const MENU = "w-[12.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
         v-if="props.block.path !== ''"
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground"
+        :class="TOOL_PILL"
         @click="openTable"
       >
         <DatabaseIcon class="size-3" />打开数据表
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" :class="TOOL_PILL">
             <Settings2Icon class="size-3" />设置
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent :class="MENU" align="end">
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
-            数据表
-          </DropdownMenuLabel>
-          <div class="px-2 pb-1.5">
-            <select
-              :value="props.block.path"
-              class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
-              @change="rebindTable(props.block.id, ($event.target as HTMLSelectElement).value)"
-            >
-              <option value="">未选择</option>
-              <option v-for="path in tablePaths" :key="path" :value="path">
-                {{ tableLabel(path) }}
-              </option>
-            </select>
-          </div>
+        <BlockMenu :width="12.25" align="end">
+          <MenuSection>数据表</MenuSection>
+          <MenuField>
+            <MenuSelect
+              :model-value="props.block.path"
+              empty-label="未选择"
+              :options="tableOptions"
+              @update:model-value="(path: string) => rebindTable(props.block.id, path)"
+            />
+          </MenuField>
           <template v-if="props.block.path !== ''">
-            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
-              统计字段(对该列数值求和)
-            </DropdownMenuLabel>
-            <div class="px-2 pb-1.5">
-              <select
-                v-model="columnSelection"
-                class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
-              >
-                <option value="">未选择</option>
-                <option v-for="column in columns" :key="column.id" :value="column.id">
-                  {{ column.name }}
-                </option>
-              </select>
-            </div>
-            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
-              筛选字段(留空 = 全表求和)
-            </DropdownMenuLabel>
-            <div class="px-2 pb-1.5">
-              <select
-                :value="props.block.filterColumnId ?? ''"
-                class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
-                @change="pickFilterColumn(($event.target as HTMLSelectElement).value)"
-              >
-                <option value="">不限</option>
-                <option v-for="column in columns" :key="column.id" :value="column.id">
-                  {{ column.name }}
-                </option>
-              </select>
-            </div>
+            <MenuSection>统计字段(对该列数值求和)</MenuSection>
+            <MenuField>
+              <MenuSelect v-model="columnSelection" empty-label="未选择" :options="columnOptions" />
+            </MenuField>
+            <MenuSection>筛选字段(留空 = 全表求和)</MenuSection>
+            <MenuField>
+              <MenuSelect
+                :model-value="props.block.filterColumnId ?? ''"
+                empty-label="不限"
+                :options="columnOptions"
+                @update:model-value="pickFilterColumn"
+              />
+            </MenuField>
             <template v-if="filterColumn !== null">
-              <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
-                筛选值(只合计该字段等于此值的行)
-              </DropdownMenuLabel>
-              <div class="px-2 pb-1.5">
+              <MenuSection>筛选值(只合计该字段等于此值的行)</MenuSection>
+              <MenuField>
                 <input
                   :value="props.block.filterValue ?? ''"
                   :placeholder="`如:${filterColumn.name} 的某个值`"
-                  class="w-full rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
+                  :class="MENU_CONTROL"
                   @change="commitFilterValue"
-                />
-              </div>
+                >
+              </MenuField>
             </template>
-            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
-              小数位数
-            </DropdownMenuLabel>
-            <div class="px-2 pb-1.5">
-              <select
-                :value="precision"
-                class="w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
-                @change="updateBlockSettings(props.block.id, { precision: Number(($event.target as HTMLSelectElement).value) })"
-              >
-                <option v-for="option in dt.STAT_PRECISION_OPTIONS" :key="option" :value="option">
-                  {{ option }} 位
-                </option>
-              </select>
-            </div>
+            <MenuSection>小数位数</MenuSection>
+            <MenuField>
+              <MenuSelect v-model="precisionSelection" :options="precisionOptions" />
+            </MenuField>
           </template>
-        </DropdownMenuContent>
+        </BlockMenu>
       </DropdownMenu>
     </div>
 
@@ -205,7 +195,7 @@ const MENU = "w-[12.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
     -->
     <div
       v-if="props.block.path === ''"
-      class="my-4 flex items-center gap-2.5 rounded-lg border border-dashed border-line bg-muted/40 px-3 py-2.5"
+      :class="NOTICE_INLINE"
     >
       <DatabaseIcon class="size-3.5 shrink-0 text-muted-foreground" />
       <span class="text-12 text-muted-foreground">
@@ -230,7 +220,7 @@ const MENU = "w-[12.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
     <!-- 未选统计列(或列已被删):引导去设。 -->
     <div
       v-else-if="statColumn === null"
-      class="rounded-lg border border-dashed border-line bg-muted/30 px-3 py-2.5 text-12 text-muted-foreground"
+      :class="NOTICE_TEXT"
     >
       统计卡尚未选择字段 —— 点右上角「设置」挑一列,卡片会对它下面的数值求和。
     </div>

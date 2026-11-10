@@ -15,10 +15,7 @@ import {
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
@@ -47,6 +44,17 @@ import {
   playlistTitle,
   totalDurationText,
 } from "@/lib/playlist"
+import {
+  BlockMenu,
+  MenuSection,
+  MenuSeparator,
+  MENU_CONTROL,
+  MENU_FIELD,
+  MENU_HINT,
+  TOOL_PILL,
+} from "@/components/settings-menu"
+import { BTN_TEXT } from "@/components/ui/button/recipes"
+import { NOTICE_EMPTY, NOTICE_EMPTY_TIGHT } from "@/components/ui/notice/recipes"
 
 /**
  * 歌单块:一张(或几张)数据表 → 曲目列表,块上原地切换。
@@ -324,17 +332,10 @@ function setRole(role: PlaylistRole, event: Event): void {
   setPlaylistSources(props.block.id, next, activePath.value)
 }
 
-const MENU = "w-[14rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
-const BIND_MENU = "max-h-[17.5rem] w-[15rem] overflow-y-auto rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
-const SELECT = "w-full cursor-pointer rounded border border-line bg-transparent px-1.5 py-1 text-12 outline-none"
-
 function openTable() {
   if (activePath.value === "") return
   openFile(activePath.value)
 }
-
-/** 工具条上的小胶囊按钮:与订阅 / 账目块同一套体量。 */
-const TOOL = "h-6 gap-1 rounded-full bg-popover px-2 text-12 text-muted-foreground hover:text-foreground"
 
 /** 标签胶囊:未选中是灰字,选中是浅底 + 深字 —— 换主题时靠 token 自动跟着走。 */
 const TAB = "flex h-[1.625rem] max-w-[11rem] items-center gap-1 rounded-full px-2.5 text-12 transition-colors"
@@ -357,34 +358,34 @@ const SEARCH =
       v-if="table !== null"
       class="absolute -top-2 right-0 z-20 flex items-center gap-1 opacity-0 transition-opacity group-hover/pl:opacity-100 focus-within:opacity-100"
     >
-      <Button variant="ghost" size="sm" :class="TOOL" @click="adding = true">
+      <Button variant="ghost" size="sm" :class="TOOL_PILL" @click="adding = true">
         <PlusIcon class="size-3" />添加歌曲
       </Button>
-      <Button variant="ghost" size="sm" :class="TOOL" @click="openTable">
+      <Button variant="ghost" size="sm" :class="TOOL_PILL" @click="openTable">
         <DatabaseIcon class="size-3" />打开数据表
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="sm" :class="TOOL">
+          <Button variant="ghost" size="sm" :class="TOOL_PILL">
             <Settings2Icon class="size-3" />设置
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent :class="MENU" align="end">
-          <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">
+        <BlockMenu :width="14" align="end">
+          <MenuSection>
             字段映射 · {{ activeName }}
-          </DropdownMenuLabel>
-          <div v-for="item in ROLE_ITEMS" :key="item.role" class="px-2 pb-1.5">
+          </MenuSection>
+          <div v-for="item in ROLE_ITEMS" :key="item.role" :class="MENU_FIELD">
             <div class="mb-0.5 text-11 text-muted-foreground">{{ item.label }}</div>
-            <select :class="SELECT" :value="roleValue(item.role)" @change="setRole(item.role, $event)">
+            <select :class="MENU_CONTROL" :value="roleValue(item.role)" @change="setRole(item.role, $event)">
               <option value="">自动识别</option>
               <option v-for="column in columns" :key="column.id" :value="column.id">{{ column.name }}</option>
             </select>
           </div>
-          <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-          <div class="px-2 py-1 text-11 leading-relaxed text-muted-foreground">
+          <MenuSeparator />
+          <div :class="MENU_HINT">
             每张歌单各存一份映射；留「自动识别」时按列名与列类型找，列改名或删除后也会自动退让。
           </div>
-        </DropdownMenuContent>
+        </BlockMenu>
       </DropdownMenu>
     </div>
 
@@ -423,13 +424,13 @@ const SEARCH =
               <PlusIcon class="size-3.5" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent :class="BIND_MENU" align="start">
-            <DropdownMenuLabel class="px-2 pb-1 pt-1.5 text-11 font-normal text-muted-foreground">绑定已有数据表</DropdownMenuLabel>
+          <BlockMenu :width="15" class="max-h-[17.5rem] overflow-y-auto" align="start">
+            <MenuSection>绑定已有数据表</MenuSection>
             <template v-if="unboundTables.length > 0">
               <DropdownMenuItem
                 v-for="path in unboundTables"
                 :key="path"
-                class="gap-2 text-12"
+                class="gap-2 rounded-md px-2 py-1 text-12"
                 @select="bind(path)"
               >
                 <MusicIcon class="size-3.5 shrink-0 text-muted-foreground" />
@@ -437,12 +438,12 @@ const SEARCH =
               </DropdownMenuItem>
             </template>
             <div v-else class="px-2 py-1.5 text-11 text-muted-foreground">工作区里的表都已绑定</div>
-            <DropdownMenuSeparator class="mx-2 my-1 bg-line" />
-            <DropdownMenuItem class="gap-2 text-12" @select="openCreate">
+            <MenuSeparator />
+            <DropdownMenuItem class="gap-2 rounded-md px-2 py-1 text-12" @select="openCreate">
               <PlusIcon class="size-3.5 shrink-0 text-muted-foreground" />
               新建歌单表…
             </DropdownMenuItem>
-          </DropdownMenuContent>
+          </BlockMenu>
         </DropdownMenu>
       </div>
     </div>
@@ -529,7 +530,7 @@ const SEARCH =
       <!-- 空表:与账目 / 订阅同一句引导。 -->
       <div
         v-if="tracks.length === 0"
-        class="rounded-xl border border-dashed border-line px-4 py-8 text-center text-12 text-muted-foreground"
+        :class="NOTICE_EMPTY"
       >
         这张表还没有曲目 —— 点右上角「添加歌曲」加一首。
       </div>
@@ -539,7 +540,7 @@ const SEARCH =
            输入框自己消失,用户连删一个字都做不到。 -->
       <div
         v-else-if="shown.length === 0"
-        class="rounded-xl border border-dashed border-line px-4 py-7 text-center text-12 text-muted-foreground"
+        :class="NOTICE_EMPTY_TIGHT"
       >
         没有匹配「{{ query.trim() }}」的曲目
         <button type="button" class="ml-1 text-foreground hover:underline" @click="clearQuery">清空搜索</button>
@@ -614,9 +615,9 @@ const SEARCH =
       </div>
       <AlertDialogFooter>
         <AlertDialogCancel as-child>
-          <Button variant="ghost" size="sm" class="text-13">取消</Button>
+          <Button variant="ghost" size="sm" :class="BTN_TEXT">取消</Button>
         </AlertDialogCancel>
-        <Button size="sm" class="text-13" :disabled="newName.trim() === ''" @click="confirmCreate">新建</Button>
+        <Button size="sm" :class="BTN_TEXT" :disabled="newName.trim() === ''" @click="confirmCreate">新建</Button>
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>

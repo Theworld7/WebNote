@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>设置菜单配方自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  body > h1 { font-size: 15px; margin: 0 0 4px; }
+  p.lead { margin: 0 0 16px; color: #6b7280; max-width: 680px; }
+  .probes { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  .probe { border: 1px solid #e5e5e7; border-radius: 10px; padding: 12px; width: 210px; }
+  .probe h2 { font-size: 12px; margin: 0 0 10px; font-weight: 600; }
+  .sample { height: 30px; display: flex; align-items: center; padding: 0 8px; color: #6b7280; font-size: 12px; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+  pre { margin: 16px 0 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>设置菜单配方自检</h1>
+<p class="lead">
+  菜单壳、菜单项、下拉控件只从 <span class="mono">settings-menu/recipes.ts</span> 取类名。
+  这里把三份配方挂到真实元素上量 computed radius，逐档验证 ADR-0040 的「一个刻度一个开关」：
+  原先菜单项写死 <span class="mono">rounded-[7px]</span>，切到「直角」时同一张菜单里的 select 归零、菜单项还是 7px。
+</p>
+<div class="probes">
+  <section class="probe">
+    <h2>MENU_SHELL · 菜单外框</h2>
+    <div id="probe-shell" class="sample">菜单</div>
+    <div class="mono" id="val-shell"></div>
+  </section>
+  <section class="probe">
+    <h2>MENU_ITEM · 菜单项</h2>
+    <div id="probe-item" class="sample">菜单项</div>
+    <div class="mono" id="val-item"></div>
+  </section>
+  <section class="probe">
+    <h2>MENU_CONTROL · 下拉控件</h2>
+    <div id="probe-control" class="sample">下拉</div>
+    <div class="mono" id="val-control"></div>
+  </section>
+</div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import {
+  MENU_SHELL, MENU_ITEM, MENU_CONTROL, MENU_FIELD, MENU_FIELD_LABEL,
+  MENU_SECTION, MENU_SEPARATOR, MENU_HINT,
+  TOOL_PILL, TOOL_PILL_ELEVATED, TOOL_PILL_PLAIN,
+} from "../src/components/settings-menu/recipes.ts"
+import { createHarness } from "./harness.js"
+
+const { check, done } = createHarness()
+
+const RECIPES = {
+  MENU_SHELL, MENU_ITEM, MENU_CONTROL, MENU_FIELD, MENU_FIELD_LABEL,
+  MENU_SECTION, MENU_SEPARATOR, MENU_HINT,
+  TOOL_PILL, TOOL_PILL_ELEVATED, TOOL_PILL_PLAIN,
+}
+
+// ---- 1. 配方里不许再有任意值圆角（这是漏网 7px 的根因） ----
+for (const [name, recipe] of Object.entries(RECIPES)) {
+  check(`${name} 不含任意 px 圆角`, !/rounded-\[/.test(recipe), recipe)
+}
+check("菜单壳不含定宽（宽度只由 BlockMenu 的 width 决定）", !/(^|\s)w-/.test(MENU_SHELL), MENU_SHELL)
+check("工具胶囊的浮起版只比基础版多一层阴影",
+  TOOL_PILL_ELEVATED === `${TOOL_PILL} shadow-sm`, TOOL_PILL_ELEVATED)
+
+// ---- 2. 三份配方挂到真实元素上，逐档量 radius ----
+const probes = [
+  { id: "probe-shell", name: "菜单外框", recipe: MENU_SHELL, token: "--rad-island" },
+  { id: "probe-item", name: "菜单项", recipe: MENU_ITEM, token: "--rad-md" },
+  { id: "probe-control", name: "下拉控件", recipe: MENU_CONTROL, token: "--rad-control" },
+]
+for (const probe of probes) {
+  document.getElementById(probe.id).className = `sample ${probe.recipe}`
+}
+
+/** computed radius 归一成 px 数，便于和 --rad-* 的字符串比较。 */
+function radiusOf(element) {
+  const value = getComputedStyle(element).borderTopLeftRadius
+  return Math.round(parseFloat(value) * 100) / 100
+}
+function tokenOf(name) {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return Math.round(parseFloat(value) * 100) / 100
+}
+
+const STOPS = [
+  { attr: undefined, label: "medium(默认)" },
+  { attr: "small", label: "small" },
+  { attr: "large", label: "large" },
+  { attr: "square", label: "square(直角)" },
+]
+
+for (const stop of STOPS) {
+  if (stop.attr === undefined) delete document.documentElement.dataset.corners
+  else document.documentElement.dataset.corners = stop.attr
+  for (const probe of probes) {
+    const element = document.getElementById(probe.id)
+    const actual = radiusOf(element)
+    const expected = tokenOf(probe.token)
+    check(`${stop.label} / ${probe.name} radius == ${probe.token}`,
+      actual === expected, `实测 ${actual}px，${probe.token} = ${expected}px`)
+    document.getElementById(probe.id.replace("probe", "val")).textContent =
+      `${stop.label}: ${actual}px / ${probe.token} ${expected}px`
+  }
+  if (stop.attr === "square") {
+    for (const probe of probes) {
+      check(`square / ${probe.name} 真的归零`, radiusOf(document.getElementById(probe.id)) === 0)
+    }
+  }
+}
+delete document.documentElement.dataset.corners
+
+// ---- 3. 同一档里三者的层级不能倒过来 ----
+check("默认档 菜单外框 > 菜单项 > 控件",
+  tokenOf("--rad-island") > tokenOf("--rad-md") && tokenOf("--rad-md") > tokenOf("--rad-control"),
+  `${tokenOf("--rad-island")} / ${tokenOf("--rad-md")} / ${tokenOf("--rad-control")}`)
+
+done()
+</script>
+</body>
+</html>

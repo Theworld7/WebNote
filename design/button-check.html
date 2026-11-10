@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>按钮配方自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  body > h1 { font-size: 15px; margin: 0 0 4px; }
+  p.lead { margin: 0 0 16px; color: #6b7280; max-width: 680px; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+  pre { margin: 16px 0 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>按钮配方自检</h1>
+<p class="lead">
+  app 层形状刻度放在 <span class="mono">ui/button/recipes.ts</span>，不改 shadcn 的 cva。
+  这里逐档量半径，守住「按钮也在 ADR-0040 的同一把刻度上」：原来补类里写死 5 / 7 / 10px，
+  切到直角时按钮不会归零。
+</p>
+<div id="samples" hidden></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import {
+  BTN_ICON, BTN_COMPACT, BTN_MINI, BTN_FIELD, BTN_DIALOG, BTN_BLOCK, BTN_TEXT,
+} from "../src/components/ui/button/recipes.ts"
+import { createHarness } from "./harness.js"
+
+const { check, done } = createHarness()
+
+const RECIPES = { BTN_ICON, BTN_COMPACT, BTN_MINI, BTN_FIELD, BTN_DIALOG, BTN_BLOCK, BTN_TEXT }
+for (const [name, recipe] of Object.entries(RECIPES)) {
+  check(`${name} 不含任意 px 圆角`, !/rounded-\[/.test(recipe), recipe)
+}
+
+const host = document.getElementById("samples")
+const PROBES = [
+  { name: "BTN_ICON", recipe: BTN_ICON, token: "--rad-control" },
+  { name: "BTN_COMPACT", recipe: BTN_COMPACT, token: "--rad-control" },
+  { name: "BTN_MINI", recipe: BTN_MINI, token: "--rad-control" },
+  { name: "BTN_FIELD", recipe: BTN_FIELD, token: "--rad-md" },
+  { name: "BTN_BLOCK", recipe: BTN_BLOCK, token: "--rad-lg" },
+]
+const nodes = {}
+for (const probe of PROBES) {
+  const node = document.createElement("div")
+  node.className = probe.recipe
+  host.appendChild(node)
+  nodes[probe.name] = node
+}
+
+function radiusOf(element) {
+  return Math.round(parseFloat(getComputedStyle(element).borderTopLeftRadius) * 100) / 100
+}
+function tokenOf(name) {
+  return Math.round(parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) * 100) / 100
+}
+
+for (const stop of [undefined, "small", "large", "square"]) {
+  if (stop === undefined) delete document.documentElement.dataset.corners
+  else document.documentElement.dataset.corners = stop
+  const label = stop ?? "medium(默认)"
+  for (const probe of PROBES) {
+    const actual = radiusOf(nodes[probe.name])
+    const expected = tokenOf(probe.token)
+    check(`${label} / ${probe.name} radius == ${probe.token}`,
+      actual === expected, `实测 ${actual}px，${probe.token} = ${expected}px`)
+  }
+  if (stop === "square") {
+    for (const probe of PROBES) {
+      check(`square / ${probe.name} 真的归零`, radiusOf(nodes[probe.name]) === 0)
+    }
+  }
+}
+delete document.documentElement.dataset.corners
+
+// 字号仍走项目九档，而不是上游 cva 的 text-sm / text-xs
+const textProbe = document.createElement("div")
+textProbe.className = BTN_TEXT
+host.appendChild(textProbe)
+check("BTN_TEXT = 13px（九档之一）",
+  parseFloat(getComputedStyle(textProbe).fontSize) === 13,
+  getComputedStyle(textProbe).fontSize)
+
+done()
+</script>
+</body>
+</html>

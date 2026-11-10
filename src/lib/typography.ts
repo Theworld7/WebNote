@@ -1,6 +1,7 @@
 import type { BlockType, TableEffect } from "@/types/workspace"
 import { LEDGER_EXPENSE_COLOR, LEDGER_EXPENSE_COLOR_DARK, LEDGER_INCOME_COLOR, LEDGER_INCOME_COLOR_DARK } from "@/lib/ledger"
 import { TEXT_COLORS } from "@/lib/inline"
+import { SUB_EXPORT_GEOMETRY, SUB_GEOMETRY } from "@/lib/subscription-geometry"
 
 /**
  * 排版规格 —— 视觉常量的唯一真源。
@@ -593,10 +594,10 @@ ${headingRules}
     /* 订阅汇总条与 SubscriptionBlockView 对齐:一块平面白卡,内嵌分隔线分栏,
        标签小字在上、数字大号在下。grid-auto-flow 横向排,指标增减不会换行。 */
     .note-sub-summary { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
-      margin-bottom: 12px; overflow: hidden; border: 1px solid var(--line); border-radius: 18px;
+      margin-bottom: ${SUB_EXPORT_GEOMETRY.summaryMarginBottomPx}px; overflow: hidden; border: 1px solid var(--line); border-radius: ${SUB_GEOMETRY.summaryRadiusPx}px;
       background: Canvas; }
-    .note-sub-stat { position: relative; padding: 14px 16px 15px; }
-    .note-sub-stat + .note-sub-stat::before { position: absolute; top: 14px; bottom: 14px; left: 0;
+    .note-sub-stat { position: relative; padding: ${SUB_EXPORT_GEOMETRY.statPaddingTopPx}px ${SUB_EXPORT_GEOMETRY.statPaddingInlinePx}px ${SUB_EXPORT_GEOMETRY.statPaddingBottomPx}px; }
+    .note-sub-stat + .note-sub-stat::before { position: absolute; top: ${SUB_EXPORT_GEOMETRY.dividerInsetPx}px; bottom: ${SUB_EXPORT_GEOMETRY.dividerInsetPx}px; left: 0;
       width: 1px; content: ""; background: var(--line); }
     .note-sub-stat .k { display: block; margin-bottom: 3px; color: var(--muted);
       font-size: ${remOf(11)}; letter-spacing: .04em; }
@@ -605,22 +606,22 @@ ${headingRules}
     .note-sub-stat .n small { margin-left: 4px; color: var(--muted); font-size: ${remOf(11)};
       font-weight: 500; letter-spacing: 0; }
     /* 卡片宫格:自适应列,窄窗口下卡片跟着收缩而不是横向溢出。 */
-    .note-sub-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); }
+    .note-sub-grid { display: grid; gap: ${SUB_GEOMETRY.gridGapPx}px; grid-template-columns: repeat(auto-fill, minmax(${SUB_GEOMETRY.gridMinPx}px, 1fr)); }
     .note-sub-card { --sub-accent: var(--link); position: relative; isolation: isolate;
-      overflow: hidden; padding: 16px; border-radius: 16px;
+      overflow: hidden; padding: ${SUB_EXPORT_GEOMETRY.cardPaddingPx}px; border-radius: ${SUB_EXPORT_GEOMETRY.cardRadiusPx}px;
       border: 1px solid color-mix(in srgb, var(--sub-accent) 20%, var(--line));
       background: radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--sub-accent) 15%, transparent), transparent 46%),
         linear-gradient(145deg, color-mix(in srgb, var(--sub-accent) 5%, Canvas), Canvas 68%);
       box-shadow: 0 1px 2px rgba(0, 0, 0, .04); }
-    .note-sub-card::before { position: absolute; right: -58px; bottom: -86px; z-index: -1;
-      width: 190px; height: 190px; border-radius: 50%; content: "";
+    .note-sub-card::before { position: absolute; right: ${SUB_GEOMETRY.ornamentRightPx}px; bottom: ${SUB_GEOMETRY.ornamentBottomPx}px; z-index: -1;
+      width: ${SUB_GEOMETRY.ornamentSizePx}px; height: ${SUB_GEOMETRY.ornamentSizePx}px; border-radius: 50%; content: "";
       border: 1px solid color-mix(in srgb, var(--sub-accent) 14%, transparent);
       box-shadow: 0 0 0 26px color-mix(in srgb, var(--sub-accent) 4%, transparent),
         0 0 0 52px color-mix(in srgb, var(--sub-accent) 3%, transparent); pointer-events: none; }
     .note-sub-cancelled { opacity: .72; filter: saturate(.45); }
     .note-sub-head { display: flex; align-items: flex-start; gap: 10px; }
     .note-sub-icon { flex: none; display: flex; align-items: center; justify-content: center;
-      width: 44px; height: 44px; border-radius: 13px; overflow: hidden;
+      width: ${SUB_GEOMETRY.iconSizePx}px; height: ${SUB_GEOMETRY.iconSizePx}px; border-radius: ${SUB_GEOMETRY.iconRadiusPx}px; overflow: hidden;
       border: 1px solid color-mix(in srgb, var(--sub-accent) 16%, transparent);
       background: color-mix(in srgb, var(--sub-accent) 11%, Canvas);
       font-size: ${remOf(16)}; font-weight: 600; color: var(--sub-accent); }

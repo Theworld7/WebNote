@@ -3,6 +3,7 @@ import { computed } from "vue"
 import { FolderOpenIcon, LoaderCircleIcon, RefreshCwIcon, ServerIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { useWorkspace } from "@/composables/useWorkspace"
+import { BTN_BLOCK } from "@/components/ui/button/recipes"
 
 /**
  * 编辑区的空态。
@@ -46,7 +47,7 @@ const pendingGrant = computed(() =>
       <Button
         v-if="pendingGrant !== null"
         variant="secondary"
-        class="h-8 max-w-[18.75rem] gap-1.5 rounded-[10px] px-3.5 text-13"
+        :class="[BTN_BLOCK, 'max-w-[18.75rem]']"
         @click="grantRestore"
       >
         <RefreshCwIcon class="size-4 shrink-0" />
@@ -54,7 +55,7 @@ const pendingGrant = computed(() =>
       </Button>
       <Button
         variant="secondary"
-        class="h-8 gap-1.5 rounded-[10px] px-3.5 text-13"
+        :class="BTN_BLOCK"
         @click="openRoot"
       >
         <FolderOpenIcon class="size-4" />
@@ -64,7 +65,7 @@ const pendingGrant = computed(() =>
            只是 WebDAV 还需要填地址与账号，点开是一张表单。 -->
       <Button
         variant="secondary"
-        class="h-8 gap-1.5 rounded-[10px] px-3.5 text-13"
+        :class="BTN_BLOCK"
         @click="requestWebDav"
       >
         <ServerIcon class="size-4" />

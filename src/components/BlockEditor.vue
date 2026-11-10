@@ -5,7 +5,6 @@ import { RefreshCwIcon, Trash2Icon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -37,6 +36,8 @@ import BlockItem from "./BlockItem.vue"
 import BlockTypeMenuItems from "./BlockTypeMenuItems.vue"
 import GalleryInsertDialog from "./GalleryInsertDialog.vue"
 import HeadingNav from "./HeadingNav.vue"
+import { BlockMenu } from "@/components/settings-menu"
+import { BTN_MINI } from "@/components/ui/button/recipes"
 
 const {
   activePath,
@@ -1348,16 +1349,16 @@ function edgeOf(index: number, to: number): BlockDropEdge {
             <span class="mx-0.5 h-4 w-px bg-line" />
             <DropdownMenu>
               <DropdownMenuTrigger as-child>
-                <Button variant="ghost" class="h-6 gap-1 rounded-[5px] px-2 text-12">
+                <Button variant="ghost" :class="BTN_MINI">
                   <RefreshCwIcon class="size-3" />
                   转为…
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent class="w-[15.25rem] rounded-island p-1.5 shadow-pop ring-1 ring-line/70" align="center" :side-offset="6">
+              <BlockMenu :width="15.25" align="center" :side-offset="6">
                 <BlockTypeMenuItems :only="BATCH_RETYPE_TYPES" @pick="retypeSelected" />
-              </DropdownMenuContent>
+              </BlockMenu>
             </DropdownMenu>
-            <Button variant="ghost" class="h-6 gap-1 rounded-[5px] px-2 text-12 text-destructive hover:text-destructive" @click="deleteSelected">
+            <Button variant="ghost" :class="[BTN_MINI, 'text-destructive hover:text-destructive']" @click="deleteSelected">
               <Trash2Icon class="size-3" />
               删除
             </Button>

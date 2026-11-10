@@ -5,6 +5,7 @@ import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescript
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useWorkspace } from "@/composables/useWorkspace"
+import { BTN_TEXT } from "@/components/ui/button/recipes"
 
 /**
  * 新建命名对话框。
@@ -87,9 +88,9 @@ async function confirm() {
 
       <AlertDialogFooter>
         <AlertDialogCancel as-child>
-          <Button variant="ghost" size="sm" class="text-13">取消</Button>
+          <Button variant="ghost" size="sm" :class="BTN_TEXT">取消</Button>
         </AlertDialogCancel>
-        <Button size="sm" class="text-13" @click="confirm">创建</Button>
+        <Button size="sm" :class="BTN_TEXT" @click="confirm">创建</Button>
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>

@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input"
 import { emptyValueOf, parseCellInput } from "@/lib/data-table"
 import { markImageBroken, usableImage } from "@/lib/broken-images"
 import { isImageFile, readImageFile } from "@/lib/image"
+import { BTN_TEXT } from "@/components/ui/button/recipes"
 
 /**
  * 往歌单的表里加一首歌。
@@ -218,9 +219,9 @@ function submit(): void {
 
       <AlertDialogFooter>
         <AlertDialogCancel as-child>
-          <Button variant="ghost" size="sm" class="text-13">取消</Button>
+          <Button variant="ghost" size="sm" :class="BTN_TEXT">取消</Button>
         </AlertDialogCancel>
-        <Button size="sm" class="text-13" :disabled="!hasInput" @click="submit">添加</Button>
+        <Button size="sm" :class="BTN_TEXT" :disabled="!hasInput" @click="submit">添加</Button>
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>
