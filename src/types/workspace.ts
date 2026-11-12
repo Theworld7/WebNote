@@ -261,6 +261,19 @@ export type LedgerGroupMode = "none" | "month" | "column"
 export type LedgerSortDirection = "asc" | "desc"
 
 /**
+ * 账目块的一条筛选条件:某列的**显示文本**等于某个值。多条之间是「而且」(AND)。
+ *
+ * 比较发生在 `valueText` 投影上(与统计块的筛选同一口径):select 拿选项名、勾选拿
+ * `✓`、数字拿 `String(number)` —— 用户在设置里选的就是他看见的那串字。
+ */
+export interface LedgerFilter {
+  /** 参与比较的列 id。列被删后这条条件失效、退出筛选,无需清洗(与排序列同一立场)。 */
+  columnId: string
+  /** 比对值。空串 = 空值(「只看没填这一列的行」也是合法条件)。 */
+  value: string
+}
+
+/**
  * 账目块:把一张数据表按财务口径渲染成流水账 —— 收入列 / 支出列求和、逐行累计的
  * 余额列、分组节小计与底部合计,金额统一 ¥ 千分位两位小数。
  *
@@ -301,6 +314,14 @@ export interface LedgerBlock {
   sortColumnId: string
   /** 排序方向。缺省 `desc`:新建块按「日期列 + 倒序」起手,最近一笔在最上面。 */
   sortDirection: LedgerSortDirection
+  /**
+   * 筛选条件,全部满足的行才显示(AND)。缺省 / 空数组 = 不筛选,不落盘。
+   *
+   * 只改这个块**看见什么**,`.tbl` 里的数据一条也不动。合计与余额都按筛出的行算
+   * (见 ADR-0054):筛出来的就是「这本账」,于是筛某个账户 / 类目时读到的是它的
+   * 合计与余额,而不是全表的。
+   */
+  filters?: readonly LedgerFilter[]
 }
 
 /**

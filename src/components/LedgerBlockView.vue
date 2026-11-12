@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import type { LedgerBlock } from "@/types/workspace"
+import type { LedgerBlock, LedgerFilter } from "@/types/workspace"
 import type { DataColumn, DataRow } from "@/types/data-table"
 import type { LedgerSection } from "@/lib/ledger"
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue"
-import { PlusIcon, Settings2Icon, Trash2Icon } from "@lucide/vue"
+import { PlusIcon, Settings2Icon, Trash2Icon, XIcon } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -25,12 +25,14 @@ import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
 import { useCellEditing } from "@/composables/useCellEditing"
 import { useDateCellPanel } from "@/composables/useDateCellPanel"
+import { useToast } from "@/composables/useToast"
 import * as dt from "@/lib/data-table"
-import { balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, ledgerSort, sortRows, sumRows } from "@/lib/ledger"
+import { balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerFilters, ledgerSections, ledgerSort, sortRows, sumRows } from "@/lib/ledger"
 import {
   BlockMenu,
   MenuSection,
   MenuField,
+  MenuSelect,
   MenuSeparator,
   MENU_ITEM,
   MENU_CONTROL,
@@ -70,6 +72,8 @@ const { updateBlockSettings } = useWorkspace()
 
 const { state, columns, rows, change } = useTableEntry(() => props.block.path)
 
+const { notify } = useToast()
+
 /** 收入 / 支出列。指向的列被删后落空,视图退化为「未设置」,无需清洗。 */
 const incomeColumn = computed<DataColumn | null>(() =>
   props.block.incomeColumnId === "" ? null : columns.value.find((column) => column.id === props.block.incomeColumnId) ?? null,
@@ -90,8 +94,22 @@ const groupColumn = computed<DataColumn | null>(() =>
 /** 生效的排序:排序列被删后退化为不排序;月节序跟随方向(不排序时恒升序)。 */
 const sort = computed(() => ledgerSort(columns.value, props.block.sortColumnId, props.block.sortDirection))
 
-/** 展示序 = 表内行序按块的排序设置排过。`listedRows` 在它之上摘掉草稿行。 */
-const orderedRows = computed(() => sortRows(rows.value, sort.value))
+/**
+ * 生效的筛选:条件里那一列还在的才参与比较。列被删后那条条件失效、退出筛选,
+ * 其余照旧 —— 与排序列 / 收入列的同一自愈立场(见 `ledgerFilters`)。
+ */
+const filterConditions = computed(() => ledgerFilters(columns.value, props.block.filters))
+
+/**
+ * 这本账的行:筛选把不满足条件的行挡在外面。
+ *
+ * 合计、余额、分节、行号全都从它往下算 —— 「筛出来的就是这本账」(ADR-0054),而不是
+ * 「一张全表上盖了个滤镜」。于是只看某个账户 / 类目时,底部合计与逐行余额就是它自己的。
+ */
+const filteredRows = computed(() => dt.filterRowsByValues(rows.value, filterConditions.value))
+
+/** 展示序 = 筛出的行按块的排序设置排过。`listedRows` 在它之上摘掉草稿行。 */
+const orderedRows = computed(() => sortRows(filteredRows.value, sort.value))
 
 /** 编辑开始时钉住的顺序快照。null = 没在编辑，跟着排序走。 */
 const frozenOrder = ref<string[] | null>(null)
@@ -203,13 +221,13 @@ const allSections = computed<readonly LedgerSection[]>(() => {
   ]
 })
 
-/** 逐行累计余额(键 = 行 id)。按**原始行序**算 —— 排序与分组只改展示顺序,不改发生序。 */
+/** 逐行累计余额(键 = 行 id)。按**筛出行的原始行序**算 —— 排序与分组只改展示顺序;筛选是这本账的边界。 */
 const balances = computed<Map<string, number> | null>(() =>
-  props.block.showBalance && hasMoney.value ? balanceMap(rows.value, incomeColumn.value, expenseColumn.value) : null,
+  props.block.showBalance && hasMoney.value ? balanceMap(filteredRows.value, incomeColumn.value, expenseColumn.value) : null,
 )
 
-/** 底部合计。 */
-const totals = computed(() => sumRows(rows.value, incomeColumn.value, expenseColumn.value))
+/** 底部合计。跟着筛选走:合计的必须是眼前看得见的那些行。 */
+const totals = computed(() => sumRows(filteredRows.value, incomeColumn.value, expenseColumn.value))
 
 /** 某行在金额列上的数值。非数字(null / 文本)返回 null,展示为空格。 */
 function moneyAt(row: DataRow, column: DataColumn | null): number | null {
@@ -491,7 +509,15 @@ function releaseDraft(): void {
     void change((current) => dt.removeRow(current, row.id))
     return
   }
+  // 筛选生效时,刚填的这一笔很可能不满足条件 —— 它归位就消失,不说明一句就成了
+  // 「我刚记的账丢了」。数据是写进去了,只是这本账的边界把它挡在外面。
+  if (!keptByFilters(row)) notify("已记入，但当前筛选看不到这一笔")
   flash(row.id)
+}
+
+/** 这一行过不过当前筛选。草稿行收工时靠它决定要不要说那句「看不见」。 */
+function keptByFilters(row: DataRow): boolean {
+  return dt.filterRowsByValues([row], filterConditions.value).length === 1
 }
 
 /** 一条全空的记录。判据在 `lib/data-table`(删除确认也用它),这里只补上当前列。 */
@@ -769,6 +795,75 @@ const dateColumns = computed(() => columns.value.filter((column) => column.type 
 /** 可排序列:图片列除外(data URI 排序没有意义,投影也是空串)。 */
 const sortableColumns = computed(() => columns.value.filter((column) => column.type !== "image"))
 
+// ---- 块设置 · 筛选 ----
+
+/**
+ * 可筛列:图片列除外。它的文本投影恒为空串,拿它筛只会把整本账筛空 —— 那不是
+ * 用户想要的任何一件事,所以干脆不给这个选项。
+ */
+const filterableColumns = computed(() => columns.value.filter((column) => column.type !== "image"))
+
+const filterColumnOptions = computed(() =>
+  filterableColumns.value.map((column) => ({ value: column.id, label: column.name })),
+)
+
+/**
+ * 某个条件可选的比对值:该列**出现过**的显示文本(去重、首现序)。
+ *
+ * 选项来自数据本身而不是列定义 —— 文本列没有枚举可列,只有「这张表里写过哪些字」。
+ * 当前值不在其中时补一项:数据改过之后条件仍然看得见,不至于静默显示成空白。
+ */
+function filterValueOptions(condition: LedgerFilter): { value: string; label: string }[] {
+  const column = columns.value.find((item) => item.id === condition.columnId)
+  const values = column === undefined ? [] : dt.columnValues(rows.value, column)
+  if (!values.includes(condition.value)) values.unshift(condition.value)
+  return values.map((value) => ({ value, label: value === "" ? "（空）" : value }))
+}
+
+/** 写回整组条件。空数组 = 清掉筛选;序列化只写非空的那组,清空不在文件里留痕。 */
+function setFilters(next: LedgerFilter[]): void {
+  updateBlockSettings(props.block.id, { filters: next })
+}
+
+/** 加一条条件,列默认取第一个可筛列、值留空 —— 先把行放出来,再让用户挑。 */
+function addFilter(): void {
+  const first = filterableColumns.value[0]
+  if (first === undefined) return
+  setFilters([...(props.block.filters ?? []), { columnId: first.id, value: "" }])
+}
+
+function removeFilterAt(index: number): void {
+  setFilters((props.block.filters ?? []).filter((_, at) => at !== index))
+}
+
+/**
+ * 换筛选列,值一起清空 —— 上一列的值在下一列上没有意义。这就是「级联」的全部:
+ * 值下拉的选项由刚选中的那一列现算(见 `filterValueOptions`)。
+ */
+function setFilterColumnAt(index: number, columnId: string): void {
+  const next = [...(props.block.filters ?? [])]
+  if (next[index] === undefined) return
+  next[index] = { columnId, value: "" }
+  setFilters(next)
+}
+
+function setFilterValueAt(index: number, value: string): void {
+  const next = [...(props.block.filters ?? [])]
+  const current = next[index]
+  if (current === undefined) return
+  next[index] = { columnId: current.columnId, value }
+  setFilters(next)
+}
+
+function clearFilters(): void {
+  setFilters([])
+}
+
+/** 筛选条上那句话:「列 = 值 · 列 = 值」。空值说成「空」,一个 `= ` 结尾认不出是什么。 */
+const filterSummary = computed(() =>
+  filterConditions.value.map((condition) => `${condition.column.name} = ${condition.value === "" ? "空" : condition.value}`).join(" · "),
+)
+
 </script>
 
 <template>
@@ -795,7 +890,7 @@ const sortableColumns = computed(() => columns.value.filter((column) => column.t
             <Settings2Icon class="size-3" />设置
           </Button>
         </DropdownMenuTrigger>
-        <BlockMenu :width="13.125" align="end">
+        <BlockMenu :width="15.5" align="end">
           <MenuSection>收入列</MenuSection>
           <MenuField>
             <select :class="MENU_CONTROL" :value="props.block.incomeColumnId" @change="setIncomeColumn">
@@ -846,6 +941,46 @@ const sortableColumns = computed(() => columns.value.filter((column) => column.t
           >
             <span class="truncate">显示余额列</span>
           </DropdownMenuCheckboxItem>
+          <!--
+            筛选:一条 = 一个「列 = 值」,多条是 AND。值下拉的选项来自该列**写过**的
+            那些显示文本(级联),所以这里不提供手打 —— 打了错字只会筛出空表。
+          -->
+          <MenuSeparator />
+          <MenuSection>筛选（全部满足）</MenuSection>
+          <MenuField v-for="(condition, index) in props.block.filters ?? []" :key="index">
+            <div class="flex items-center gap-1">
+              <MenuSelect
+                class="min-w-0 flex-1"
+                :model-value="condition.columnId"
+                :options="filterColumnOptions"
+                @update:model-value="(value: string) => setFilterColumnAt(index, value)"
+              />
+              <MenuSelect
+                class="min-w-0 flex-1"
+                :model-value="condition.value"
+                :options="filterValueOptions(condition)"
+                @update:model-value="(value: string) => setFilterValueAt(index, value)"
+              />
+              <button
+                type="button"
+                class="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive"
+                aria-label="删除这条筛选"
+                @click="removeFilterAt(index)"
+              >
+                <XIcon class="size-3" />
+              </button>
+            </div>
+          </MenuField>
+          <MenuField>
+            <button
+              type="button"
+              :class="[MENU_CONTROL, 'flex items-center gap-1 text-muted-foreground hover:text-foreground disabled:opacity-40']"
+              :disabled="filterableColumns.length === 0"
+              @click="addFilter"
+            >
+              <PlusIcon class="size-3" />添加条件
+            </button>
+          </MenuField>
         </BlockMenu>
       </DropdownMenu>
     </template>
@@ -858,6 +993,25 @@ const sortableColumns = computed(() => columns.value.filter((column) => column.t
       账目尚未设置收入 / 支出列 —— 点右上角「设置」各挑一列(只设收入就是礼账的记法),
       金额求和、余额与合计才会出现。
     </p>
+
+    <!--
+      筛选条:条件、命中行数与一条清除出路。合计与余额都只算筛出的行(ADR-0054),
+      不说清「现在只看得到 12 / 40 行」,底部的数字就会被当成全账。
+    -->
+    <div
+      v-if="filterConditions.length > 0"
+      class="mb-1.5 flex flex-wrap items-baseline gap-x-2 text-11 text-muted-foreground"
+    >
+      <span>筛选 · {{ filterSummary }}</span>
+      <span class="tabular-nums">{{ filteredRows.length }} / {{ rows.length }} 行</span>
+      <button
+        type="button"
+        class="underline underline-offset-2 hover:text-foreground"
+        @click="clearFilters"
+      >
+        清除
+      </button>
+    </div>
 
     <!--
       不换行 + 横向滚动,与数据表 scroll 档同一套几何(typography.ts 的 TABLE_SCROLL):
@@ -998,6 +1152,12 @@ const sortableColumns = computed(() => columns.value.filter((column) => column.t
           <tr v-if="rows.length === 0">
             <td :colspan="cellCount" class="px-2.5 py-4 text-center text-muted-foreground">
               这张表还没有账目 —— 点右上角「记一笔」开始记。
+            </td>
+          </tr>
+          <!-- 表里有账、但一行都没过筛选:说清是筛掉的,不是没有。 -->
+          <tr v-else-if="filteredRows.length === 0">
+            <td :colspan="cellCount" class="px-2.5 py-4 text-center text-muted-foreground">
+              当前筛选没有匹配的行 —— 点上方「清除」回到全账。
             </td>
           </tr>
         </tbody>

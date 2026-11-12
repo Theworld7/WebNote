@@ -18,8 +18,8 @@
 <pre id="out">running…</pre>
 <script type="module">
 import { BLOCK_TYPES, CELL_EXCLUDED_TYPES, createBlock, createLedgerBlock, createKanbanBlock, createGalleryBlock, createStatBlock, blockText, cloneBlock, retypeBlock } from "../src/lib/blocks.ts"
-import { filterRowsByValue } from "../src/lib/data-table.ts"
-import { createLedgerPreset, formatAmount, formatExpense, formatIncome, formatYuan, ledgerSections, ledgerSort, sortRows, sumRows, balanceMap } from "../src/lib/ledger.ts"
+import { filterRowsByValue, filterRowsByValues, columnValues } from "../src/lib/data-table.ts"
+import { createLedgerPreset, formatAmount, formatExpense, formatIncome, formatYuan, ledgerFilters, ledgerSections, ledgerSort, sortRows, sumRows, balanceMap } from "../src/lib/ledger.ts"
 import { sumColumn, formatGrouped } from "../src/lib/data-table.ts"
 import { blocksToHtml } from "../src/lib/html/serialize.ts"
 import { parseHtml } from "../src/lib/html/parse.ts"
@@ -124,6 +124,12 @@ check("blockText(ledger) 返回 path", blockText(createLedgerBlock("账.tbl")) =
 const orig = createLedgerBlock("x.tbl", "c1", "c2")
 const copy = cloneBlock(orig, "newid")
 check("cloneBlock 换 id 且字段独立", copy.id === "newid" && copy.incomeColumnId === "c1" && orig.incomeColumnId === "c1")
+
+const filtered0 = createLedgerBlock("x.tbl", "c1", "c2")
+filtered0.filters = [{ columnId: "c1", value: "餐费" }]
+const filteredCopy = cloneBlock(filtered0, "id2")
+check("cloneBlock 拷了 filters 且不与原块共享那份数组",
+  filteredCopy.filters?.[0]?.value === "餐费" && filteredCopy.filters !== filtered0.filters)
 
 const retyped = retypeBlock({ id: "b", type: "text", runs: [], depth: 0 }, "ledger")
 check("retypeBlock(text → ledger) 出空 ledger", retyped.type === "ledger" && retyped.path === "", JSON.stringify(retyped))
@@ -341,6 +347,66 @@ check("往返 sortColumnId/sortDirection(倒序)",
 check("往返 sortDirection(正序)", parseHtml(ascHtml)[0].sortDirection === "asc")
 const sortHand = parseHtml(`<div class="note-ledger" data-ledger="手改.tbl" data-sort="c1" data-sort-dir="xx"></div>`)
 check("宽容解析:缺/非法 data-sort-dir 落倒序", sortHand[0].sortColumnId === "c1" && sortHand[0].sortDirection === "desc", JSON.stringify(sortHand[0]))
+
+// ---------- 十五、账目块筛选 ----------
+
+note("账目块筛选:多条件 AND / 合计与余额只算筛出的行")
+
+const sCols = [
+  { id: "s1", name: "日期", type: "date", options: [] },
+  { id: "s2", name: "类别", type: "select", options: [{ id: "k1", name: "餐费" }, { id: "k2", name: "打车" }] },
+  { id: "s3", name: "收入", type: "number", options: [] },
+  { id: "s4", name: "支出", type: "number", options: [] },
+]
+const sRows = [
+  { id: "s-a", values: { s1: "2026-10-01", s2: "k1", s3: 100, s4: null } },
+  { id: "s-b", values: { s1: "2026-10-02", s2: "k2", s3: null, s4: 30 } },
+  { id: "s-c", values: { s1: "2026-10-03", s2: "k1", s3: 50, s4: null } },
+]
+const sTable = { version: 1, columns: sCols, rows: sRows }
+const sLookup = () => sTable
+
+check("ledgerFilters 把条件解析成列对象", ledgerFilters(sCols, [{ columnId: "s2", value: "餐费" }])[0]?.column.id === "s2")
+check("ledgerFilters 里被删列的那条条件退出筛选", ledgerFilters(sCols, [{ columnId: "s9", value: "x" }]).length === 0)
+check("ledgerFilters 缺省(undefined)不筛", ledgerFilters(sCols, undefined).length === 0)
+check("filterRowsByValues 多条件 AND(类别=餐费 且 支出为空)",
+  filterRowsByValues(sRows, ledgerFilters(sCols, [{ columnId: "s2", value: "餐费" }, { columnId: "s4", value: "" }])).map((r) => r.id).join(",") === "s-a,s-c")
+check("filterRowsByValues 条件互斥时筛空",
+  filterRowsByValues(sRows, ledgerFilters(sCols, [{ columnId: "s2", value: "餐费" }, { columnId: "s2", value: "打车" }])).length === 0)
+check("columnValues 去重按首现序(select 取选项名)", columnValues(sRows, sCols[1]).join("/") === "餐费/打车", columnValues(sRows, sCols[1]).join("/"))
+check("columnValues 含空值(空串在最前,按首现序)", columnValues(sRows, sCols[3]).join("/") === "/30", JSON.stringify(columnValues(sRows, sCols[3])))
+
+const sBlock = createLedgerBlock("筛.tbl", "s3", "s4")
+sBlock.filters = [{ columnId: "s2", value: "餐费" }]
+const sHtml = blocksToHtml([sBlock], sLookup)
+check("筛选写 data-filters(JSON 转义成 &quot;)",
+  sHtml.includes('data-filters="[{&quot;column&quot;:&quot;s2&quot;,&quot;value&quot;:&quot;餐费&quot;}]"'), sHtml.slice(0, 220))
+check("快照只留筛出的行(没有「打车」那一笔)", !sHtml.includes("打车"), sHtml)
+check("合计只算筛出的行(结余 ¥150.00)", sHtml.includes("结余 ¥150.00"), sHtml)
+check("余额按筛出的行累计(s-c 是 150.00,不是全表的 120.00)", sHtml.includes("150.00") && !sHtml.includes("120.00"), sHtml)
+
+const sRound = parseHtml(sHtml)
+check("往返:filters 原样回来",
+  sRound[0].type === "ledger" && JSON.stringify(sRound[0].filters) === JSON.stringify([{ columnId: "s2", value: "餐费" }]),
+  JSON.stringify(sRound[0].filters))
+
+check("不筛选不写 data-filters", !blocksToHtml([createLedgerBlock("筛.tbl", "s3", "s4")], sLookup).includes("data-filters"))
+const emptyFiltered = createLedgerBlock("筛.tbl", "s3", "s4")
+emptyFiltered.filters = []
+check("空条件数组不写 data-filters", !blocksToHtml([emptyFiltered], sLookup).includes("data-filters"))
+
+const blankFiltered = createLedgerBlock("筛.tbl", "s3", "s4")
+blankFiltered.filters = [{ columnId: "s2", value: "" }]
+const blankHtml = blocksToHtml([blankFiltered], sLookup)
+check("空值条件写出(等于空值是合法条件)且快照为空说明",
+  blankHtml.includes('&quot;value&quot;:&quot;&quot;') && blankHtml.includes("当前筛选没有匹配的行"), blankHtml)
+check("往返:空值条件回来", parseHtml(blankHtml)[0].type === "ledger" && parseHtml(blankHtml)[0].filters?.[0].value === "")
+
+const badFilters = parseHtml(`<div class="note-ledger" data-ledger="手改.tbl" data-filters="不是 JSON"></div>`)
+check("宽容解析:坏 JSON 不落 filters", badFilters[0].type === "ledger" && badFilters[0].filters === undefined, JSON.stringify(badFilters[0]))
+const partialFilters = parseHtml(`<div class="note-ledger" data-ledger="手改.tbl" data-filters='[{"value":"x"},{"column":"c2"}]'></div>`)
+check("宽容解析:缺 column 的条件跳过,缺 value 按空串",
+  JSON.stringify(partialFilters[0].filters) === JSON.stringify([{ columnId: "c2", value: "" }]), JSON.stringify(partialFilters[0].filters))
 
 // ---------- 收尾 ----------
 

@@ -350,6 +350,17 @@ export function sumColumn(rows: readonly DataRow[], column: DataColumn): number 
   return total
 }
 
+/** 一条「某列等于某显示文本」的比对条件。列对象已解析好,供 `filterRowsByValues` 消费。 */
+export interface ColumnMatch {
+  column: DataColumn
+  value: string
+}
+
+/** 单格是否满足一条比对条件。比较的是 `valueText` 投影,见 `filterRowsByValue`。 */
+function matchesValue(row: DataRow, condition: ColumnMatch): boolean {
+  return valueText(cellValue(row, condition.column), condition.column) === condition.value
+}
+
 /**
  * 按显示文本精确匹配筛行(统计卡的筛选,视图与导出快照共用)。
  *
@@ -358,7 +369,31 @@ export function sumColumn(rows: readonly DataRow[], column: DataColumn): number 
  * 文本,「所见即所比」不会出现填 `true` 却匹配不上勾选这种错位。
  */
 export function filterRowsByValue(rows: readonly DataRow[], column: DataColumn, value: string): DataRow[] {
-  return rows.filter((row) => valueText(cellValue(row, column), column) === value)
+  return filterRowsByValues(rows, [{ column, value }])
+}
+
+/**
+ * 多条件筛行,全部满足才留(AND)。空条件 = 不筛,原样返回**新数组**
+ * (与 `sortRows` 同一性格:不改入参)。
+ *
+ * 账目块的筛选与统计块共用这一份比对口径 —— 同一个值在「统计这张表多少」和
+ * 「只看这些账」里必须是同一个意思。
+ */
+export function filterRowsByValues(rows: readonly DataRow[], conditions: readonly ColumnMatch[]): DataRow[] {
+  if (conditions.length === 0) return [...rows]
+  return rows.filter((row) => conditions.every((condition) => matchesValue(row, condition)))
+}
+
+/**
+ * 一列出现过的**显示文本**,去重、按首现序 —— 筛选值下拉的选项来源。
+ *
+ * 空值也在列表里(空串):「只看没填这一列的行」是合法条件,与统计块的空值筛选
+ * 同一条口径。图片列的投影恒为空串,调用方不该拿它当筛选项。
+ */
+export function columnValues(rows: readonly DataRow[], column: DataColumn): string[] {
+  const seen = new Set<string>()
+  for (const row of rows) seen.add(valueText(cellValue(row, column), column))
+  return [...seen]
 }
 
 /** 千分位分组 + 原样小数。统计块的数字显示形态,视图与导出快照共用,两处观感不漂移。 */

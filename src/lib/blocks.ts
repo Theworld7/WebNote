@@ -684,8 +684,12 @@ export function retypeBlock(block: Block, type: BlockType): Block {
  */
 export function cloneBlock(block: Block, id: string): Block {
   // 平坦形态浅拷即可：账目块与数据表 / 书签 / 统计一样全是原始值字段。
-  if (block.type === "image" || block.type === "video" || block.type === "mermaid" || block.type === "html" || block.type === "vault" || block.type === "datatable" || block.type === "bookmark" || block.type === "ledger" || block.type === "stat" || block.type === "subscription") {
+  if (block.type === "image" || block.type === "video" || block.type === "mermaid" || block.type === "html" || block.type === "vault" || block.type === "datatable" || block.type === "bookmark" || block.type === "stat" || block.type === "subscription") {
     return { ...block, id }
+  }
+  // 账目的 filters 是对象数组：更新总以整体替换发生，但拷贝不该共享同一份。
+  if (block.type === "ledger") {
+    return block.filters === undefined ? { ...block, id } : { ...block, id, filters: block.filters.map((filter) => ({ ...filter })) }
   }
   // 歌单的 sources 是对象数组：整体替换,但拷贝不该共享同一批绑定项。
   if (block.type === "playlist") {

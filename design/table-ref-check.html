@@ -132,10 +132,11 @@ check("书签：列数这类跟表无关的偏好保留", bookmarkNext.columns =
 check("原块一个字段都没动（纯函数）", bookmark.nameColumn === "c1" && bookmark.iconColumn === "c3")
 
 // 账目的分组方式 / 排序方向是「我按什么读这本账」，与列 id 无关，留着。
-const ledger = { ...createBlock("ledger"), path: OLD, incomeColumnId: "i", expenseColumnId: "e", groupColumnId: "g", sortColumnId: "s", groupMode: "month", sortDirection: "asc", showBalance: false }
+const ledger = { ...createBlock("ledger"), path: OLD, incomeColumnId: "i", expenseColumnId: "e", groupColumnId: "g", sortColumnId: "s", groupMode: "month", sortDirection: "asc", showBalance: false, filters: [{ columnId: "i", value: "餐费" }] }
 const ledgerNext = rebindBlock(ledger, TABLE_A)
 check("账目：四个列 id 全清", ledgerNext.incomeColumnId === "" && ledgerNext.expenseColumnId === "" && ledgerNext.groupColumnId === "" && ledgerNext.sortColumnId === "")
 check("账目：分组方式 / 排序方向 / 余额开关保留", ledgerNext.groupMode === "month" && ledgerNext.sortDirection === "asc" && ledgerNext.showBalance === false)
+check("账目：筛选条件全清（列 id 属于旧表）", ledgerNext.filters === undefined, JSON.stringify(ledgerNext.filters))
 
 const gallery = { ...createBlock("gallery"), path: OLD, hiddenFields: ["a", "b"], group: "x", groupBy: "y", groupOrder: ["1", "2"], ratio: "1:1", columns: 4 }
 const galleryNext = rebindBlock(gallery, TABLE_A)

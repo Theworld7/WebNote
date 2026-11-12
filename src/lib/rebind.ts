@@ -40,9 +40,10 @@ export function rebindBlock(block: Block, path: string): Block | null {
       return { ...block, path, groupColumnId: "", displayColumnIds: [], groupOrder: [] }
 
     // 分组方式与排序方向是偏好（「我按什么读这本账」），不是列 id，留着；
-    // 列 id 清空后视图自己退化成平铺 / 不排序。
-    case "ledger":
-      return {
+    // 列 id 清空后视图自己退化成平铺 / 不排序。筛选条件里的列 id 属于旧表 ——
+    // 一条都不留（没有条件 = 不筛选，正好是缺省）。
+    case "ledger": {
+      const next = {
         ...block,
         path,
         incomeColumnId: "",
@@ -50,6 +51,9 @@ export function rebindBlock(block: Block, path: string): Block | null {
         groupColumnId: "",
         sortColumnId: "",
       }
+      delete next.filters
+      return next
+    }
 
     case "stat": {
       const next = { ...block, path, columnId: "" }

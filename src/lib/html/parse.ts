@@ -1,6 +1,7 @@
 import type { Block, BookmarkBlock, ChatMessage, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, LedgerBlock, LedgerGroupMode, PlaylistBlock, StatBlock, SubscriptionBlock, TableAlign, TableBlock, TableCell, TextualBlockType, VideoBlock } from "@/types/workspace"
 import { createBookmarkBlock, createChatBlock, createGalleryBlock, createHtmlBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createLedgerBlock, createMermaidBlock, createPlaylistBlockFrom, createStatBlock, createSubscriptionBlock, createTableBlock, createTextualBlock, createVaultBlock, createVideoBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
 import { STAT_PRECISION_DEFAULT, STAT_PRECISION_OPTIONS } from "@/lib/data-table"
+import { decodeLedgerFilters } from "@/lib/ledger"
 import { SUBSCRIPTION_ROLE_ATTRS, SUBSCRIPTION_ROLES } from "@/lib/subscription"
 import type { SubscriptionRole } from "@/lib/subscription"
 import { createPlaylistSource, decodePlaylistSources, PLAYLIST_ROLE_ATTRS, PLAYLIST_ROLES } from "@/lib/playlist"
@@ -627,6 +628,8 @@ function parseBookmark(container: Element): BookmarkBlock {
  * `data-group-mode` 只认 "month" / "column",其余落回 none;`data-balance` 只认
  * 字面 "false"(缺省即显示余额,与「缺省不落存储」咬合);`data-sort-dir` 只认
  * 字面 "asc",缺省即倒序(`data-sort` 空 = 不排序,方向一起留着但不生效)。
+ * 筛选条件读 `data-filters` 的 JSON,读不出 / 缺列 id 的项跳过,一条都不剩就不落字段
+ * (与画册 hiddenFields 那种「残留 id 收下、渲染时自愈」不同 —— 这里连条件都留不住)。
  * 路径没有默认值可落,留空串走「读不到」提示态。
  */
 function parseLedger(container: Element): LedgerBlock {
@@ -636,7 +639,7 @@ function parseLedger(container: Element): LedgerBlock {
   const groupMode: LedgerGroupMode =
     groupColumnId === "" ? "none" : rawMode === "month" ? "month" : rawMode === "column" ? "column" : "none"
 
-  return createLedgerBlock(
+  const block = createLedgerBlock(
     path,
     container.getAttribute("data-income") ?? "",
     container.getAttribute("data-expense") ?? "",
@@ -646,6 +649,9 @@ function parseLedger(container: Element): LedgerBlock {
     container.getAttribute("data-sort") ?? "",
     container.getAttribute("data-sort-dir") === "asc" ? "asc" : "desc",
   )
+  const filters = decodeLedgerFilters(container.getAttribute("data-filters"))
+  if (filters.length > 0) block.filters = filters
+  return block
 }
 
 /**

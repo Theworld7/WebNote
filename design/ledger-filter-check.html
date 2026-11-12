@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>账目块筛选中检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #app { height: 480px; display: flex; flex-direction: column; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>账目块筛选自检（设置里加条件、合计与余额只算筛出的行、清除回到全账、记一笔被筛掉时提示）</h1>
+<!-- 脚本里有顶层 await（真实读盘、真实开菜单），--dump-dom 抓不到结果，用 CDP 驱动跑：
+     node design/cdp-dump.mjs http://localhost:1420/design/ledger-filter-check.html -->
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, nextTick } from "vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import BlockEditor from "../src/components/BlockEditor.vue"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { provideTables } from "../src/composables/useTables.ts"
+import { useToast } from "../src/composables/useToast.ts"
+import { createBlock, createLedgerBlock } from "../src/lib/blocks.ts"
+import { blocksToHtml } from "../src/lib/html/serialize.ts"
+import { tableFromJson } from "../src/lib/data-table.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+
+function report(kind, detail) {
+  document.getElementById("out").textContent = [kind, "", detail, "", ...lines].join("\n")
+}
+window.addEventListener("unhandledrejection", (e) => report("REJECT", e.reason?.stack ?? String(e.reason)))
+window.addEventListener("error", (e) => report("ERROR", e.error?.stack ?? e.message))
+function step(name) {
+  document.getElementById("out").textContent = `running: ${name}\n${lines.join("\n")}`
+}
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+}
+
+/**
+ * 夹具：一张两类的账，**按日期倒序**排。
+ *
+ * 餐费两笔(100 / 50)、打车两笔(支出 30 / 收入 20)—— 筛「餐费」时全账的结余
+ * ¥140.00 应当变成 ¥150.00:筛出来的就是这本账(ADR-0054),这正是这一页要钉住的
+ * 那条口径。余额同理:r3 在筛后是 150.00,全账里它只是 120.00。
+ */
+const TABLE = {
+  version: 1,
+  columns: [
+    { id: "c1", name: "日期", type: "date", options: [] },
+    { id: "c2", name: "类别", type: "select", options: [{ id: "o1", name: "餐费" }, { id: "o2", name: "打车" }] },
+    { id: "c3", name: "收入", type: "number", options: [] },
+    { id: "c4", name: "支出", type: "number", options: [] },
+  ],
+  rows: [
+    { id: "r1", values: { c1: "2026-10-01", c2: "o1", c3: 100, c4: null } },
+    { id: "r2", values: { c1: "2026-10-02", c2: "o2", c3: null, c4: 30 } },
+    { id: "r3", values: { c1: "2026-10-03", c2: "o1", c3: 50, c4: null } },
+    { id: "r4", values: { c1: "2026-10-04", c2: "o2", c3: 20, c4: null } },
+  ],
+}
+const TABLE_JSON = JSON.stringify(TABLE, null, 2) + "\n"
+const NOTE_HTML = blocksToHtml(
+  [createBlock("text"), createLedgerBlock("账.tbl", "c3", "c4", true, "none", "", "c1", "desc")],
+  (path) => (path === "账.tbl" ? tableFromJson(TABLE_JSON) : null),
+)
+
+step("opfs")
+const opfs = await navigator.storage.getDirectory()
+// 每轮都从干净目录起:上一轮跑完会把新记的那一笔落盘,残留下来夹具就不是这张表了。
+await opfs.removeEntry("ledger-filter-probe", { recursive: true }).catch(() => {})
+const dir = await opfs.getDirectoryHandle("ledger-filter-probe", { create: true })
+for (const [name, text] of [["账.tbl", TABLE_JSON], ["账.html", NOTE_HTML]]) {
+  const handle = await dir.getFileHandle(name, { create: true })
+  const writable = await handle.createWritable()
+  await writable.write(text)
+  await writable.close()
+}
+window.showDirectoryPicker = async () => dir
+
+/** 等真实 I/O 与 Vue 重渲染落地：microtask 轮询等不到读盘。 */
+async function settle() {
+  for (let i = 0; i < 4; i += 1) {
+    await nextTick()
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
+
+step("mount")
+let workspace = null
+const Root = defineComponent({
+  setup() {
+    workspace = provideWorkspace()
+    provideTheme(provideSettings())
+    const tables = provideTables(workspace.fs, workspace.root)
+    workspace.attachTableRegistry({
+      preload: (paths) => tables.preload(paths),
+      peek: (path) => tables.peek(path),
+      flush: (path) => tables.flush(path),
+      reload: (path) => tables.reload(path),
+      dirtyPaths: () => tables.dirtyPaths(),
+      create: () => Promise.reject(new Error("本页不新建数据表")),
+    })
+    return () => h(TooltipProvider, null, { default: () => h(BlockEditor) })
+  },
+})
+createApp(Root, {}, {
+  errorHandler: (err) => report("VUE", err instanceof Error ? err.stack ?? err.message : String(err)),
+}).mount("#app")
+await nextTick()
+
+step("bootstrap")
+await workspace.bootstrap()
+await workspace.openRoot()
+await nextTick()
+
+const note = (function find(nodes) {
+  for (const node of nodes) {
+    if (node.kind === "note") return node
+    const hit = node.children ? find(node.children) : null
+    if (hit) return hit
+  }
+  return null
+})(workspace.tree.value)
+check("扫到了预置笔记", note !== null, JSON.stringify(workspace.tree.value.map((n) => n.name)))
+
+step("openFile")
+if (note !== null) {
+  workspace.openFile(note.id)
+  for (let i = 0; i < 60 && workspace.activeDocument.value.length < 2; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  await settle()
+}
+
+// ---- DOM 取景 ----
+
+function ledgerRoot() {
+  return [...document.querySelectorAll("[data-block-id]")].find((el) => el.querySelector("table") !== null) ?? null
+}
+/** 数据行 = 带删除钮的行（节标题行与提示行没有钮）。 */
+function tableRows() {
+  const root = ledgerRoot()
+  if (root === null) return []
+  return [...root.querySelectorAll("tbody tr")].filter((tr) => tr.querySelector('[aria-label="删除本行"]') !== null)
+}
+function cellText(row, index) { return ([...row.querySelectorAll("td")][index]?.textContent ?? "").trim() }
+function footText() { return (ledgerRoot()?.querySelector("tfoot")?.textContent ?? "").trim() }
+function ledgerText() { return (ledgerRoot()?.textContent ?? "").trim() }
+/** 筛选条:表格上方那条说明。判据是它自己那句「N / M 行」。 */
+function filterBar() {
+  const root = ledgerRoot()
+  if (root === null) return null
+  return [...root.querySelectorAll("div")].find((el) => el.children.length === 3 && (el.textContent ?? "").startsWith("筛选")) ?? null
+}
+function clearButton() {
+  const bar = filterBar()
+  return bar === null ? null : [...bar.querySelectorAll("button")].find((button) => (button.textContent ?? "").includes("清除")) ?? null
+}
+
+/** 菜单开着时挂在 body 上（reka 的 portal），不在块里。 */
+function menuRoot() {
+  return [...document.querySelectorAll("[role='menu']")].at(-1) ?? null
+}
+function menuSelects() {
+  const root = menuRoot()
+  return root === null ? [] : [...root.querySelectorAll("select")]
+}
+/**
+ * 筛选那一段里的下拉（一对：列 + 值）。
+ *
+ * 不能拿 `menuSelects()` 的下标 —— 收入列 / 支出列 / 分组 / 排序也在同一个菜单里。
+ * 从「筛选（全部满足）」这行分组标题往后走，收集到第一对就停。
+ */
+function filterSelects() {
+  const root = menuRoot()
+  if (root === null) return []
+  const title = [...root.querySelectorAll("div")].find((el) => (el.textContent ?? "").trim() === "筛选（全部满足）")
+  if (title === undefined) return []
+  const selects = []
+  let node = title.nextElementSibling
+  while (node !== null && selects.length < 2) {
+    selects.push(...node.querySelectorAll("select"))
+    node = node.nextElementSibling
+  }
+  return selects
+}
+function settingsButton() {
+  const root = ledgerRoot()
+  if (root === null) return null
+  return [...root.querySelectorAll("button")].find((button) => (button.textContent ?? "").includes("设置")) ?? null
+}
+function addFilterButton() {
+  const root = menuRoot()
+  return root === null ? null : [...root.querySelectorAll("button")].find((button) => (button.textContent ?? "").includes("添加条件")) ?? null
+}
+async function openSettings() {
+  const button = settingsButton()
+  if (button === null) return false
+  // reka 的下拉由 pointerdown 打开（与 Radix 同源）；click 兜底是因为合成事件在不同
+  // 内核下偶尔不被认作「主指针」。哪一步打开就停，别把开好的菜单又点关。
+  const strokes = [
+    () => button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerType: "mouse", isPrimary: true })),
+    () => button.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 })),
+    () => button.click(),
+  ]
+  for (const stroke of strokes) {
+    stroke()
+    await settle()
+    if (menuRoot() !== null) return true
+  }
+  return false
+}
+function pick(select, value) {
+  select.value = value
+  select.dispatchEvent(new Event("change", { bubbles: true }))
+}
+/**
+ * 关掉设置菜单，**等 reka 把焦点还给触发器**。
+ *
+ * 这一等不是凑时间：菜单关闭后 reka 会在动画结束时把焦点恢复到 trigger 上。若那一下
+ * 落在「刚点完记一笔、新行的日期格刚拿到焦点」之后，输入框就被抢走 → 失焦提交成空值 →
+ * 空行当场按 ADR-0035 自删，看起来像「点了记一笔却什么都没发生」。真实用户的手速碰不到
+ * 这个窗口，自检页的合成点击碰得到。
+ */
+async function closeMenu() {
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+  for (let i = 0; i < 20 && menuRoot() !== null; i += 1) await new Promise((resolve) => setTimeout(resolve, 25))
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  await settle()
+}
+
+// ---- 一、全账 ----
+
+step("全账")
+check("账目块渲染出 4 行", tableRows().length === 4, `实际 ${tableRows().length}`)
+check("倒序:10-04 在最上、10-01 在最下",
+  cellText(tableRows()[0], 0) === "2026-10-04" && cellText(tableRows()[3], 0) === "2026-10-01",
+  `${cellText(tableRows()[0], 0)} / ${cellText(tableRows()[3], 0)}`)
+check("全账合计:结余 ¥140.00", footText().includes("结余 ¥140.00"), footText())
+check("没有筛选时不画筛选条", filterBar() === null)
+
+// ---- 二、设置里加一条筛选 ----
+
+step("开设置")
+const opened = await openSettings()
+check("设置菜单打得开", opened,
+  `trigger 的 data-state=${settingsButton()?.getAttribute("data-state")}，菜单节点 ${menuRoot() === null ? "无" : "有"}`)
+
+step("加条件")
+addFilterButton()?.click()
+await settle()
+check("点「添加条件」后菜单里出现一对下拉(列 + 值)", filterSelects().length === 2, `实际 ${filterSelects().length} 个`)
+
+const columnSelect = filterSelects()[0]
+check("列下拉默认取第一个可筛列(日期)", columnSelect?.value === "c1", columnSelect?.value)
+pick(columnSelect, "c2")
+await settle()
+
+const valueOptions = [...(filterSelects()[1]?.options ?? [])].map((option) => option.textContent.trim())
+check("值下拉级联成「类别」写过的那几个值(空 / 餐费 / 打车)",
+  valueOptions.join("/") === "（空）/餐费/打车", valueOptions.join("/"))
+
+step("选值")
+pick(filterSelects()[1], "餐费")
+await settle()
+await closeMenu()
+
+// ---- 三、筛出来的就是这本账 ----
+
+step("筛后")
+const kept = tableRows()
+check("表里只剩餐费那 2 行", kept.length === 2, `实际 ${kept.length}`)
+check("只剩 10-03 与 10-01（打车那两笔不见了）",
+  kept.map((row) => cellText(row, 0)).join("/") === "2026-10-03/2026-10-01",
+  kept.map((row) => cellText(row, 0)).join("/"))
+check("筛选条说清命中行数与全账行数", (filterBar()?.textContent ?? "").includes("2 / 4 行"), filterBar()?.textContent ?? "没有筛选条")
+check("筛选条带上条件本身(类别 = 餐费)", (filterBar()?.textContent ?? "").includes("类别 = 餐费"), filterBar()?.textContent ?? "")
+check("合计只算筛出的行(结余 ¥150.00,不是全账的 ¥140.00)", footText().includes("结余 ¥150.00"), footText())
+check("余额按筛出的行累计(10-03 是 150.00,10-01 是 100.00)",
+  cellText(kept[0], 4) === "150.00" && cellText(kept[1], 4) === "100.00",
+  `${cellText(kept[0], 4)} / ${cellText(kept[1], 4)}`)
+
+// ---- 四、筛选生效时记一笔:写进去但看不见,得说一声 ----
+
+step("记一笔")
+const { toasts } = useToast()
+const addButton = [...(ledgerRoot()?.querySelectorAll("button") ?? [])].find((button) => (button.textContent ?? "").includes("记一笔")) ?? null
+check("找得到「记一笔」按钮", addButton !== null)
+addButton?.click()
+await settle()
+check("记一笔插入一条草稿行(钉在顶端)", tableRows().length === 3, `实际 ${tableRows().length}`)
+
+function cellInput(row, index) {
+  const input = row.querySelectorAll("td")[index]?.querySelector("input")
+  return input instanceof HTMLInputElement ? input : null
+}
+function type(input, value) {
+  input.value = value
+  input.dispatchEvent(new Event("input", { bubbles: true }))
+}
+async function enter(input) {
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
+  await settle()
+}
+
+// 日期 → 收入 → 支出:回车横着走完这一条。类别留空 —— 它不满足「类别 = 餐费」。
+let draft = tableRows()[0]
+type(cellInput(draft, 0), "2026-10-05")
+await enter(cellInput(draft, 0))
+draft = tableRows()[0]
+type(cellInput(draft, 2), "7")
+await enter(cellInput(draft, 2))
+draft = tableRows()[0]
+type(cellInput(draft, 3), "1")
+await enter(cellInput(draft, 3))
+
+check("被筛掉的那一笔收工时给一句提示",
+  toasts.value.some((toast) => toast.message.includes("当前筛选看不到这一笔")),
+  JSON.stringify(toasts.value.map((toast) => toast.message)))
+check("表里仍是 2 行(新记的那笔不在筛选范围内)", tableRows().length === 2, `实际 ${tableRows().length}`)
+
+// ---- 五、清除回到全账 ----
+
+step("清除")
+clearButton()?.click()
+await settle()
+check("清除后 4 行旧账 + 1 行新记的账", tableRows().length === 5, `实际 ${tableRows().length}`)
+check("清除后筛选条消失", filterBar() === null)
+check("清除后合计回到全账口径(收入 177 − 支出 31 = ¥146.00)", footText().includes("结余 ¥146.00"), footText())
+check("新记的那一笔落在排序里它该在的位置(10-05 最上)",
+  cellText(tableRows()[0], 0) === "2026-10-05", cellText(tableRows()[0], 0))
+void ledgerText
+
+// ---------- 收尾 ----------
+
+step("留样")
+// 把筛选装回去，页面上留一份「筛选生效」的样子 —— 观感（筛选条 / 菜单宽度）没有被断言
+// 覆盖，人肉看一眼比断言更直接。
+const ledgerBlockId = workspace.activeDocument.value.find((item) => item.type === "ledger")?.id
+if (ledgerBlockId !== undefined) {
+  workspace.updateBlockSettings(ledgerBlockId, { filters: [{ columnId: "c2", value: "餐费" }] })
+  await settle()
+}
+check("留样:筛选重新生效(2 行)", tableRows().length === 2, `实际 ${tableRows().length}`)
+// 菜单也开着:筛选那一段（列 / 值两格 + ✕ 与「添加条件」）的排布只在 DOM 里看得见，
+// 而菜单宽度是这一页唯一改过的几何。
+check("留样:设置菜单开着", await openSettings())
+
+step("收尾")
+check("条件写进了绑定的 html 里(块设置随笔记落盘)", workspace.activeDocument.value.length === 2)
+// 不清空 #app:这一页的观感（筛选条 / 表格 / 菜单宽度）要能人肉看，统计行塞进 #out 头里。
+document.getElementById("out").textContent =
+  `共 ${passed + failed} 项，${passed} 通过，${failed} 失败\n\n` + lines.join("\n") + `\n\n${failed === 0 ? "ALL OK" : "HAS FAIL"}`
+</script>
+</body>
+</html>

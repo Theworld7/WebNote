@@ -1,6 +1,7 @@
 import type { DataCellValue, DataColumn, DataRow, DataTable } from "@/types/data-table"
-import type { LedgerGroupMode, LedgerSortDirection } from "@/types/workspace"
+import type { LedgerFilter, LedgerGroupMode, LedgerSortDirection } from "@/types/workspace"
 import { DATA_TABLE_VERSION } from "@/types/data-table"
+import type { ColumnMatch } from "@/lib/data-table"
 import { cellValue, emptyColumn, emptyRow, groupRows, valueText } from "@/lib/data-table"
 
 /**
@@ -157,6 +158,68 @@ export function ledgerSort(
 /** 空格:null 与空串。`false`(未勾)是一个值,不在这里 —— 勾选列排序时它该排在「勾上」之前。 */
 function isBlank(value: DataCellValue): boolean {
   return value === null || value === ""
+}
+
+// ---- 筛选 ----
+
+/**
+ * 块上的筛选条件 → 一次渲染要用的比对条件(交给 `dt.filterRowsByValues`)。
+ *
+ * 指向的列被删后那条条件**失效并退出筛选** —— 与收入 / 支出列、排序列的同一自愈
+ * 立场。条件是「我想看这个账户 / 这个类目的账」,那一列没了,留着它比只会把整本账
+ * 筛空;其余条件照旧生效,块自己回到「只看得到能看的那部分」。
+ */
+export function ledgerFilters(columns: readonly DataColumn[], filters: readonly LedgerFilter[] | undefined): ColumnMatch[] {
+  if (filters === undefined) return []
+  const conditions: ColumnMatch[] = []
+  for (const filter of filters) {
+    const column = columns.find((item) => item.id === filter.columnId)
+    if (column !== undefined) conditions.push({ column, value: filter.value })
+  }
+  return conditions
+}
+
+/**
+ * 筛选条件的落盘形态:`data-filters` 的 JSON(与歌单的 `data-sources` 同一手法)。
+ *
+ * 值是**显示文本**,里面可能有逗号、等号、引号,用分隔符拼就得再造一套转义规则;
+ * JSON 自带转义,`escapeHtml` 再把双引号转成 `&quot;`。键取短名(`column` 而非
+ * `columnId`)—— 这条属性会出现在每一份导出文件的源码里。
+ *
+ * 空数组由调用方判掉,不写:没有筛选就不该在文件里留一行机器味。
+ */
+export function encodeLedgerFilters(filters: readonly LedgerFilter[]): string {
+  return JSON.stringify(filters.map((filter) => ({ column: filter.columnId, value: filter.value })))
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/**
+ * `data-filters` → 筛选条件。**宽容读取**:不是 JSON、不是数组、项不是对象的跳过;
+ * 缺 `column` 的条件没有比对对象,丢掉;`value` 缺属性按空串 —— 「等于空值」是合法
+ * 条件,不是缺配置(与统计块 `data-filter-value` 缺属性同一口径)。
+ */
+export function decodeLedgerFilters(raw: string | null): LedgerFilter[] {
+  if (raw === null || raw.trim() === "") return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return []
+  }
+  if (!Array.isArray(parsed)) return []
+
+  const filters: LedgerFilter[] = []
+  for (const item of parsed) {
+    if (!isRecord(item)) continue
+    const columnId = item["column"]
+    if (typeof columnId !== "string" || columnId === "") continue
+    const value = item["value"]
+    filters.push({ columnId, value: typeof value === "string" ? value : "" })
+  }
+  return filters
 }
 
 /**

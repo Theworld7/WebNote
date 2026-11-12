@@ -53,7 +53,10 @@
   密码本块是一张**加密落盘**的数据表(口令派生密钥且只活在内存里、导出只留指针)、旧密钥块
   整个删掉(读到旧文件只降级成提示、不把明文读回来)(0052)、改口令是换盐换密钥把整张表重新
   加密一遍(原口令先验、加密的是内存里那份)、口令的规矩(≥8 位且四类字符各一)与一键生成
-  只有 `passphraseProblem` / `generatePassphrase` 一份、生成的明文只在当场摊开一次(0053)。
+  只有 `passphraseProblem` / `generatePassphrase` 一份、生成的明文只在当场摊开一次(0053)、
+  账目块的筛选是多条件 AND 且**筛出来的就是这本账**(合计 / 余额 / 分节 / 行号都只算筛出的行)、
+  筛选值从该列**写过**的显示文本里挑而不是手打、列被删那条条件自己退出、被筛掉的记账收工时说
+  一句「已记入但看不到」(0054)。
   改对应行为前先读那篇。(0029 的标签位置已被 0033 取代,0034 的模态表单已被 0035 取代,0043
   里「导出字号是 px」那段已被 0050 取代,0047「密钥块只是显示开关」已被 0052 取代,
   0052「盐一生不变」已被 0053 收窄成「换口令时换盐」)
@@ -66,8 +69,10 @@
    用类型收窄和类型守卫表达。
 2. **自检页**:`design/*.html` 是能直接跑的回归页,每个用例输出 `OK` / `FAIL` 行。
    `pnpm dev` 后访问 `/design/<名字>.html`;其中 `drag-check`、`typography-check`、
-   `data-table-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-date-check`、`kanban-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check`、`tab-housing-check`、`undo-paint-check`、`table-ref-check`、`context-menu-check`、`vault-check`、`sidebar-overlay-check` 含顶层 `await`,要抓结果用
+   `data-table-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-filter-check`、`ledger-date-check`、`kanban-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check`、`tab-housing-check`、`undo-paint-check`、`table-ref-check`、`context-menu-check`、`vault-check`、`sidebar-overlay-check` 含顶层 `await`,要抓结果用
    `node design/cdp-dump.mjs http://localhost:1420/design/<名字>.html`。
+   **收尾行的判据里别出现 `数字 / 数字`** —— `cdp-dump.mjs` 靠 `\d+\s*/\s*\d+` 认出「跑完了」,
+   用例名里带 `10-03 / 10-01` 这种写法会让它在半路收工,打印一份看着全绿的半截结果。
    **挂进来的是复用组件时,把 `App.vue` 提供的上下文补齐** —— `provideWorkspace()`、
    `provideSettings()`、`TooltipProvider`(提示气泡走 reka-ui 的注入)。缺一层不会报在结果里:
    Vue 的 `setup` 抛错会让顶层 `await` 永不继续,`#out` 停在 `running: …`,看着像"卡住"而不是
@@ -138,6 +143,9 @@
 `lib/rebind.ts`)→ `table-ref-check`(组件级 + 纯函数,不借任何一个引用块的夹具);动账目块的财务口径 → `ledger-check`,动它的就地增删改 →
 `ledger-edit-check`,动记一笔的草稿行(顶端落位 / 回车与 Tab 横着填 / 归位排序 / 空行自动删)→
 `ledger-entry-check`,动日期面板 / 编辑期钉住排序 → `ledger-date-check`(都挂真实编辑器,走 CDP 驱动);
+动账目块的筛选(设置里的条件编辑与级联值下拉、筛选条、合计 / 余额 / 行号只算筛出的行、被筛掉的
+记账收工时的提示、`lib/ledger` 的 `ledgerFilters` 与 `data-filters` 的往返,见 ADR-0054)→
+`ledger-filter-check`(挂真实编辑器,走 CDP 驱动)与 `ledger-check`;
 动删行的确认框(账目块 / 数据表编辑页同一套,`requestDelete` 与 `lib/data-table` 的 `isBlankRow`)→
 `ledger-edit-check` 与 `data-table-check` 都跑;
 动日期格的月历浮层本身(`composables/useDateCellPanel.ts`,账目行与看板卡共用)、
