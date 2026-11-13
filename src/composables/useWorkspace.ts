@@ -890,6 +890,39 @@ function createWorkspace() {
   }
 
   /**
+   * 批量关标签：标签右键菜单的「关闭其他 / 关闭左侧 / 关闭右侧」共用这一处。
+   *
+   * 脏的那些**先存再关**：一次关十几颗却逐个弹「保存吗」是没法用的，而静默丢掉未保存的
+   * 修改更不行。存不进去的（`saveTab` 已把原因写进 `fsError`）留在原位，其余照关 ——
+   * 一篇失败不该把整批都卡住。
+   *
+   * 右键的那一颗是锚点，永远留下。它旁边那些被关掉之后，若当前激活项也在这一批里，
+   * 落回锚点 —— 与 `closeTab` 落到邻标签同一个立场：编辑区不该停在空文档上。
+   */
+  async function closeTabsBeside(path: string, side: "left" | "right" | "others") {
+    const anchor = tabs.value.findIndex((tab) => tab.path === path)
+    if (anchor === -1) return
+    const victims = tabs.value.filter((tab, index) => {
+      if (side === "others") return tab.path !== path
+      return side === "left" ? index < anchor : index > anchor
+    })
+    const closeable: string[] = []
+    for (const tab of victims) {
+      if (tabHasUnsaved(tab)) await saveTab(tab.path)
+      const current = tabs.value.find((item) => item.path === tab.path)
+      if (current !== undefined && !tabHasUnsaved(current)) closeable.push(tab.path)
+    }
+    if (closeable.length === 0) return
+    const activeClosed = closeable.includes(activePath.value)
+    for (const target of closeable) {
+      const index = tabs.value.findIndex((tab) => tab.path === target)
+      if (index !== -1) tabs.value.splice(index, 1)
+    }
+    // 锚点不会被 `closeable` 收进去，所以它一定还在 —— 不用再判一次存在。
+    if (activeClosed) activateTab(path)
+  }
+
+  /**
    * 关标签入口。干净的标签直接关；脏标签挂起，等 `resolveClose()` 拿到用户选择再关。
    *
    * 拦截策略选定为「只在关标签时拦」：切标签属于高频动作，静默保留脏态不打断。
@@ -2890,6 +2923,7 @@ function createWorkspace() {
     activateTab,
     closeTab,
     requestCloseTab,
+    closeTabsBeside,
     resolveClose,
     cancelPendingClose,
     // 关窗确认

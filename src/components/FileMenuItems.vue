@@ -1,7 +1,17 @@
 <script setup lang="ts">
 import type { TreeTarget } from "@/types/workspace"
 import { computed } from "vue"
-import { CopyIcon, FileDownIcon, FolderOpenIcon, GlobeIcon, PencilIcon, TrashIcon } from "@lucide/vue"
+import {
+  ArrowLeftToLineIcon,
+  ArrowRightToLineIcon,
+  CopyIcon,
+  FileDownIcon,
+  FolderOpenIcon,
+  GlobeIcon,
+  PencilIcon,
+  TrashIcon,
+  XIcon,
+} from "@lucide/vue"
 import { ContextMenuItem } from "@/components/ui/context-menu"
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { useToast } from "@/composables/useToast"
@@ -17,6 +27,10 @@ import { exportSummaryText } from "@/lib/markdown"
  *
  * `surface` 只决定用哪套菜单项外壳（两套菜单组件各自不认对方的 context），动作与顺序
  * 完全一致：`dropdown` 给 `DropdownMenuContent`，`context` 给 `ContextMenuContent`。
+ *
+ * 唯一的例外是 `fromTab`：「关闭其他 / 左侧 / 右侧」是**标签**的事，树上那一行没有
+ * 左右邻居，给它摆三条点了不动的菜单项只是噪音。所以这三条只在标签的菜单里出现，
+ * 排在文件那一套之前（关标签是右键标签时最先想找的动作）。
  */
 const props = defineProps<{
   path: string
@@ -24,11 +38,13 @@ const props = defineProps<{
   /** 节点名。只有 HTML 判断要看扩展名，读它比拿路径再切一次稳。 */
   name: string
   surface: "dropdown" | "context"
+  /** 这份菜单是不是开在编辑器标签上（决定要不要多出那三条关闭动作）。 */
+  fromTab?: boolean
 }>()
 
 const Item = computed(() => (props.surface === "context" ? ContextMenuItem : DropdownMenuItem))
 
-const { fs, root, exportMarkdown, exportMarkdownTree } = useWorkspace()
+const { fs, root, exportMarkdown, exportMarkdownTree, tabs, closeTabsBeside } = useWorkspace()
 const { notify } = useToast()
 const { requestRename, requestRemove } = useTreeDialogs()
 
@@ -37,6 +53,16 @@ const isFolder = computed(() => props.kind === "folder")
 const isDesktop = computed(() => root.value?.kind === "path")
 /** 只有 HTML 文件给「用浏览器打开」—— 其它扩展名的默认应用不一定是浏览器，菜单不撒谎。 */
 const isHtmlFile = computed(() => !isFolder.value && /\.html?$/i.test(props.name))
+
+/**
+ * 三条关闭动作开不开：左右两侧没有标签、或总共就开着一颗时，那一条无从下手。
+ * 灰着比藏起来好 —— 藏起来会让人以为「这里没有这个功能」。
+ */
+const isTab = computed(() => props.fromTab === true)
+const tabIndex = computed(() => tabs.value.findIndex((tab) => tab.path === props.path))
+const canCloseOthers = computed(() => isTab.value && tabs.value.length > 1)
+const canCloseLeft = computed(() => isTab.value && tabIndex.value > 0)
+const canCloseRight = computed(() => isTab.value && tabIndex.value !== -1 && tabIndex.value < tabs.value.length - 1)
 
 /**
  * 把这个节点的磁盘绝对路径放进剪贴板。
@@ -94,10 +120,33 @@ async function exportFolderAsMarkdown(): Promise<void> {
   notify(exportSummaryText(summary), summary.failed.length > 0 ? "error" : "success")
 }
 
+/** 三条关闭动作共用一次跳转：给哪一侧，就把锚点交给工作区那一份实现。 */
+async function closeBeside(side: "left" | "right" | "others"): Promise<void> {
+  await closeTabsBeside(props.path, side)
+}
+
 const itemClass = "gap-2 text-13"
 </script>
 
 <template>
+  <!-- 标签专有的三条：同一条文件菜单，多出一截「关掉这一片」。
+       灰着而不是藏起来 —— 藏起来会让人以为这里没有这个功能。 -->
+  <template v-if="isTab">
+    <component :is="Item" :class="itemClass" :disabled="!canCloseOthers" @select="closeBeside('others')">
+      <XIcon class="size-3.5 text-muted-foreground" />
+      <span>关闭其他</span>
+    </component>
+    <component :is="Item" :class="itemClass" :disabled="!canCloseLeft" @select="closeBeside('left')">
+      <ArrowLeftToLineIcon class="size-3.5 text-muted-foreground" />
+      <span>关闭左侧</span>
+    </component>
+    <component :is="Item" :class="itemClass" :disabled="!canCloseRight" @select="closeBeside('right')">
+      <ArrowRightToLineIcon class="size-3.5 text-muted-foreground" />
+      <span>关闭右侧</span>
+    </component>
+    <div class="bg-border -mx-1 my-1 h-px" />
+  </template>
+
   <template v-if="isFolder">
     <template v-if="isDesktop">
       <component :is="Item" :class="itemClass" @select="copyPath">

@@ -97,7 +97,9 @@ const kind = computed(() => {
       </button>
     </ContextMenuTrigger>
     <ContextMenuContent>
-      <FileMenuItems :path="tab.path" :kind="kind" :name="label" surface="context" />
+      <!-- `from-tab`：同一条文件菜单，另外多出「关闭其他 / 左侧 / 右侧」三条 —— 左右邻居
+           只有标签条知道，树上那一行没有。 -->
+      <FileMenuItems :path="tab.path" :kind="kind" :name="label" surface="context" from-tab />
     </ContextMenuContent>
   </ContextMenu>
 </template>

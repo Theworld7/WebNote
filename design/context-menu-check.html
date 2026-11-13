@@ -25,6 +25,7 @@ import AppSidebar from "../src/components/AppSidebar.vue"
 import EditorTab from "../src/components/EditorTab.vue"
 import { provideWorkspace } from "../src/composables/useWorkspace.ts"
 import { suppressPageContextMenu } from "../src/lib/dom.ts"
+import { textToRuns } from "../src/lib/inline.ts"
 import { LONG_PRESS_MS } from "../src/lib/touch.ts"
 import { createMemoryFs } from "./memory-fs.ts"
 
@@ -85,6 +86,13 @@ const Root = defineComponent({
           h(EditorTab, {
             tab: { path: "笔记 / 第一篇.html", dirty: false },
             active: true,
+            unsaved: false,
+            saving: false,
+          }),
+          // 第二颗标签是「关闭左侧」那一条的锚点：只挂一颗的话，它左边永远没有邻居。
+          h(EditorTab, {
+            tab: { path: "笔记 / 第三篇.html", dirty: false },
+            active: false,
             unsaved: false,
             saving: false,
           }),
@@ -188,15 +196,113 @@ check("左键文件夹仍然折叠 / 展开", workspace.expandedIds.value.has("�
 
 // ---- 三、标签右键给的是同一份文件菜单 ----
 
-const tab = [...document.querySelectorAll("#app button")].find((button) => button.textContent.includes("第一篇") && button.closest("[data-tree-path]") === null)
+/**
+ * 标签专有的那三条。它们排在文件那一套之前，所以标签菜单 = 这三条 + 树上的那一套。
+ * 用同一份 `FileMenuItems` 渲染，靠 `from-tab` 多出这一截 —— 不是另写一份菜单。
+ */
+const TAB_ONLY = ["关闭其他", "关闭左侧", "关闭右侧"]
+
+function tabButton(name) {
+  return [...document.querySelectorAll("#app button")].find((button) => button.textContent.includes(name) && button.closest("[data-tree-path]") === null)
+}
+
+const tab = tabButton("第一篇")
 check("页面上有这条标签", tab !== undefined)
 if (tab !== undefined) {
   rightClick(tab)
   await settle()
   const tabItems = menuItems()
   check("右键标签弹出菜单", tabItems.length > 0, JSON.stringify(tabItems))
-  check("标签菜单与树上的文件菜单一致", JSON.stringify(tabItems) === JSON.stringify(fileItems), `${JSON.stringify(tabItems)} vs ${JSON.stringify(fileItems)}`)
+  check("标签菜单 = 三条关闭动作 + 树上那一套",
+    JSON.stringify(tabItems) === JSON.stringify([...TAB_ONLY, ...fileItems]),
+    `${JSON.stringify(tabItems)} vs ${JSON.stringify([...TAB_ONLY, ...fileItems])}`)
 }
+
+// 把这一节的菜单关掉：reka 的菜单内容挂在 portal 上，留着的话下一节读到的还是它 ——
+// 后面的「关闭左侧」会拿着第一篇那一条的邻居去算，看着像功能坏了。
+document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+await settle()
+
+// ---- 三点五、标签专有的三条：灰不灰、关的是哪几颗 ----
+
+/**
+ * 三条关闭动作的分工：锚点（右键的那一颗）永远留下，其余按方向 / 「除它之外」关掉。
+ * 这里验的是**落点**而不是样式：留哪几颗标签、激活项去哪。灰态只验「没有邻居时灰掉」，
+ * 因为没有邻居时点它等于什么都没发生 —— 灰着比点了没反应诚实。
+ */
+function menuItemByText(text) {
+  return [...document.querySelectorAll('[data-slot="context-menu-item"]')].find((item) => item.textContent.trim() === text) ?? null
+}
+function isDisabled(item) {
+  return item === null || item.dataset.disabled !== undefined
+}
+async function pickMenu(text) {
+  const item = menuItemByText(text)
+  item?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))
+  await settle()
+}
+function tabPaths() {
+  return workspace.tabs.value.map((tab) => tab.path)
+}
+async function openTab(name) {
+  workspace.openFile(`笔记 / ${name}.html`)
+  await settle()
+}
+
+await workspace.createNoteIn("笔记", "第三篇")
+await settle()
+await openTab("第一篇")
+await openTab("第二篇")
+await openTab("第三篇")
+check("三篇都开着", JSON.stringify(tabPaths()) === JSON.stringify(["笔记 / 第一篇.html", "笔记 / 第二篇.html", "笔记 / 第三篇.html"]), JSON.stringify(tabPaths()))
+
+rightClick(tabButton("第三篇"))
+await settle()
+check("锚点在最右：关闭右侧灰掉", isDisabled(menuItemByText("关闭右侧")))
+check("左边还有标签：关闭左侧可点", !isDisabled(menuItemByText("关闭左侧")))
+check("还开着别的：关闭其他可点", !isDisabled(menuItemByText("关闭其他")))
+await pickMenu("关闭左侧")
+check("关闭左侧只留下锚点", JSON.stringify(tabPaths()) === JSON.stringify(["笔记 / 第三篇.html"]), JSON.stringify(tabPaths()))
+check("激活项落到锚点（不留在被关掉的那篇上）", workspace.activePath.value === "笔记 / 第三篇.html", workspace.activePath.value)
+
+await openTab("第一篇")
+await openTab("第二篇")
+rightClick(tabButton("第三篇"))
+await settle()
+check("锚点在最左：关闭左侧灰掉", isDisabled(menuItemByText("关闭左侧")))
+await pickMenu("关闭右侧")
+check("关闭右侧只留下锚点", JSON.stringify(tabPaths()) === JSON.stringify(["笔记 / 第三篇.html"]), JSON.stringify(tabPaths()))
+
+await openTab("第一篇")
+rightClick(tabButton("第三篇"))
+await settle()
+await pickMenu("关闭其他")
+check("关闭其他只留下锚点", JSON.stringify(tabPaths()) === JSON.stringify(["笔记 / 第三篇.html"]), JSON.stringify(tabPaths()))
+
+rightClick(tabButton("第三篇"))
+await settle()
+check("只开着一颗时关闭其他灰掉", isDisabled(menuItemByText("关闭其他")))
+document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+await settle()
+
+// 脏标签**先存再关**：一次关十几颗却逐个弹「保存吗」是没法用的，静默丢掉修改更不行。
+// 这里给第二篇写一句，再「关闭其他」—— 关得掉，而且那句真落到了盘上。
+const MARK = "关闭其他之前写下的一句"
+await openTab("第二篇")
+for (let i = 0; i < 40 && workspace.activeDocument.value.length === 0; i += 1) await settle()
+const firstBlock = workspace.activeDocument.value[0]
+if (firstBlock !== undefined) workspace.setBlockRuns(firstBlock.id, textToRuns(MARK))
+await settle()
+check("第二篇已经脏了", workspace.dirtyTabs.value.some((tab) => tab.path === "笔记 / 第二篇.html"),
+  JSON.stringify(workspace.dirtyTabs.value.map((tab) => tab.path)))
+
+rightClick(tabButton("第三篇"))
+await settle()
+await pickMenu("关闭其他")
+check("脏标签照样关掉（不弹确认框）", JSON.stringify(tabPaths()) === JSON.stringify(["笔记 / 第三篇.html"]), JSON.stringify(tabPaths()))
+const savedNote = memory.read("笔记 / 第二篇.html")
+check("关之前先存了盘（文件里带着那句话）", savedNote !== undefined && savedNote.includes(MARK),
+  savedNote === undefined ? "（盘上找不到这篇）" : "盘上没有那句话")
 
 // ---- 四、触摸：长按与按压反馈 ----
 
