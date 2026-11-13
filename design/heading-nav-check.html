@@ -233,6 +233,30 @@ if (appEl !== null) appEl.style.width = ""
 await wait(60)
 await nextTick()
 
+// ---------- 一点六、滚动条走项目里那条细条 ----------
+//
+// 标题多到撑破 70vh 时导航自己滚。原生 15px 粗条比刻度还抢眼，所以挂 `table-scrollbar`
+// （6px、轨道透明、滑块取 --color-line）—— 与表格、账目块横向滚动条同一支样式。
+// 量的是 `offsetWidth - clientWidth`：滚动条被压细之后才落成 6。
+
+step("滚动条")
+const navScroller = nav()
+let navScrollbarWidth = -1
+let navScrollable = false
+if (navScroller !== null) {
+  const keep = navScroller.style.maxHeight
+  navScroller.style.maxHeight = "5rem"
+  navScrollbarWidth = navScroller.offsetWidth - navScroller.clientWidth
+  navScrollable = navScroller.scrollHeight > navScroller.clientHeight
+  navScroller.style.maxHeight = keep
+}
+check("标题撑破高度时导航自己可滚", navScrollable)
+check(
+  "滚动条是 6px 细条（table-scrollbar），不是原生那条粗灰杠",
+  navScrollbarWidth === 6,
+  `${navScrollbarWidth}px`,
+)
+
 // ---------- 二、门槛 ----------
 
 step("门槛")

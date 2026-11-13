@@ -240,7 +240,7 @@ const LABEL =
   <nav
     data-heading-nav
     aria-label="标题导航"
-    class="group/nav absolute top-1/2 right-3 z-10 max-h-[70vh] -translate-y-1/2 overflow-y-auto rounded-island px-1.5 py-1.5 transition-[background-color,box-shadow] duration-150 hover:bg-card hover:shadow-pop hover:ring-1 hover:ring-line/70"
+    class="group/nav table-scrollbar absolute top-1/2 right-3 z-10 max-h-[70vh] -translate-y-1/2 overflow-y-auto rounded-island px-1.5 py-1.5 transition-[background-color,box-shadow] duration-150 hover:bg-card hover:shadow-pop hover:ring-1 hover:ring-line/70"
   >
     <ul class="flex flex-col items-end gap-0.5">
       <li v-for="item in items" :key="item.id" class="flex w-full justify-end">

@@ -54,6 +54,10 @@ in order to keep the mouse pointer from ever covering a word.
   grows the column by the difference instead of eating it out of the text — 40px at the widest gutter
   (40 → 80). `settings-check`'s band assertion (`measure .. measure + 136`) never sees the reserve:
   its fixture has no headings, so it draws no nav.
+- The nav scrolls itself once the ticks pass 70vh, and it uses the same `table-scrollbar` as the
+  tables (6px, transparent track) instead of the 15px native bar, which in a 50px card outweighed
+  the ticks. That slim bar does take layout width, so an overflowing outline eats 6px of the air —
+  12px instead of 18. `heading-nav-check` pins both the scrollability and the 6px.
 - No change to export geometry (ADR-0043): the nav is an editor-only ornament.
 
 ## Revisit if
