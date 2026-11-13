@@ -11,6 +11,9 @@
   .probe { border: 1px solid #e5e5e7; border-radius: 10px; padding: 12px; width: 210px; }
   .probe h2 { font-size: 12px; margin: 0 0 10px; font-weight: 600; }
   .sample { height: 30px; display: flex; align-items: center; padding: 0 8px; color: #6b7280; font-size: 12px; }
+  /* 量字号的探针不能自带 font-size：普通 CSS 的优先级压过 Tailwind 的 @layer utilities，
+     会把 text-11 / text-12 / text-sm 全量成同一个值。 */
+  .size-sample { height: 30px; display: flex; align-items: center; padding: 0 8px; color: #6b7280; }
   .mono { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
   pre { margin: 16px 0 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
 </style>
@@ -21,6 +24,8 @@
   菜单壳、菜单项、下拉控件只从 <span class="mono">settings-menu/recipes.ts</span> 取类名。
   这里把三份配方挂到真实元素上量 computed radius，逐档验证 ADR-0040 的「一个刻度一个开关」：
   原先菜单项写死 <span class="mono">rounded-[7px]</span>，切到「直角」时同一张菜单里的 select 归零、菜单项还是 7px。
+  另量一组 computed font-size：shadcn 的菜单项默认 <span class="mono">text-sm</span>（14px），不显式覆盖就会比同菜单的
+  控件（12px）大 2px —— 账目块「显示余额列」那一跳就是这么来的。
 </p>
 <div class="probes">
   <section class="probe">
@@ -38,6 +43,13 @@
     <div id="probe-control" class="sample">下拉</div>
     <div class="mono" id="val-control"></div>
   </section>
+  <section class="probe">
+    <h2>字号阶梯 · 同一张菜单</h2>
+    <div id="probe-section" class="sample">分组标题</div>
+    <div id="probe-step12" class="sample">text-12 档</div>
+    <div id="probe-sm" class="sample">shadcn 默认 text-sm</div>
+    <div class="mono" id="val-size"></div>
+  </section>
 </div>
 <pre id="out">running…</pre>
 <script type="module">
@@ -47,6 +59,7 @@ import {
   MENU_SECTION, MENU_SEPARATOR, MENU_HINT,
   TOOL_PILL, TOOL_PILL_ELEVATED, TOOL_PILL_PLAIN,
 } from "../src/components/settings-menu/recipes.ts"
+import { cn } from "../src/lib/utils.ts"
 import { createHarness } from "./harness.js"
 
 const { check, done } = createHarness()
@@ -116,6 +129,69 @@ delete document.documentElement.dataset.corners
 check("默认档 菜单外框 > 菜单项 > 控件",
   tokenOf("--rad-island") > tokenOf("--rad-md") && tokenOf("--rad-md") > tokenOf("--rad-control"),
   `${tokenOf("--rad-island")} / ${tokenOf("--rad-md")} / ${tokenOf("--rad-control")}`)
+
+// ---- 4. computed 字号：菜单项必须落在九档阶梯，不能吃 shadcn 默认 text-sm ----
+// 五个探针统一换成不带 font-size 的 .size-sample，圆角断言此时已经跑完。
+for (const [id, recipe] of [
+  ["probe-section", MENU_SECTION],
+  ["probe-item", MENU_ITEM],
+  ["probe-control", MENU_CONTROL],
+  ["probe-step12", "text-12"],
+  ["probe-sm", "text-sm"],
+]) {
+  document.getElementById(id).className = `size-sample ${recipe}`
+}
+const sectionProbe = document.getElementById("probe-section")
+const step12Probe = document.getElementById("probe-step12")
+const smProbe = document.getElementById("probe-sm")
+
+function fontSizeOf(element) {
+  return Math.round(parseFloat(getComputedStyle(element).fontSize) * 100) / 100
+}
+const size = {
+  section: fontSizeOf(sectionProbe),
+  item: fontSizeOf(document.getElementById("probe-item")),
+  control: fontSizeOf(document.getElementById("probe-control")),
+  step12: fontSizeOf(step12Probe),
+  sm: fontSizeOf(smProbe),
+}
+document.getElementById("val-size").textContent =
+  `标题 ${size.section} / 项 ${size.item} / 控件 ${size.control} / 档 ${size.step12} / 默认 ${size.sm}`
+
+check("MENU_ITEM 显式声明字号档位（否则回落到 shadcn text-sm）",
+  /\btext-(11|12|13|14|16|18|22|26|30)\b/.test(MENU_ITEM), MENU_ITEM)
+// shadcn 原语把 text-sm 写死在默认类里，靠 cn() 的 font-size 组互斥才能顶掉。
+const merged = cn("text-sm", MENU_ITEM)
+check("cn(shadcn 默认类, MENU_ITEM) 顶掉 text-sm",
+  !/\btext-sm\b/.test(merged) && /\btext-12\b/.test(merged), merged)
+check("菜单项 computed font-size == text-12 档", size.item === size.step12,
+  `实测 ${size.item}px，text-12 = ${size.step12}px`)
+check("菜单项比 shadcn 默认 text-sm 小一档", size.sm > size.item,
+  `text-sm ${size.sm}px / 菜单项 ${size.item}px`)
+check("菜单项与下拉控件同档（同一张菜单不跳字）", size.item === size.control,
+  `${size.item}px vs ${size.control}px`)
+check("分组标题 < 菜单项 < text-sm", size.section < size.item && size.item < size.sm,
+  `${size.section} / ${size.item} / ${size.sm}`)
+
+// ---- 5. 源码层：块菜单族的菜单项不许漏挂配方 ----
+// 侧栏 / 文件树 / 右键菜单是另一族，它们的 text-13 是自己的刻度，不在块菜单配方内。
+const FILE_MENU_FAMILY = new Set(["AppSidebar.vue", "FileTreeNode.vue", "FileMenuItems.vue"])
+const componentSources = import.meta.glob("../src/components/*.vue", {
+  query: "?raw", eager: true, import: "default",
+})
+const itemTag = /<(?:DropdownMenuItem|DropdownMenuCheckboxItem|DropdownMenuRadioItem)\b(?:"[^"]*"|'[^']*'|[^>])*>/gs
+const missing = []
+let tagged = 0
+for (const [path, source] of Object.entries(componentSources)) {
+  const name = path.split("/").pop()
+  if (FILE_MENU_FAMILY.has(name)) continue
+  for (const tag of source.match(itemTag) ?? []) {
+    tagged += 1
+    if (!tag.includes("MENU_ITEM")) missing.push(`${name}: ${tag.slice(0, 60)}…`)
+  }
+}
+check("glob 确实扫到了块菜单项标签", tagged > 0, `扫到 ${tagged} 个`)
+check("块菜单族的菜单项全部挂 MENU_ITEM", missing.length === 0, missing.join(" | "))
 
 done()
 </script>

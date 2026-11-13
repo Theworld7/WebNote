@@ -51,6 +51,7 @@ import {
   MENU_CONTROL,
   MENU_FIELD,
   MENU_HINT,
+  MENU_ITEM,
   TOOL_PILL,
 } from "@/components/settings-menu"
 import { BTN_TEXT } from "@/components/ui/button/recipes"
@@ -430,7 +431,7 @@ const SEARCH =
               <DropdownMenuItem
                 v-for="path in unboundTables"
                 :key="path"
-                class="gap-2 rounded-md px-2 py-1 text-12"
+                :class="MENU_ITEM"
                 @select="bind(path)"
               >
                 <MusicIcon class="size-3.5 shrink-0 text-muted-foreground" />
@@ -439,7 +440,7 @@ const SEARCH =
             </template>
             <div v-else class="px-2 py-1.5 text-11 text-muted-foreground">工作区里的表都已绑定</div>
             <MenuSeparator />
-            <DropdownMenuItem class="gap-2 rounded-md px-2 py-1 text-12" @select="openCreate">
+            <DropdownMenuItem :class="MENU_ITEM" @select="openCreate">
               <PlusIcon class="size-3.5 shrink-0 text-muted-foreground" />
               新建歌单表…
             </DropdownMenuItem>

@@ -40,8 +40,8 @@ export function rebindBlock(block: Block, path: string): Block | null {
       return { ...block, path, groupColumnId: "", displayColumnIds: [], groupOrder: [] }
 
     // 分组方式与排序方向是偏好（「我按什么读这本账」），不是列 id，留着；
-    // 列 id 清空后视图自己退化成平铺 / 不排序。筛选条件里的列 id 属于旧表 ——
-    // 一条都不留（没有条件 = 不筛选，正好是缺省）。
+    // 列 id 清空后视图自己退化成平铺 / 不排序。页签里的条件也是列 id —— 全是旧表的，
+    // 一支都不留（没有页签 = 不筛选，正好是缺省）。
     case "ledger": {
       const next = {
         ...block,
@@ -51,7 +51,8 @@ export function rebindBlock(block: Block, path: string): Block | null {
         groupColumnId: "",
         sortColumnId: "",
       }
-      delete next.filters
+      delete next.views
+      delete next.viewId
       return next
     }
 

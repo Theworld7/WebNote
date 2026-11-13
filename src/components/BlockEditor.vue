@@ -119,15 +119,14 @@ const GUTTER_LEFT = "clamp(16px, 10.3cqw, 96px)"
 const GUTTER_RIGHT = "clamp(12px, 4.3cqw, 40px)"
 
 /**
- * `maxWidth` 是**内容列**的宽度，gutter 不在其中 —— 原先它写在 border-box 的
- * maxWidth 里，选「窄 640」实际拿到的是 640 − 136 = 504 个字宽，档位名对不上做法。
- * 用 calc 把两个 clamp 一起加回去，档位才真的是「正文多宽」。
+ * 收起态标题导航的固定占位：`right-3`(0.75rem) + 卡内 `px-1.5` 两条边(0.75rem) +
+ * 按钮 `px-1` 两条边(0.5rem) + 最长刻度 `w-5`(1.25rem) = 3.25rem，再留 0.5rem 呼吸。
+ *
+ * 它**不跟 gutter 一起按 `cqw` 缩**：刻度自身的宽度是定值，而窄窗口里 gutter 只剩 12px、
+ * 正文又贴着右缘，那列短横线就整条压在字上。导航出现时右 gutter 至少让开它，与窗口宽窄无关。
+ * hover 展开的那张目录卡仍是浮层，从正文上盖过去 —— 那是「静止不占正文一像素」的本意。
  */
-const docStyle = computed(() => ({
-  maxWidth: `calc(${CONTENT_WIDTH_PX[contentWidth.value]}px + ${GUTTER_LEFT} + ${GUTTER_RIGHT})`,
-  paddingLeft: GUTTER_LEFT,
-  paddingRight: GUTTER_RIGHT,
-}))
+const NAV_RESERVE = "3.75rem"
 
 /**
  * 右侧标题导航（Preference）的数据与开关。
@@ -138,6 +137,23 @@ const docStyle = computed(() => ({
  */
 const headings = computed(() => headingEntries(activeDocument.value))
 const showHeadingNav = computed(() => headingNav.value && headings.value.length >= headingNavMin.value)
+
+/**
+ * `maxWidth` 是**内容列**的宽度，gutter 不在其中 —— 原先它写在 border-box 的
+ * maxWidth 里，选「窄 640」实际拿到的是 640 − 136 = 504 个字宽，档位名对不上做法。
+ * 用 calc 把两个 clamp 一起加回去，档位才真的是「正文多宽」。
+ *
+ * 右 gutter 在有标题导航时换成一个下限（`max`）：导航贴在编辑区右缘，正文列的右留白
+ * 必须让开它，否则窄窗口里刻度压在字上。没导航（关掉 / 标题数没到门槛）就照旧只是呼吸。
+ */
+const docStyle = computed(() => {
+  const right = showHeadingNav.value ? `max(${GUTTER_RIGHT}, ${NAV_RESERVE})` : GUTTER_RIGHT
+  return {
+    maxWidth: `calc(${CONTENT_WIDTH_PX[contentWidth.value]}px + ${GUTTER_LEFT} + ${right})`,
+    paddingLeft: GUTTER_LEFT,
+    paddingRight: right,
+  }
+})
 
 /** 导航量「读到哪一节」要拿到滚动容器；它在挂载后才存在，见下方的滚动位置记忆。 */
 const navViewport = ref<HTMLElement | null>(null)

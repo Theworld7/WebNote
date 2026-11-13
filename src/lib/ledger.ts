@@ -1,5 +1,5 @@
 import type { DataCellValue, DataColumn, DataRow, DataTable } from "@/types/data-table"
-import type { LedgerFilter, LedgerGroupMode, LedgerSortDirection } from "@/types/workspace"
+import type { LedgerFilter, LedgerGroupMode, LedgerSortDirection, LedgerView } from "@/types/workspace"
 import { DATA_TABLE_VERSION } from "@/types/data-table"
 import type { ColumnMatch } from "@/lib/data-table"
 import { cellValue, emptyColumn, emptyRow, groupRows, valueText } from "@/lib/data-table"
@@ -180,16 +180,26 @@ export function ledgerFilters(columns: readonly DataColumn[], filters: readonly 
 }
 
 /**
- * 筛选条件的落盘形态:`data-filters` 的 JSON(与歌单的 `data-sources` 同一手法)。
+ * 筛选条件的落盘形态:`data-views` 的 JSON(与歌单的 `data-sources` 同一手法)。
  *
  * 值是**显示文本**,里面可能有逗号、等号、引号,用分隔符拼就得再造一套转义规则;
- * JSON 自带转义,`escapeHtml` 再把双引号转成 `&quot;`。键取短名(`column` 而非
- * `columnId`)—— 这条属性会出现在每一份导出文件的源码里。
+ * JSON 自带转义,`escapeHtml` 再把双引号转成 `&quot;`。键取短名(`i` / `n` / `c`,
+ * 条件是 `column` / `value`)—— 这条属性会出现在每一份导出文件的源码里。
  *
- * 空数组由调用方判掉,不写:没有筛选就不该在文件里留一行机器味。
+ * `n`(页签名)空着就是「按条件现算」,不写:没有名字就不该在文件里留一个空串。
+ * 空数组由调用方判掉,不写。
  */
-export function encodeLedgerFilters(filters: readonly LedgerFilter[]): string {
-  return JSON.stringify(filters.map((filter) => ({ column: filter.columnId, value: filter.value })))
+export function encodeLedgerViews(views: readonly LedgerView[]): string {
+  return JSON.stringify(
+    views.map((view) => {
+      const item: Record<string, unknown> = {
+        i: view.id,
+        c: view.filters.map((filter) => ({ column: filter.columnId, value: filter.value })),
+      }
+      if (view.name !== "") item["n"] = view.name
+      return item
+    }),
+  )
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -197,22 +207,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * `data-filters` → 筛选条件。**宽容读取**:不是 JSON、不是数组、项不是对象的跳过;
- * 缺 `column` 的条件没有比对对象,丢掉;`value` 缺属性按空串 —— 「等于空值」是合法
- * 条件,不是缺配置(与统计块 `data-filter-value` 缺属性同一口径)。
+ * 一组条件的宽容读取:不是数组 → 空;项不是对象的跳过;缺 `column` 的条件没有比对
+ * 对象,丢掉;`value` 缺属性按空串 —— 「等于空值」是合法条件,不是缺配置(与统计块
+ * `data-filter-value` 缺属性同一口径)。
  */
-export function decodeLedgerFilters(raw: string | null): LedgerFilter[] {
-  if (raw === null || raw.trim() === "") return []
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    return []
-  }
-  if (!Array.isArray(parsed)) return []
-
+function decodeConditions(raw: unknown): LedgerFilter[] {
+  if (!Array.isArray(raw)) return []
   const filters: LedgerFilter[] = []
-  for (const item of parsed) {
+  for (const item of raw) {
     if (!isRecord(item)) continue
     const columnId = item["column"]
     if (typeof columnId !== "string" || columnId === "") continue
@@ -221,6 +223,90 @@ export function decodeLedgerFilters(raw: string | null): LedgerFilter[] {
   }
   return filters
 }
+
+function parseJson(raw: string | null): unknown {
+  if (raw === null || raw.trim() === "") return null
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * `data-views` → 筛选页签。宽容读取:坏 JSON / 不是数组 → 空;项缺 `i` 的跳过
+ * (没有身份就没法记「当前看哪一支」),`c` 缺失按空数组(页签留着,它等于全账,
+ * 渲染时不画 —— 名字还在,用户还能回来改)。
+ */
+export function decodeLedgerViews(raw: string | null): LedgerView[] {
+  const parsed = parseJson(raw)
+  if (!Array.isArray(parsed)) return []
+  const views: LedgerView[] = []
+  for (const item of parsed) {
+    if (!isRecord(item)) continue
+    const id = item["i"]
+    if (typeof id !== "string" || id === "") continue
+    const name = item["n"]
+    views.push({ id, name: typeof name === "string" ? name : "", filters: decodeConditions(item["c"]) })
+  }
+  return views
+}
+
+/**
+ * 老账(`data-filters`)→ 一组条件。ADR-0055 之前整块只有一组条件,那组条件现在
+ * 就是一支页签 —— 解析端由 `parseLedger` 包成 `createLedgerView`。
+ */
+export function decodeLedgerFilters(raw: string | null): LedgerFilter[] {
+  return decodeConditions(parseJson(raw))
+}
+
+let viewSeq = 0
+
+/** 造一支筛选页签。id 只需在块内唯一 —— 它只当列表 `:key` 与 `viewId` 的比对对象。 */
+export function createLedgerView(filters: readonly LedgerFilter[] = []): LedgerView {
+  viewSeq += 1
+  return { id: `v${Date.now().toString(36)}${viewSeq.toString(36)}`, name: "", filters }
+}
+
+/** 页签条上的一支(不含固定第一支「全部」)。 */
+export interface LedgerTab {
+  view: LedgerView
+  /** 页签上的字:存了名就用名,否则按条件现算。 */
+  label: string
+  /** 还活着的条件 —— 指向的列被删掉的那条已经退出。 */
+  conditions: ColumnMatch[]
+}
+
+/**
+ * 页签上的字。存了名就用名(用户改过),否则只写**值**,如 `餐费`、`餐费 · 招行`。
+ *
+ * 不写「列 = 」:列名在设置菜单那两格下拉上就在眼前,挤进页签会让一支只有一条条件的
+ * 页签叫 `类别 = 餐费` —— 一行放不下两支,而真正要区分的东西是值。空值说成「空」,
+ * 一个空白的页签认不出是什么。
+ */
+export function ledgerViewLabel(view: LedgerView, conditions: readonly ColumnMatch[]): string {
+  if (view.name !== "") return view.name
+  return conditions.map((condition) => (condition.value === "" ? "空" : condition.value)).join(" · ")
+}
+
+/**
+ * 页签条上除「全部」之外的那几支。
+ *
+ * 一支页签的条件**全失效**(它筛的列被删光)时不画 —— 此刻它等于全账,画出来就是一支
+ * 叫「餐费」却显示全部行、名字在说谎的按钮。返回空数组 = 整条页签条都不画(块回到
+ * 「没有筛选」的样子),这条判据由调用方消费,这里不给视图留第二份。
+ */
+export function ledgerTabs(columns: readonly DataColumn[], views: readonly LedgerView[] | undefined): LedgerTab[] {
+  if (views === undefined) return []
+  const tabs: LedgerTab[] = []
+  for (const view of views) {
+    const conditions = ledgerFilters(columns, view.filters)
+    if (conditions.length === 0) continue
+    tabs.push({ view, label: ledgerViewLabel(view, conditions), conditions })
+  }
+  return tabs
+}
+
 
 /**
  * 一格参与排序时的可比形态:数字比数字、布尔比布尔,其余比**文本投影**

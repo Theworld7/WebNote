@@ -687,9 +687,15 @@ export function cloneBlock(block: Block, id: string): Block {
   if (block.type === "image" || block.type === "video" || block.type === "mermaid" || block.type === "html" || block.type === "vault" || block.type === "datatable" || block.type === "bookmark" || block.type === "stat" || block.type === "subscription") {
     return { ...block, id }
   }
-  // 账目的 filters 是对象数组：更新总以整体替换发生，但拷贝不该共享同一份。
+  // 账目的 views 是对象数组：整体替换发生，但拷贝不该共享同一批页签与条件。
   if (block.type === "ledger") {
-    return block.filters === undefined ? { ...block, id } : { ...block, id, filters: block.filters.map((filter) => ({ ...filter })) }
+    return block.views === undefined
+      ? { ...block, id }
+      : {
+          ...block,
+          id,
+          views: block.views.map((view) => ({ ...view, filters: view.filters.map((filter) => ({ ...filter })) })),
+        }
   }
   // 歌单的 sources 是对象数组：整体替换,但拷贝不该共享同一批绑定项。
   if (block.type === "playlist") {

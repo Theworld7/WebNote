@@ -5,7 +5,7 @@ import type { ListBlockType } from "@/lib/blocks"
 import { cellValue, filterRowsByValue, filterRowsByValues, formatGrouped, groupRows, kanbanCardColor, STAT_PRECISION_DEFAULT, sumColumn, valueText } from "@/lib/data-table"
 import { galleryUnits } from "@/lib/gallery"
 import type { GalleryUnit } from "@/lib/gallery"
-import { balanceMap, encodeLedgerFilters, formatAmount, formatExpense, formatIncome, formatYuan, ledgerFilters, ledgerSections, ledgerSort, sortRows, sumRows } from "@/lib/ledger"
+import { balanceMap, encodeLedgerViews, formatAmount, formatExpense, formatIncome, formatYuan, ledgerFilters, ledgerSections, ledgerSort, sortRows, sumRows } from "@/lib/ledger"
 import type { LedgerSection, LedgerTotals } from "@/lib/ledger"
 import { escapeHtml, escapeTextToHtml, linkDomain, linkIcon, runsText, runsToHtml } from "@/lib/inline"
 import {
@@ -807,8 +807,8 @@ function kanbanFieldHtml(row: DataRow, column: DataColumn): string {
  * 求和 / 格式化 / 分节 / 排序全部走 `lib/ledger` 的同一份函数,与编辑器视图不算两遍。
  *
  * 指针属性(`data-income` / `data-expense` / `data-balance` / `data-group-mode` /
- * `data-group` / `data-sort` / `data-sort-dir` / `data-filters`)原样挂在容器 `div` 上,
- * 解析端凭 `data-ledger` 认领回活的账目块;
+ * `data-group` / `data-sort` / `data-sort-dir` / `data-views` / `data-view`)原样挂在容器
+ * `div` 上,解析端凭 `data-ledger` 认领回活的账目块;
  * 剥掉属性后剩下的就是一张普通表格,按表格读是「正确的读法」。未设收入 / 支出列时
  * 快照退化成纯数据表格(没有金额格式化、余额列与合计),设置不蒸发。表读不到时仍
  * 写出带属性的空容器:指针跟着笔记走,重开时块自己走「读不到」的提示态。
@@ -830,8 +830,11 @@ function ledgerHtml(block: LedgerBlock, table: DataTable | null): string {
     // 方向只在正序时落盘:倒序是缺省,缺省不写(与 data-balance / data-link-shape 同一口径)。
     if (block.sortDirection === "asc") attrs.push(`data-sort-dir="asc"`)
   }
-  const filters = block.filters ?? []
-  if (filters.length > 0) attrs.push(`data-filters="${escapeHtml(encodeLedgerFilters(filters))}"`)
+  const views = block.views ?? []
+  if (views.length > 0) {
+    attrs.push(`data-views="${escapeHtml(encodeLedgerViews(views))}"`)
+    if ((block.viewId ?? "") !== "") attrs.push(`data-view="${escapeHtml(block.viewId ?? "")}"`)
+  }
 
   const openTag = `<div class="note-ledger" ${attrs.join(" ")}>`
   if (table === null || table.rows.length === 0) return openTag + "</div>"
@@ -841,8 +844,11 @@ function ledgerHtml(block: LedgerBlock, table: DataTable | null): string {
   const groupColumn = block.groupMode === "none" ? null : table.columns.find((column) => column.id === block.groupColumnId) ?? null
   const hasMoney = income !== null || expense !== null
   const showBalance = block.showBalance && hasMoney
-  // 筛选先收窄,再排序、分节 —— 余额与合计都只算筛出的行(ADR-0054)。
-  const kept = filterRowsByValues(table.rows, ledgerFilters(table.columns, filters))
+  // 筛选先收窄,再排序、分节 —— 余额与合计都只算筛出的行(ADR-0054)。收窄按**当前页签**
+  // 的条件走:导出的是「你眼前那一本」,切到别的页签再导出就是另一本(ADR-0055)。
+  // 指向的页签没了(被删 / 列被删光)等于「全部」,与视图同一退化。
+  const view = views.find((item) => item.id === (block.viewId ?? "")) ?? null
+  const kept = filterRowsByValues(table.rows, view === null ? [] : ledgerFilters(table.columns, view.filters))
   // 快照按**展示序**写出(排序 → 分节),否则「编辑器里看到什么,双击打开就是什么」不成立。
   const sort = ledgerSort(table.columns, block.sortColumnId, block.sortDirection)
   const ordered = sortRows(kept, sort)
@@ -889,7 +895,7 @@ function ledgerHtml(block: LedgerBlock, table: DataTable | null): string {
   }
   // 筛选把每一行都挡在外面:写一句说明,别让双击打开的读者以为表坏了。
   if (bodyLines.length === 0) {
-    bodyLines.push(`      <tr>${wrap("td", "当前筛选没有匹配的行", ` class="lbl" colspan="${columnCount}"`)}</tr>`)
+    bodyLines.push(`      <tr>${wrap("td", "当前页签没有匹配的行", ` class="lbl" colspan="${columnCount}"`)}</tr>`)
   }
 
   const parts = ["<table>", "  <thead>", headLine, "  </thead>", "  <tbody>", ...bodyLines, "  </tbody>"]

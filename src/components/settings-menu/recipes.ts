@@ -12,8 +12,15 @@
 /** 外框：浮岛圆角 + 双层阴影 + 一圈 hairline。宽度不由它管。 */
 export const MENU_SHELL = "rounded-island p-1.5 shadow-pop ring-1 ring-line/70"
 
-/** 菜单项。勾选 / 单选类菜单项把它挂在 shadcn 的 item 上，与普通项对齐。 */
-export const MENU_ITEM = "gap-2.5 rounded-md px-2 py-1"
+/**
+ * 菜单项。勾选 / 单选类菜单项把它挂在 shadcn 的 item 上，与普通项对齐。
+ *
+ * 字号必须显式写：shadcn 的 `DropdownMenuItem` / `DropdownMenuCheckboxItem` 默认带
+ * `text-sm`（14px），不覆盖的话同一张菜单里分组标题 11px、控件 12px、菜单项 14px，
+ * 勾选项会比旁边的下拉控件大 2px。`cn()` 已把 `text-*` 档位登记进 font-size 组，
+ * 所以这里的 `text-12` 能干净地顶掉默认的 `text-sm`。
+ */
+export const MENU_ITEM = "gap-2.5 rounded-md px-2 py-1 text-12"
 
 /** 分隔线。 */
 export const MENU_SEPARATOR = "mx-2 my-1 bg-line"

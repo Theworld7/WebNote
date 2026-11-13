@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>账目块筛选中检</title>
+<title>账目块筛选页签自检</title>
 <style>
   body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
   h1 { font-size: 15px; margin: 0 0 12px; }
@@ -11,7 +11,7 @@
 </style>
 </head>
 <body>
-<h1>账目块筛选自检（设置里加条件、合计与余额只算筛出的行、清除回到全账、记一笔被筛掉时提示）</h1>
+<h1>账目块筛选页签自检（没筛选不画条、新建页签即一支小账、切页签换一本账、改名、删除回全账、记一笔被筛掉时提示）</h1>
 <!-- 脚本里有顶层 await（真实读盘、真实开菜单），--dump-dom 抓不到结果，用 CDP 驱动跑：
      node design/cdp-dump.mjs http://localhost:1420/design/ledger-filter-check.html -->
 <div id="app"></div>
@@ -50,9 +50,9 @@ function check(name, ok, detail = "") {
 /**
  * 夹具：一张两类的账，**按日期倒序**排。
  *
- * 餐费两笔(100 / 50)、打车两笔(支出 30 / 收入 20)—— 筛「餐费」时全账的结余
- * ¥140.00 应当变成 ¥150.00:筛出来的就是这本账(ADR-0054),这正是这一页要钉住的
- * 那条口径。余额同理:r3 在筛后是 150.00,全账里它只是 120.00。
+ * 餐费两笔(100 / 50)、打车两笔(支出 30 / 收入 20)—— 切到「餐费」那支页签时全账的
+ * 结余 ¥140.00 应当变成 ¥150.00:那一支就是一本自己的小账(ADR-0054/0055),这正是
+ * 这一页要钉住的那条口径。余额同理:r3 在那一支里是 150.00,全账里它只是 120.00。
  */
 const TABLE = {
   version: 1,
@@ -156,36 +156,43 @@ function tableRows() {
 }
 function cellText(row, index) { return ([...row.querySelectorAll("td")][index]?.textContent ?? "").trim() }
 function footText() { return (ledgerRoot()?.querySelector("tfoot")?.textContent ?? "").trim() }
-function ledgerText() { return (ledgerRoot()?.textContent ?? "").trim() }
-/** 筛选条:表格上方那条说明。判据是它自己那句「N / M 行」。 */
-function filterBar() {
+/**
+ * 页签条上的那几支。认 `data-ledger-tab` 而不是文案 —— 「全部」恰好也可能是一列的值,
+ * 按字找会把页签和格子混起来。第一支恒为全部。
+ */
+function tabButtons() {
   const root = ledgerRoot()
-  if (root === null) return null
-  return [...root.querySelectorAll("div")].find((el) => el.children.length === 3 && (el.textContent ?? "").startsWith("筛选")) ?? null
+  return root === null ? [] : [...root.querySelectorAll("[data-ledger-tab]")]
 }
-function clearButton() {
-  const bar = filterBar()
-  return bar === null ? null : [...bar.querySelectorAll("button")].find((button) => (button.textContent ?? "").includes("清除")) ?? null
+/** 页签上那句话:`全部 4` / `餐费 2`(标签只写值，行数是另一个 span，中间的空隙来自 flex gap)。 */
+function tabLabels() {
+  return tabButtons().map((button) => {
+    const [label, count] = [...button.children].map((el) => (el.textContent ?? "").trim())
+    return `${label} ${count}`
+  })
+}
+function tabByLabel(label) {
+  return tabButtons().find((button) => (button.textContent ?? "").startsWith(label)) ?? null
+}
+function selectedTab() {
+  const index = tabButtons().findIndex((button) => button.getAttribute("aria-selected") === "true")
+  return index === -1 ? "" : tabLabels()[index]
 }
 
 /** 菜单开着时挂在 body 上（reka 的 portal），不在块里。 */
 function menuRoot() {
   return [...document.querySelectorAll("[role='menu']")].at(-1) ?? null
 }
-function menuSelects() {
-  const root = menuRoot()
-  return root === null ? [] : [...root.querySelectorAll("select")]
-}
 /**
  * 筛选那一段里的下拉（一对：列 + 值）。
  *
- * 不能拿 `menuSelects()` 的下标 —— 收入列 / 支出列 / 分组 / 排序也在同一个菜单里。
- * 从「筛选（全部满足）」这行分组标题往后走，收集到第一对就停。
+ * 不能拿菜单里 select 的下标 —— 收入列 / 支出列 / 分组 / 排序也在同一个菜单里。
+ * 从「筛选 · …」这行分组标题往后走，收集到第一对就停。
  */
 function filterSelects() {
   const root = menuRoot()
   if (root === null) return []
-  const title = [...root.querySelectorAll("div")].find((el) => (el.textContent ?? "").trim() === "筛选（全部满足）")
+  const title = [...root.querySelectorAll("div")].find((el) => (el.textContent ?? "").trim().startsWith("筛选"))
   if (title === undefined) return []
   const selects = []
   let node = title.nextElementSibling
@@ -195,14 +202,19 @@ function filterSelects() {
   }
   return selects
 }
+/** 菜单里的那个页签名输入框（只有选中一支页签时才在）。 */
+function nameInput() {
+  const input = menuRoot()?.querySelector("input")
+  return input instanceof HTMLInputElement ? input : null
+}
 function settingsButton() {
   const root = ledgerRoot()
   if (root === null) return null
   return [...root.querySelectorAll("button")].find((button) => (button.textContent ?? "").includes("设置")) ?? null
 }
-function addFilterButton() {
+function menuButton(text) {
   const root = menuRoot()
-  return root === null ? null : [...root.querySelectorAll("button")].find((button) => (button.textContent ?? "").includes("添加条件")) ?? null
+  return root === null ? null : [...root.querySelectorAll("button")].find((button) => (button.textContent ?? "").includes(text)) ?? null
 }
 async function openSettings() {
   const button = settingsButton()
@@ -240,7 +252,7 @@ async function closeMenu() {
   await settle()
 }
 
-// ---- 一、全账 ----
+// ---- 一、全账:没有筛选就没有页签条 ----
 
 step("全账")
 check("账目块渲染出 4 行", tableRows().length === 4, `实际 ${tableRows().length}`)
@@ -248,25 +260,26 @@ check("倒序:10-04 在最上、10-01 在最下",
   cellText(tableRows()[0], 0) === "2026-10-04" && cellText(tableRows()[3], 0) === "2026-10-01",
   `${cellText(tableRows()[0], 0)} / ${cellText(tableRows()[3], 0)}`)
 check("全账合计:结余 ¥140.00", footText().includes("结余 ¥140.00"), footText())
-check("没有筛选时不画筛选条", filterBar() === null)
+check("没有筛选时不画页签条", tabButtons().length === 0, JSON.stringify(tabLabels()))
 
-// ---- 二、设置里加一条筛选 ----
+// ---- 二、新建一支页签 ----
 
 step("开设置")
 const opened = await openSettings()
 check("设置菜单打得开", opened,
   `trigger 的 data-state=${settingsButton()?.getAttribute("data-state")}，菜单节点 ${menuRoot() === null ? "无" : "有"}`)
 
-step("加条件")
-addFilterButton()?.click()
+step("新建页签")
+check("没选中页签时菜单里没有页签名（全账没有条件可改）", nameInput() === null && filterSelects().length === 0)
+menuButton("新建页签")?.click()
 await settle()
-check("点「添加条件」后菜单里出现一对下拉(列 + 值)", filterSelects().length === 2, `实际 ${filterSelects().length} 个`)
+check("新建后页签条出现两支:全部 + 新页签", tabButtons().length === 2, JSON.stringify(tabLabels()))
+check("新页签自动选中,名字按条件现算(值留空时叫「空」)", selectedTab().startsWith("空"), selectedTab())
+check("新页签的第一条条件落在第一个可筛列(日期)",
+  filterSelects()[0]?.value === "c1", filterSelects()[0]?.value ?? "没有下拉")
 
-const columnSelect = filterSelects()[0]
-check("列下拉默认取第一个可筛列(日期)", columnSelect?.value === "c1", columnSelect?.value)
-pick(columnSelect, "c2")
+pick(filterSelects()[0], "c2")
 await settle()
-
 const valueOptions = [...(filterSelects()[1]?.options ?? [])].map((option) => option.textContent.trim())
 check("值下拉级联成「类别」写过的那几个值(空 / 餐费 / 打车)",
   valueOptions.join("/") === "（空）/餐费/打车", valueOptions.join("/"))
@@ -274,22 +287,33 @@ check("值下拉级联成「类别」写过的那几个值(空 / 餐费 / 打车
 step("选值")
 pick(filterSelects()[1], "餐费")
 await settle()
+check("页签上的字跟着条件走,且只有值没有「列 = 」", tabLabels()[1] === "餐费 2", tabLabels().join(" | "))
 await closeMenu()
 
-// ---- 三、筛出来的就是这本账 ----
+// ---- 三、页签上的行数 / 切页签换一本账 ----
 
-step("筛后")
+step("餐费这一支")
 const kept = tableRows()
 check("表里只剩餐费那 2 行", kept.length === 2, `实际 ${kept.length}`)
-check("只剩 10-03 与 10-01（打车那两笔不见了）",
-  kept.map((row) => cellText(row, 0)).join("/") === "2026-10-03/2026-10-01",
-  kept.map((row) => cellText(row, 0)).join("/"))
-check("筛选条说清命中行数与全账行数", (filterBar()?.textContent ?? "").includes("2 / 4 行"), filterBar()?.textContent ?? "没有筛选条")
-check("筛选条带上条件本身(类别 = 餐费)", (filterBar()?.textContent ?? "").includes("类别 = 餐费"), filterBar()?.textContent ?? "")
-check("合计只算筛出的行(结余 ¥150.00,不是全账的 ¥140.00)", footText().includes("结余 ¥150.00"), footText())
-check("余额按筛出的行累计(10-03 是 150.00,10-01 是 100.00)",
+check("页签上写着自己的行数(全部 4 / 餐费 2)",
+  tabLabels().join(" | ") === "全部 4 | 餐费 2", tabLabels().join(" | "))
+check("合计只算这一支的行(结余 ¥150.00,不是全账的 ¥140.00)", footText().includes("结余 ¥150.00"), footText())
+check("余额按这一支的行累计(10-03 是 150.00,10-01 是 100.00)",
   cellText(kept[0], 4) === "150.00" && cellText(kept[1], 4) === "100.00",
   `${cellText(kept[0], 4)} / ${cellText(kept[1], 4)}`)
+
+step("切到全部")
+tabByLabel("全部")?.click()
+await settle()
+check("「全部」那一支回到 4 行", tableRows().length === 4, `实际 ${tableRows().length}`)
+check("「全部」选中", selectedTab().startsWith("全部"), selectedTab())
+check("「全部」的合计是全账口径(结余 ¥140.00)", footText().includes("结余 ¥140.00"), footText())
+
+step("切回餐费")
+tabByLabel("餐费")?.click()
+await settle()
+check("切回去还是那 2 行", tableRows().length === 2, `实际 ${tableRows().length}`)
+check("切回去合计仍是 ¥150.00", footText().includes("结余 ¥150.00"), footText())
 
 // ---- 四、筛选生效时记一笔:写进去但看不见,得说一声 ----
 
@@ -328,38 +352,91 @@ await enter(cellInput(draft, 3))
 check("被筛掉的那一笔收工时给一句提示",
   toasts.value.some((toast) => toast.message.includes("当前筛选看不到这一笔")),
   JSON.stringify(toasts.value.map((toast) => toast.message)))
-check("表里仍是 2 行(新记的那笔不在筛选范围内)", tableRows().length === 2, `实际 ${tableRows().length}`)
+check("表里仍是 2 行(新记的那笔不在这一支里)", tableRows().length === 2, `实际 ${tableRows().length}`)
+check("新记的那笔算进「全部」那一支(5 行)", tabLabels()[0] === "全部 5", tabLabels().join(" | "))
 
-// ---- 五、清除回到全账 ----
+// ---- 五、改名:名字盖住条件摘要 ----
 
-step("清除")
-clearButton()?.click()
+step("改名")
+check("设置菜单打得开(当前停在餐费那一支)", await openSettings())
+const input = nameInput()
+check("选中一支页签后菜单里出现页签名输入框", input !== null)
+if (input !== null) {
+  input.value = "吃饭"
+  input.dispatchEvent(new Event("change", { bubbles: true }))
+  await settle()
+  check("菜单里那行字跟着换成名字", (menuRoot()?.textContent ?? "").includes("筛选 · 吃饭"), menuRoot()?.textContent ?? "")
+}
+await closeMenu()
+check("页签上显示名字与行数(吃饭 2)", tabByLabel("吃饭") !== null && tabLabels().join(" | ") === "全部 5 | 吃饭 2", tabLabels().join(" | "))
+
+// ---- 六、再建一支:页签是并列的几本小账,不是叠加的滤镜 ----
+
+step("新建第二支")
+check("设置菜单打得开", await openSettings())
+menuButton("新建页签")?.click()
 await settle()
-check("清除后 4 行旧账 + 1 行新记的账", tableRows().length === 5, `实际 ${tableRows().length}`)
-check("清除后筛选条消失", filterBar() === null)
-check("清除后合计回到全账口径(收入 177 − 支出 31 = ¥146.00)", footText().includes("结余 ¥146.00"), footText())
+check("第三支页签出现并选中", tabButtons().length === 3 && selectedTab().startsWith("空"), selectedTab())
+pick(filterSelects()[0], "c2")
+await settle()
+pick(filterSelects()[1], "打车")
+await settle()
+await closeMenu()
+check("三支页签各算各的(全部 5 / 吃饭 2 / 打车 2)",
+  tabLabels().join(" | ") === "全部 5 | 吃饭 2 | 打车 2", tabLabels().join(" | "))
+check("打车这一支是它自己的 2 行", tableRows().length === 2, `实际 ${tableRows().length}`)
+
+// ---- 七、删页签:回到全部 ----
+
+step("删除页签")
+check("设置菜单打得开(停在打车那一支)", await openSettings())
+menuButton("删除页签")?.click()
+await settle()
+await closeMenu()
+check("删完剩两支,回到「全部」", tabButtons().length === 2 && selectedTab().startsWith("全部"), tabLabels().join(" | "))
+check("回到全账 5 行(删的是页签,账一条不少)", tableRows().length === 5, `实际 ${tableRows().length}`)
+check("全账合计含新记的那一笔(收入 177 − 支出 31 = ¥146.00)", footText().includes("结余 ¥146.00"), footText())
 check("新记的那一笔落在排序里它该在的位置(10-05 最上)",
   cellText(tableRows()[0], 0) === "2026-10-05", cellText(tableRows()[0], 0))
-void ledgerText
 
-// ---------- 收尾 ----------
+// ---- 八、切页签是视图动作 —— 不标脏、也不进撤销栈 ----
+
+step("切页签不标脏")
+// 先把手里这段改动定格(等过静默窗口)再落盘,「脏不脏」才分得清是切页签带来的还是之前带来的。
+await new Promise((resolve) => setTimeout(resolve, 600))
+await workspace.save()
+await settle()
+check("落盘后笔记是干净的", workspace.isDirty.value === false, "仍标脏")
+tabByLabel("吃饭")?.click()
+await settle()
+check("切到「吃饭」那一支(2 行)", tableRows().length === 2, `实际 ${tableRows().length}`)
+check("切页签没有把笔记标脏(不催保存)", workspace.isDirty.value === false, "切页签把笔记标脏了")
+await new Promise((resolve) => setTimeout(resolve, 600))
+
+step("切页签不进撤销栈")
+const ledgerId = workspace.activeDocument.value.find((item) => item.type === "ledger")?.id ?? ""
+const ledgerNow = () => workspace.activeDocument.value.find((item) => item.id === ledgerId)
+// 一次真改动做撤销的落点:它的「上一步」快照是在切页签**之前**拍的。
+workspace.updateBlockSettings(ledgerId, { showBalance: false })
+await new Promise((resolve) => setTimeout(resolve, 600))
+workspace.undo()
+await settle()
+check("撤销把余额列开关改回去了", ledgerNow()?.showBalance === true, JSON.stringify(ledgerNow()?.showBalance))
+check("撤销只退内容,页签没被拽回上一步选中的那一支", selectedTab().startsWith("吃饭"), selectedTab())
+
+// ---- 九、留样 ----
 
 step("留样")
-// 把筛选装回去，页面上留一份「筛选生效」的样子 —— 观感（筛选条 / 菜单宽度）没有被断言
-// 覆盖，人肉看一眼比断言更直接。
-const ledgerBlockId = workspace.activeDocument.value.find((item) => item.type === "ledger")?.id
-if (ledgerBlockId !== undefined) {
-  workspace.updateBlockSettings(ledgerBlockId, { filters: [{ columnId: "c2", value: "餐费" }] })
-  await settle()
-}
-check("留样:筛选重新生效(2 行)", tableRows().length === 2, `实际 ${tableRows().length}`)
-// 菜单也开着:筛选那一段（列 / 值两格 + ✕ 与「添加条件」）的排布只在 DOM 里看得见，
-// 而菜单宽度是这一页唯一改过的几何。
+// 切回「吃饭」那支,页面上留一份页签条生效的样子 —— 观感（页签配色 / 菜单宽度）没有被
+// 断言覆盖,人肉看一眼比断言更直接。菜单也开着:页签名 + 条件那几行的排布只在 DOM 里看得见。
+tabByLabel("吃饭")?.click()
+await settle()
+check("留样:切到「吃饭」那一支(2 行)", tableRows().length === 2, `实际 ${tableRows().length}`)
 check("留样:设置菜单开着", await openSettings())
 
 step("收尾")
-check("条件写进了绑定的 html 里(块设置随笔记落盘)", workspace.activeDocument.value.length === 2)
-// 不清空 #app:这一页的观感（筛选条 / 表格 / 菜单宽度）要能人肉看，统计行塞进 #out 头里。
+check("页签写进了绑定的 html 里(块设置随笔记落盘)", workspace.activeDocument.value.length === 2)
+// 不清空 #app:这一页的观感要能人肉看,统计行塞进 #out 头里。
 document.getElementById("out").textContent =
   `共 ${passed + failed} 项，${passed} 通过，${failed} 失败\n\n` + lines.join("\n") + `\n\n${failed === 0 ? "ALL OK" : "HAS FAIL"}`
 </script>

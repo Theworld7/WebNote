@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { LedgerBlock, LedgerFilter } from "@/types/workspace"
+import type { LedgerBlock, LedgerFilter, LedgerView } from "@/types/workspace"
 import type { DataColumn, DataRow } from "@/types/data-table"
 import type { LedgerSection } from "@/lib/ledger"
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue"
@@ -26,8 +26,9 @@ import { useTableEntry } from "@/composables/useTableEntry"
 import { useCellEditing } from "@/composables/useCellEditing"
 import { useDateCellPanel } from "@/composables/useDateCellPanel"
 import { useToast } from "@/composables/useToast"
+import { cn } from "@/lib/utils"
 import * as dt from "@/lib/data-table"
-import { balanceMap, formatAmount, formatExpense, formatIncome, formatYuan, ledgerFilters, ledgerSections, ledgerSort, sortRows, sumRows } from "@/lib/ledger"
+import { balanceMap, createLedgerView, formatAmount, formatExpense, formatIncome, formatYuan, ledgerFilters, ledgerSections, ledgerSort, ledgerTabs, ledgerViewLabel, sortRows, sumRows } from "@/lib/ledger"
 import {
   BlockMenu,
   MenuSection,
@@ -36,6 +37,7 @@ import {
   MenuSeparator,
   MENU_ITEM,
   MENU_CONTROL,
+  MENU_HINT,
   TOOL_PILL,
 } from "@/components/settings-menu"
 import { BTN_DIALOG } from "@/components/ui/button/recipes"
@@ -68,7 +70,7 @@ import { NOTICE_TEXT_TIGHT } from "@/components/ui/notice/recipes"
  */
 const props = defineProps<{ block: LedgerBlock }>()
 
-const { updateBlockSettings } = useWorkspace()
+const { setLedgerView, updateBlockSettings } = useWorkspace()
 
 const { state, columns, rows, change } = useTableEntry(() => props.block.path)
 
@@ -95,13 +97,42 @@ const groupColumn = computed<DataColumn | null>(() =>
 const sort = computed(() => ledgerSort(columns.value, props.block.sortColumnId, props.block.sortDirection))
 
 /**
- * 生效的筛选:条件里那一列还在的才参与比较。列被删后那条条件失效、退出筛选,
- * 其余照旧 —— 与排序列 / 收入列的同一自愈立场(见 `ledgerFilters`)。
+ * 还活着的那几支页签(不含「全部」)。
+ *
+ * 条件里的列被删光的那支不画 —— 判据与页签上的字同一份,在 `lib/ledger` 的
+ * `ledgerTabs` 里收口,视图不再自己判一遍。`count` 是这一支筛出的行数,直接写在
+ * 页签上:切过去看到几行,不用先切过去才知道。
  */
-const filterConditions = computed(() => ledgerFilters(columns.value, props.block.filters))
+const tabs = computed(() =>
+  ledgerTabs(columns.value, props.block.views).map((tab) => ({
+    ...tab,
+    count: dt.filterRowsByValues(rows.value, tab.conditions).length,
+  })),
+)
 
 /**
- * 这本账的行:筛选把不满足条件的行挡在外面。
+ * 页签条要画的那几支:固定第一支「全部」(它不存盘,数据就是全账),后面是还活着的页签。
+ * 只剩第一支 = 这个块没有筛选,整条不画。
+ */
+const tabItems = computed(() => [
+  { id: "", label: "全部", count: rows.value.length },
+  ...tabs.value.map((tab) => ({ id: tab.view.id, label: tab.label, count: tab.count })),
+])
+
+/** 选中的那一支。空串 = 「全部」;指向的页签没画出来(被删 / 列被删光)也落回「全部」。 */
+const activeTabId = computed(() => {
+  const id = props.block.viewId ?? ""
+  return tabs.value.some((tab) => tab.view.id === id) ? id : ""
+})
+
+/**
+ * 当前生效的条件 —— 就是选中那支页签的条件(列被删掉的那条已在 `ledgerTabs` 里退出)。
+ * 「全部」时为空,`filterRowsByValues` 原样放行。
+ */
+const filterConditions = computed(() => tabs.value.find((tab) => tab.view.id === activeTabId.value)?.conditions ?? [])
+
+/**
+ * 这本账的行:当前页签把不满足条件的行挡在外面。「全部」时一条条件都没有,就是全账。
  *
  * 合计、余额、分节、行号全都从它往下算 —— 「筛出来的就是这本账」(ADR-0054),而不是
  * 「一张全表上盖了个滤镜」。于是只看某个账户 / 类目时,底部合计与逐行余额就是它自己的。
@@ -795,7 +826,7 @@ const dateColumns = computed(() => columns.value.filter((column) => column.type 
 /** 可排序列:图片列除外(data URI 排序没有意义,投影也是空串)。 */
 const sortableColumns = computed(() => columns.value.filter((column) => column.type !== "image"))
 
-// ---- 块设置 · 筛选 ----
+// ---- 块设置 · 页签 ----
 
 /**
  * 可筛列:图片列除外。它的文本投影恒为空串,拿它筛只会把整本账筛空 —— 那不是
@@ -820,49 +851,118 @@ function filterValueOptions(condition: LedgerFilter): { value: string; label: st
   return values.map((value) => ({ value, label: value === "" ? "（空）" : value }))
 }
 
-/** 写回整组条件。空数组 = 清掉筛选;序列化只写非空的那组,清空不在文件里留痕。 */
-function setFilters(next: LedgerFilter[]): void {
-  updateBlockSettings(props.block.id, { filters: next })
-}
-
-/** 加一条条件,列默认取第一个可筛列、值留空 —— 先把行放出来,再让用户挑。 */
-function addFilter(): void {
-  const first = filterableColumns.value[0]
-  if (first === undefined) return
-  setFilters([...(props.block.filters ?? []), { columnId: first.id, value: "" }])
-}
-
-function removeFilterAt(index: number): void {
-  setFilters((props.block.filters ?? []).filter((_, at) => at !== index))
+/**
+ * 切页签。这是**换个看法**,不是改内容 —— 走 `setLedgerView` 而不是
+ * `updateBlockSettings`,标签不亮脏点、也不催保存(与歌单块切歌单同一立场)。
+ * 页签本身(有哪些支、每支什么条件、叫什么名)才是内容,那条路照旧标脏。
+ *
+ * 先收掉编辑态:切过去之后原来那一行可能根本不在这一本账里,输入框跟着一个已经
+ * 不在表里的行没有意义。
+ */
+function selectTab(id: string): void {
+  if (id === activeTabId.value) return
+  editing.value = ""
+  setLedgerView(props.block.id, id)
 }
 
 /**
- * 换筛选列,值一起清空 —— 上一列的值在下一列上没有意义。这就是「级联」的全部:
+ * 设置菜单正在改的那支页签 —— 就是块顶选中的那支。null = 「全部」:全账没有条件可改。
+ *
+ * 判据看**块字段**而不是 `activeTabId`:一支条件全失效的页签不画在条上,但它的条件
+ * 还在块里,菜单得能回去把它改掉或删掉。
+ */
+const editingView = computed<LedgerView | null>(() => {
+  const id = props.block.viewId ?? ""
+  if (id === "") return null
+  return props.block.views?.find((view) => view.id === id) ?? null
+})
+
+/** 菜单分组标题上那行字:「筛选 · 全部」/「筛选 · 餐费」—— 只写值,与块顶那颗页签同一份。 */
+const editingViewLabel = computed(() => {
+  const view = editingView.value
+  return view === null ? "全部" : ledgerViewLabel(view, ledgerFilters(columns.value, view.filters))
+})
+
+/** 没起名时页签会显示的那串字 —— 拿它当输入框的占位,用户能看见「不填会叫什么」。 */
+const editingAutoLabel = computed(() => {
+  const view = editingView.value
+  return view === null ? "" : ledgerViewLabel({ ...view, name: "" }, ledgerFilters(columns.value, view.filters))
+})
+
+/** 写回整组页签(并可顺带换选中项)。空数组 = 一支都不剩,块顶的页签条跟着消失。 */
+function setViews(next: readonly LedgerView[], viewId: string = props.block.viewId ?? ""): void {
+  updateBlockSettings(props.block.id, { views: next, viewId })
+}
+
+/** 只改当前页签的条件,身份与名字不动。 */
+function setViewFilters(filters: readonly LedgerFilter[]): void {
+  const view = editingView.value
+  if (view === null) return
+  setViews((props.block.views ?? []).map((item) => (item.id === view.id ? { ...item, filters } : item)))
+}
+
+/**
+ * 加一条条件 —— 排在当前页签这一组里(组内 AND)。停在「全部」上没有可加的组:
+ * 那一步是**新建页签**(见 `addView`),这里不做两件事合成一件。
+ */
+function addCondition(): void {
+  const first = filterableColumns.value[0]
+  const view = editingView.value
+  if (first === undefined || view === null) return
+  setViewFilters([...view.filters, { columnId: first.id, value: "" }])
+}
+
+/** 新建一支页签并切过去。页签里的第一条条件先落在第一个可筛列上,值留空等着挑。 */
+function addView(): void {
+  const first = filterableColumns.value[0]
+  if (first === undefined) return
+  const created = createLedgerView([{ columnId: first.id, value: "" }])
+  setViews([...(props.block.views ?? []), created], created.id)
+}
+
+function removeConditionAt(index: number): void {
+  const view = editingView.value
+  if (view === null) return
+  setViewFilters(view.filters.filter((_, at) => at !== index))
+}
+
+/**
+ * 换条件列,值一起清空 —— 上一列的值在下一列上没有意义。这就是「级联」的全部:
  * 值下拉的选项由刚选中的那一列现算(见 `filterValueOptions`)。
  */
-function setFilterColumnAt(index: number, columnId: string): void {
-  const next = [...(props.block.filters ?? [])]
-  if (next[index] === undefined) return
-  next[index] = { columnId, value: "" }
-  setFilters(next)
+function setConditionColumnAt(index: number, columnId: string): void {
+  const view = editingView.value
+  if (view === null) return
+  setViewFilters(view.filters.map((filter, at) => (at === index ? { columnId, value: "" } : filter)))
 }
 
-function setFilterValueAt(index: number, value: string): void {
-  const next = [...(props.block.filters ?? [])]
-  const current = next[index]
-  if (current === undefined) return
-  next[index] = { columnId: current.columnId, value }
-  setFilters(next)
+function setConditionValueAt(index: number, value: string): void {
+  const view = editingView.value
+  if (view === null) return
+  setViewFilters(view.filters.map((filter, at) => (at === index ? { columnId: filter.columnId, value } : filter)))
 }
 
-function clearFilters(): void {
-  setFilters([])
+/**
+ * 改页签名。留空 = 回到「按条件现算」,所以清空输入框是**撤销改名**,不是把页签弄成无名。
+ *
+ * 落在 `change`(失焦 / 回车)而不是 `input`:打一半的字不该一路写进块字段,每敲一个
+ * 字母标一次笔记脏。
+ */
+function renameView(event: Event): void {
+  const target = event.target
+  if (!(target instanceof HTMLInputElement)) return
+  const view = editingView.value
+  if (view === null) return
+  const name = target.value.trim()
+  setViews((props.block.views ?? []).map((item) => (item.id === view.id ? { ...item, name } : item)))
 }
 
-/** 筛选条上那句话:「列 = 值 · 列 = 值」。空值说成「空」,一个 `= ` 结尾认不出是什么。 */
-const filterSummary = computed(() =>
-  filterConditions.value.map((condition) => `${condition.column.name} = ${condition.value === "" ? "空" : condition.value}`).join(" · "),
-)
+/** 删掉当前这支页签并回到「全部」。页签只是看起来的样子,`.tbl` 里的账一条不少。 */
+function removeView(): void {
+  const view = editingView.value
+  if (view === null) return
+  setViews((props.block.views ?? []).filter((item) => item.id !== view.id), "")
+}
 
 </script>
 
@@ -931,6 +1031,86 @@ const filterSummary = computed(() =>
               <option value="asc">正序</option>
             </select>
           </div>
+          <!--
+            筛选页签:一支 = 一组「列 = 值」(组内 AND),块顶按支切换。页签上的字只写值,跟着条件现算,
+            除非用户自己起了名。值下拉的选项来自该列**写过**的那些显示文本(级联),所以
+            这里不提供手打 —— 打了错字只会筛出空表。
+
+            菜单改的是**块顶选中那一支** —— 页签是唯一的选择器,不在这里再放一个下拉,
+            否则「现在改的是哪一支」会有两个说法。
+          -->
+          <MenuSeparator />
+          <MenuSection class="truncate">筛选 · {{ editingViewLabel }}</MenuSection>
+          <template v-if="editingView !== null">
+            <MenuField label="页签名">
+              <input
+                :class="MENU_CONTROL"
+                :value="editingView.name"
+                :placeholder="editingAutoLabel"
+                @change="renameView"
+                @keydown.stop
+              >
+            </MenuField>
+            <MenuField v-for="(condition, index) in editingView.filters" :key="index">
+              <div class="flex items-center gap-1">
+                <MenuSelect
+                  class="min-w-0 flex-1"
+                  :model-value="condition.columnId"
+                  :options="filterColumnOptions"
+                  @update:model-value="(value: string) => setConditionColumnAt(index, value)"
+                />
+                <MenuSelect
+                  class="min-w-0 flex-1"
+                  :model-value="condition.value"
+                  :options="filterValueOptions(condition)"
+                  @update:model-value="(value: string) => setConditionValueAt(index, value)"
+                />
+                <button
+                  type="button"
+                  class="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive"
+                  aria-label="删除这条筛选"
+                  @click="removeConditionAt(index)"
+                >
+                  <XIcon class="size-3" />
+                </button>
+              </div>
+            </MenuField>
+          </template>
+          <MenuField>
+            <!-- MENU_CONTROL 自带 w-full,和 flex-1 并排时会把同行那颗挤成竖排字 ——
+                 交给 cn 合一次类,宽度改由 flex 决定。 -->
+            <div v-if="editingView !== null" class="mb-1 flex items-center gap-1">
+              <button
+                type="button"
+                :class="cn(MENU_CONTROL, 'flex min-w-0 flex-1 items-center justify-center gap-1 whitespace-nowrap text-muted-foreground hover:text-foreground disabled:opacity-40')"
+                :disabled="filterableColumns.length === 0"
+                @click="addCondition"
+              >
+                <PlusIcon class="size-3" />添加条件
+              </button>
+              <button
+                type="button"
+                :class="cn(MENU_CONTROL, 'w-auto shrink-0 whitespace-nowrap text-muted-foreground hover:text-destructive')"
+                @click="removeView"
+              >
+                删除页签
+              </button>
+            </div>
+            <button
+              type="button"
+              :class="cn(MENU_CONTROL, 'flex items-center gap-1 whitespace-nowrap text-muted-foreground hover:text-foreground disabled:opacity-40')"
+              :disabled="filterableColumns.length === 0"
+              @click="addView"
+            >
+              <PlusIcon class="size-3" />新建页签
+            </button>
+          </MenuField>
+          <p
+            v-if="editingView === null && tabs.length > 0"
+            :class="MENU_HINT"
+          >
+            要改某一支的条件，先点块顶那颗页签。
+          </p>
           <MenuSeparator />
           <DropdownMenuCheckboxItem
             :class="MENU_ITEM"
@@ -941,46 +1121,6 @@ const filterSummary = computed(() =>
           >
             <span class="truncate">显示余额列</span>
           </DropdownMenuCheckboxItem>
-          <!--
-            筛选:一条 = 一个「列 = 值」,多条是 AND。值下拉的选项来自该列**写过**的
-            那些显示文本(级联),所以这里不提供手打 —— 打了错字只会筛出空表。
-          -->
-          <MenuSeparator />
-          <MenuSection>筛选（全部满足）</MenuSection>
-          <MenuField v-for="(condition, index) in props.block.filters ?? []" :key="index">
-            <div class="flex items-center gap-1">
-              <MenuSelect
-                class="min-w-0 flex-1"
-                :model-value="condition.columnId"
-                :options="filterColumnOptions"
-                @update:model-value="(value: string) => setFilterColumnAt(index, value)"
-              />
-              <MenuSelect
-                class="min-w-0 flex-1"
-                :model-value="condition.value"
-                :options="filterValueOptions(condition)"
-                @update:model-value="(value: string) => setFilterValueAt(index, value)"
-              />
-              <button
-                type="button"
-                class="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive"
-                aria-label="删除这条筛选"
-                @click="removeFilterAt(index)"
-              >
-                <XIcon class="size-3" />
-              </button>
-            </div>
-          </MenuField>
-          <MenuField>
-            <button
-              type="button"
-              :class="[MENU_CONTROL, 'flex items-center gap-1 text-muted-foreground hover:text-foreground disabled:opacity-40']"
-              :disabled="filterableColumns.length === 0"
-              @click="addFilter"
-            >
-              <PlusIcon class="size-3" />添加条件
-            </button>
-          </MenuField>
         </BlockMenu>
       </DropdownMenu>
     </template>
@@ -995,21 +1135,31 @@ const filterSummary = computed(() =>
     </p>
 
     <!--
-      筛选条:条件、命中行数与一条清除出路。合计与余额都只算筛出的行(ADR-0054),
-      不说清「现在只看得到 12 / 40 行」,底部的数字就会被当成全账。
+      页签条:一支 = 一本小账。没有筛选时整条不画(块就是一本全账);有筛选时「全部」
+      永远固定在第一支 —— 它是退出筛选唯一的那条路,不能被删掉、也不会因为筛出零行而消失。
+
+      每支带上自己筛出的行数:合计与余额都只算筛出的行(ADR-0054),不说清「这一支几行」,
+      切过去之后的数字就会被当成全账。行数也正好是「哪一支是空的」的提示。
     -->
     <div
-      v-if="filterConditions.length > 0"
-      class="mb-1.5 flex flex-wrap items-baseline gap-x-2 text-11 text-muted-foreground"
+      v-if="tabItems.length > 1"
+      class="mb-1.5 flex flex-wrap items-center gap-1"
+      role="tablist"
+      aria-label="筛选页签"
     >
-      <span>筛选 · {{ filterSummary }}</span>
-      <span class="tabular-nums">{{ filteredRows.length }} / {{ rows.length }} 行</span>
       <button
+        v-for="item in tabItems"
+        :key="item.id === '' ? '__all__' : item.id"
         type="button"
-        class="underline underline-offset-2 hover:text-foreground"
-        @click="clearFilters"
+        role="tab"
+        :data-ledger-tab="item.id === '' ? '__all__' : item.id"
+        :aria-selected="activeTabId === item.id"
+        class="flex max-w-[16rem] items-center gap-1 rounded-full px-2 py-0.5 text-11 transition-colors"
+        :class="activeTabId === item.id ? 'bg-selection font-medium text-selection-foreground' : 'text-muted-foreground hover:bg-muted'"
+        @click="selectTab(item.id)"
       >
-        清除
+        <span class="truncate">{{ item.label }}</span>
+        <span class="tabular-nums opacity-60">{{ item.count }}</span>
       </button>
     </div>
 
@@ -1154,10 +1304,10 @@ const filterSummary = computed(() =>
               这张表还没有账目 —— 点右上角「记一笔」开始记。
             </td>
           </tr>
-          <!-- 表里有账、但一行都没过筛选:说清是筛掉的,不是没有。 -->
+          <!-- 表里有账、但这一支页签一行都没过:说清是筛掉的,不是没有。 -->
           <tr v-else-if="filteredRows.length === 0">
             <td :colspan="cellCount" class="px-2.5 py-4 text-center text-muted-foreground">
-              当前筛选没有匹配的行 —— 点上方「清除」回到全账。
+              这一支页签没有匹配的行 —— 点上方「全部」回到全账。
             </td>
           </tr>
         </tbody>

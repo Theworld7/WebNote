@@ -1812,20 +1812,28 @@ function createWorkspace() {
   }
 
   /**
-   * 视图态:歌单块「当前看哪一张」(块上的 `path`)。
+   * 视图态:歌单块「当前看哪一张」(块上的 `path`)、账目块「当前看哪一支页签」
+   * (块上的 `viewId`)。
    *
-   * 切换歌单只是换个看法(`setPlaylistActive` 不记脏),撤销栈也就不能把它当一步 ——
-   * 否则切两张之后按 Ctrl+Z,展示莫名其妙被切回去,而用户改的字一个都没回来。
-   * 撤销栈是整篇的全量快照,所以两头都收:比较时抹掉它(纯切换不定格成一步),
-   * 恢复后按恢复前的当前值补回去(撤销别的改动不会顺手换掉你正在看的那张)。
+   * 切换歌单 / 切页签都只是换个看法(`setPlaylistActive` / `setLedgerView` 不记脏),
+   * 撤销栈也就不能把它们当一步 —— 否则切两张之后按 Ctrl+Z,展示莫名其妙被切回去,
+   * 而用户改的字一个都没回来。撤销栈是整篇的全量快照,所以两头都收:比较时抹掉它
+   * (纯切换不定格成一步),恢复后按恢复前的当前值补回去(撤销别的改动不会顺手换掉
+   * 你正在看的那一张 / 那一支)。
    *
    * 按块 id 对齐。补不上的照快照里那份走(`playlistActivePath` 会兜底到第一张):
    * 块被转换过就换过 id,那一条对不上 —— 快照是按 `snapshotBlock` 拍的,其余情形的
    * id 都是稳定的。
    */
-  type ViewState = Map<string, string>
+  type BlockViewState = {
+    /** 歌单块看哪一张表。 */
+    path?: string
+    /** 账目块看哪一支页签;空串 = 「全部」。 */
+    viewId?: string
+  }
+  type ViewState = Map<string, BlockViewState>
 
-  /** 块列表(含布局格子)里各歌单块的当前展示路径。 */
+  /** 块列表(含布局格子)里各块的视图态。 */
   function viewStateOf(blocks: readonly Block[]): ViewState {
     const state: ViewState = new Map()
     const visit = (list: readonly Block[]): void => {
@@ -1834,7 +1842,8 @@ function createWorkspace() {
           for (const cell of block.cells) visit(cell)
           continue
         }
-        if (block.type === "playlist") state.set(block.id, block.path)
+        if (block.type === "playlist") state.set(block.id, { path: block.path })
+        else if (block.type === "ledger") state.set(block.id, { viewId: block.viewId ?? "" })
       }
     }
     visit(blocks)
@@ -1852,20 +1861,22 @@ function createWorkspace() {
           for (const cell of block.cells) visit(cell)
           continue
         }
-        if (block.type !== "playlist") continue
-        const path = state.get(block.id)
-        if (path !== undefined) block.path = path
+        const view = state.get(block.id)
+        if (view === undefined) continue
+        if (block.type === "playlist" && view.path !== undefined) block.path = view.path
+        if (block.type === "ledger" && view.viewId !== undefined) block.viewId = view.viewId
       }
     }
     visit(blocks)
   }
 
-  /** 比较用的指纹:视图态抹平,只切了歌单的两份快照在这里完全相同。 */
+  /** 比较用的指纹:视图态抹平,只切了歌单 / 页签的两份快照在这里完全相同。 */
   function historySignature(blocks: readonly Block[]): string {
     const blanked = (list: readonly Block[]): unknown[] =>
       list.map((block) => {
         if (block.type === "layout") return { ...block, cells: block.cells.map(blanked) }
         if (block.type === "playlist") return { ...block, path: "" }
+        if (block.type === "ledger") return { ...block, viewId: "" }
         return block
       })
     return JSON.stringify(blanked(blocks))
@@ -2530,6 +2541,25 @@ function createWorkspace() {
     block.path = path
   }
 
+  /**
+   * 切换账目块**当前展示**哪一支筛选页签(ADR-0055)。
+   *
+   * 与 `setPlaylistActive` 同一立场:这是换个看法,不是改内容,所以**不** `markDirty`
+   * —— 标签不亮脏点,关标签也不为「翻了一眼另一本小账」弹保存提示。页签本身(哪些支、
+   * 每支什么条件、叫什么名)仍是内容,那条路照旧走 `updateBlockSettings`。
+   *
+   * 选择仍然记在块的 `viewId` 上:这篇笔记因为别的改动保存时,它顺带写进 `data-view`,
+   * 下次打开还是这一支。只切不存就关标签,则回到上次落盘的那一支 —— 视图动作不落盘,
+   * 是这条取舍的代价,而不是漏写。空串 = 「全部」,不校验它对应哪一支(被删 / 列被
+   * 删光时渲染自己落回「全部」)。
+   */
+  function setLedgerView(id: string, viewId: string) {
+    const block = activeBlock(id)
+    if (block === undefined || block.type !== "ledger") return
+    if ((block.viewId ?? "") === viewId) return
+    block.viewId = viewId
+  }
+
   // ---- 图片 ----
 
   /** 换图。`src` 是 URL 或 data URI（本地文件走 `readImageFile`）。 */
@@ -2914,6 +2944,8 @@ function createWorkspace() {
     setPlaylistSources,
     setPlaylistActive,
     createPlaylistTable,
+    // ledger actions
+    setLedgerView,
     // layout actions
     setLayoutMode,
     setLayoutColumns,

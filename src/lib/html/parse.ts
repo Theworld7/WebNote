@@ -1,7 +1,7 @@
 import type { Block, BookmarkBlock, ChatMessage, GalleryBlock, ImageBlock, InlineRun, KanbanBlock, LayoutBlock, LayoutMode, LedgerBlock, LedgerGroupMode, PlaylistBlock, StatBlock, SubscriptionBlock, TableAlign, TableBlock, TableCell, TextualBlockType, VideoBlock } from "@/types/workspace"
 import { createBookmarkBlock, createChatBlock, createGalleryBlock, createHtmlBlock, createImageBlock, createKanbanBlock, createLayoutBlock, createLedgerBlock, createMermaidBlock, createPlaylistBlockFrom, createStatBlock, createSubscriptionBlock, createTableBlock, createTextualBlock, createVaultBlock, createVideoBlock, GALLERY_RATIO_DEFAULT, GALLERY_WIDTH_DEFAULT } from "@/lib/blocks"
 import { STAT_PRECISION_DEFAULT, STAT_PRECISION_OPTIONS } from "@/lib/data-table"
-import { decodeLedgerFilters } from "@/lib/ledger"
+import { createLedgerView, decodeLedgerFilters, decodeLedgerViews } from "@/lib/ledger"
 import { SUBSCRIPTION_ROLE_ATTRS, SUBSCRIPTION_ROLES } from "@/lib/subscription"
 import type { SubscriptionRole } from "@/lib/subscription"
 import { createPlaylistSource, decodePlaylistSources, PLAYLIST_ROLE_ATTRS, PLAYLIST_ROLES } from "@/lib/playlist"
@@ -628,8 +628,9 @@ function parseBookmark(container: Element): BookmarkBlock {
  * `data-group-mode` 只认 "month" / "column",其余落回 none;`data-balance` 只认
  * 字面 "false"(缺省即显示余额,与「缺省不落存储」咬合);`data-sort-dir` 只认
  * 字面 "asc",缺省即倒序(`data-sort` 空 = 不排序,方向一起留着但不生效)。
- * 筛选条件读 `data-filters` 的 JSON,读不出 / 缺列 id 的项跳过,一条都不剩就不落字段
- * (与画册 hiddenFields 那种「残留 id 收下、渲染时自愈」不同 —— 这里连条件都留不住)。
+ * 筛选页签读 `data-views` 的 JSON(项缺 id 的跳过、缺列 id 的条件跳过),选中项读
+ * `data-view`;读不出就退回老账的 `data-filters`(那组条件是 ADR-0055 之前唯一的一组,
+ * 现在就是一支页签)。一条条件都不剩的页签收下但不上条 —— 它等于全账,渲染时不画。
  * 路径没有默认值可落,留空串走「读不到」提示态。
  */
 function parseLedger(container: Element): LedgerBlock {
@@ -649,8 +650,14 @@ function parseLedger(container: Element): LedgerBlock {
     container.getAttribute("data-sort") ?? "",
     container.getAttribute("data-sort-dir") === "asc" ? "asc" : "desc",
   )
-  const filters = decodeLedgerFilters(container.getAttribute("data-filters"))
-  if (filters.length > 0) block.filters = filters
+  // 页签优先读 `data-views`;读不出就退回老的 `data-filters` —— ADR-0055 之前整块
+  // 只有一组条件,那组现在就是一支页签。两条都空 = 这个块没有筛选。
+  const views = decodeLedgerViews(container.getAttribute("data-views"))
+  const legacy = views.length > 0 ? [] : decodeLedgerFilters(container.getAttribute("data-filters"))
+  const tabs = views.length > 0 ? views : legacy.length > 0 ? [createLedgerView(legacy)] : []
+  if (tabs.length > 0) block.views = tabs
+  const viewId = container.getAttribute("data-view") ?? ""
+  if (viewId !== "") block.viewId = viewId
   return block
 }
 

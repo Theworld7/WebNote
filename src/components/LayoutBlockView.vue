@@ -13,7 +13,7 @@ import { LAYOUT_COLUMNS, orderedIndexes as orderedIndexesOf } from "@/lib/blocks
 import { dragOverCell } from "@/lib/block-drag"
 import { focusBlockById, findEditable } from "@/lib/dom"
 import BlockItem from "@/components/BlockItem.vue"
-import { BlockMenu, MenuSection, TOOL_PILL } from "@/components/settings-menu"
+import { BlockMenu, MENU_ITEM, MenuSection, TOOL_PILL } from "@/components/settings-menu"
 
 /**
  * 布局块视图（ADR-0007）：笔记里唯一的容器块。
@@ -218,12 +218,14 @@ function isDropTarget(cellIndex: number): boolean {
             布局方式
           </MenuSection>
           <DropdownMenuCheckboxItem
+            :class="MENU_ITEM"
             :checked="isGrid"
             @select="pickMode('grid')"
           >
             网格
           </DropdownMenuCheckboxItem>
           <DropdownMenuCheckboxItem
+            :class="MENU_ITEM"
             :checked="!isGrid"
             @select="pickMode('flex')"
           >
@@ -246,6 +248,7 @@ function isDropTarget(cellIndex: number): boolean {
           <DropdownMenuCheckboxItem
             v-for="count in LAYOUT_COLUMNS"
             :key="count"
+            :class="MENU_ITEM"
             :checked="(block.columns ?? 2) === count"
             @select="setLayoutColumns(block.id, count)"
           >

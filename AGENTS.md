@@ -56,10 +56,16 @@
   只有 `passphraseProblem` / `generatePassphrase` 一份、生成的明文只在当场摊开一次(0053)、
   账目块的筛选是多条件 AND 且**筛出来的就是这本账**(合计 / 余额 / 分节 / 行号都只算筛出的行)、
   筛选值从该列**写过**的显示文本里挑而不是手打、列被删那条条件自己退出、被筛掉的记账收工时说
-  一句「已记入但看不到」(0054)。
+  一句「已记入但看不到」(0054)、筛选是一排**页签**:一组条件一支、`全部`恒为第一支且不可删、
+  没有页签就整条不画、行数写在页签上、页签名默认由条件现算、条件全失效的页签不上条、
+  切页签只是换个看法(`setLedgerView` 不记脏、也不进撤销栈)、
+  `data-views` + `data-view` 落盘而老 `data-filters` 解析成一支(0055)、标题导航在屏时正文列的
+  右留白有 `3.75rem` 的下限(收起态刻度 3.25rem + 半 rem 呼吸,固定值不跟 `cqw` 缩)而 hover
+  展开的目录卡仍盖在正文上(0056)。
   改对应行为前先读那篇。(0029 的标签位置已被 0033 取代,0034 的模态表单已被 0035 取代,0043
   里「导出字号是 px」那段已被 0050 取代,0047「密钥块只是显示开关」已被 0052 取代,
-  0052「盐一生不变」已被 0053 收窄成「换口令时换盐」)
+  0052「盐一生不变」已被 0053 收窄成「换口令时换盐」,0054 的「整块只有一组条件」与
+  「筛选条上的 `12 / 40 行`」已被 0055 取代)
 
 ## 验证
 
@@ -91,8 +97,9 @@
 `useSettings` 的 `treeGuides`)→ `sidebar-check`(量画法与根数)与 `settings-check`(量开关 → 偏好 →
 `<html data-tree-guides>` → 样式表);
 动块菜单的方向键寻路(`lib/menu-nav.ts`、横向布局的列间移动)→ `menu-nav-check`(挂真实菜单,
-走 CDP);动右侧标题导航(收录范围 / 出现门槛 / 点击跳转 / 激活跟随滚动,`lib/headings.ts`、
-`components/HeadingNav.vue`)→ `heading-nav-check`(挂真实编辑器,走 CDP);
+走 CDP);动右侧标题导航(收录范围 / 出现门槛 / 点击跳转 / 激活跟随滚动 / 收起态在正文右侧
+让出的那截留白,`lib/headings.ts`、`components/HeadingNav.vue`)→ `heading-nav-check`(挂真实
+编辑器,走 CDP;留白那条在两个宽度下各量一次);
 动数据表 → `data-table-check`;动排版样式 → `typography-check`;动新建 / 移动 →
 `create-check` / `move-check`;动 Markdown 导入 / 导出(`lib/markdown/*`、`lib/fs/transfer.ts`)→
 `markdown-check`;动**批量**导入 / 导出(哪些笔记、落到哪个相对路径、结果那句话,都在
@@ -143,8 +150,9 @@
 `lib/rebind.ts`)→ `table-ref-check`(组件级 + 纯函数,不借任何一个引用块的夹具);动账目块的财务口径 → `ledger-check`,动它的就地增删改 →
 `ledger-edit-check`,动记一笔的草稿行(顶端落位 / 回车与 Tab 横着填 / 归位排序 / 空行自动删)→
 `ledger-entry-check`,动日期面板 / 编辑期钉住排序 → `ledger-date-check`(都挂真实编辑器,走 CDP 驱动);
-动账目块的筛选(设置里的条件编辑与级联值下拉、筛选条、合计 / 余额 / 行号只算筛出的行、被筛掉的
-记账收工时的提示、`lib/ledger` 的 `ledgerFilters` 与 `data-filters` 的往返,见 ADR-0054)→
+动账目块的筛选页签(块顶那排页签、`全部`恒在第一支、设置里改的是**选中那一支**的条件与名字、
+`新建页签` / `删除页签`、每支自己的行数、合计 / 余额 / 行号只算那一支的行、被筛掉的记账收工时
+的提示、`lib/ledger` 的 `ledgerTabs` 与 `data-views` / `data-view` 的往返,见 ADR-0055)→
 `ledger-filter-check`(挂真实编辑器,走 CDP 驱动)与 `ledger-check`;
 动删行的确认框(账目块 / 数据表编辑页同一套,`requestDelete` 与 `lib/data-table` 的 `isBlankRow`)→
 `ledger-edit-check` 与 `data-table-check` 都跑;

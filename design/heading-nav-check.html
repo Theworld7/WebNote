@@ -160,7 +160,7 @@ check(
   firstLabel === null ? "（没刻度）" : getComputedStyle(firstLabel).opacity,
 )
 
-// 贴右端：导航右缘离滚动容器右缘不超过 24px（正文列有 40px 右内边距，正文不会贴边）。
+// 贴右端：导航右缘离滚动容器右缘不超过 24px（正文列的右留白让开收起态刻度，正文不会贴边）。
 const viewportRect = viewportEl()?.getBoundingClientRect() ?? null
 const navRect = nav()?.getBoundingClientRect() ?? null
 check(
@@ -168,6 +168,63 @@ check(
   viewportRect !== null && navRect !== null && viewportRect.right - navRect.right <= 24 && viewportRect.right - navRect.right >= 0,
   viewportRect === null || navRect === null ? "（没渲染）" : `${(viewportRect.right - navRect.right).toFixed(1)}px`,
 )
+
+// ---------- 一点五、收起态不让正文让位失败 ----------
+//
+// 窄窗口里 gutter 会收到 12px，而刻度是定宽的一列短横线 —— 不让位就整条压在字上。
+// 让位分两层验：数据层是正文列的右内边距（不能跟着 cqw 缩），渲染层是「内容右缘不进刻度」。
+
+step("让位")
+const docEl = () => document.querySelector("[data-doc]")
+const padRight = () => (docEl() === null ? -1 : Number.parseFloat(getComputedStyle(docEl()).paddingRight))
+function contentRight() {
+  const el = docEl()
+  if (el === null) return Number.NaN
+  return el.getBoundingClientRect().right - Number.parseFloat(getComputedStyle(el).paddingRight)
+}
+/** 收起态刻度卡的左缘（含卡的 padding）：整张卡都不该压到正文上。 */
+function navLeft() {
+  return nav()?.getBoundingClientRect().left ?? Number.NaN
+}
+/** 收起态导航的占位：right-3(12) + px-1.5 两条边(12) + px-1 两条边(8) + w-5(20) = 52。 */
+const NAV_COLLAPSED = 52
+
+/**
+ * `rem` 换算：占位是 rem，探针页的根字号是默认 16，所以 52 / 60 这两组像素值直接对得上。
+ * 用 rem 是为了跟刻度自身一起随根字号放大 —— 断言里仍按像素写，脱开根字号说「至少多宽」。
+ */
+const reserve = padRight()
+check(
+  "导航出现时右内边距让开收起态刻度（≥ 52px）",
+  reserve >= NAV_COLLAPSED,
+  `${reserve}px`,
+)
+check(
+  "收起态刻度不压在正文上",
+  navLeft() - contentRight() >= 0,
+  `刻度左缘 ${navLeft().toFixed(1)} vs 内容右缘 ${contentRight().toFixed(1)}`,
+)
+
+// 把编辑区按到 360：gutter 在这一档收到下限，占位却必须**一动不动** —— 它不跟 cqw 缩，
+// 这正是窄窗口里出问题的原因（12px gutter vs 40px 宽的刻度）。
+const appEl = document.getElementById("app")
+const wideReserve = reserve
+if (appEl !== null) appEl.style.width = "360px"
+await wait(60)
+await nextTick()
+check(
+  "编辑区压到 360 后占位不变（固定值，不跟 cqw 缩）",
+  Math.abs(padRight() - wideReserve) < 0.5,
+  `${wideReserve}px → ${padRight()}px`,
+)
+check(
+  "窄编辑区下刻度仍不压在正文上",
+  navLeft() - contentRight() >= 0,
+  `刻度左缘 ${navLeft().toFixed(1)} vs 内容右缘 ${contentRight().toFixed(1)}`,
+)
+if (appEl !== null) appEl.style.width = ""
+await wait(60)
+await nextTick()
 
 // ---------- 二、门槛 ----------
 

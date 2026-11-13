@@ -83,3 +83,11 @@ missing `value` becomes `""`, which is a legitimate condition ("this column is e
   language, and it should be designed as one rather than bolted onto `{ columnId, value }`.
 - The same filter list is wanted on the gallery or kanban blocks — then `filters` belongs in a shared shape
   with one implementation, not three.
+
+## Amended by ADR-0055
+
+"One filter list per ledger" was one book too few. The rules above — what a filter does to totals,
+balances, sections, the picked-not-typed values, the deleted-column drop — all still hold; they now
+hold **per tab**. `filters` moved onto `LedgerView`, `data-filters` was replaced by `data-views` +
+`data-view` (old files migrate to a single tab on parse), and the `12 / 40 行` line is gone: the count
+lives on the tab itself.
