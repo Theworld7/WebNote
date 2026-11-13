@@ -186,27 +186,34 @@ function contentRight() {
 function navLeft() {
   return nav()?.getBoundingClientRect().left ?? Number.NaN
 }
-/** 收起态导航的占位：right-3(12) + px-1.5 两条边(12) + px-1 两条边(8) + w-5(20) = 52。 */
-const NAV_COLLAPSED = 52
+/**
+ * 收起态导航的宽度：right-3(12) + px-1.5 两条边(12) + px-1 两条边(8) + gap-2.5(10) + w-5(20) = 62。
+ * `gap-2.5` 也算 —— 标题文字虽然被 `max-w-0` 压成 0 宽，那截行内间隙照旧占着。
+ */
+const NAV_COLLAPSED = 62
+/** 正文与刻度之间至少要留出的呼吸：贴着字的话，鼠标挪到行尾就撞上那张会展开的卡。 */
+const NAV_CLEARANCE = 12
 
 /**
- * `rem` 换算：占位是 rem，探针页的根字号是默认 16，所以 52 / 60 这两组像素值直接对得上。
+ * 占位是 rem，探针页的根字号是默认 16，所以 NAV_COLLAPSED / NAV_CLEARANCE 这两组像素值直接对得上。
  * 用 rem 是为了跟刻度自身一起随根字号放大 —— 断言里仍按像素写，脱开根字号说「至少多宽」。
  */
 const reserve = padRight()
 check(
-  "导航出现时右内边距让开收起态刻度（≥ 52px）",
+  "导航出现时右内边距让开收起态刻度（≥ 62px）",
   reserve >= NAV_COLLAPSED,
   `${reserve}px`,
 )
+/** 内容右缘到刻度左缘的空档：不是「不重叠」就够，要留得出可见的一截，鼠标才够不到卡。 */
+const gap = () => navLeft() - contentRight()
 check(
-  "收起态刻度不压在正文上",
-  navLeft() - contentRight() >= 0,
-  `刻度左缘 ${navLeft().toFixed(1)} vs 内容右缘 ${contentRight().toFixed(1)}`,
+  "正文与刻度之间留着空档（鼠标挪到行尾不会撞上会展开的卡）",
+  gap() >= NAV_CLEARANCE,
+  `空档 ${gap().toFixed(1)}px`,
 )
 
 // 把编辑区按到 360：gutter 在这一档收到下限，占位却必须**一动不动** —— 它不跟 cqw 缩，
-// 这正是窄窗口里出问题的原因（12px gutter vs 40px 宽的刻度）。
+// 这正是窄窗口里出问题的原因（12px gutter vs 50px 宽的刻度）。
 const appEl = document.getElementById("app")
 const wideReserve = reserve
 if (appEl !== null) appEl.style.width = "360px"
@@ -218,9 +225,9 @@ check(
   `${wideReserve}px → ${padRight()}px`,
 )
 check(
-  "窄编辑区下刻度仍不压在正文上",
-  navLeft() - contentRight() >= 0,
-  `刻度左缘 ${navLeft().toFixed(1)} vs 内容右缘 ${contentRight().toFixed(1)}`,
+  "窄编辑区下空档照样在",
+  gap() >= NAV_CLEARANCE,
+  `空档 ${gap().toFixed(1)}px`,
 )
 if (appEl !== null) appEl.style.width = ""
 await wait(60)

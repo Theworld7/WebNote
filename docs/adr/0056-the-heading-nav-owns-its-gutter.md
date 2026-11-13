@@ -6,12 +6,25 @@ shrinks with the editor. In a wide window the two just barely clear each other; 
 the gutter collapses to 12px while the ticks stay 40px, so the ticks land on top of the text. Reading
 with a tick drawn through the last word of every line is not a floating ornament, it is damage.
 
-**The decision.** When the nav is on screen, the body column's right padding has a floor of
-`3.75rem`: the collapsed nav is `3.25rem` (`right-3` 0.75 + the card's `px-1.5` 0.75 + the button's
-`px-1` 0.5 + the widest tick `w-5` 1.25), and half a rem of air keeps the text off the ticks. The
-floor is written as `max(GUTTER_RIGHT, NAV_RESERVE)` and only while the nav is showing, so a note
-with the nav off — or with fewer headings than the threshold — keeps the old breathing room and the
-old column width.
+**The decision.** When the nav is on screen, the body column's right padding has a floor of `5rem`:
+the collapsed nav is `3.875rem` (`right-3` 0.75 + the card's `px-1.5` 0.75 + the button's `px-1` 0.5
++ the row's `gap-2.5` 0.625 + the widest tick `w-5` 1.25), and `1.125rem` of air keeps the text off
+the ticks. The floor is written as `max(GUTTER_RIGHT, NAV_RESERVE)` and only while the nav is
+showing, so a note with the nav off — or with fewer headings than the threshold — keeps the old
+breathing room and the old column width.
+
+The air is part of the decision, not a rounding leftover. Landing flush against the ticks is not
+enough: the nav expands on hover, so a pointer that reaches the end of a line with a couple of pixels
+to spare opens the card over the text you were reading. Eighteen pixels is where moving the mouse to
+the paragraph's edge stops being a way to summon the menu.
+
+## The gap counts even when the label is zero
+
+The first version of this reserve left out the row's `gap-2.5` and came out 10px short of the real
+card — the label is `max-w-0` at rest, but the gap between it and the tick is a flex gap and does not
+collapse with it. The measurement said 2px of clearance, the check said "not overlapping", and the
+menu still fired at the end of every line. Widths of this kind have to be summed from what is
+actually laid out, not from what is visible.
 
 ## Fixed, not another clamp
 
@@ -22,7 +35,7 @@ ticks start landing on the text again at some intermediate width — the failure
 
 It is in `rem` rather than px because the nav's own classes are: `px-1.5`, `right-3`, `w-5` all scale
 with the root font size, so at a large base font the reserve grows with the ticks instead of being
-overtaken by them. At the default font it is 60px.
+overtaken by them. At the default font it is 80px.
 
 ## Only the collapsed state
 
@@ -33,13 +46,14 @@ in order to keep the mouse pointer from ever covering a word.
 
 ## Consequences
 
-- `design/heading-nav-check.html` pins the reserve at two widths: padding-right ≥ 52px when the nav
-  is up, the content's right edge never past the ticks' left edge, and — after squeezing the editor
-  to 360px, where the `cqw` gutter bottoms out — the padding unchanged (the floor does not scale with
-  the container).
+- `design/heading-nav-check.html` pins the reserve at two widths: padding-right ≥ 62px when the nav
+  is up, at least 12px of clear air between the content's right edge and the ticks' left edge, and —
+  after squeezing the editor to 360px, where the `cqw` gutter bottoms out — the padding unchanged
+  (the floor does not scale with the container).
 - The column's `maxWidth` includes the reserve (`calc(… + GUTTER_LEFT + right)`), so a wide window
-  grows the column by 20px instead of eating 20px of text. `settings-check`'s band assertion
-  (`measure .. measure + 136`) never sees the reserve: its fixture has no headings, so no nav.
+  grows the column by the difference instead of eating it out of the text — 40px at the widest gutter
+  (40 → 80). `settings-check`'s band assertion (`measure .. measure + 136`) never sees the reserve:
+  its fixture has no headings, so it draws no nav.
 - No change to export geometry (ADR-0043): the nav is an editor-only ornament.
 
 ## Revisit if
