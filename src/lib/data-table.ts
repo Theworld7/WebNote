@@ -420,16 +420,36 @@ export function formatGrouped(value: number, precision: number = STAT_PRECISION_
 /**
  * 加一个选项。值仍是新生成的 id —— 格子里存的永远是 id,名字只是显示投影。
  * （原签名返回选项数组,与 `removeOption` 不对称,且全项目无调用者 —— 一并收口成表变换。）
+ *
+ * `id` 可以指定:调用方要**建完就把某格指过去**的话得先知道这个 id,自己生成一个传
+ * 进来,省得回头在列里翻「哪个是刚加的那个」。
  */
-export function addOption(table: DataTable, columnId: string, name: string): DataTable {
+export function addOption(table: DataTable, columnId: string, name: string, id = createOptionId()): DataTable {
   return {
     version: table.version,
     columns: table.columns.map((column) =>
       column.id === columnId
-        ? { id: column.id, name: column.name, type: column.type, options: [...column.options, { id: createOptionId(), name }] }
+        ? { id: column.id, name: column.name, type: column.type, options: [...column.options, { id, name }] }
         : column,
     ),
     rows: table.rows,
+  }
+}
+
+/**
+ * 加一个选项,并让某一行的那一格指过去。
+ *
+ * 选值面板里的「＋ 新增选项」走这条路:建完即选中,一次回答「我需要一个叫这个名字的
+ * 选项」。选项与格子在同一次变换里改完 —— 分两次改表会多记一次脏,也会让中间那一瞬
+ * 出现「有选项、没值」的表。
+ */
+export function addOptionAndPick(table: DataTable, columnId: string, rowId: string, name: string): DataTable {
+  const id = createOptionId()
+  const withOption = addOption(table, columnId, name, id)
+  return {
+    version: withOption.version,
+    columns: withOption.columns,
+    rows: withOption.rows.map((row) => (row.id === rowId ? setCell(row, columnId, id) : row)),
   }
 }
 

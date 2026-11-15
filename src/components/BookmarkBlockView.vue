@@ -146,6 +146,17 @@ const isAdding = ref(false)
 type DraftCell = string | boolean | null
 const draft = ref<Record<string, DraftCell>>({})
 
+/**
+ * 待建的新选项:列 id → 选项名。
+ *
+ * 表单里那颗「＋」建出来的名字先进这里,**点「保存」时才真正建进表里** —— 取消就
+ * 丢掉,跟表单其余部分一样是草稿。已经存在的同名选项不走这里（直接选它）。
+ */
+const pendingOptions = ref<Record<string, string>>({})
+
+/** 正在建新选项的列 id;空串 = 没有。那一列的下拉暂时换成输入框。 */
+const newOptionColumnId = ref("")
+
 function draftFromRow(row: DataRow): Record<string, DraftCell> {
   const next: Record<string, DraftCell> = {}
   for (const column of columns.value) {
@@ -167,11 +178,48 @@ const firstFieldId = computed(() => columns.value[0]?.id ?? "")
 function openEdit(row: DataRow): void {
   isAdding.value = false
   draft.value = draftFromRow(row)
+  pendingOptions.value = {}
+  newOptionColumnId.value = ""
   editingId.value = row.id
 }
 
 function closeEdit(): void {
   editingId.value = ""
+  newOptionColumnId.value = ""
+  pendingOptions.value = {}
+}
+
+/** 那一列的下拉暂时换成建名输入框。 */
+function startNewOption(column: DataColumn): void {
+  newOptionColumnId.value = column.id
+  draft.value = { ...draft.value, [column.id]: "" }
+}
+
+/** 建名输入框刚挂上就聚焦（中文输入要一个真的输入框才成）。 */
+function focusNewOption(el: unknown): void {
+  if (el instanceof HTMLInputElement) el.focus()
+}
+
+/**
+ * 建名态回车 / 失焦:名字对得上已有选项就选它,对不上就记进草稿。
+ *
+ * 新选项**不在这里建** —— 表单是草稿语义,取消就该什么都不留;真正建表发生在
+ * 「保存」那一步（`saveEdit`）。
+ */
+function commitNewOption(column: DataColumn, event: Event): void {
+  const target = event.target
+  if (!(target instanceof HTMLInputElement)) return
+  const name = target.value.trim()
+  if (newOptionColumnId.value !== column.id) return
+  newOptionColumnId.value = ""
+  if (name === "") return
+  const existing = column.options.find((option) => option.name === name)
+  if (existing !== undefined) {
+    draft.value = { ...draft.value, [column.id]: existing.id }
+    return
+  }
+  pendingOptions.value = { ...pendingOptions.value, [column.id]: name }
+  draft.value = { ...draft.value, [column.id]: "" }
 }
 
 /** 草稿里某一列的文本形态。单选格的选项 id、图片的 data URI 也走这里取显示值。 */
@@ -235,7 +283,22 @@ function saveEdit(): void {
           : dt.parseCellInput(typeof raw === "string" ? raw : "", column.type)
     if (value !== dt.cellValue(row, column)) working = dt.setCell(working, column.id, value)
   }
-  if (working !== row) void change((current) => dt.replaceRow(current, working))
+
+  // 表单里建的新选项:这时才真正进表,并把那一格指过去。
+  const pending = pendingOptions.value
+  const created = columns.value
+    .map((column) => ({ column, name: pending[column.id] ?? "" }))
+    .filter((item) => item.name !== "")
+
+  if (working === row && created.length === 0) {
+    closeEdit()
+    return
+  }
+  void change((current) => {
+    let next = working === row ? current : dt.replaceRow(current, working)
+    for (const item of created) next = dt.addOptionAndPick(next, item.column.id, row.id, item.name)
+    return next
+  })
   closeEdit()
 }
 
@@ -251,6 +314,8 @@ async function addBookmark(): Promise<void> {
   if (added === undefined) return
   isAdding.value = true
   draft.value = draftFromRow(added)
+  pendingOptions.value = {}
+  newOptionColumnId.value = ""
   editingId.value = added.id
 }
 
@@ -617,16 +682,38 @@ const columnsSelection = computed({
               @change="setDraftChecked(column, $event)"
             >
 
-            <select
-              v-else-if="column.type === 'select'"
-              :class="FIELD"
-              :value="draftTextOf(column)"
-              :ref="column.id === firstFieldId ? focusOnMount : undefined"
-              @change="setDraftOption(column, $event)"
-            >
-              <option value="">—</option>
-              <option v-for="option in column.options" :key="option.id" :value="option.id">{{ option.name }}</option>
-            </select>
+            <!-- 单选列:下拉 + 一颗「＋」。表里没有的选项可以从这儿现建 ——
+                 建的名字先进草稿,点「保存」才真正进表(取消就丢掉)。
+                 表单里保持原生 `<select>`:这是表单字段,不是要一路 Tab 过去的格子。 -->
+            <div v-else-if="column.type === 'select'" class="flex items-center gap-1">
+              <input
+                v-if="newOptionColumnId === column.id"
+                :ref="focusNewOption"
+                :class="[FIELD, 'min-w-0 flex-1']"
+                placeholder="新选项名，回车确认"
+                @keydown.enter.prevent="commitNewOption(column, $event)"
+                @blur="commitNewOption(column, $event)"
+              >
+              <select
+                v-else
+                :class="[FIELD, 'min-w-0 flex-1']"
+                :value="draftTextOf(column)"
+                :ref="column.id === firstFieldId ? focusOnMount : undefined"
+                @change="setDraftOption(column, $event)"
+              >
+                <option value="">—</option>
+                <option v-for="option in column.options" :key="option.id" :value="option.id">{{ option.name }}</option>
+              </select>
+              <button
+                v-if="newOptionColumnId !== column.id"
+                type="button"
+                class="shrink-0 rounded px-1 py-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                aria-label="新增选项"
+                @click="startNewOption(column)"
+              >
+                <PlusIcon class="size-3" />
+              </button>
+            </div>
 
             <!-- 文本 / 数字 / 日期:先存原串,保存时统一走 parseCellInput。 -->
             <input

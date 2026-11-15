@@ -64,7 +64,9 @@
   固定值不跟 `cqw` 缩)而 hover 展开的目录卡仍盖在正文上(0056)、标签右键多出「关闭其他 /
   左侧 / 右侧」三条(锚点永远留下、没有邻居那一侧灰掉)且脏标签**先存再关**不逐条弹框(0057)、
   macOS 的窗口交给系统:补回「有标题栏」那条(内容顶满、标题栏透明)换系统那圈圆角,
-  窗口按钮也用系统的红绿灯(左缘让位 `5rem`),Windows 仍是自绘那三颗(0058)。
+  窗口按钮也用系统的红绿灯(左缘让位 `5rem`),Windows 仍是自绘那三颗(0058)、
+  选项可以在**选值的地方就地新增**(选值格面板底部一行「＋ 新增选项」、建完即选中;
+  账目格 / 数据表块 / 看板卡 / 画册卡都算,书签块是表单里那颗「＋」—— 建完点「保存」才建),
   改对应行为前先读那篇。(0029 的标签位置已被 0033 取代,0034 的模态表单已被 0035 取代,0043
   里「导出字号是 px」那段已被 0050 取代,0047「密钥块只是显示开关」已被 0052 取代,
   0052「盐一生不变」已被 0053 收窄成「换口令时换盐」,0054 的「整块只有一组条件」与
@@ -78,7 +80,7 @@
    用类型收窄和类型守卫表达。
 2. **自检页**:`design/*.html` 是能直接跑的回归页,每个用例输出 `OK` / `FAIL` 行。
    `pnpm dev` 后访问 `/design/<名字>.html`;其中 `drag-check`、`typography-check`、
-   `data-table-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-filter-check`、`ledger-date-check`、`kanban-date-check`、`option-cell-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check`、`tab-housing-check`、`undo-paint-check`、`table-ref-check`、`context-menu-check`、`vault-check`、`sidebar-overlay-check` 含顶层 `await`,要抓结果用
+   `data-table-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-filter-check`、`ledger-date-check`、`kanban-date-check`、`option-cell-check`、`gallery-select-check`、`bookmark-select-check`、`playlist-edit-check`、`menu-nav-check`、`link-check`、`block-select-check`、`tab-housing-check`、`undo-paint-check`、`table-ref-check`、`context-menu-check`、`vault-check`、`sidebar-overlay-check` 含顶层 `await`,要抓结果用
    `node design/cdp-dump.mjs http://localhost:1420/design/<名字>.html`。
    **收尾行的判据里别出现 `数字 / 数字`** —— `cdp-dump.mjs` 靠 `\d+\s*/\s*\d+` 认出「跑完了」,
    用例名里带 `10-03 / 10-01` 这种写法会让它在半路收工,打印一份看着全绿的半截结果。
@@ -148,7 +150,11 @@
 动格子的增删行为 → `cell-check`(挂真实编辑器,走 CDP);动行内链接的样式 / 单击跳转
 (`lib/link.ts`、`lib/open-external.ts`、`linkHrefOf`)→ `link-check`(挂真实编辑器,走 CDP);
 动选择格的键盘模型 / 浮层落位(`components/OptionCell.vue`、`lib/floating.ts`)→
-`option-cell-check`(组件级,不借账目夹具);动引用块的提示态(空指针 / 读不到 / 读取中,以及
+`option-cell-check`(组件级,不借账目夹具);动选择格的**就地新增选项**(面板底部「＋ 新增选项」那一行、
+建名态、键盘走得到、`addOptionAndPick`)→ `option-cell-check` 与 `data-table-check` 都跑(后者有一条
+引用块里当场建选项的端到端用例);动画册卡的 select 列(它也是选值格)→ `gallery-select-check`;
+动书签块表单里的 select 列(那颗「＋」、草稿语义、点「保存」才建)→ `bookmark-select-check`;
+动引用块的提示态(空指针 / 读不到 / 读取中,以及
 读不到时「重新选择数据表」的出路,`components/TableRefNotice.vue`、换表该清什么的规则在
 `lib/rebind.ts`)→ `table-ref-check`(组件级 + 纯函数,不借任何一个引用块的夹具);动账目块的财务口径 → `ledger-check`,动它的就地增删改 →
 `ledger-edit-check`,动记一笔的草稿行(顶端落位 / 回车与 Tab 横着填 / 归位排序 / 空行自动删)→

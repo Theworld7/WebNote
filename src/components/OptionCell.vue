@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { DataSelectOption } from "@/types/data-table"
 import { computed, nextTick, onBeforeUnmount, ref } from "vue"
-import { CheckIcon, ChevronDownIcon } from "@lucide/vue"
+import { CheckIcon, ChevronDownIcon, PlusIcon } from "@lucide/vue"
 import { placeBelow, watchScrollHosts } from "@/lib/floating"
 
 /**
@@ -32,11 +32,19 @@ const props = withDefaults(
     emptyHint?: string
     /** 格子里要不要那颗小箭头。 */
     chevron?: boolean
+    /**
+     * 能不能就地新增选项。
+     *
+     * 开了的话面板底部多一行「＋ 新增选项」：进去填个名字回车就建，建完由父组件去
+     * 改表（`create` 事件带着那个名字），本格随即指向它。
+     */
+    creatable?: boolean
   }>(),
   {
     emptyLabel: "未选择",
     emptyHint: "这一列还没有选项 —— 去数据表里加。",
     chevron: true,
+    creatable: false,
   },
 )
 
@@ -44,7 +52,7 @@ const props = withDefaults(
 // 自动透传在这种情况下会失效并告警，所以关掉自动透传、手动绑 `v-bind="$attrs"`。
 defineOptions({ inheritAttrs: false })
 
-const emit = defineEmits<{ pick: [value: string] }>()
+const emit = defineEmits<{ pick: [value: string]; create: [name: string] }>()
 
 /** 面板最高与单项高度（含内边距）。用来估总高，决定往下放还是往上翻。 */
 const MAX_HEIGHT = 232
@@ -60,10 +68,38 @@ const active = ref("")
 const placement = ref<ReturnType<typeof placeBelow> | null>(null)
 let stopScroll: (() => void) | null = null
 
+/**
+ * 「新增选项」那一行的哨兵 id。它不是选项 id —— 真选项的 id 是 `o` 打头的，撞不上，
+ * 所以可以直接拿它当「高亮停在建名那一行」的标记。
+ */
+const CREATE_ROW = "\u0000create"
+
+/** 正在建名：面板底部那一行换成了输入框。 */
+const creating = ref(false)
+/** 建名时输入框里的字。 */
+const draft = ref("")
+const draftInput = ref<HTMLInputElement | null>(null)
+/**
+ * 焦点还给格子时那次 `focus` 会顺手把面板再打开一次 —— 面板刚收掉，得挡一下。
+ * 只在还焦点的这一瞬间挡（`focus()` 是同步派发 focus 事件的，挡完立刻撤）。
+ */
+let suppressOpen = false
+
 /** 「未选择」排在最前，其余按列里定义的顺序。 */
-const items = computed(() => [
+const optionItems = computed(() => [
   { id: "", label: props.emptyLabel },
   ...props.options.map((option) => ({ id: option.id, label: option.name })),
+])
+
+/**
+ * 键盘走的一串：真实选项 + 末尾的「新增选项」那一行（可建时才有）。
+ *
+ * 它排在最后，于是「↓ 到底」停在建名那一行而不是绕回第一项 —— 「到底就停住」这条
+ * 规矩不变，只是多了一个能停的地方。
+ */
+const items = computed(() => [
+  ...optionItems.value,
+  ...(props.creatable ? [{ id: CREATE_ROW, label: "新增选项" }] : []),
 ])
 
 /** 格子上显示的文案。值指向已删选项时退回空标签（与 `valueText` 同一口径，不漏 id 给人看）。 */
@@ -80,6 +116,8 @@ function openPanel(): void {
   if (open.value) return
   const el = anchor.value
   if (el === null) return
+  creating.value = false
+  draft.value = ""
   place(el)
   active.value = props.modelValue
   open.value = true
@@ -124,8 +162,66 @@ function moveActive(step: number): void {
 
 /** 选中一项：先收面板再报出去，**焦点留在按钮上**（它本来就没离开过）。 */
 function pick(value: string): void {
+  // 「新增选项」那一行不是选择，是进建名态。
+  if (value === CREATE_ROW) {
+    startCreate()
+    return
+  }
   closePanel()
   emit("pick", value)
+}
+
+/**
+ * 进建名态：面板底部那一行换成输入框，焦点进去。
+ *
+ * 焦点**要**进去 —— 中文输入要一个真的输入框才成。面板平时「焦点从不进来」那条
+ * 规矩在这一态是破例的，破例只在这一态：进建名态时输入框是面板里唯一可聚焦的东西。
+ */
+function startCreate(): void {
+  creating.value = true
+  draft.value = ""
+  void nextTick(() => {
+    draftInput.value?.focus()
+    const el = anchor.value
+    if (el !== null) place(el)
+  })
+}
+
+/**
+ * 建名态的收尾：把名字交出去（空名不算），面板收掉。
+ *
+ * `keepFocus` 决定要不要把焦点还给格子 —— 回车要（人还在这一格，接着 Tab 就能走），
+ * 失焦不要（人已经点到别处去了，把焦点抢回来是添乱）。
+ */
+function finishCreate(keepFocus: boolean): void {
+  const name = draft.value.trim()
+  creating.value = false
+  draft.value = ""
+  closePanel()
+  if (name !== "") emit("create", name)
+  if (keepFocus) focusCell()
+}
+
+/** 建名态 Esc：这个名字不要了，回列表（面板还开着，方向键接着能用）。 */
+function cancelCreate(): void {
+  creating.value = false
+  draft.value = ""
+  focusCell()
+}
+
+/** 建名态失焦：有名字就交出去（与别处的「失焦提交」同一口径），没名字就放弃。 */
+function onDraftBlur(): void {
+  if (!creating.value) return
+  finishCreate(false)
+}
+
+/** 焦点还给格子。那次 `focus` 会顺手把面板再打开一次 —— 挡一下，挡完就撤。 */
+function focusCell(): void {
+  const el = anchor.value
+  if (el === null) return
+  suppressOpen = true
+  el.focus()
+  suppressOpen = false
 }
 
 /** 鼠标划过某一项 → 高亮跟着走，点下去选中的就是它。 */
@@ -175,6 +271,27 @@ function onClick(): void {
   openPanel()
 }
 
+/**
+ * 聚焦即展开 —— Tab 落到格子上不用再按一次键。
+ *
+ * 挡的那一下是「焦点还给格子」那一条路：面板刚收掉，不能因为还焦点就又弹回来。
+ */
+function onFocus(): void {
+  if (suppressOpen) return
+  openPanel()
+}
+
+/**
+ * 失焦即收面板。
+ *
+ * 建名态下焦点是让给面板里那个输入框的，那不算「人走了」—— 面板交给输入框的
+ * `blur` 去收。
+ */
+function onBlur(): void {
+  if (creating.value) return
+  closePanel()
+}
+
 onBeforeUnmount(() => {
   stopScroll?.()
   stopScroll = null
@@ -190,10 +307,10 @@ onBeforeUnmount(() => {
     aria-haspopup="listbox"
     :aria-expanded="open"
     @mousedown.prevent
-    @focus="openPanel"
+    @focus="onFocus"
     @click="onClick"
     @keydown="onKeydown"
-    @blur="closePanel"
+    @blur="onBlur"
   >
     <slot :label="label" :is-empty="modelValue === ''">
       <span class="truncate">{{ label }}</span>
@@ -222,7 +339,7 @@ onBeforeUnmount(() => {
         :style="{ maxHeight: `${MAX_HEIGHT}px` }"
       >
         <div
-          v-for="item in items"
+          v-for="item in optionItems"
           :key="item.id"
           role="option"
           :aria-selected="item.id === active"
@@ -235,8 +352,39 @@ onBeforeUnmount(() => {
           <span class="truncate">{{ item.label }}</span>
           <CheckIcon v-if="item.id === active" class="ml-auto size-3 shrink-0 opacity-70" />
         </div>
-        <div v-if="options.length === 0 && emptyHint !== ''" class="px-1.5 py-1 text-11 text-muted-foreground">
+        <div v-if="options.length === 0 && emptyHint !== '' && !creatable" class="px-1.5 py-1 text-11 text-muted-foreground">
           {{ emptyHint }}
+        </div>
+      </div>
+
+      <!-- 新增选项：可建时才有。它在列表**外面**（列表是 listbox，里面只该有选项），
+           但键盘走得到 —— ↑↓ 能停在它身上，回车进建名态。
+           建名态里那个输入框是面板里唯一可聚焦的东西：面板「焦点从不进来」那条
+           规矩在这里破例一次。 -->
+      <div v-if="creatable" class="border-t border-line/60 p-1">
+        <input
+          v-if="creating"
+          ref="draftInput"
+          v-model="draft"
+          class="w-full rounded-[6px] bg-transparent px-1.5 py-[0.3125rem] text-12 outline-none ring-1 ring-foreground/20"
+          placeholder="新选项名，回车确认"
+          @mousedown.stop
+          @keydown.enter.prevent="finishCreate(true)"
+          @keydown.esc.prevent="cancelCreate"
+          @blur="onDraftBlur"
+        >
+        <div
+          v-else
+          role="option"
+          :aria-selected="false"
+          :data-active="active === CREATE_ROW"
+          class="flex cursor-pointer items-center gap-1.5 rounded-[6px] px-1.5 py-[0.3125rem] text-12 text-muted-foreground"
+          :class="active === CREATE_ROW ? 'bg-selection' : 'hover:bg-muted/60'"
+          @mouseenter="hover(CREATE_ROW)"
+          @click="startCreate"
+        >
+          <PlusIcon class="size-3 shrink-0" />
+          <span>新增选项</span>
         </div>
       </div>
     </div>

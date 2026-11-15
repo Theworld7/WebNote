@@ -17,7 +17,7 @@
 </head>
 <body>
 <h1>选择格（`OptionCell`）：Tab 到就展开、↑↓ 移高亮、回车选、Esc 收而焦点不丢</h1>
-<p class="lead">这是账目格 / 数据表块 / 看板卡共用的那一个组件，所以在这里单独立一页 —— 不借账目的夹具，只看它自己的契约。</p>
+<p class="lead">这是账目格 / 数据表块 / 看板卡 / 画册卡共用的那一个组件，所以在这里单独立一页 —— 不借账目的夹具，只看它自己的契约。末段测「可建」的那一格：面板底部多一行「＋ 新增选项」。</p>
 <div id="app"></div>
 <pre id="out">running…</pre>
 <script type="module">
@@ -43,8 +43,10 @@ const OPTIONS = [
 ]
 
 /** 父组件的状态：值只能由它改 —— `pick` 只是「请求改」，选中与否看这里有没有动。 */
-const state = reactive({ a: "o2", b: "", c: "gone", d: "", e: "o1", f: "o1" })
+const state = reactive({ a: "o2", b: "", c: "gone", d: "", e: "o1", f: "o1", g: "" })
 const picks = []
+/** 「新增选项」报上来的名字。父组件拿它去改表 —— 组件自己不碰数据。 */
+const creates = []
 window.__state = state
 
 const cell = (key) =>
@@ -52,9 +54,13 @@ const cell = (key) =>
     modelValue: state[key],
     options: key === "d" ? [] : OPTIONS,
     chevron: key !== "d",
+    creatable: key === "g",
     onPick: (value) => {
       picks.push([key, value])
       state[key] = value
+    },
+    onCreate: (name) => {
+      creates.push([key, name])
     },
   })
 
@@ -73,6 +79,8 @@ const Root = defineComponent({
         ]),
         // 贴着视口底部：面板应当翻到格子上方，而不是被切掉。
         h("div", { id: "flip" }, cell("f")),
+        // 可建的那一格：面板底部多一行「＋ 新增选项」。
+        h("div", { id: "cell-g", class: "row" }, cell("g")),
       ])
   },
 })
@@ -85,6 +93,10 @@ const panelEl = () => document.querySelector('[role="listbox"]')?.parentElement 
 const listEl = () => document.querySelector('[role="listbox"]')
 const optionTexts = () => [...(listEl()?.querySelectorAll('[role="option"]') ?? [])].map((el) => (el.textContent ?? "").trim())
 const activeText = () => (listEl()?.querySelector('[data-active="true"]')?.textContent ?? "").trim()
+/** 面板里被高亮的那一行 —— 「新增选项」在列表**外面**，所以得看整个面板。 */
+const panelActiveText = () => (panelEl()?.querySelector('[data-active="true"]')?.textContent ?? "").trim()
+/** 建名态那个输入框。 */
+const draftInput = () => panelEl()?.querySelector('input') ?? null
 const key = (el, k) => el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }))
 const click = (el) => {
   el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }))
@@ -98,6 +110,23 @@ const tick = async () => {
   await new Promise((resolve) => requestAnimationFrame(() => resolve()))
   await new Promise((resolve) => setTimeout(resolve, 0))
   await nextTick()
+}
+
+/**
+ * 聚焦 / 失焦一个格子。
+ *
+ * **文档没有焦点时浏览器不派发 focus / blur 事件** —— 后台标签页、内嵌浏览器里
+ * `el.focus()` 只改 `activeElement`，事件不来。于是组件收不到「聚焦即展开」那条
+ * 信号，自检会在第一段就断掉（表现是「面板没开」）。文档有焦点时事件本来就会来，
+ * 这里不再多派发一个；多派发也无妨 —— 展开与收面板都是幂等的。
+ */
+const focusCell = (el) => {
+  el.focus()
+  if (!document.hasFocus()) el.dispatchEvent(new FocusEvent("focus"))
+}
+const blurCell = (el) => {
+  el.blur()
+  if (!document.hasFocus()) el.dispatchEvent(new FocusEvent("blur"))
 }
 
 // ---------- 一、渲染 ----------
@@ -115,7 +144,7 @@ check("默认带那颗小箭头", a?.querySelector("svg") !== undefined && a?.qu
 check("chevron=false 时不画箭头", button("cell-d")?.querySelector("svg") === null)
 
 // ---------- 二、Tab 到就展开 ----------
-a.focus()
+focusCell(a)
 await tick()
 check("聚焦即展开（Tab 落到格子上不用再按一次键）", listEl() !== null)
 check("面板挂在 body 上（块的 overflow 容器裁不到它）", panelEl() !== null && panelEl().parentElement === document.body)
@@ -177,7 +206,7 @@ check("空格与回车等价：选中当前高亮项", state.a === "" && listEl(
 check("选中空项 = 清空，格子回到空标签", (a?.textContent ?? "").trim() === "未选择", (a?.textContent ?? "").trim())
 
 // ---------- 七、鼠标：点开、再点收起、点选项选中 ----------
-a.blur()
+blurCell(a)
 await tick()
 click(a)
 await tick()
@@ -198,12 +227,12 @@ check("点选项不夺焦点（焦点仍在格子上）", document.activeElement
 click(a)
 await tick()
 check("再展开一次", listEl() !== null)
-a.blur()
+blurCell(a)
 await tick()
 check("焦点走掉（Tab 到下一格）时面板收起", listEl() === null)
 
 // ---------- 九、没有选项时给一条出路 ----------
-button("cell-d").focus()
+focusCell(button("cell-d"))
 await tick()
 check("只剩「未选择」时仍能展开", listEl() !== null)
 check("选项为空时列出空项 + 提示", optionTexts().join(",") === "未选择", optionTexts().join(","))
@@ -212,30 +241,30 @@ check(
   (panelEl()?.textContent ?? "").includes("去数据表里加"),
   (panelEl()?.textContent ?? "").trim().slice(0, 40),
 )
-button("cell-d").blur()
+blurCell(button("cell-d"))
 await tick()
 
 // ---------- 十、几何：贴着底边时翻到上方，滚动时收起 ----------
 const flip = button("flip")
 check("贴底的那格存在", flip !== null && flip.closest("#flip") !== null)
-flip?.focus()
+focusCell(flip)
 await tick()
 const flipRect = flip.getBoundingClientRect()
 const flipTop = parseFloat(panelEl()?.style.top ?? "NaN")
 check("下方放不下时面板翻到格子上方（不被视口切掉）", flipTop < flipRect.top, `${flipTop} vs ${flipRect.top}`)
-flip?.blur()
+blurCell(flip)
 await tick()
 
 const cellE = button("cell-e")
 const scroller = document.querySelector("#scroller")
-cellE?.focus()
+focusCell(cellE)
 await tick()
 check("滚动容器里的格子也能展开", listEl() !== null)
 scroller.scrollTop = 30
 scroller.dispatchEvent(new Event("scroll"))
 await tick()
 check("滚动祖先一滚，面板就收起（不悬在旧位置）", listEl() === null)
-cellE?.blur()
+blurCell(cellE)
 await tick()
 
 // 屏幕外的格子：Tab 过去时浏览器会先把它滚进视口。那一滚发生在 focus 之后 ——
@@ -243,7 +272,7 @@ await tick()
 scroller.scrollTop = 0
 await tick()
 check("前提：这一格确实在滚动容器的视野外", cellE.getBoundingClientRect().bottom > scroller.getBoundingClientRect().bottom)
-cellE.focus()
+focusCell(cellE)
 await tick()
 check("Tab 到屏幕外的格子：滚进视口不会把面板误关", listEl() !== null)
 const scrolledRect = cellE.getBoundingClientRect()
@@ -252,10 +281,81 @@ check(
   Math.abs(parseFloat(panelEl()?.style.top ?? "NaN") - (scrolledRect.bottom + 4)) <= 1,
   `${panelEl()?.style.top} vs ${scrolledRect.bottom + 4}`,
 )
-cellE.blur()
+blurCell(cellE)
 await tick()
 
-// ---------- 十一、收尾 ----------
+// ---------- 十一、可建的格子：面板底部那行「＋ 新增选项」 ----------
+const g = button("cell-g")
+check("可建的那一格存在", g !== null)
+focusCell(g)
+await tick()
+check("面板底部多出「＋ 新增选项」那一行", (panelEl()?.textContent ?? "").includes("新增选项"), (panelEl()?.textContent ?? "").trim().slice(0, 40))
+check("那一行在列表**外面**（listbox 里只有选项）", optionTexts().join(",") === "未选择,工作,生活,人情", optionTexts().join(","))
+const gFocusables = [...(panelEl()?.querySelectorAll("*") ?? [])].filter(
+  (el) => el.tagName === "BUTTON" || el.tagName === "INPUT" || el.tagName === "A" || el.tabIndex >= 0,
+)
+check("列表态下面板里仍没有可聚焦元素（Tab 不进面板）", gFocusables.length === 0, gFocusables.map((el) => el.tagName).join(","))
+
+// 键盘走得到：↓ 停在末尾那一行，回车进建名态
+for (let i = 0; i < 4; i += 1) key(g, "ArrowDown")
+await tick()
+check("↓ 能停在「新增选项」那一行", panelActiveText() === "新增选项", panelActiveText())
+key(g, "Enter")
+await tick()
+check("回车进建名态：面板里出现输入框", draftInput() !== null)
+check("建名态焦点在输入框里（中文输入要一个真的输入框）", document.activeElement === draftInput(), document.activeElement?.tagName ?? "null")
+check("建名态时已有选项还在（看得见再决定）", listEl() !== null)
+
+const setInput = (el, value) => {
+  el.value = value
+  el.dispatchEvent(new Event("input", { bubbles: true }))
+}
+
+// 回车 = 建
+setInput(draftInput(), "出差")
+key(draftInput(), "Enter")
+await tick()
+check("回车把新名字报给父组件", creates.length === 1 && creates[0][1] === "出差", JSON.stringify(creates))
+check("建完面板收起", listEl() === null)
+check("建完焦点回到格子（接着 Tab 能走）", document.activeElement === g, document.activeElement?.tagName ?? "null")
+check("建选项不算一次「选中」，没报 pick", picks.filter(([key]) => key === "g").length === 0, JSON.stringify(picks))
+
+// Esc = 这个名字不要了
+key(g, "Enter")
+await tick()
+for (let i = 0; i < 4; i += 1) key(g, "ArrowDown")
+key(g, "Enter")
+await tick()
+check("又进了建名态", draftInput() !== null)
+key(draftInput(), "Escape")
+await tick()
+check("Esc 放弃这个名字（不报 create）", creates.length === 1, JSON.stringify(creates))
+check("Esc 回到列表（面板还开着）", listEl() !== null && draftInput() === null)
+check("Esc 之后焦点在格子上", document.activeElement === g, document.activeElement?.tagName ?? "null")
+
+// 空名回车 = 什么都不发生
+key(g, "Enter")
+await tick()
+check("还停在建名态", draftInput() !== null)
+key(draftInput(), "Enter")
+await tick()
+check("空名回车不报 create", creates.length === 1, JSON.stringify(creates))
+check("空名回车把面板收了", listEl() === null)
+
+// 失焦 = 交出去（与别处的「失焦提交」同一口径）
+key(g, "Enter")
+await tick()
+for (let i = 0; i < 4; i += 1) key(g, "ArrowDown")
+key(g, "Enter")
+await tick()
+check("又进了建名态（失焦这一轮）", draftInput() !== null)
+setInput(draftInput(), "居家")
+blurCell(draftInput())
+await tick()
+check("失焦也交出名字", creates.length === 2 && creates[1][1] === "居家", JSON.stringify(creates))
+check("失焦后面板收起", listEl() === null)
+
+// ---------- 十二、收尾 ----------
 check("整个过程只报过这些选择，没有多余的 pick", picks.every(([, value]) => typeof value === "string"), JSON.stringify(picks))
 
 out.textContent = `${failed === 0 ? "ALL OK" : "FAIL " + failed}\n自检 ${passed}/${passed + failed}\n\n${lines.join("\n")}`

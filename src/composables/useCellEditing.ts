@@ -31,6 +31,14 @@ export interface CellEditing {
   commitOnEnter(event: Event): void
   /** select 格：直接给新值（选项 id），空串 = 清空。面板由 `OptionCell` 托管。 */
   commitOption(row: DataRow, column: DataColumn, value: string): void
+  /**
+   * select 格：新建一个选项并把这一格指过去。
+   *
+   * 面板里「＋ 新增选项」走这条路 —— 建完即选中，「我需要一个叫这个名字的选项」
+   * 这一下就答完了。选项与格子在同一次变换里改完（`dt.addOptionAndPick`），
+   * 不会留下「有选项、没值」的中间态。
+   */
+  createOption(row: DataRow, column: DataColumn, name: string): void
   /** 勾选格直接切换，不需要「点进编辑」那一层。 */
   toggleCheck(row: DataRow, column: DataColumn, event: Event): void
   /** 编辑框一挂上就拿焦点。 */
@@ -76,6 +84,10 @@ export function useCellEditing(change: (next: (table: DataTable) => DataTable) =
     void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, next)))
   }
 
+  function createOption(row: DataRow, column: DataColumn, name: string): void {
+    void change((current) => dt.addOptionAndPick(current, column.id, row.id, name))
+  }
+
   function toggleCheck(row: DataRow, column: DataColumn, event: Event): void {
     const target = event.target
     if (!(target instanceof HTMLInputElement)) return
@@ -86,5 +98,5 @@ export function useCellEditing(change: (next: (table: DataTable) => DataTable) =
     if (el instanceof HTMLInputElement) el.focus()
   }
 
-  return { editing, cellKey, begin, commit, commitOnBlur, commitOnEnter, commitOption, toggleCheck, focusOnMount }
+  return { editing, cellKey, begin, commit, commitOnBlur, commitOnEnter, commitOption, createOption, toggleCheck, focusOnMount }
 }

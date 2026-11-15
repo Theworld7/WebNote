@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>书签块表单 · 选择列自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  p.lead { margin: 0 0 16px; color: #6b7280; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>书签块的编辑表单：单选列旁边那颗「＋」，选项到点「保存」才建</h1>
+<p class="lead">书签块在**表单**里改行，而表单里的下拉保持原生 `<select>`（Tab 到就展开在表单里是碍事）。所以它给的是那颗「＋」：建出来的名字先进草稿，点「保存」才进表 —— 取消就什么都不留。</p>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, reactive, ref, nextTick } from "vue"
+import BookmarkBlockView from "../src/components/BookmarkBlockView.vue"
+import { TooltipProvider } from "../src/components/ui/tooltip/index.ts"
+import { createBookmarkBlock } from "../src/lib/blocks.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { provideTables } from "../src/composables/useTables.ts"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
+import { createMemoryFs } from "./memory-fs.ts"
+import * as dt from "../src/lib/data-table.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  document.querySelector("#out").textContent = lines.join("\n")
+}
+
+// 一张三列表：名称（文本）、地址（文本）、状态（单选）。
+let tbl = dt.createEmptyTable(["名称", "地址", "状态"])
+const NAME = tbl.columns[0].id
+const URL = tbl.columns[1].id
+const STATUS = tbl.columns[2].id
+tbl = dt.setColumnType(tbl, STATUS, "select")
+tbl = dt.addOption(tbl, STATUS, "常用")
+const option = tbl.columns[2].options[0]
+tbl = dt.replaceRow(tbl, dt.setCell(tbl.rows[0], NAME, "玉简"))
+tbl = dt.replaceRow(tbl, dt.setCell(tbl.rows[0], URL, "https://example.com"))
+tbl = dt.replaceRow(tbl, dt.setCell(tbl.rows[0], STATUS, option.id))
+
+const memory = createMemoryFs()
+memory.seedFile("书签.tbl", dt.tableToJson(tbl))
+
+const block = reactive(createBookmarkBlock("书签.tbl", NAME, URL))
+const ready = ref(false)
+let probe = {}
+let store = null
+const host = document.createElement("div")
+host.id = "host"
+document.body.appendChild(host)
+
+const Root = defineComponent({
+  setup() {
+    provideTheme(provideSettings())
+    const workspace = provideWorkspace()
+    probe = workspace
+    store = provideTables(workspace.fs, workspace.root)
+    // 书签块里用了提示气泡 —— 提示气泡走 reka 的注入，少一层就不渲染（见 AGENTS.md）。
+    return () => (ready.value ? h(TooltipProvider, null, { default: () => h(BookmarkBlockView, { block }) }) : h("div"))
+  },
+})
+createApp(Root).mount(host)
+await probe.attachForTest(memory.fs, { kind: "path", path: "/stub" })
+ready.value = true
+await new Promise((resolve) => setTimeout(resolve, 0))
+await nextTick()
+await nextTick()
+
+// 打开「编辑书签」框
+const pencil = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "编辑书签")
+check("卡上有编辑按钮", pencil !== undefined)
+pencil?.click()
+await nextTick()
+await nextTick()
+
+const dialog = document.querySelector('[role="alertdialog"]')
+check("编辑框打开了", dialog !== null)
+const plus = [...(dialog?.querySelectorAll("button") ?? [])].find((button) => button.getAttribute("aria-label") === "新增选项")
+check("单选列旁边有那颗「＋」", plus !== undefined)
+check("单选列仍是原生下拉（表单里的字段不改键盘模型）", (dialog?.querySelectorAll("select").length ?? 0) > 0)
+plus?.click()
+await nextTick()
+await nextTick()
+
+const input = [...(dialog?.querySelectorAll("input") ?? [])].find((el) => (el.placeholder ?? "").includes("新选项名"))
+check("点了「＋」那一列换成建名输入框", input !== undefined)
+if (input !== undefined) {
+  input.value = "待整理"
+  input.dispatchEvent(new Event("input", { bubbles: true }))
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
+}
+await nextTick()
+await nextTick()
+check(
+  "保存之前表里还没有那个选项（草稿语义）",
+  !(store.peek("书签.tbl")?.columns ?? []).some((column) => column.options.some((item) => item.name === "待整理")),
+  JSON.stringify(store.peek("书签.tbl")?.columns),
+)
+
+// 点「保存」
+const save = [...(dialog?.querySelectorAll("button") ?? [])].find((button) => (button.textContent ?? "").trim() === "保存")
+check("框里有「保存」", save !== undefined)
+save?.click()
+await nextTick()
+await nextTick()
+await new Promise((resolve) => setTimeout(resolve, 0))
+
+const saved = store.peek("书签.tbl")
+const statusColumn = (saved?.columns ?? []).find((column) => column.name === "状态")
+check(
+  "保存后表里多了那个选项",
+  (statusColumn?.options ?? []).some((item) => item.name === "待整理"),
+  JSON.stringify(statusColumn?.options),
+)
+const picked = (statusColumn?.options ?? []).find((item) => item.id === (saved?.rows[0]?.values ?? {})[statusColumn.id])
+check("那一格指向新选项", picked !== undefined && picked.name === "待整理", JSON.stringify(saved?.rows[0]?.values))
+
+const summary = `自检 ${passed}/${passed + failed} 通过`
+document.querySelector("#out").textContent = `${lines.join("\n")}\n\n${summary}`
+document.title = failed === 0 ? "ok" : "fail"
+</script>
+</body>
+</html>

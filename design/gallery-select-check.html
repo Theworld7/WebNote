@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>画册卡 · 选择格自检</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 24px; color: #1c1c1e; }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  p.lead { margin: 0 0 16px; color: #6b7280; }
+  pre { margin: 0; padding: 14px; background: #f6f6f7; border-radius: 10px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>画册卡上的选择格：也是选值格，也能就地新增选项</h1>
+<p class="lead">画册卡的选择列原先是**纯文本输入** —— 敲进去的名字若对不上任何选项，格子显示「空」而值还在。现在它与账目格 / 看板卡 / 数据表块同源：走 `OptionCell`，面板底部有「＋ 新增选项」。</p>
+<div id="app"></div>
+<pre id="out">running…</pre>
+<script type="module">
+import "../src/style.css"
+import { createApp, defineComponent, h, reactive, ref, nextTick } from "vue"
+import GalleryBlockView from "../src/components/GalleryBlockView.vue"
+import { createGalleryBlock } from "../src/lib/blocks.ts"
+import { provideWorkspace } from "../src/composables/useWorkspace.ts"
+import { provideTables } from "../src/composables/useTables.ts"
+import { provideSettings } from "../src/composables/useSettings.ts"
+import { provideTheme } from "../src/composables/useTheme.ts"
+import { createMemoryFs } from "./memory-fs.ts"
+import * as dt from "../src/lib/data-table.ts"
+
+const lines = []
+let passed = 0
+let failed = 0
+function check(name, ok, detail = "") {
+  if (ok) { passed += 1; lines.push(`OK   ${name}`) }
+  else { failed += 1; lines.push(`FAIL ${name} —— ${detail}`) }
+  document.querySelector("#out").textContent = lines.join("\n")
+}
+
+// 一张只有两列的表：标题（文本）与状态（单选，只有一个选项）。
+let tbl = dt.createEmptyTable(["标题", "状态"])
+const STATUS = tbl.columns[1].id
+tbl = dt.setColumnType(tbl, STATUS, "select")
+tbl = dt.addOption(tbl, STATUS, "进行中")
+const option = tbl.columns[1].options[0]
+tbl = dt.replaceRow(tbl, dt.setCell(tbl.rows[0], tbl.columns[0].id, "漫长的季节"))
+tbl = dt.replaceRow(tbl, dt.setCell(tbl.rows[0], STATUS, option.id))
+
+const memory = createMemoryFs()
+memory.seedFile("剧.tbl", dt.tableToJson(tbl))
+
+const block = reactive(createGalleryBlock("剧.tbl"))
+const ready = ref(false)
+let probe = {}
+let store = null
+const host = document.createElement("div")
+host.id = "host"
+document.body.appendChild(host)
+
+const Root = defineComponent({
+  setup() {
+    provideTheme(provideSettings())
+    const workspace = provideWorkspace()
+    probe = workspace
+    store = provideTables(workspace.fs, workspace.root)
+    return () => (ready.value ? h(GalleryBlockView, { block }) : h("div"))
+  },
+})
+createApp(Root).mount(host)
+await probe.attachForTest(memory.fs, { kind: "path", path: "/stub" })
+ready.value = true
+// `use()` 内部跨了好几层 `async`，给一个宏任务让整条链落地。
+await new Promise((resolve) => setTimeout(resolve, 0))
+await nextTick()
+await nextTick()
+
+/**
+ * 聚焦一个格子。
+ *
+ * **文档没有焦点时浏览器不派发 focus 事件** —— 后台标签页、内嵌浏览器里
+ * `el.focus()` 只改 `activeElement`，事件不来，「聚焦即展开」那条信号就断掉。
+ */
+const focusCell = (el) => {
+  el.focus()
+  if (!document.hasFocus()) el.dispatchEvent(new FocusEvent("focus"))
+}
+
+const picker = host.querySelector('button[aria-haspopup="listbox"]')
+check("画册卡里的 select 列是选值格（不是文本输入）", picker !== null, (host.textContent ?? "").trim().slice(0, 60))
+check("格上显示的是选项名（不漏内部 id）", (picker?.textContent ?? "").trim() === "进行中", (picker?.textContent ?? "").trim())
+
+focusCell(picker)
+await nextTick()
+await nextTick()
+const panel = document.querySelector('[role="listbox"]')?.parentElement
+const rows = [...(panel?.querySelectorAll('[role="option"]') ?? [])].map((el) => (el.textContent ?? "").trim())
+check("面板列出空项、选项与新增那一行", rows.join(",") === "空,进行中,新增选项", rows.join(","))
+
+const createRow = [...(panel?.querySelectorAll('[role="option"]') ?? [])].find((el) => el.textContent.trim() === "新增选项")
+createRow?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }))
+createRow?.click()
+await nextTick()
+await nextTick()
+const input = panel?.querySelector("input")
+check("点了那一行进建名态（面板里出现输入框）", input !== null)
+if (input !== null) {
+  input.value = "已完结"
+  input.dispatchEvent(new Event("input", { bubbles: true }))
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
+}
+await nextTick()
+await nextTick()
+check("建完格上换成新选项名", (picker?.textContent ?? "").trim() === "已完结", (picker?.textContent ?? "").trim())
+check(
+  "新选项真的建进了表里",
+  (store.peek("剧.tbl")?.columns ?? []).some((column) => column.options.some((item) => item.name === "已完结")),
+  JSON.stringify(store.peek("剧.tbl")?.columns),
+)
+
+const summary = `自检 ${passed}/${passed + failed} 通过`
+document.querySelector("#out").textContent = `${lines.join("\n")}\n\n${summary}`
+document.title = failed === 0 ? "ok" : "fail"
+</script>
+</body>
+</html>

@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import ReferenceBlockShell from "@/components/ReferenceBlockShell.vue"
+import OptionCell from "@/components/OptionCell.vue"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { useTableEntry } from "@/composables/useTableEntry"
 import { useCellEditing } from "@/composables/useCellEditing"
@@ -197,7 +198,7 @@ function shownPosterOfGroup(rowsOfGroup: readonly DataRow[]): string {
 // ---- 卡片上的内联编辑 ----
 
 /** 格编辑那一套（编辑态 / 提交 / 勾选 / select）走共用模块，视图只管显示什么。 */
-const { editing, cellKey, commitOnEnter, commitOnBlur, toggleCheck, focusOnMount } = useCellEditing(change)
+const { editing, cellKey, commitOnEnter, commitOnBlur, commitOption, createOption, toggleCheck, focusOnMount } = useCellEditing(change)
 
 function cellOf(row: DataRow, column: DataColumn): string {
   return dt.valueText(dt.cellValue(row, column), column)
@@ -554,6 +555,20 @@ const WIDTH_ITEMS = [
                     :checked="dt.cellValue(row, column) === true"
                     @change="(event: Event) => toggleCheck(row, column, event)"
                   >
+
+                  <!-- 单选格：走 `OptionCell`（面板里可当场新增选项），键盘模型与账目格、
+                       看板块、数据表块同源。其余类型是纯文本 —— 点一下变输入框。 -->
+                  <OptionCell
+                    v-else-if="column.type === 'select'"
+                    class="w-full min-w-0 rounded px-0.5 text-12 hover:bg-muted"
+                    :model-value="String(dt.cellValue(row, column) ?? '')"
+                    :options="column.options"
+                    empty-label="空"
+                    :chevron="false"
+                    creatable
+                    @pick="commitOption(row, column, $event)"
+                    @create="createOption(row, column, $event)"
+                  />
 
                   <input
                     v-else-if="editing === cellKey(row, column)"

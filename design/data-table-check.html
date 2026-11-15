@@ -67,6 +67,23 @@ function note(next) {
 }
 note(step)
 
+/**
+ * 聚焦 / 失焦一个格子。
+ *
+ * **文档没有焦点时浏览器不派发 focus / blur 事件** —— 后台标签页、内嵌浏览器里
+ * `el.focus()` 只改 `activeElement`，事件不来，于是「聚焦即展开」与「失焦即收起」
+ * 两条信号都断掉，自检会停在这两行上。文档有焦点时事件本来就会来，这里不多派发
+ * 一个（多派发也无妨 —— 展开与收面板都是幂等的）。
+ */
+const focusCell = (el) => {
+  el.focus()
+  if (!document.hasFocus()) el.dispatchEvent(new FocusEvent("focus"))
+}
+const blurCell = (el) => {
+  el.blur()
+  if (!document.hasFocus()) el.dispatchEvent(new FocusEvent("blur"))
+}
+
 // ---------- 一、块类型登记与路径口径（不碰文件系统） ----------
 
 check(
@@ -200,6 +217,16 @@ check(
   dt.cellValue(legacy.rows[0], { ...statusColumn, type: "text" }) === "进行中",
 )
 check("valueText 对勾选是 ✓ / 空", dt.valueText(true, statusColumn) === "✓" && dt.valueText(false, statusColumn) === "")
+
+// 「新增选项」那一条路：建完即选中，选项与格子在同一次变换里改完。
+const freshBase = dt.createEmptyTable(["状态"])
+const fresh = dt.setColumnType(freshBase, freshBase.columns[0].id, "select")
+const pickTable = dt.addOptionAndPick(fresh, fresh.columns[0].id, fresh.rows[0].id, "已完成")
+const newOption = pickTable.columns[0].options[0]
+check("addOptionAndPick 建出一个选项", newOption !== undefined && newOption.name === "已完成")
+check("addOptionAndPick 让那一格指向新选项", dt.cellValue(pickTable.rows[0], pickTable.columns[0]) === newOption.id)
+check("addOptionAndPick 之后投影出选项名", dt.valueText(dt.cellValue(pickTable.rows[0], pickTable.columns[0]), pickTable.columns[0]) === "已完成")
+check("addOptionAndPick 不动别的行", pickTable.rows.length === fresh.rows.length)
 
 // ---------- 三、宽容解析（外部改坏的文件不该让编辑器打不开） ----------
 
@@ -561,7 +588,7 @@ check(
   host.querySelector("td select") === null && cellPicker !== null,
   String(host.querySelectorAll("td select").length),
 )
-cellPicker.focus()
+focusCell(cellPicker)
 await nextTick()
 await nextTick()
 const pickerList = document.querySelector('[role="listbox"]')
@@ -572,9 +599,37 @@ check(
   (pickerList?.querySelector('[data-active="true"]')?.textContent ?? "").trim() === "进行中",
   (pickerList?.querySelector('[data-active="true"]')?.textContent ?? "").trim(),
 )
-cellPicker.blur()
+blurCell(cellPicker)
 await nextTick()
 check("失焦后面板收起", document.querySelector('[role="listbox"]') === null)
+
+// 「＋ 新增选项」：在引用块里当场建一个 —— 建完**表里真多一个选项**，本格就指过去。
+// 这条把「面板 → create 事件 → useTableEntry.change → 注册表里的表」整条链钉住。
+focusCell(cellPicker)
+await nextTick()
+await nextTick()
+const createRow = [...document.querySelectorAll('[role="option"]')].find((el) => (el.textContent ?? "").trim() === "新增选项")
+check("面板底部有「＋ 新增选项」那一行", createRow !== undefined)
+createRow?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }))
+createRow?.click()
+await nextTick()
+await nextTick()
+const nameInput = document.querySelector('[role="listbox"]')?.parentElement?.querySelector("input")
+check("点了那一行进建名态（面板里出现输入框）", nameInput !== null)
+if (nameInput !== null) {
+  nameInput.value = "已完成"
+  nameInput.dispatchEvent(new Event("input", { bubbles: true }))
+  nameInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
+}
+await nextTick()
+await nextTick()
+const viewTable = viewProbeStore.peek("渲染.tbl")
+check(
+  "新选项建进了表里（列的选项多了一个）",
+  viewTable !== null && viewTable.columns[0].options.some((option) => option.name === "已完成"),
+  JSON.stringify(viewTable?.columns[0]?.options),
+)
+check("本格指向新选项（格上显示的是新名字）", (cellPicker?.textContent ?? "").trim() === "已完成", (cellPicker?.textContent ?? "").trim())
 
 // 悬空引用：注册表里读不到 → 提示态，文案里带路径。
 // 换一个**新的**组件实例而不是改 props —— 改 props 会走 watch → 重挂那条路，

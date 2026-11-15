@@ -83,8 +83,9 @@ Mermaid 与 HTML 的源码只在需要时加载，不画图的笔记不必为它
 谁都不必复制数据。余额和合计都是**视图算出来的**，永远不写进文件。
 
 单选格的那套键盘（Tab 到就展开、↑↓ 移高亮、回车选、Esc 收而焦点不丢）是**格子的约定**，
-由 `OptionCell` 一处实现，账目行 / 数据表格 / 看板卡共用；设置菜单与表单里的下拉仍是原生
-`<select>` —— 在那里 Tab 到就展开只会碍事。
+由 `OptionCell` 一处实现，账目行 / 数据表格 / 看板卡 / 画册卡共用；设置菜单与表单里的下拉仍是原生
+`<select>` —— 在那里 Tab 到就展开只会碍事。选值面板的底部还有一行「＋ 新增选项」：缺哪个选项就在
+哪儿现建一个，填完回车即建即选中（书签块是表单，给那颗「＋」，点「保存」时才建，ADR-0059）。
 
 ### 一篇笔记的 CSS
 
@@ -309,7 +310,7 @@ pnpm icon           # 重算应用图标（改 design/icon/icon.tokens.json 之�
 | :-- | :-- |
 | 解析与往返 | `parse-check`、`inline-check` |
 | 编辑器交互 | `chrome-check`、`tab-check`、`tab-housing-check`、`toolbar-check`、`sidebar-check`、`tree-integration-check`、`drag-check`、`split-check`、`cell-check`、`undo-check`、`undo-paint-check`、`autosave-check`、`session-check`、`scroll-memory-check`、`menu-nav-check`、`focus-check`、`link-check`、`heading-nav-check`、`block-select-check`、`context-menu-check` |
-| 块类型 | `table-check`、`table-align-check`、`data-table-check`、`table-ref-check`、`gallery-check`、`kanban-check`、`kanban-date-check`、`ledger-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-date-check`、`option-cell-check`、`subscription-check`、`playlist-check`、`playlist-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check`、`vault-check` |
+| 块类型 | `table-check`、`table-align-check`、`data-table-check`、`table-ref-check`、`gallery-check`、`gallery-select-check`、`bookmark-select-check`、`kanban-check`、`kanban-date-check`、`ledger-check`、`ledger-edit-check`、`ledger-entry-check`、`ledger-date-check`、`option-cell-check`、`subscription-check`、`playlist-check`、`playlist-edit-check`、`layout-check`、`html-check`、`html-drawer-check`、`code-edit-check`、`mermaid-check`、`vault-check` |
 | 样式与外观 | `typography-check`、`theme-check`、`theme-mode-check`、`page-style-check`、`settings-check` |
 | 文件操作 | `create-check`、`move-check`、`markdown-check`、`markdown-batch-check`、`markdown-view-check` |
 | 其它 | `update-check`（新版本检测）、`drawer-jitter-probe`（抽屉抖动守卫）、`icon-check`（图标观感） |

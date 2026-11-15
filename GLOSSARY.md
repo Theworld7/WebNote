@@ -203,15 +203,23 @@ _Avoid_: Tag, label, enum, status
 
 **Option cell**:
 The one picker a `select` cell uses, wherever the cell appears — a Ledger row, a Data table
-block, a Kanban card. Its keyboard model is a **cell** convention, not a view's: Tab lands on the
+block, a Kanban card, a Gallery card. Its keyboard model is a **cell** convention, not a view's: Tab lands on the
 cell and the list opens at once (no second keystroke), ↑/↓ move the highlight without changing the
 value, Enter picks, Esc closes and leaves focus on the cell, Enter again reopens, and only then
 does Tab move on. The panel never holds focus (its option rows are not focusable), which is what
 makes that chain possible, and it is positioned by `lib/floating` **outside** the block so a
 scrolling table cannot clip it. Writing the chosen id back is the caller's job — each view has its
 own row lookup and commit path.
+The panel's last row may be **＋ 新增选项**: activating it turns that row into a text field, and a
+name confirmed there creates the option in the column and points the cell at it. That is the one
+state in which the panel holds focus — the name has to be typed into a real field, because
+Chinese input needs one — and it is a state, not a mode of the list: in the list state the panel
+still holds nothing focusable. Creating an option where it is picked (ADR-0059) is the rule;
+renaming and deleting options stay in the data table's own editing view.
 Settings menus and form fields keep the native `<select>`: there Tab-to-open would be a nuisance,
-because those are not cells you step through.
+because those are not cells you step through. The bookmark block's row form is such a form, so
+it gets a small 「＋」 beside the `<select>` instead of the panel's row — and because it is a
+form, the option it names is created when 保存 is pressed, not before.
 _Avoid_: Dropdown (that names the native control too), combo box, list box component
 
 **Data table block**:

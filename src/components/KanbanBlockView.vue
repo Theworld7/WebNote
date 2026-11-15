@@ -119,7 +119,7 @@ function cellOf(row: DataRow, column: DataColumn): string {
  * 勾选直接切换。这一套与画册卡 / 账目行共用 `useCellEditing` ——
  * 同一格在表格编辑页与三种引用块里编辑,规则必须是同一条。
  */
-const { editing, cellKey, commit, commitOnEnter, commitOnBlur, commitOption, toggleCheck, focusOnMount } = useCellEditing(change)
+const { editing, cellKey, commit, commitOnEnter, commitOnBlur, commitOption, createOption, toggleCheck, focusOnMount } = useCellEditing(change)
 
 /**
  * 日期格的下拉月历,与账目行同一套(状态与焦点处理都在 `useDateCellPanel`):
@@ -389,14 +389,17 @@ function toggleField(column: DataColumn, checked: boolean): void {
                 @change="(event: Event) => toggleCheck(row, column, event)"
               >
 
-              <!-- 单选格：键盘模型与账目格、数据表格同源（Tab 到就展开），走 `OptionCell`。 -->
+              <!-- 单选格：键盘模型与账目格、数据表格同源（Tab 到就展开），走 `OptionCell`。
+                   面板底部那行「＋ 新增选项」可以就地建一个，建完本格就指过去。 -->
               <OptionCell
                 v-else-if="column.type === 'select'"
                 class="rounded text-12 leading-snug hover:bg-black/5"
                 :model-value="String(dt.cellValue(row, column) ?? '')"
                 :options="column.options"
                 :chevron="false"
+                creatable
                 @pick="commitOption(row, column, $event)"
+                @create="createOption(row, column, $event)"
               />
 
               <!-- 日期格:输入框一聚焦就展开月历(浮层在模板末尾的 Teleport 里)。

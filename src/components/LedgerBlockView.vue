@@ -310,7 +310,7 @@ const cellCount = computed(() => columns.value.length + (balances.value === null
  * 格编辑（编辑态 / 提交 / 勾选 / select）走共用模块；账目只多两件**读法**上的事：
  * 编辑态初值要把金额换回原始数字，回车要跳到下一行同列。
  */
-const { editing, cellKey, commit, commitOnBlur, toggleCheck, focusOnMount } = useCellEditing(change)
+const { editing, cellKey, commit, commitOnBlur, createOption, toggleCheck, focusOnMount } = useCellEditing(change)
 
 /**
  * 编辑态的初值。金额格显示的是 `+5,000.00` 这种格式化文本,进编辑态必须换回原始数字
@@ -1234,6 +1234,7 @@ function removeView(): void {
                   选择格:自绘下拉(Tab 到就展开、↑↓ 移、回车选、Esc 收而焦点不丢)。
                   按钮就是一个格子大小的可聚焦块,面板由 `OptionCell` 自己托管 —— 那套
                   键盘模型是**格子的约定**,数据表块与看板块的同类格子用的是同一个组件。
+                  面板底部那行「＋ 新增选项」可以就地建一个,建完本格就指过去。
                 -->
                 <OptionCell
                   v-else-if="column.type === 'select'"
@@ -1241,7 +1242,9 @@ function removeView(): void {
                   :class="cellText(row, column) === '' && 'text-muted-foreground'"
                   :model-value="String(dt.cellValue(row, column) ?? '')"
                   :options="column.options"
+                  creatable
                   @pick="pickOption(row, column, $event)"
+                  @create="createOption(row, column, $event)"
                 />
 
                 <!--

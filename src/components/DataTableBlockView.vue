@@ -118,6 +118,17 @@ function commitOption(row: DataRow, column: DataColumn, value: string): void {
   void change((current) => dt.replaceRow(current, dt.setCell(row, column.id, next)))
 }
 
+/**
+ * 新建一个选项并把这一格指过去。
+ *
+ * 选值面板底部那行「＋ 新增选项」走这条路 —— 建完即选中。引用块虽然只是「一扇窗」，
+ * 但**选项是这一列的**，缺了它这格就没法填；去数据表编辑页加一趟是能把事办完，
+ * 只是绕远。
+ */
+function createOption(row: DataRow, column: DataColumn, name: string): void {
+  void change((current) => dt.addOptionAndPick(current, column.id, row.id, name))
+}
+
 function addRow() {
   void change((current) => dt.addRow(current))
 }
@@ -262,8 +273,8 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
                   @error="markImageBroken(imageSourceOf(row, column))"
                 />
               </div>
-              <!-- 单选格：下拉选已有选项，空项给「—」。选项的增删改名在数据表编辑页，
-                   这里只负责选值 —— 引用块是「一扇窗」，不是第二个编辑入口。
+              <!-- 单选格：下拉选已有选项，空项给「—」。面板底部那行「＋ 新增选项」
+                   可以就地建一个 —— 建完本格就指过去（`createOption`）。
                    键盘模型与账目格同源（Tab 到就展开），组件是 `OptionCell`。 -->
               <OptionCell
                 v-else-if="column.type === 'select'"
@@ -272,7 +283,9 @@ const MARKER = "w-5.5 shrink-0 text-center font-mono text-12 text-muted-foregrou
                 :options="column.options"
                 empty-label="—"
                 :chevron="false"
+                creatable
                 @pick="commitOption(row, column, $event)"
+                @create="createOption(row, column, $event)"
               />
               <!-- 其余类型都是文本外观。编辑用 contenteditable 太复杂（要处理富文本、
                    选区、非受控 DOM），这里用最朴素的输入：提交（blur / Enter）时写盘。
