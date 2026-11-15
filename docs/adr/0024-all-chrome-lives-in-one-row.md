@@ -76,8 +76,6 @@ dependent on a pane's state.
 to show one number is a second chrome layer by another name, and the number is the one thing in
 that bar nobody needs. Fixed-width in the header costs zero layout.
 
-*Per-platform window buttons on macOS* (traffic lights at top-left) — **not addressed here**:
-`decorations: false` plus a single fixed arrangement still puts Windows-style buttons at
-top-right on macOS. That is a platform-identity bug, not a chrome-consolidation one, and it
-needs its own decision about whether to keep drawing them or hand the frame back to the system
-on macOS.
+*Per-platform window buttons on macOS* (traffic lights at top-left) — **settled by
+[ADR-0058](0058-on-macos-the-window-belongs-to-the-system.md)**: macOS keeps the system's traffic
+lights, Windows keeps the three buttons drawn here. The row is laid out per platform accordingly.

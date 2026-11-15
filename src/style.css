@@ -252,6 +252,13 @@
     --elev-block: 0 1px 2px oklch(0 0 0 / 4%), 0 6px 18px oklch(0 0 0 / 6%);
     --elev-island: 0 1px 2px oklch(0 0 0 / 5%), 0 3px 10px oklch(0 0 0 / 7%);
     --elev-pop: 0 1px 2px oklch(0 0 0 / 5%), 0 3px 10px oklch(0 0 0 / 7%), 0 12px 32px oklch(0 0 0 / 10%);
+    /* 窗口 chrome 那一行的高度。macOS 上要拿它算出「内容居中于系统那条标题栏带」
+       的底边余量，所以行高只能有一处定义 —— 见 TitleBar.vue。 */
+    --chrome-row: 2.75rem;
+    /* macOS 系统那条标题栏带的高度。系统画的红绿灯落在它的中线上：原生侧量过
+       （`standardWindowButton` 的 frame）—— 带高 32pt、按钮 14×14pt、中心距窗口顶
+       16pt。它是系统给的刻度，不跟「基础字号」偏好走，所以这里是 px 而不是 rem。 */
+    --mac-titlebar-band: 32px;
 }
 
 /*

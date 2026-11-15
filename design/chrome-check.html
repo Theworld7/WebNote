@@ -185,6 +185,35 @@ check("它与撤销重做同一行（垂直居中）",
   update === undefined ? "按钮缺失" : `按钮中线 ${((box(update)?.top ?? NaN) + (box(update)?.height ?? 0) / 2).toFixed(1)}`,
 )
 
+// ---------- 八、macOS 红绿灯的中线 ----------
+
+// 浏览器里没有系统那三颗红绿灯（`macTrafficLights` 为假），所以这里把 chrome 切到
+// macOS 那套类上再量：内容应当居中于系统那条 32px 的标题栏带，中心落在 16px ——
+// 那正是红绿灯的中线（原生侧量过 `standardWindowButton` 的 frame：带高 32pt、
+// 按钮 14×14pt、中心距窗口顶 16pt）。
+const header = chrome()
+header.classList.remove("pl-3")
+header.classList.add("pl-[5rem]", "pb-[calc(var(--chrome-row)_-_var(--mac-titlebar-band))]")
+await nextTick()
+
+/** 品牌名中心的 y（相对 chrome 顶）。品牌名是 chrome 里最高的那个元素，它的中线
+    就是整条 chrome 的中线。 */
+const brandCenter = () =>
+  (box(brand())?.top ?? 0) + (box(brand())?.height ?? 0) / 2 - (box(header)?.top ?? 0)
+
+check("macOS 下 chrome 内容中心落在 16px（与红绿灯同一条中线）",
+  Math.abs(brandCenter() - 16) < EPS,
+  `实际 ${brandCenter().toFixed(2)}px`)
+
+// 换「基础字号」档也不能错位：行高是 rem（跟着根字号缩放），而红绿灯那条 32px 的
+// 带是系统给的刻度、不跟字号档走。底边余量正是为这件事才写成 calc 的。
+document.documentElement.style.fontSize = "20px"
+await nextTick()
+check("换基础字号（根字号 20px）后仍落在 16px",
+  Math.abs(brandCenter() - 16) < EPS,
+  `实际 ${brandCenter().toFixed(2)}px`)
+document.documentElement.style.fontSize = ""
+
 lines.push(`自检 ${passed}/${passed + failed}`)
 out.textContent = lines.join("\n")
 </script>

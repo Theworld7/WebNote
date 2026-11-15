@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useTheme } from "@/composables/useTheme"
 import { useWorkspace } from "@/composables/useWorkspace"
 import { isTauriRuntime } from "@/lib/fs"
+import { isMacOS } from "@/lib/platform"
 import BrowserNotice from "./BrowserNotice.vue"
 import NewVersionButton from "./NewVersionButton.vue"
 import PageStyleButton from "./PageStyleButton.vue"
@@ -60,6 +61,39 @@ const settingsOpen = ref(false)
 const inTauri = isTauriRuntime()
 
 /**
+ * macOS 上窗口按钮是系统那三颗红绿灯，画在左上角；Windows 上是我们自己画的三颗，
+ * 贴在右上角（ADR-0024 留着的那个问题，ADR-0058 定了）。两边的排布因此不同：
+ * macOS 的左缘要给红绿灯让出位置，右缘也不再有窗口按钮。
+ *
+ * 两道都再加上「在 Tauri 里」：浏览器里（`pnpm dev`）压根没有窗口，两样都不该有。
+ */
+const macTrafficLights = inTauri && isMacOS()
+const customWindowButtons = inTauri && !isMacOS()
+
+/**
+ * 左缘给红绿灯留的那截。系统那三颗落在窗口左边 9px 起、每颗 14px、间隔 23px，
+ * 最后一颗到 69px；80px 正好让开它们还留一点呼吸（标题栏其余部分的左内边距仍是 12px）。
+ */
+const TRAFFIC_LIGHT_GUTTER = "pl-[5rem]"
+
+/**
+ * macOS 上 chrome 的内容要跟系统那三颗红绿灯落在**同一条中线**上。
+ *
+ * 红绿灯是系统画的，位置定死在「系统标题栏带」的中线上 —— 原生侧量过
+ * （`standardWindowButton` 的 frame）：带高 32pt、按钮 14×14pt、中心距窗口顶 16pt。
+ * 我们这条 chrome 是 44px 行、内容居中，中心落在 22px，于是红绿灯比内容高 6px。
+ *
+ * 改法不是给内容加一个 6px 的偏移，而是**让内容居中于那条 32px 的带**：底边让出
+ * 「行高 - 32px」，内容盒就成了 32px，中心自然落在 16px。这么写还有个好处 ——
+ * 偏移是系统给的刻度，不是我们自己挑的数，换一台 macOS 也照样对。
+ *
+ * **为什么底边那截是 `calc()` 而不是固定的 12px。** 行高是 rem（跟着「基础字号」
+ * 偏好缩放），而 32px 是系统那条带的高度 —— 它不跟我们的字号档走。底边余量得跟着
+ * 行高一起算，内容盒才恒为 32px，任何字号档下都压在同一条中线上。
+ */
+const MAC_TITLEBAR_BAND = "pb-[calc(var(--chrome-row)_-_var(--mac-titlebar-band))]"
+
+/**
  * 浏览器里没有窗口按钮，chrome 右缘就没有「贴边」的东西了 —— 文档信息区要自己收住
  * 右边距，否则页面样式那颗按钮会顶在窗口边上。
  */
@@ -105,7 +139,8 @@ let unlistenResized: (() => void) | null = null
  * 快捷键），所以订阅 onResized 而不是只在点击后更新。
  */
 onMounted(() => {
-  if (!inTauri) return
+  // macOS 上那颗图标压根不存在（红绿灯是系统的），没什么可跟的。
+  if (!customWindowButtons) return
   void (async () => {
     const { getCurrentWindow } = await import("@tauri-apps/api/window")
     const win = getCurrentWindow()
@@ -134,8 +169,13 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
   <!-- 整条都是拖拽区（`data-tauri-drag-region` 只看事件目标自己带不带这个属性，
        所以按钮不吃它，点得动）。双击标题栏最大化由 Tauri 内建处理。
        中段那段 flex-1 是窗口唯一的拖拽面 —— 标签已经不在这里了（ADR-0033），
-       它的宽度只由两端的内容决定，开多少个文件都一样宽。 -->
-  <header class="flex h-11 flex-none items-center gap-2 pr-3 pl-3 select-none" data-tauri-drag-region>
+       它的宽度只由两端的内容决定，开多少个文件都一样宽。
+       macOS 上左缘要让开系统那三颗红绿灯（它们画在窗口左上角，正压在品牌名上）。 -->
+  <header
+    class="flex flex-none items-center gap-2 pr-3 select-none h-[var(--chrome-row)]"
+    :class="macTrafficLights ? `${TRAFFIC_LIGHT_GUTTER} ${MAC_TITLEBAR_BAND}` : 'pl-3'"
+    data-tauri-drag-region
+  >
     <!-- 品牌名从侧栏顶部搬上来：它描述的是窗口（与 productName 同一件事），不是侧栏。
          留在 chrome 里还顺带解决了「折叠侧栏时标签整排左跳 40px」。 -->
     <span class="flex-none text-13 font-medium tracking-[0.01em]">玉简</span>
@@ -246,7 +286,8 @@ const CLOSE_BTN = `${WINDOW_BTN} hover:bg-[#c42b1c] hover:text-white`
       <PageStyleButton v-if="hasNoteDocument" />
     </div>
 
-    <div v-if="inTauri" class="-mr-3 flex h-full flex-none items-center">
+    <!-- 窗口按钮只在 Windows 上有：macOS 用系统那三颗红绿灯（ADR-0058）。 -->
+    <div v-if="customWindowButtons" class="-mr-3 flex h-full flex-none items-center">
       <button type="button" :class="WINDOW_BTN" aria-label="最小化" @click="minimize">
         <MinusIcon class="size-3.5" />
       </button>

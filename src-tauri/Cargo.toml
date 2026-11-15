@@ -30,6 +30,17 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 base64 = "0.22"
 fontdb = "0.24.0"
 
+# macOS 的窗口圆角得跟 AppKit 说话：圆角是「标题栏」的一部分，只有带标题栏的窗口才画得到。
+# Windows 那边由 DWM 自己画，不需要这一层（见 `src/lib.rs` 的 `macos_frame`）。
+# 只开用得上的几个类 —— 默认特性会把整个 AppKit 都拉进来。
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "NSResponder",
+    "NSView",
+    "NSWindow",
+] }
+
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

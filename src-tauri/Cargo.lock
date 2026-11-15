@@ -4638,6 +4638,7 @@ version = "0.13.0"
 dependencies = [
  "base64 0.22.1",
  "fontdb",
+ "objc2-app-kit",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

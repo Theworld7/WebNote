@@ -345,12 +345,100 @@ mod window_frame {
     }
 }
 
+/// macOS 上的窗口形状：把那圈圆角交给系统画。
+///
+/// **为什么 Windows 不用管这件事。** Windows 11 的圆角是 DWM 画的 —— 只要是普通顶层窗口，
+/// 系统就替它把角磨圆，跟有没有自绘标题栏无关。macOS 没有这一层：圆角是**标题栏**的一部分，
+/// 只有带标题栏的窗口才画得到；`decorations: false` 造出来的是无边框窗口，四个角是直的。
+/// 于是这里把窗口改回「有标题栏」的样子，只是那条标题栏的**底**藏进我们自己的 chrome 底下 ——
+/// 红绿灯留着，那是系统的窗口按钮（ADR-0058）。
+///
+/// **为什么不用「透明窗口 + CSS 圆角」那条路。** 那条路要开 `macOSPrivateApi`，
+/// 换来的是自己画的一圈角与一层自己画的阴影 —— 而系统本来就能画得更好，还带正确的阴影。
+#[cfg(target_os = "macos")]
+mod macos_frame {
+    use objc2_app_kit::{
+        NSResponder, NSView, NSWindow, NSWindowStyleMask, NSWindowTitleVisibility,
+    };
+
+    /// 让窗口有系统那圈圆角与阴影。
+    ///
+    /// 窗口的「样式掩码」是它有哪些零件的清单。这里补上「有标题栏」与「可关闭」，
+    /// 再让内容顶到标题栏底下（`FullSizeContentView`）：正文于是铺满整扇窗，
+    /// 不留一条 28px 的空标题栏，我们自己画的那条 chrome 仍然贴在最上面。
+    pub fn apply(window: &tauri::Window) -> Result<(), String> {
+        let raw = window.ns_window().map_err(|error| error.to_string())?;
+        // SAFETY: `ns_window` 交回来的是这个窗口自己的 NSWindow（Tauri 内部 retain 过，
+        // 生命周期与窗口一致），这里只用它做几处 AppKit 调用。
+        let ns_window: &NSWindow = unsafe { &*(raw as *const NSWindow) };
+
+        // 换掩码之前先记住外框：AppKit 重算标题栏时会把窗口撑高、挪位置。
+        let frame = ns_window.frame();
+        let mask = ns_window.styleMask();
+        let titled = mask
+            | NSWindowStyleMask::Titled
+            | NSWindowStyleMask::FullSizeContentView
+            | NSWindowStyleMask::Closable;
+        if titled != mask {
+            ns_window.setStyleMask(titled);
+            // 外框放回原处。两种掩码下「外框 = 内容区」（有标题栏且内容顶满时正是如此），
+            // 所以还原外框就是还原内容区，窗口不会因为多出一条标题栏而挪位。
+            ns_window.setFrame_display(frame, true);
+        }
+
+        // 标题栏透明、标题不画：标题栏那层底色与标题文字不要了 —— 这一条 chrome
+        // 是我们自己画的（ADR-0024），系统那套画上去会跟我们的内容叠在一处。
+        // 红绿灯留着：它们是系统的窗口按钮（ADR-0058）。
+        //
+        // 顺带把系统自己的「双击标题栏缩放」让掉 —— 标题栏透明之后系统不再替我们缩放，
+        // 拖拽区那一份（Tauri 内建的双击缩放）就成了唯一的一份，
+        // 不会一按两下、缩放完又缩回来。
+        ns_window.setTitlebarAppearsTransparent(true);
+        ns_window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
+
+        // 换过掩码之后第一响应者可能掉回窗口自己，键盘就送不到正文里了 ——
+        // 跟 tao 换装饰时做的是同一件事：把内容视图重新按成第一响应者。
+        if let Some(view) = ns_window.contentView() {
+            let view: &NSView = &view;
+            let responder: &NSResponder = view;
+            ns_window.makeFirstResponder(Some(responder));
+        }
+
+        Ok(())
+    }
+}
+
+/// 把每扇窗摆成系统那圈圆角。
+///
+/// **只有 macOS 需要这一步。** Windows 11 的圆角是 DWM 画的，普通顶层窗口系统就替它磨圆；
+/// macOS 的圆角是标题栏的一部分，窗口得有标题栏才画得到（ADR-0058）。
+#[cfg(target_os = "macos")]
+fn shape_windows(app: &tauri::App) {
+    for webview_window in app.webview_windows().values() {
+        let window = webview_window.as_ref().window();
+        // 摆不上也只是直角而已，不该拦住应用启动 —— 记一行日志就够了。
+        if let Err(error) = macos_frame::apply(&window) {
+            eprintln!("[webnote] macOS 窗口圆角没摆上：{error}");
+        }
+    }
+}
+
+/// 别的平台不需要这一步：那圈圆角本来就是系统给的。
+#[cfg(not(target_os = "macos"))]
+fn shape_windows(_app: &tauri::App) {}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(CloseGuard::default()))
+        .setup(|app| {
+            // macOS 的圆角要在窗口建好之后、显示之前摆上：系统只在窗口有标题栏时才画那圈角。
+            // （`setup` 早于事件循环开始，所以用户看不到「先是直角、再变圆角」的过程。）
+            shape_windows(app);
+            Ok(())
+        })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let state = match window.try_state::<Mutex<CloseGuard>>() {
