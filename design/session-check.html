@@ -113,7 +113,7 @@ async function closeApp() {
   await tick()
 }
 
-// ---------- 一、没有快照：默认只展开根层 ----------
+// ---------- 一、没有快照：全部收起 ----------
 
 window.localStorage.removeItem(SESSION_KEY)
 await launch()
@@ -123,10 +123,10 @@ const bPath = notePath("b.html")
 const subPath = folderPath("册子")
 check("扫到了两篇笔记与子目录", aPath !== "" && bPath !== "" && subPath !== "", JSON.stringify(workspace.tree.value.map((n) => n.name)))
 check("没存过就没有会话键", window.localStorage.getItem(SESSION_KEY) === null)
-check("无快照时只展开根层", workspace.expandedIds.value.has(subPath) === true)
+check("无快照时全部收起", workspace.expandedIds.value.has(subPath) === false)
 check("无快照时没有标签", workspace.tabs.value.length === 0)
 
-// ---------- 二、关窗写下这一次的样子 ----------
+// ---------- 二、展开一次就记下来，不等关窗 ----------
 
 rememberScrollTop(aPath, 420)
 await openAt(aPath)
@@ -135,7 +135,17 @@ workspace.toggleExpanded(subPath)
 await tick()
 check("两个标签都开着，激活的是 b", workspace.tabs.value.length === 2 && workspace.activePath.value === bPath,
   JSON.stringify(workspace.tabs.value.map((t) => t.path)))
-check("子目录已折叠", workspace.expandedIds.value.has(subPath) === false)
+check("子目录已展开", workspace.expandedIds.value.has(subPath) === true)
+
+const earlyRaw = window.localStorage.getItem(SESSION_KEY)
+const early = earlyRaw === null ? null : JSON.parse(earlyRaw)
+check("展开当场就写了快照", early !== null && early.expandedIds.includes(subPath), earlyRaw ?? "")
+check("这条早写的快照也带着开着的两个标签", early !== null && early.tabs.length === 2, earlyRaw ?? "")
+check("早写的快照不用等关窗也不丢滚动位置", early !== null && early.scrollTops[aPath] === 420, earlyRaw ?? "")
+
+workspace.toggleExpanded(subPath)
+await tick()
+check("再点一次就折叠了", workspace.expandedIds.value.has(subPath) === false)
 
 await closeApp()
 
@@ -198,12 +208,12 @@ check("激活项落在数据表上", workspace.activePath.value === tablePath, w
 
 window.localStorage.setItem(SESSION_KEY, "{不是 JSON")
 await launch()
-check("坏 JSON 不炸，退回默认展开", workspace.expandedIds.value.has(subPath) === true)
+check("坏 JSON 不炸，退回默认全收起", workspace.expandedIds.value.has(subPath) === false)
 check("坏 JSON 时没有标签", workspace.tabs.value.length === 0)
 
 window.localStorage.setItem(SESSION_KEY, JSON.stringify({ tabs: "x", activePath: 7, expandedIds: 3, scrollTops: [] }))
 await launch()
-check("字段类型全错也不炸", workspace.tabs.value.length === 0 && workspace.expandedIds.value.has(subPath) === true,
+check("字段类型全错也不炸", workspace.tabs.value.length === 0 && workspace.expandedIds.value.has(subPath) === false,
   JSON.stringify({ tabs: workspace.tabs.value.length, expanded: [...workspace.expandedIds.value] }))
 
 // ---------- 七、关掉激活标签：落到的那一篇要当场读盘 ----------

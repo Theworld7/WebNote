@@ -212,8 +212,25 @@ check("旧位置没有被重新写出来", seeded.read("第一篇.html") === und
 // 内存 stub 里直接播种新文件，再用 `attachForTest` 重扫一遍树 —— 公开 API 里没有
 // 「凭空刷新」这个动作（真实使用中它对应重新打开目录），拿它当重扫入口最贴近真实路径。
 
+/** 树里所有文件夹的 id。重扫之后靠它把整棵树摊开（见 `rescan`）。 */
+function folderIdsOf(nodes) {
+  const ids = []
+  for (const node of nodes) {
+    if (node.kind !== "folder") continue
+    ids.push(node.id)
+    if (node.children !== undefined) ids.push(...folderIdsOf(node.children))
+  }
+  return ids
+}
+
 const rescan = async () => {
   await workspace.attachForTest(seeded.fs, { kind: "path", path: "/stub" })
+  await nextTick()
+  await nextTick()
+  // 换语境重扫会把展开集清空（ADR-0060：文件夹默认收起），而这一页后面全靠**行**
+  // 发拖拽事件 —— 折叠着的子行根本不在 DOM 里。所以这里把每个文件夹都点开一层，
+  // 等价于用户自己一个个展开。
+  for (const id of folderIdsOf(workspace.tree.value)) workspace.toggleExpanded(id)
   await nextTick()
   await nextTick()
 }

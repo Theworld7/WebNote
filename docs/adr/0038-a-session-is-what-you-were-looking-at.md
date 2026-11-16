@@ -1,5 +1,11 @@
 # A session is what you were looking at, written down on the way out
 
+**Amended by [ADR-0060](0060-a-folder-starts-collapsed-and-the-expanded-set-is-written-as-you-go.md)**:
+the expanded set no longer waits for the close — it is written on every expand/collapse, because it is
+the one field whose loss on an abnormal exit is invisible until the next launch, and because there is
+no longer a `defaultExpanded` to fall back on. "Written once, on the way out" still holds for the tabs,
+the active path and the scroll map, which is what most of the reasoning below is about.
+
 Reopening the app used to lose everything about *where you were*: the sidebar width, the collapsed
 state, and every preference came back (they live in `localStorage` and `webnote.json`), but the tabs
 you had open, the one you were reading, and how far the tree was unfolded were memory-only. A second

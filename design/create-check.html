@@ -152,8 +152,8 @@ check("同名文件夹给出错误提示", workspace.fsError.value.includes("已
 // ---- 三、树行 hover 出的 `+` 与顶部全局 `+` ----
 //
 // 用**已经在盘上**的三个节点起一棵树，而不是靠上面创建出来的那些 —— 这样断言的是
-// 「渲染规则」，不依赖前面的创建步骤是否全部成功，失败时也不会一错错一片（根层文件夹
-// 默认展开、子级只在展开后渲染，靠创建顺序凑行数是脆的）。
+// 「渲染规则」，不依赖前面的创建步骤是否全部成功，失败时也不会一错错一片（靠创建顺序
+// 凑行数是脆的）。
 
 const seeded = createMemoryFs()
 seeded.seedDir("日记")
@@ -164,6 +164,12 @@ seeded.seedFile("第二篇.html", "<p></p>")
 await workspace.attachForTest(seeded.fs, { kind: "path", path: "/stub" })
 await nextTick()
 await nextTick()
+
+// 文件夹默认收起（ADR-0060）。这一节量的是「展开之后怎么画」，所以先手动展开一层。
+// 内容容器要等 reka 的 Presence 把 `present` 翻过来才挂进 DOM，量行数前留一帧的余量。
+workspace.toggleExpanded("日记")
+await nextTick()
+await new Promise((resolve) => setTimeout(resolve, 80))
 
 /** 折叠态由 reka 写在内容容器的 `data-state` 上。 */
 const contentState = () =>

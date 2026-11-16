@@ -198,7 +198,9 @@ check(
   tipWithRoot,
 )
 
-// 根层文件夹默认展开（defaultExpanded），所以「日记」不用点；再点一下反而是收起。
+// 文件夹默认收起（ADR-0060），所以「日记」要自己点开。
+rowOf("日记").click()
+await sleep(150)
 await until(() => rowOf("2026-10-08.html"), "二级文件行")
 step("展开「配图」")
 rowOf("配图").click()

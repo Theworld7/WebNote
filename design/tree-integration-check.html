@@ -162,6 +162,10 @@ window.showDirectoryPicker = async () => workbench
 openButton.click()
 
 await until(() => rowOf("笔记甲.html"), "普通树里的笔记行")
+// 文件夹默认收起（ADR-0060）。「客户.tbl」藏在「数据」里，折叠着就不在 DOM 上 ——
+// 这一页后面要反复确认它「在原位置 / 被收走」，先照用户的用法点开一层。
+rowOf("数据").click()
+await sleep(150)
 check(
   "未开启：笔记显示 .html 后缀",
   rowOf("笔记甲.html") !== undefined && rowOf("笔记甲") === undefined,

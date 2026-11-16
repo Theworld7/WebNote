@@ -178,13 +178,3 @@ export function fileNode(parentPath: string, name: string): FileNode {
   const kind = isTableFile(name) ? "table" : isMarkdownFile(name) ? "markdown" : "note"
   return { id: joinPath(parentPath, name), name, kind }
 }
-
-/**
- * 默认展开哪些文件夹：只展开根层。
- *
- * 样本时代是全展开（就 9 篇），换成真实笔记库后全展开会把几十个子目录一次性摊开，
- * 反而找不到东西。只开一层是「看得见结构、点一下就到内容」的折中。
- */
-export function defaultExpanded(nodes: readonly FileNode[]): string[] {
-  return nodes.filter((node) => node.kind === "folder").map((node) => node.id)
-}

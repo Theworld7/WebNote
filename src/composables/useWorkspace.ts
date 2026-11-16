@@ -22,7 +22,7 @@ import { openExternalUrl } from "@/lib/open-external"
 import { createPlaylistPreset, createPlaylistSource } from "@/lib/playlist"
 import { createVaultPreset } from "@/lib/vault"
 import { rebindBlock } from "@/lib/rebind"
-import { MARKDOWN_EXTENSION, NOTE_EXTENSION, TABLE_EXTENSION, assetsPathOfNote, checkName, defaultExpanded, fileStem, isMarkdownFile, isNoteFile, isTableFile } from "@/lib/fs/policy"
+import { MARKDOWN_EXTENSION, NOTE_EXTENSION, TABLE_EXTENSION, assetsPathOfNote, checkName, fileStem, isMarkdownFile, isNoteFile, isTableFile } from "@/lib/fs/policy"
 import * as table from "@/lib/table"
 import { availableName } from "@/lib/video"
 import { fileName, fromSegments, isUnder, joinPath, migratePath, pruneRecord, pruneSet, rekeyRecord, rekeySet, titleOf, toSegments } from "@/lib/paths"
@@ -596,7 +596,7 @@ function createWorkspace() {
   /**
    * 接上上次关掉应用时的样子。
    *
-   * 没有快照 → 默认只展开根层。有快照但里面某些路径已经不在了（应用外删了文件）→
+   * 没有快照 → 全收起（见 ADR-0060）。有快照但里面某些路径已经不在了（应用外删了文件）→
    * 丢掉那几条，剩下的照旧：**不因为少了一个文件就把整排标签扔回空态**。
    * 标签一律按「干净」还原 —— 盘上那份才是真的，上次有没有没存完的改动不归这里管
    * （自动保存已经把离开时的内容写下去了，见 ADR-0036）。
@@ -604,7 +604,7 @@ function createWorkspace() {
   function restoreSession(driver: WorkspaceFs, current: FsRoot, nodes: readonly FileNode[]) {
     const snapshot = readSession(sessionKeyOf(driver.absolutePath(current, "")))
     if (snapshot === null) {
-      expandedIds.value = new Set(defaultExpanded(nodes))
+      expandedIds.value = new Set()
       return
     }
     const alive = diskPathsOf(nodes)
@@ -621,9 +621,9 @@ function createWorkspace() {
   /**
    * 把「现在这个样子」写进会话快照。
    *
-   * 只在关窗那一刻调一次（`confirmWindowClose`）—— 切标签、展开折叠都不写。一次
-   * `localStorage` 写是微秒级，但为「下次打开」而每点一下就写一次没有对应的收益，
-   * 而关窗那一刻正好是「这次会话定格了」的那一刻。
+   * 两个时机：**关窗那一刻**（`confirmWindowClose`，标签 / 激活项 / 展开集 / 滚动位置
+   * 一次写全）与**每次展开折叠**（`toggleExpanded`，只为了让展开集不怕强杀 —— 见
+   * ADR-0060）。切标签仍不写：标签在关窗那一刻读得出来，提前写没有对应的收益。
    */
   function persistSession() {
     const driver = fs.value
@@ -1123,12 +1123,19 @@ function createWorkspace() {
     })
   }
 
-  /** 折叠 / 展开一个节点。文件夹与「整合视图里挂了引用的笔记」共用这一个集合。 */
+  /**
+   * 折叠 / 展开一个节点。文件夹与「整合视图里挂了引用的笔记」共用这一个集合。
+   *
+   * 改完立刻写一次会话快照：展开到哪层是用户亲手摆出来的样子，等到关窗才记的话，
+   * 被强杀或崩溃打断就白摆了（ADR-0060）。标签那半仍在关窗时写 —— 一次
+   * `localStorage` 写是微秒级，但每点一下标签就写一次没有对应的收益。
+   */
   function toggleExpanded(id: string) {
     const next = new Set(expandedIds.value)
     if (next.has(id)) next.delete(id)
     else next.add(id)
     expandedIds.value = next
+    persistSession()
   }
 
   /**
