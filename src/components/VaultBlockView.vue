@@ -36,7 +36,7 @@ const props = defineProps<{ block: VaultBlock }>()
 
 const { openFile, rebindTable, tablePaths } = useWorkspace()
 const { notify } = useToast()
-const { copied, flash } = useCopied()
+const { isCopied, flash } = useCopied()
 const tables = useTables()
 
 const { state, table, rows, change } = useTableEntry(() => props.block.path)
@@ -279,7 +279,7 @@ async function copyPassword(row: DataRow): Promise<void> {
     notify(`复制密码失败：${describeError(error)}`, "error")
     return
   }
-  flash()
+  flash(row.id)
 }
 
 // ---- 编辑 ----
@@ -585,11 +585,11 @@ function confirmDelete(): void {
             type="button"
             class="grid size-5 shrink-0 place-items-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
             :disabled="cellText(row, passwordColumn) === ''"
-            :title="copied ? '已复制' : '复制密码'"
+            :title="isCopied(row.id) ? '已复制' : '复制密码'"
             @mousedown.prevent
             @click="copyPassword(row)"
           >
-            <CheckIcon v-if="copied" class="size-3" />
+            <CheckIcon v-if="isCopied(row.id)" class="size-3" />
             <CopyIcon v-else class="size-3" />
           </button>
 

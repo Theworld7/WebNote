@@ -72,7 +72,7 @@ function check(name, ok, detail = "") {
 const PASSPHRASE = "正确口令"
 const WRONG = "错误口令"
 
-/** 夹具表：五列，一行，值里各有一处能认出来的字样。 */
+/** 夹具表：五列，两行（第二行只为验「复制只亮自己那一行」），值里各有一处能认出来的字样。 */
 function fixtureTable() {
   const columns = [
     emptyColumn("账号", "text"),
@@ -92,6 +92,15 @@ function fixtureTable() {
         [columns[2].id]: null,
         [columns[3].id]: "https://example.com",
         [columns[4].id]: "示例账号",
+      },
+    }, {
+      id: "r2",
+      values: {
+        [columns[0].id]: "second@example.com",
+        [columns[1].id]: "another-pw",
+        [columns[2].id]: null,
+        [columns[3].id]: "https://second.example.com",
+        [columns[4].id]: "第二个账号",
       },
     }],
   }
@@ -362,7 +371,7 @@ for (let i = 0; i < 40 && entries().length === 0; i += 1) {
   await new Promise((resolve) => setTimeout(resolve, 50))
 }
 await settle()
-check("口令对了就解开", entries().length === 1, `${entries().length} 条`)
+check("口令对了就解开", entries().length === 2, `${entries().length} 条`)
 check("解开后能看到账号", accountInput(0)?.value === "zhang@example.com", accountInput(0)?.value ?? "")
 check("解开后能看到名称", nameInput(0)?.value === "示例账号", nameInput(0)?.value ?? "")
 
@@ -392,6 +401,12 @@ copyButton(0)?.click()
 await settle()
 check("复制拿的是明文而不是掩码", clipboardText === "sup3r-s3cret-pw", String(clipboardText))
 check("复制后按钮换成「已复制」", copyButton(0)?.title === "已复制", copyButton(0)?.title ?? "")
+check("只亮复制过的那一行", copyButton(1)?.title === "复制密码", copyButton(1)?.title ?? "")
+
+copyButton(1)?.click()
+await settle()
+check("换一行复制，确认跟着走", copyButton(1)?.title === "已复制" && copyButton(0)?.title === "复制密码",
+  `${copyButton(0)?.title ?? ""} / ${copyButton(1)?.title ?? ""}`)
 
 // ---- 十五、改值写回 ----
 
@@ -578,7 +593,7 @@ check("换口令后旧口令解不开", (() => {
   try { decryptVault(afterText, PASSPHRASE); return false } catch { return true }
 })())
 const redecrypted = decryptVault(afterText, generated)
-check("新口令能解开", redecrypted.rows.length === 1, `${redecrypted.rows.length} 行`)
+check("新口令能解开", redecrypted.rows.length === 2, `${redecrypted.rows.length} 行`)
 check(
   "换口令没有丢数据",
   redecrypted.rows[0]?.values[redecrypted.columns.find((column) => column.name === "密码")?.id] === "sup3r-s3cret-pw-2",
